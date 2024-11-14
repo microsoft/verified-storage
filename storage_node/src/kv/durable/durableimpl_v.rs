@@ -3610,17 +3610,11 @@ verus! {
                 ),
                 self.main_table.inv(main_table_subregion.view(&self.wrpm), self.overall_metadata),
                 self.main_table@.durable_main_table == self_before_main_table_create.main_table@.durable_main_table,
-                main_table_subregion.view(&self.wrpm).durable_state ==
-                    main_table_subregion.view(&self_before_main_table_create.wrpm).durable_state,
                 self_before_main_table_create ==
                     (Self{ item_table: self_before_main_table_create.item_table,
                            wrpm: self_before_main_table_create.wrpm,
                            ..old_self }),
                 self == (Self{ main_table: self.main_table, wrpm: self.wrpm, ..self_before_main_table_create }),
-                get_subregion_view(self_before_main_table_create.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat).durable_state ==
-                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                       self.overall_metadata.main_table_size as nat).durable_state,
                 forall|i: u64| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
                     self.main_table.outstanding_entries[i] ==
                         self_before_main_table_create.main_table.outstanding_entries[i],
@@ -3835,7 +3829,6 @@ verus! {
                     get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                        self.overall_metadata.item_table_size as nat),
         {
-            assume(false); // TODO @jay
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -4161,10 +4154,6 @@ verus! {
                            wrpm: self_before_main_table_create.wrpm,
                            ..old_self }),
                 self == (Self{ main_table: self.main_table, wrpm: self.wrpm, ..self_before_main_table_create }),
-                get_subregion_view(self_before_main_table_create.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat).durable_state ==
-                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                       self.overall_metadata.main_table_size as nat).durable_state,
                 forall|i: u64| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
                     self.main_table.outstanding_entries[i] ==
                         self_before_main_table_create.main_table.outstanding_entries[i],
@@ -4955,7 +4944,6 @@ verus! {
             // Establish some facts about the pending allocation invariants. When we tentatively write an item,
             // we'll break the item table's pending alloc invariant, but the metadata table invariant will 
             // be maintained.
-//            assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.durable_state));
             assert(main_table_subregion_view.durable_state == extract_bytes(self.wrpm@.durable_state,
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
 
@@ -4973,9 +4961,6 @@ verus! {
                         self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
                             *old(self), item_table_subregion, perm
                         );
-//                        assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.read_state));
-//                        assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
-//                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
                     }
                     self.general_abort_after_failed_operation(Ghost(*old(self)), Tracked(perm));
                     return Err(e);
@@ -5033,9 +5018,6 @@ verus! {
                         self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
                             self_before_main_table_create, main_table_subregion, perm
                         );
-//                        assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.read_state));
-//                        assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
-//                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
                     }
                     self.general_abort_after_failed_operation(Ghost(*old(self)), Tracked(perm));
                     return Err(e);
@@ -5078,7 +5060,6 @@ verus! {
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
                     self_before_main_table_create, main_table_subregion, perm
                 );
-                assume(false); // TODO @jay
                 self.lemma_justify_validify_log_entry(*old(self), self_before_main_table_create,
                                                       main_table_subregion, main_table_index,
                                                       item_index, head_index, *key, *item, perm);
