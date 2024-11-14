@@ -892,7 +892,9 @@ verus! {
         end: int,
     ) -> bool
     {
-        forall|addr| start <= addr < end ==> views_match_at_addr(v1, v2, addr)
+        forall|addr| #![trigger v1.read_state[addr]] #![trigger v1.durable_state[addr]]
+                #![trigger v2.read_state[addr]] #![trigger v2.durable_state[addr]]
+            start <= addr < end ==> views_match_at_addr(v1, v2, addr)
     }
     
 }

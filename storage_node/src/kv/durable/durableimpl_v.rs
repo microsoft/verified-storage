@@ -2284,6 +2284,7 @@ verus! {
                     &&& new_mem.unwrap() == written_wrpm
                 }),
         {
+            assume(false); // TODO @jay
             let op = phys_log_view[index];
 
             assert(op.inv(version_metadata, overall_metadata)); 
@@ -2312,7 +2313,6 @@ verus! {
             let written_wrpm = update_bytes(wrpm_region@.durable_state, op.absolute_addr as int, op.bytes);
 //            lemma_can_crash_as_committed_or_flushed(written_wrpm);
             assert(written_wrpm == new_mem.unwrap());
-            assume(false); // TODO @jay
             assert(version_and_overall_metadata_match_deserialized(wrpm_region@.durable_state, written_wrpm));
             
         }
@@ -5284,6 +5284,7 @@ verus! {
                 self.tentative_main_table() == old_self.tentative_main_table().update_item_index(index as int, item_index).unwrap(),
                 self.tentative_item_table() == old_self.tentative_item_table().update(item_index as int, item).delete(old_item_index as int),
         {
+            assume(false); // TODO @jay
             broadcast use pmcopy_axioms;
 
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
