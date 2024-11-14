@@ -2514,7 +2514,6 @@ verus! {
                     self.condition_preserved_by_subregion_masks(),
                 )
         {
-            assume(false); // TODO @jay
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -2656,32 +2655,6 @@ verus! {
                 })
         {
             subregion.lemma_reveal_opaque_inv(&self.wrpm);
-
-            let condition = old_self.condition_preserved_by_subregion_masks();
-            let s = self.wrpm@.durable_state;
-            assert(condition(s)) by {
-                /*
-                let s_old = lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
-                    self.wrpm@,
-                    old_self.wrpm@,
-                    s,
-                    old_self.overall_metadata.main_table_addr as nat,
-                    old_self.overall_metadata.main_table_size as nat,
-                    old_self.get_writable_mask_for_main_table()
-                );
-                */
-                let s_old = s; // TODO @jay
-                assert(condition(s_old));
-                assert(s_old.len() == s.len() == old_self.wrpm@.len());
-                assert(memories_differ_only_where_subregion_allows(
-                    s_old, s,
-                    old_self.overall_metadata.main_table_addr as nat,
-                    old_self.overall_metadata.main_table_size as nat,
-                    old_self.get_writable_mask_for_main_table()
-                ));
-            }
-
-//            lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
 
             assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                       self.overall_metadata.item_table_size as nat) =~=
