@@ -402,7 +402,9 @@ verus! {
             &&& no_outstanding_writes_to_version_metadata(self.wrpm@)
             &&& no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int)
             &&& self.inv_mem(pm_view.durable_state)
-            &&& self.inv_mem(pm_view.read_state)
+            &&& self.version_metadata == deserialize_version_metadata(pm_view.read_state)
+            &&& self.overall_metadata == deserialize_overall_metadata(pm_view.read_state,
+                                                                    self.version_metadata.overall_metadata_addr)
             &&& self.main_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat),
                                   self.overall_metadata)
@@ -459,8 +461,6 @@ verus! {
             ensures 
                 Self::physical_recover(self.wrpm_view().durable_state, self.spec_version_metadata(), 
                                        self.spec_overall_metadata()) == Some(self@),
-                Self::physical_recover(self.wrpm_view().read_state, self.spec_version_metadata(), 
-                                       self.spec_overall_metadata()) == Some(self@),
                 self.spec_version_metadata() == deserialize_version_metadata(self.wrpm_view().durable_state),
                 self.spec_version_metadata() == deserialize_version_metadata(self.wrpm_view().read_state),
                 self.spec_overall_metadata() ==
@@ -472,7 +472,6 @@ verus! {
                 no_outstanding_writes_to_version_metadata(self.wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
                 self.inv_mem(self.wrpm_view().durable_state),
-                self.inv_mem(self.wrpm_view().read_state),
                 self.tentative_view() is Some,
                 self.wrpm_view().len() == self.spec_overall_metadata().region_size,
                 self.wrpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -2116,7 +2115,9 @@ verus! {
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 Self::physical_recover(old(wrpm_region)@.durable_state, version_metadata, overall_metadata) is Some,
                 deserialize_version_metadata(old(wrpm_region)@.durable_state) == version_metadata,
-            ensures 
+                overall_metadata == deserialize_overall_metadata(old(wrpm_region)@.durable_state,
+                                                                 version_metadata.overall_metadata_addr),
+            ensures
                 wrpm_region.inv(),
                 wrpm_region@.flush_predicted(),
                 wrpm_region@.len() == overall_metadata.region_size,
@@ -2193,7 +2194,9 @@ verus! {
                         extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
                     VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                     version_and_overall_metadata_match_deserialized(old_wrpm, wrpm_region@.durable_state),
-                    deserialize_version_metadata(wrpm_region@.durable_state) == version_metadata,
+                    version_and_overall_metadata_match_deserialized(old_wrpm, wrpm_region@.read_state),
+                    deserialize_version_metadata(old_wrpm) == version_metadata,
+                    overall_metadata == deserialize_overall_metadata(old_wrpm, version_metadata.overall_metadata_addr),
             {
                 let op = &phys_log[index];
 
@@ -2988,10 +2991,6 @@ verus! {
                 self.main_table_view_matches(old_self.wrpm@),
                 self.list_area_view_matches(old_self.wrpm@),
                 self.log_area_view_matches(old_self.wrpm@),
-                get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                   self.overall_metadata.item_table_size as nat).durable_state
-                    == get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                          self.overall_metadata.item_table_size as nat).durable_state,
                 ({
                     let condition = old_self.condition_preserved_by_subregion_masks();
                     condition(self.wrpm@.durable_state)
@@ -3045,7 +3044,6 @@ verus! {
                            old_self.tentative_item_table().update(item_index as int, item)
                 }),
         {
-            assume(false); // TODO @jay
             let overall_metadata = self.overall_metadata;
             let log_area_addr = overall_metadata.log_area_addr;
             let log_area_size = overall_metadata.log_area_size;
@@ -3211,29 +3209,21 @@ verus! {
                 addr, num_keys, new_tentative_main_table_parsed.valid_item_indices()
             ) by {
                 let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
-                /*
-                assert(old_current_item_table_region_view.state[addr].state_at_last_flush ==
-                       new_current_item_table_region_view.state[addr].state_at_last_flush) by {
-                    assert(old_current_item_table_region_view.durable_state ==
-                           new_current_item_table_region_view.durable_state);
-                    assert(old_current_item_table_region_view.state[addr].state_at_last_flush ==
-                           old_current_item_table_region_view.durable_state[addr]);
-                    assert(new_current_item_table_region_view.state[addr].state_at_last_flush ==
-                           new_current_item_table_region_view.durable_state[addr]);
-                }
-                */
+                assert(old_flushed_item_table_bytes[addr] == old_self.wrpm@.read_state[addr + item_table_addr]);
+                assert(new_flushed_item_table_bytes[addr] == self.wrpm@.read_state[addr + item_table_addr]);
+                assert(address_belongs_to_invalid_item_table_entry::<I>(
+                    addr,
+                    num_keys,
+                    old_self.item_table.durable_valid_indices().union(old_self.item_table.tentative_valid_indices())
+                ));
+                lemma_auto_addr_in_entry_divided_by_entry_size(item_index as nat, num_keys as nat, entry_size as nat);
+                assert(trigger_addr(addr));
+                let which_entry = addr / entry_size as int;
                 if addr >= num_keys * entry_size {
-                    assert(old_current_item_table_region_view.read_state[addr] ==
-                           old_current_item_table_region_view.durable_state[addr]);
-                    assert(new_current_item_table_region_view.read_state[addr] ==
-                           new_current_item_table_region_view.durable_state[addr]);
+                    assert(which_entry >= num_keys);
                     assert(false);
                 }
                 else {
-                    lemma_auto_addr_in_entry_divided_by_entry_size(item_index as nat, num_keys as nat, entry_size as nat);
-                    assert(trigger_addr(addr));
-                    let absolute_addr = item_table_addr + addr;
-                    let which_entry = addr / entry_size as int;
                     assert(index_to_offset(which_entry as nat, entry_size as nat) <= addr <
                            index_to_offset(which_entry as nat, entry_size as nat) + entry_size);
                 }
@@ -4124,7 +4114,7 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(20)]
+        #[verifier::rlimit(40)]
         proof fn lemma_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -4195,8 +4185,13 @@ verus! {
                 }),
                 self.main_table.inv(main_table_subregion.view(&self.wrpm), self.overall_metadata),
                 self.main_table@.durable_main_table == self_before_main_table_create.main_table@.durable_main_table,
-                main_table_subregion.view(&self.wrpm).durable_state ==
-                    main_table_subregion.view(&self_before_main_table_create.wrpm).durable_state,
+                views_differ_only_where_subregion_allows(
+                    self_before_main_table_create.wrpm@,
+                    self.wrpm@,
+                    self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat,
+                    self_before_main_table_create.get_writable_mask_for_main_table()
+                ),
                 self_before_main_table_create ==
                     (Self{ item_table: self_before_main_table_create.item_table,
                            wrpm: self_before_main_table_create.wrpm,
@@ -4225,16 +4220,16 @@ verus! {
                     let old_pm_view = get_subregion_view(self_before_main_table_create.wrpm@,
                                                          self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat);
-                    &&& 0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
-                        #[trigger] get_subregion_view(self.wrpm@,
-                                                      self.overall_metadata.main_table_addr as nat,
-                                                      self.overall_metadata.main_table_size as nat).read_state[addr] ==
-                        old_pm_view.read_state[addr]
-                    &&& 0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
-                        #[trigger] get_subregion_view(self.wrpm@,
-                                                      self.overall_metadata.main_table_addr as nat,
-                                                      self.overall_metadata.main_table_size as nat).durable_state[addr] ==
-                        old_pm_view.durable_state[addr]
+                    0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==> {
+                        &&& #[trigger] get_subregion_view(self.wrpm@,
+                                                         self.overall_metadata.main_table_addr as nat,
+                                                         self.overall_metadata.main_table_size as nat).durable_state[addr] ==
+                           old_pm_view.durable_state[addr]
+                        &&& #[trigger] get_subregion_view(self.wrpm@,
+                                                         self.overall_metadata.main_table_addr as nat,
+                                                         self.overall_metadata.main_table_size as nat).read_state[addr] ==
+                           old_pm_view.durable_state[addr]
+                    }
                 },
                 self_before_main_table_create.tentative_main_table().durable_main_table[main_table_index as int] is None,
                 item_index < self.overall_metadata.num_keys,
@@ -4331,7 +4326,22 @@ verus! {
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                 }),
         {
-            assume(false); // TODO @jay
+            assert({
+                &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.durable_state)
+                &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.read_state)
+                &&& self.overall_metadata == deserialize_overall_metadata(self.wrpm@.durable_state,
+                                                                        self.version_metadata.overall_metadata_addr)
+                &&& self.overall_metadata == deserialize_overall_metadata(self.wrpm@.read_state,
+                                                                        self.version_metadata.overall_metadata_addr)
+            }) by {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    self_before_main_table_create.wrpm@,
+                    self.wrpm@,
+                    self.version_metadata,
+                    self.overall_metadata
+                );
+            }
+            
             self.lemma_helper_for_justify_validify_log_entry(old_self, self_before_main_table_create,
                                                              main_table_subregion, main_table_index, item_index,
                                                              list_node_index, key, perm);
@@ -4434,16 +4444,15 @@ verus! {
                     assert(self.main_table.outstanding_entries[which_entry] ==
                            self_before_main_table_create.main_table.outstanding_entries[which_entry]);
                     broadcast use pmcopy_axioms;
-//                    assert(self_before_main_table_create.wrpm@.state[addr].state_at_last_flush ==
-//                           get_subregion_view(self_before_main_table_create.wrpm@, main_table_addr as nat,
-//                                              main_table_size as nat).durable_state[addr - main_table_addr]);
-//                    assert(self.wrpm@.state[addr].state_at_last_flush ==
-//                           get_subregion_view(self.wrpm@, main_table_addr as nat,
-//                                              main_table_size as nat).durable_state[addr - main_table_addr]);
-                    assert(views_match_at_addr(self_before_main_table_create.wrpm@, self.wrpm@, addr));
+                    assert(self_before_main_table_create.wrpm@.durable_state[addr] ==
+                           get_subregion_view(self_before_main_table_create.wrpm@, main_table_addr as nat,
+                                              main_table_size as nat).durable_state[addr - main_table_addr]);
+                    assert(self.wrpm@.durable_state[addr] ==
+                           get_subregion_view(self.wrpm@, main_table_addr as nat,
+                                              main_table_size as nat).durable_state[addr - main_table_addr]);
                 }
             }
-         
+
             lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
                 self_before_main_table_create.wrpm@.read_state,
                 self.wrpm@.read_state,
@@ -4905,7 +4914,7 @@ verus! {
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
-        #[verifier::rlimit(10)]
+        #[verifier::rlimit(30)]
         pub fn tentative_create(
             &mut self,
             key: &K,
@@ -4946,7 +4955,6 @@ verus! {
                     }
                 })
         {
-            assume(false); // TODO @jay
             let ghost num_keys = self.overall_metadata.num_keys;
             let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
             let ghost main_table_addr = self.overall_metadata.main_table_addr;
@@ -5103,6 +5111,9 @@ verus! {
                 // assert(self.pending_allocations() == old(self).pending_allocations().insert(main_table_index));
                 let t = self_before_main_table_create.tentative_main_table().durable_main_table;
                 assert(forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key);
+                self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
+                    self_before_main_table_create, main_table_subregion, perm
+                );
                 self.lemma_justify_validify_log_entry(*old(self), self_before_main_table_create,
                                                       main_table_subregion, main_table_index,
                                                       item_index, head_index, *key, *item, perm);
