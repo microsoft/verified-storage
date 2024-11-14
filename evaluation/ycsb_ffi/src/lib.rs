@@ -14,9 +14,11 @@ use builtin_macros::*;
 
 use serde::Deserialize;
 use std::fs;
+use std::env;
 
 const MAX_KEY_LEN: usize = 1024;
 const MAX_ITEM_LEN: usize = 1140; 
+const MAX_CONFIG_FILE_NAME_LEN: usize = 1024;
 
 // use a constant log id so we don't run into issues trying to restore a KV
 const KVSTORE_ID: u128 = 500;
@@ -28,16 +30,20 @@ struct YcsbKV {
 
 #[derive(Deserialize, Debug)]
 struct Config {
+    config: DbOptions,
+}
+
+#[derive(Deserialize, Debug)]
+struct DbOptions {
     kv_file: String,
     node_size: u32, 
     num_keys: u64, 
     region_size: u64, 
 }
 
-fn parse_configs() -> Config {
-    // TODO: take as a command line argument
-    let config_file = "capybarakv_config.toml";
-    let config_contents = match fs::read_to_string(config_file) {
+fn parse_configs(config_file: String) -> DbOptions {
+    println!("Reading configs from {:?}", config_file);
+    let config_contents = match fs::read_to_string(&config_file) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Could not read file `{}`: {}", config_file, e);
@@ -48,12 +54,18 @@ fn parse_configs() -> Config {
     // TODO: Proper error handling of invalid config files
     let config: Config = toml::from_str(&config_contents).unwrap();
     println!("config: {:?}", config);
-    config
+    config.config
 }
 
 pub fn main() {
-    
-    let config = parse_configs();
+    let args: Vec<String> = env::args().collect();
+    let config_file = if args.len() > 1 {
+        args[1].clone()
+    } else {
+        "capybarakv_config.toml".to_string()
+    };
+
+    let config = parse_configs(config_file);
 
     // delete the test files if they already exist. Ignore the result,
     // since it's ok if the files don't exist.
@@ -69,10 +81,24 @@ pub fn main() {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<'local>,
-        _class: JClass<'local>) -> jlong {
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    config_file: JByteArray<'local>
+) -> jlong {
 
-    let config = parse_configs();
+    let mut file = [0i8; MAX_CONFIG_FILE_NAME_LEN];
+    let config_file_name_len: usize = env.get_array_length(&config_file).unwrap().try_into().unwrap();
+    if config_file_name_len > MAX_CONFIG_FILE_NAME_LEN {
+        let err_str = format!("Error: config file path too long (length {:?}, max {:?})", config_file_name_len, MAX_CONFIG_FILE_NAME_LEN);
+        println!("{}", err_str);
+        env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        unreachable!();
+    }
+    let file_name_slice = &mut file[0..config_file_name_len];
+    env.get_byte_array_region(config_file, 0, file_name_slice).unwrap();
+    let config_file = String::from_utf8(file_name_slice.iter().map(|&c| c as u8).collect()).unwrap();
+    let config = parse_configs(config_file);
 
     // Create a file, and a PM region, for each component
     let kv_region = open_pm_region(&config.kv_file, config.region_size);

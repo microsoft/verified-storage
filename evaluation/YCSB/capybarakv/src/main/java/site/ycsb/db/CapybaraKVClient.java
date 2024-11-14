@@ -24,17 +24,25 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  */
 public class CapybaraKVClient extends DB {
 
+  static final String PROPERTY_CONFIG_FILE = "capybarakv.configfile";
+  private static String configFile = null;
+
   private CapybaraKV kv;  
   
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKVClient.class);
 
   @Override
   public void init() throws DBException {
+    configFile = getProperties().getProperty(PROPERTY_CONFIG_FILE);
+    if (configFile == null) {
+      String message = "Please provide a config file.";
+      throw new DBException(message);
+    }
     initCapybaraKV();
   }
 
   private void initCapybaraKV() throws DBException {
-    kv = new CapybaraKV();
+    kv = new CapybaraKV(configFile);
   }
 
   @Override

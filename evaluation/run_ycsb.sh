@@ -26,7 +26,8 @@ setup_capybarakv() {
         target_dir=$dram_db_dir
     fi
     cd ../ycsb_ffi
-    cargo run
+    pwd
+    cargo run -- ../capybarakv_config.toml
     check_error $?
     cd ../YCSB
 }
@@ -94,6 +95,8 @@ check_error() {
     fi
 }
 
+# TODO: may need to be sure to source .bashrc?
+
 use_pm=false
 if [ $PM == "--pm" ]; then 
     use_pm=true
@@ -113,7 +116,7 @@ elif [ $DB = "pmemrocksdb" ]; then
 elif [ $DB = "redis" ]; then 
     options="-p redis.host=127.0.0.1 -p redis.port=6379"
 elif [ $DB = "capybarakv" ]; then 
-    options="-p capybarakv.config=../ycsb_ffi/config.toml"
+    options="-p capybarakv.configfile=../capybarakv_config.toml"
 fi 
 
 echo $options

@@ -10,7 +10,7 @@
     - pmem-RocksDB: `cd YCSB; mvn -pl site.ycsb:pmemrocksdb-binding -am clean package`
 
 3. Run `export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release`
-4. Run `export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64/`
+4. Run `export JAVA_HOME=/usr/lib/jvm/java-X-openjdk-amd64/` where `X` is the Java version to use.
 
 ### redis setup
 <!-- 1. Install gcc-8 by running `sudo apt install gcc-8`. This may fail on newer Ubuntu distributions; if it does, run:

@@ -12,7 +12,7 @@ public class CapybaraKV {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKV.class);
 
-  private static native long kvInit();
+  private static native long kvInit(byte[] configFile);
   private static native void kvCleanup(long kvPtr);
   private static native void kvInsert(long kvPtr, byte[] table, 
       byte[] key, byte[] value);
@@ -27,8 +27,9 @@ public class CapybaraKV {
     System.loadLibrary("ycsb_ffi");
   }
 
-  public CapybaraKV() {
-    kvPtr = CapybaraKV.kvInit();
+  public CapybaraKV(String configFile) {
+    byte[] configFileArray = configFile.getBytes(UTF_8);
+    kvPtr = CapybaraKV.kvInit(configFileArray);
   }
 
   public void insert(String table, String key, byte[] values) throws CapybaraKVException {
