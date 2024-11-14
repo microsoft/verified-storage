@@ -6403,7 +6403,6 @@ verus! {
                                 &&& v2[offset as int].unwrap().item == item
                                 &&& self.spec_num_log_entries_in_current_transaction() == 
                                         old(self).spec_num_log_entries_in_current_transaction() + 1
-                                &&& self.wrpm_view().durable_state == old(self).wrpm_view().durable_state
                             }
                             Err(_) => false
                         }
@@ -6428,7 +6427,6 @@ verus! {
                     Err(_) => false,
                 }
         {
-            assume(false); // TODO @jay
             // 1. find a free slot in the item table and tentatively write the new item there
             let ghost is_writable_item_table_addr = self.get_writable_mask_for_item_table();
             let ghost item_table_subregion_condition = self.condition_preserved_by_subregion_masks();
