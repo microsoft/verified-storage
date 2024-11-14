@@ -2217,7 +2217,7 @@ verus! {
                 
                     // Prove that installing this log entry has the intended effect
                     Self::lemma_install_single_log_entry(phys_log_view, index as int, old_wrpm, *wrpm_region, 
-                        version_metadata, overall_metadata, final_recovery_state, *perm);
+                        version_metadata, overall_metadata, final_recovery_state);
                 }
 
                 let ghost pre_write_wrpm = wrpm_region@;
@@ -2243,14 +2243,9 @@ verus! {
             version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata,
             final_recovery_state: DurableKvStoreView<K, I, L>,
-            perm: Perm,
         )
             requires 
                 old_wrpm.len() == wrpm_region@.len(),
-                forall |s| {
-                    &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(final_recovery_state)
-                    &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.durable_state)
-                } ==> #[trigger] perm.check_permission(s),
                 Self::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) == 
                     Some(final_recovery_state),
                 ({
@@ -2258,14 +2253,18 @@ verus! {
                     let current_mem = apply_physical_log_entries(old_wrpm, replayed_ops);
                     &&& current_mem is Some 
                     &&& current_mem.unwrap() == wrpm_region@.durable_state
-                    &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log_view)
+                    &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata,
+                                                                           overall_metadata, phys_log_view)
                 }),
                 0 <= index < phys_log_view.len(),
-                extract_bytes(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                extract_bytes(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat,
+                              overall_metadata.log_area_size as nat) == 
                     extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_and_overall_metadata_match_deserialized(old_wrpm, wrpm_region@.durable_state),
-                deserialize_version_metadata(wrpm_region@.durable_state) == version_metadata,
+                version_and_overall_metadata_match_deserialized(old_wrpm, wrpm_region@.read_state),
+                deserialize_version_metadata(old_wrpm) == version_metadata,
+                deserialize_overall_metadata(old_wrpm, version_metadata.overall_metadata_addr) == overall_metadata,
                 AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata),
             ensures 
                 ({
@@ -2276,7 +2275,8 @@ verus! {
                     let new_mem = apply_physical_log_entries(old_wrpm, new_replayed_ops);
                     &&& forall |s| #[trigger] can_result_from_partial_write(s, wrpm_region@.durable_state,
                                                                      op.absolute_addr as int, op.bytes) ==> {
-                            &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(final_recovery_state)
+                            &&& Self::physical_recover(s, version_metadata, overall_metadata) ==
+                                   Some(final_recovery_state)
                             &&& version_and_overall_metadata_match_deserialized(s, old_wrpm)
                         }
                     &&& deserialize_version_metadata(written_wrpm) == version_metadata
@@ -2284,7 +2284,6 @@ verus! {
                     &&& new_mem.unwrap() == written_wrpm
                 }),
         {
-            assume(false); // TODO @jay
             let op = phys_log_view[index];
 
             assert(op.inv(version_metadata, overall_metadata)); 
@@ -2302,18 +2301,20 @@ verus! {
             let replayed_ops = phys_log_view.subrange(0, index as int);
             let new_mem = apply_physical_log_entries(old_wrpm, new_replayed_ops);
 
-            lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(old_wrpm, version_metadata, overall_metadata, new_replayed_ops);
-            
+            lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(old_wrpm, version_metadata,
+                                                                             overall_metadata, new_replayed_ops);
+
             assert(replayed_ops == new_replayed_ops.subrange(0, new_replayed_ops.len() - 1));
 
             Self::lemma_installing_single_log_entry_preserves_crash_perm_and_metadata(
                 phys_log_view, index, old_wrpm, wrpm_region, version_metadata, overall_metadata, final_recovery_state
             );
 
-            let written_wrpm = update_bytes(wrpm_region@.durable_state, op.absolute_addr as int, op.bytes);
+            let written_wrpm = update_bytes(wrpm_region@.read_state, op.absolute_addr as int, op.bytes);
 //            lemma_can_crash_as_committed_or_flushed(written_wrpm);
-            assert(written_wrpm == new_mem.unwrap());
-            assert(version_and_overall_metadata_match_deserialized(wrpm_region@.durable_state, written_wrpm));
+            assert(written_wrpm =~= new_mem.unwrap());
+            lemma_establish_extract_bytes_equivalence(wrpm_region@.read_state, written_wrpm);
+            assert(version_and_overall_metadata_match_deserialized(wrpm_region@.read_state, written_wrpm));
             
         }
 
