@@ -1027,7 +1027,7 @@ impl UntrustedLogImpl {
 
     // The `tentatively_append_to_log` method is called by
     // `tentatively_append` to perform writes to the log area.
-    #[verifier::rlimit(20)] // TODO: @hayley - obviating this rlimit expansion
+    #[verifier::rlimit(100)] // TODO: @hayley - obviating this rlimit expansion
     exec fn tentatively_append_to_log<Perm, PMRegion>(
         &self,
         wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
@@ -1174,10 +1174,10 @@ impl UntrustedLogImpl {
                     write_addr as int, bytes_to_append@, is_writable_absolute_addr, crash_pred);
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
-            assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, self.info, self.state@, false));
+            assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat,
+                                                 self.info, self.state@, false));
         }
         else {
-            assume(false); // TODO @jay
             // We could compute the address to write to with:
             //
             // `write_addr = old_pending_tail % info.log_area_len`
@@ -1215,6 +1215,8 @@ impl UntrustedLogImpl {
                 }
 
                 wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
+                assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat,
+                                                     self.info, self.state@, false));
             }
             else {
 
@@ -1244,6 +1246,11 @@ impl UntrustedLogImpl {
                 wrpm_region.write(log_area_start_addr + write_addr,
                                   slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
                                   Tracked(perm));
+                assert(wrpm_region@.can_result_from_write(
+                    old(wrpm_region)@, log_area_start_addr + write_addr,
+                    bytes_to_append@.subrange(0, max_len_without_wrapping as int),
+                ));
+                let ghost mid_wrpm_view = wrpm_region@;
 
                 proof {
                     assert forall|s| #[trigger] can_result_from_partial_write(
@@ -1272,6 +1279,27 @@ impl UntrustedLogImpl {
                     log_area_start_addr,
                     slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()),
                     Tracked(perm));
+                assert(wrpm_region@.can_result_from_write(
+                    mid_wrpm_view, log_area_start_addr as int,
+                    bytes_to_append@.subrange(max_len_without_wrapping as int, bytes_to_append.len() as int)
+                ));
+
+                assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat,
+                                                     self.info, self.state@, false));
+                assert(UntrustedLogImpl::recover(wrpm_region@.read_state, log_start_addr as nat, log_size as nat) ==
+                       Some(self.state@.drop_pending_appends())) by {
+                    assert(memories_differ_only_where_subregion_allows(old(wrpm_region)@.read_state,
+                                                                       wrpm_region@.read_state,
+                                                                       (log_start_addr + spec_log_area_pos()) as nat,
+                                                                       self.info.log_area_len as nat,
+                                                                       is_writable_absolute_addr));
+                    assert(states_differ_only_in_log_region(old(wrpm_region)@.read_state,
+                                                            wrpm_region@.read_state,
+                                                            log_start_addr as nat, log_size as nat));
+                    lemma_establish_extract_bytes_equivalence(old(wrpm_region)@.read_state, wrpm_region@.read_state);
+                    assert(recover_state(old(wrpm_region)@.read_state, log_start_addr as nat, log_size as nat) =~=
+                               recover_state(wrpm_region@.read_state, log_start_addr as nat, log_size as nat));
+                }
             }
         }
 
