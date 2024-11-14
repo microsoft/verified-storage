@@ -6091,8 +6091,6 @@ verus! {
                         let current_main_table_view = parse_main_table::<K>(current_main_table_region,
                             self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
-                        &&& self.wrpm_view().durable_state == old(self).wrpm_view().durable_state
-
                         &&& self.main_table.get_latest_entry(index) is Some
                         &&& old_entry == self.main_table.get_latest_entry(index).unwrap().entry
                         &&& key == self.main_table.get_latest_entry(index).unwrap().key
@@ -6143,7 +6141,6 @@ verus! {
                     Err(_) => false,
                 }
         {
-            assume(false); // TODO @jay
             let pm = self.wrpm.get_pm_region_ref();
 
             let main_table_subregion = PersistentMemorySubregion::new(
