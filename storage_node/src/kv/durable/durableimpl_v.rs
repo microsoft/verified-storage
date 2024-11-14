@@ -5738,8 +5738,9 @@ verus! {
                     assert(states_differ_only_in_log_region(s, witness,
                         self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
 
-                    lemma_crash_state_differing_only_in_log_region_exists2(old(self).wrpm@, self.wrpm@,
-                        self.version_metadata, self.overall_metadata);
+                    lemma_if_views_differ_only_in_region_then_states_do(old(self).wrpm@, self.wrpm@,
+                                                                        self.overall_metadata.log_area_addr as nat,
+                                                                        self.overall_metadata.log_area_size as nat);
                 }
 
                 assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
