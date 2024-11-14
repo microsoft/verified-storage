@@ -725,11 +725,7 @@ verus! {
                     self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < self.wrpm@.len(),
                 Self::physical_recover(old_self.wrpm@.durable_state, self.version_metadata, self.overall_metadata) ==
                     Some(old_self@),
-                Self::physical_recover(old_self.wrpm@.read_state, self.version_metadata, self.overall_metadata) ==
-                    Some(old_self@),
                 UntrustedOpLog::<K, L>::recover(self.wrpm@.durable_state, self.version_metadata,
-                                                self.overall_metadata) == Some(AbstractOpLogState::initialize()),
-                UntrustedOpLog::<K, L>::recover(self.wrpm@.read_state, self.version_metadata,
                                                 self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 views_differ_only_in_log_region(old_self.wrpm@, self.wrpm@,
                                                 self.overall_metadata.log_area_addr as nat,
@@ -744,9 +740,6 @@ verus! {
                     &&& parse_main_table::<K>(main_table_subregion_view.durable_state,
                                             self.overall_metadata.num_keys,
                                             self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@)
-                    &&& parse_main_table::<K>(main_table_subregion_view.read_state,
-                                            self.overall_metadata.num_keys,
-                                            self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@)
                 }),
                 ({
                     let old_item_table_subregion_view =
@@ -756,10 +749,6 @@ verus! {
                         get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                            self.overall_metadata.item_table_size as nat);      
                     &&& parse_item_table::<I, K>(item_table_subregion_view.durable_state,
-                                                self.overall_metadata.num_keys as nat,
-                                                self.main_table@.valid_item_indices())
-                        == Some(old_self.item_table@)
-                    &&& parse_item_table::<I, K>(item_table_subregion_view.read_state,
                                                 self.overall_metadata.num_keys as nat,
                                                 self.main_table@.valid_item_indices())
                         == Some(old_self.item_table@)
@@ -804,9 +793,11 @@ verus! {
             assert(item_table_region_view_with_log_installed == item_table_subregion_view.durable_state);
             assert(list_area_region_view_with_log_installed == list_area_subregion_view.durable_state);
 
+            /*
             lemma_if_views_differ_only_in_region_then_states_do(old_self.wrpm@, self.wrpm@,
                                                                 self.overall_metadata.log_area_addr as nat,
                                                                 self.overall_metadata.log_area_size as nat);
+            */
             assert(main_table_subregion_view =~= old_main_table_subregion_view);
             assert(item_table_subregion_view =~= old_item_table_subregion_view);
 
@@ -3466,10 +3457,11 @@ verus! {
                 pre_self.version_metadata == old_self.version_metadata,
                 old(self).wrpm@.len() == pre_self.wrpm@.len() == old_self.wrpm@.len(),
                 old(self).wrpm@.flush_predicted(),
-//                views_differ_only_in_log_region(pre_self.wrpm@.flush(), old(self).wrpm@,
-//                    old(self).overall_metadata.log_area_addr as nat, old(self).overall_metadata.log_area_size as nat),
+                views_differ_only_in_log_region(pre_self.wrpm@, old(self).wrpm@,
+                                                old(self).overall_metadata.log_area_addr as nat,
+                                                old(self).overall_metadata.log_area_size as nat),
                 UntrustedOpLog::<K, L>::recover(old(self).wrpm@.durable_state, old(self).version_metadata, 
-                    old(self).overall_metadata) == Some(AbstractOpLogState::initialize()),
+                                                old(self).overall_metadata) == Some(AbstractOpLogState::initialize()),
                 old(self).log@.physical_op_list.len() == 0,
                 old(self).main_table.main_table_entry_size == old(self).overall_metadata.main_table_entry_size,
                 old(self).main_table == pre_self.main_table,
@@ -3496,7 +3488,6 @@ verus! {
                 self.item_table@ == old_self.item_table@,
                 self.wrpm@.flush_predicted(),
         {
-            assume(false); // TODO @jay
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
 //                lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
