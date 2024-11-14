@@ -6838,7 +6838,6 @@ verus! {
                     }
                 }
         {
-            assume(false); // TODO @jay
             assert(forall |idx: u64| old(self).main_table.free_list().contains(idx) ==> idx < self.overall_metadata.num_keys);
             let pm = self.wrpm.get_pm_region_ref();
             let main_table_subregion = PersistentMemorySubregion::new(
@@ -6954,6 +6953,9 @@ verus! {
                 assert(main_table_subregion.view(pm) ==
                        get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                           self.overall_metadata.main_table_size as nat));
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                );
             }
 
             assert(self.tentative_view_inv()) by {
