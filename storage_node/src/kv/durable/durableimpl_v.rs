@@ -2358,12 +2358,12 @@ verus! {
                     }
                 })
         {
-            assume(false); // TODO @jay
             let op = phys_log_view[index];
             assert forall |s| #[trigger] can_result_from_partial_write(s, current_wrpm@.durable_state, op.absolute_addr as int, op.bytes) implies {
                 &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(final_recovery_state)
                 &&& version_and_overall_metadata_match_deserialized(s, current_wrpm@.durable_state)
             } by {
+                lemma_auto_can_result_from_partial_write_effect();
 //                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(written_wrpm);
                 lemma_establish_extract_bytes_equivalence(s, current_wrpm@.durable_state);
             }
