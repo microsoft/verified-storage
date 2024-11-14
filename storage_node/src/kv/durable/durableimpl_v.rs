@@ -6980,13 +6980,15 @@ verus! {
                 !self.transaction_committed(),
                 overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                   self.overall_metadata.kvstore_id),
+                self.wrpm.inv(),
                 self.wrpm@.len() == self.overall_metadata.region_size,
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
                 self.main_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                                           self.overall_metadata.main_table_size as nat),
-                                        self.overall_metadata),
+                                                       self.overall_metadata.main_table_size as nat),
+                                    self.overall_metadata),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                                       self.overall_metadata.item_table_size as nat), self.overall_metadata),
+                                                       self.overall_metadata.item_table_size as nat),
+                                    self.overall_metadata),
                 /* REMOVED UNTIL WE IMPLEMENT LISTS
                 self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                          self.overall_metadata.list_area_size as nat),
@@ -7001,9 +7003,9 @@ verus! {
             ensures
                 self.inv_mem(self.wrpm@.durable_state),
         {
-            assume(false); // TODO @jay
             let overall_metadata = self.overall_metadata;
             assert(self.inv_mem(self.wrpm@.durable_state)) by {
+                self.wrpm.lemma_inv_implies_view_valid();
                 let s = self.wrpm@.durable_state;
                 assert(self.version_metadata == deserialize_version_metadata(s));
                 assert(self.overall_metadata == deserialize_overall_metadata(
@@ -7015,12 +7017,6 @@ verus! {
                        Some(AbstractOpLogState::initialize()));
                 assert(apply_physical_log_entries(s, AbstractOpLogState::initialize().physical_op_list) =~=
                        Some(s));
-//                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, overall_metadata.main_table_addr as nat,
-//                                                           overall_metadata.main_table_size as nat);
-//                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, overall_metadata.item_table_addr as nat,
-//                                                           overall_metadata.item_table_size as nat);
-//                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, overall_metadata.list_area_addr as nat,
-//                                                           overall_metadata.list_area_size as nat);
             }
         }
 
