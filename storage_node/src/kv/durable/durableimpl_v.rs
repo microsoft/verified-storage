@@ -7060,7 +7060,6 @@ verus! {
                     }
                 } ==> perm.check_permission(s2),
         {
-            assume(false); // TODO @jay
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
             lemma_log_replay_preserves_size(self.wrpm@.read_state, self.log@.physical_op_list);
 
@@ -7268,7 +7267,6 @@ verus! {
                     }
                 }
         {
-            assume(false); // TODO @jay
             let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.read_state,
                     self.log@.physical_op_list).unwrap();
 
@@ -7300,7 +7298,7 @@ verus! {
             // 2. Commit the op log
             let ghost pre_self = *self;
             match self.log.commit_log(&mut self.wrpm, self.version_metadata, 
-                self.overall_metadata, Ghost(crash_pred), Tracked(perm)) 
+                                      self.overall_metadata, Ghost(crash_pred), Tracked(perm)) 
             {
                 Ok(()) => {}
                 Err(e) => {
@@ -7309,6 +7307,7 @@ verus! {
                             self.overall_metadata.main_table_size as nat);
                         let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
                             self.overall_metadata.main_table_size as nat);
+                        assert(old_main_table_subregion_view.durable_state =~= main_table_subregion_view.durable_state);
 //                        assert(old_main_table_subregion_view.flush() == main_table_subregion_view);
 //                        assert(old_main_table_subregion_view.can_crash_as(main_table_subregion_view.durable_state));
                         assert(parse_main_table::<K>(main_table_subregion_view.durable_state, self.overall_metadata.num_keys, 
@@ -7371,11 +7370,9 @@ verus! {
                             
                 let subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat);
-//                assert(subregion_view.can_crash_as(subregion_view.durable_state));
 
                 let old_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat); 
-//                assert(old_subregion_view.can_crash_as(old_subregion_view.durable_state));
                 assert(parse_main_table::<K>(old_subregion_view.durable_state, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) is Some);
 
                 let tentative_bytes_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat,

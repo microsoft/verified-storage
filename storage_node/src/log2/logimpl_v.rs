@@ -2245,6 +2245,8 @@ impl UntrustedLogImpl {
             wrpm_region@.flush_predicted(),
             Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) ==
                 Some(self@.drop_pending_appends()),
+            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@,
+                                            log_start_addr as nat, log_size as nat),
             states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.durable_state,
                                              log_start_addr as nat, log_size as nat),
     {
@@ -2483,8 +2485,7 @@ impl UntrustedLogImpl {
             metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, !self.cdb, self.info,
                                           true),
             perm.check_permission(wrpm_region@.durable_state),
-            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state,
-                                             log_start_addr as nat, log_size as nat),
+            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@, log_start_addr as nat, log_size as nat),
     {
         // Encode the log metadata as bytes, and compute the CRC of those bytes
         let info = &self.info;
@@ -2627,6 +2628,8 @@ impl UntrustedLogImpl {
             result is Ok,
             self@ == old(self)@.commit(),
             Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) == Some(self@),
+            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@,
+                                             log_start_addr as nat, log_size as nat),
             states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.durable_state,
                                              log_start_addr as nat, log_size as nat),
     {

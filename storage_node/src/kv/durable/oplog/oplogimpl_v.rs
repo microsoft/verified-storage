@@ -1744,7 +1744,11 @@ verus! {
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.flush_predicted(),
             states_differ_only_in_log_region(old(log_wrpm)@.read_state, log_wrpm@.durable_state, 
-                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                                             overall_metadata.log_area_addr as nat,
+                                             overall_metadata.log_area_size as nat),
+            views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@,
+                                            overall_metadata.log_area_addr as nat,
+                                            overall_metadata.log_area_size as nat),
             self.base_log_view().pending.len() == 0,
             match result {
                 Ok(()) => {
@@ -1757,6 +1761,7 @@ verus! {
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
+                    &&& old(log_wrpm)@.flush_predicted()
                     &&& log_wrpm@.flush_predicted()
                     &&& self@.physical_op_list.len() == 0
                     &&& Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == 
