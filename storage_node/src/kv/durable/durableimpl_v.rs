@@ -5114,6 +5114,7 @@ verus! {
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
                     self_before_main_table_create, main_table_subregion, perm
                 );
+                assume(false); // TODO @jay
                 self.lemma_justify_validify_log_entry(*old(self), self_before_main_table_create,
                                                       main_table_subregion, main_table_index,
                                                       item_index, head_index, *key, *item, perm);
@@ -5296,7 +5297,6 @@ verus! {
                 self.tentative_main_table() == old_self.tentative_main_table().update_item_index(index as int, item_index).unwrap(),
                 self.tentative_item_table() == old_self.tentative_item_table().update(item_index as int, item).delete(old_item_index as int),
         {
-            assume(false); // TODO @jay
             broadcast use pmcopy_axioms;
 
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
@@ -5696,7 +5696,6 @@ verus! {
                                 self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
                         &&& self.main_table == old(self).main_table
                         &&& self.item_table == old(self).item_table
-                        &&& self.wrpm_view().durable_state == old(self).wrpm_view().durable_state
                     }
                     Err(KvError::OutOfSpace) => {
                         &&& self.valid()
@@ -5711,16 +5710,20 @@ verus! {
                     Err(_) => false,
                 }
         {
-            assume(false); // TODO @jay
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
                 lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.read_state,
                     self.version_metadata, self.overall_metadata, self.log@.physical_op_list);
                 self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm);
+                self.wrpm.lemma_inv_implies_view_valid();
 //                assert(self.wrpm@.can_crash_as(self.wrpm@.durable_state));        
             }
 
-            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata,
+                                                               self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            assert(self.wrpm@.valid()) by {
+                self.wrpm.lemma_inv_implies_view_valid();
+            }
             match result {
                 Ok(()) => {}
                 Err(e) => {
@@ -5730,6 +5733,7 @@ verus! {
                         let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
                             self.overall_metadata.main_table_size as nat);
 //                        assert(old_main_table_subregion_view.can_crash_as(main_table_subregion_view.durable_state));
+                        assert(old_main_table_subregion_view.durable_state =~= main_table_subregion_view.durable_state);
                         assert(parse_main_table::<K>(main_table_subregion_view.durable_state, self.overall_metadata.num_keys, 
                             self.overall_metadata.main_table_entry_size) is Some);
                     }

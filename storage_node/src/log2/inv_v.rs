@@ -979,9 +979,10 @@ pub open spec fn views_differ_only_in_log_region(
     log_size: nat
 ) -> bool 
 {
-    forall |addr: int| #![trigger v2.durable_state[addr]] #![trigger v2.read_state[addr]]
-        0 <= addr < v1.len() && !(log_start_addr <= addr < log_start_addr + log_size)
-        ==> views_match_at_addr(v1, v2, addr)
+    &&& v1.len() == v2.len()
+    &&& forall |addr: int| #![trigger v2.durable_state[addr]] #![trigger v2.read_state[addr]]
+           0 <= addr < v1.len() && !(log_start_addr <= addr < log_start_addr + log_size)
+           ==> views_match_at_addr(v1, v2, addr)
 }
 
 pub proof fn lemma_if_views_differ_only_in_region_then_states_do(
