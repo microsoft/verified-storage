@@ -829,8 +829,10 @@ verus! {
             overall_metadata: OverallMetadata,
         )
             requires
-//                views_differ_only_in_log_region(v1.flush(), v2, 
-//                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                v1.valid(),
+                v2.valid(),
+                views_differ_only_in_log_region(v1, v2, overall_metadata.log_area_addr as nat,
+                                                overall_metadata.log_area_size as nat),
                 version_metadata == deserialize_version_metadata(v1.durable_state),
                 version_metadata.spec_crc() == deserialize_version_crc(v1.durable_state),
                 overall_metadata == deserialize_overall_metadata(v1.durable_state, version_metadata.overall_metadata_addr),
@@ -851,7 +853,6 @@ verus! {
                 overall_metadata == deserialize_overall_metadata(v2.durable_state, version_metadata.overall_metadata_addr),
                 overall_metadata.spec_crc() == deserialize_overall_crc(v2.durable_state, version_metadata.overall_metadata_addr),
         {
-            assume(false); // TODO @jay
             lemma_establish_extract_bytes_equivalence(v1.durable_state, v2.durable_state);
             lemma_establish_extract_bytes_equivalence(v1.read_state, v2.durable_state);
 //            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v1);
@@ -1535,7 +1536,10 @@ verus! {
                     Err(_) => true
                 }
         {
-            assume(false); // TODO @jay
+            proof {
+                pm_region.lemma_inv_implies_view_valid();
+            }
+
             let num_keys = overall_metadata.num_keys;
             let overall_metadata_addr = version_metadata.overall_metadata_addr;
 
@@ -1547,6 +1551,7 @@ verus! {
                 Ghost(overall_metadata.main_table_size as nat),
                 Ghost(main_table_writable_addr_fn)
             );
+            
             MainTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.main_table_entry_size)?;
             proof { 
                 main_table_subregion.lemma_reveal_opaque_inv(pm_region); 
@@ -1565,15 +1570,27 @@ verus! {
                 Ghost(overall_metadata.item_table_size as nat),
                 Ghost(writable_addr_fn)
             );
-            proof { DurableItemTable::<K, I>::lemma_table_is_empty_at_setup::<PM, L>(&item_table_subregion, pm_region, Set::empty(), num_keys); }
+
+            proof {
+                DurableItemTable::<K, I>::lemma_table_is_empty_at_setup::<PM, L>(&item_table_subregion, pm_region,
+                                                                                 Set::empty(), num_keys);
+            }
             let list_area_subregion = WritablePersistentMemorySubregion::new(
                 pm_region, 
                 overall_metadata.list_area_addr, 
                 Ghost(overall_metadata.list_area_size as nat),
                 Ghost(writable_addr_fn)
             );
-            proof { DurableList::<K, L>::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, AbstractOpLogState::initialize(), num_keys, 
-                overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MainTableView::<K>::init(num_keys)) }
+            proof {
+                assert(list_area_subregion.view(pm_region).durable_state =~=
+                       list_area_subregion.view(pm_region).read_state);
+                DurableList::<K, L>::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region,
+                                                                  AbstractOpLogState::initialize(), num_keys, 
+                                                                  overall_metadata.list_node_size,
+                                                                  overall_metadata.num_list_entries_per_node,
+                                                                  overall_metadata.num_list_nodes,
+                                                                  MainTableView::<K>::init(num_keys))
+            }
 
             let ghost pre_log_setup_bytes = pm_region@.read_state;
 

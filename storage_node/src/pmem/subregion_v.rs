@@ -50,8 +50,8 @@ pub open spec fn memories_differ_only_where_subregion_allows(
 {
     &&& mem1.len() == mem2.len()
     &&& start + len <= mem1.len()
-    &&& forall |addr: int|
-        0 <= addr < mem2.len() && #[trigger] mem1[addr] != mem2[addr] ==>
+    &&& forall |addr: int| #![trigger mem1[addr]] #![trigger mem2[addr]]
+        0 <= addr < mem2.len() && mem1[addr] != mem2[addr] ==>
             address_modifiable_by_subregion(addr, start, len, is_writable_absolute_addr_fn)
 }
 
