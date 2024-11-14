@@ -5868,7 +5868,6 @@ verus! {
                                 let condition = old(self).condition_preserved_by_subregion_masks();
                                 condition(self.wrpm@.durable_state)
                            })
-                        &&& self.wrpm_view().durable_state == old(self).wrpm_view().durable_state
                         &&& index < self.overall_metadata.num_keys
                         &&& self.log@ == old(self).log@
                         &&& forall |i: u64| 0 <= i < self.overall_metadata.num_keys && i != index ==>
@@ -5896,7 +5895,6 @@ verus! {
                     _ => false
                 }
         {
-            assume(false); // TODO @jay
             let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.read_state,
                 self.log@.physical_op_list).unwrap();
             let ghost tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
