@@ -882,78 +882,6 @@ verus! {
                                  K::spec_size_of()));
         }
 
-        pub open spec fn spec_replay_log_main_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
-            where 
-                L: PmCopy,
-            decreases op_log.len()
-        {
-            if op_log.len() == 0 {
-                mem 
-            } else {
-                let current_op = op_log[0];
-                let op_log = op_log.drop_first();
-                let mem = Self::apply_log_op_to_main_table_mem(mem, current_op);
-                Self::spec_replay_log_main_table(mem, op_log)
-            }
-        }
-
-        // main table-related log entries store the CRC that the entry *will* have when all updates are written to it.
-        // this ensures that we end up with the correct CRC even if updates to this entry were interrupted by a crash or 
-        // if corruption has occurred. So, we don't check CRCs here, we just overwrite the current CRC with the new one and 
-        // update relevant fields.
-        pub open spec fn apply_log_op_to_main_table_mem<L>(mem: Seq<u8>, op: LogicalOpLogEntry<L>) -> Seq<u8>
-            where 
-                L: PmCopy,
-        {
-            let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-            match op {
-                LogicalOpLogEntry::CommitMainTableEntry { index } => {
-                    let entry_offset = index * table_entry_slot_size;
-                    let cdb_bytes = CDB_TRUE.spec_to_bytes();
-                    // Note: the cdb is written at offset 0 in the entry
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if entry_offset <= pos < entry_offset + u64::spec_size_of() {
-                            cdb_bytes[pos - entry_offset]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                LogicalOpLogEntry::InvalidateMainTableEntry { index } => {
-                    let entry_offset = index * table_entry_slot_size;
-                    let cdb_bytes = CDB_FALSE.spec_to_bytes();
-                    // Note: the cdb is written at offset 0 in the entry
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if entry_offset <= pos < entry_offset + u64::spec_size_of() {
-                            cdb_bytes[pos - entry_offset]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                LogicalOpLogEntry::UpdateMainTableEntry { index, new_crc, new_metadata } => {
-                    let entry_offset = index * table_entry_slot_size;
-                    let crc_addr = entry_offset + u64::spec_size_of();
-                    let metadata_addr = crc_addr + u64::spec_size_of();
-                    let new_crc_bytes = new_crc.spec_to_bytes();
-                    let new_metadata_bytes = new_metadata.spec_to_bytes();
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + u64::spec_size_of() {
-                            new_crc_bytes[pos - crc_addr]
-                        } else if metadata_addr <= pos < metadata_addr + ListEntryMetadata::spec_size_of() {
-                            new_metadata_bytes[pos - metadata_addr]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                _ => mem // all other log ops do not modify the main table
-            }
-        }
-
         spec fn extract_cdb_for_entry(mem: Seq<u8>, k: nat, main_table_entry_size: u32) -> u64
         {
             u64::spec_from_bytes(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()))
@@ -982,7 +910,6 @@ verus! {
                 pm_region@.len() == old(pm_region)@.len(),
                 match result {
                     Ok(()) => {
-                        let replayed_bytes = Self::spec_replay_log_main_table(subregion.view(pm_region).flush().committed(), Seq::<LogicalOpLogEntry<L>>::empty());
                         &&& parse_main_table::<K>(subregion.view(pm_region).flush().committed(), num_keys, main_table_entry_size) matches Some(recovered_view)
                         &&& recovered_view == MainTableView::<K>::init(num_keys)
                     }
@@ -1073,8 +1000,6 @@ verus! {
             }
 
             let ghost mem = subregion.view(pm_region).flush().committed();
-            let ghost op_log = Seq::<LogicalOpLogEntry<L>>::empty();
-            let ghost replayed_mem = Self::spec_replay_log_main_table(mem, op_log);
             let ghost recovered_view = parse_main_table::<K>(mem, num_keys, main_table_entry_size);
             let ghost table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
 

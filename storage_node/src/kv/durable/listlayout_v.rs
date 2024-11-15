@@ -31,19 +31,28 @@ verus! {
 
     // Header of the node region. Contains metadata to identify the
     // region and determine the number of nodes.
+    #[verus::line_count::ignore]
     pub const ABSOLUTE_POS_OF_LIST_REGION_HEADER: u64 = 0;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_NUM_NODES: u64 = 0;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_REGION_LEN: u64 = 8;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_VERSION_NUMBER: u64 = 16;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_REGION_HEADER_PADDING: u64 = 24;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_PROGRAM_GUID: u64 = 32;
+    #[verus::line_count::ignore]
     pub const ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC: u64 = 48;
+    #[verus::line_count::ignore]
     pub const ABSOLUTE_POS_OF_LIST_REGION_NODE_START: u64 = 56;
-
+    #[verus::line_count::ignore]
     pub const DURABLE_LIST_REGION_VERSION_NUMBER: u64 = 1;
-
+    #[verus::line_count::ignore]
     pub const DURABLE_LIST_REGION_PROGRAM_GUID: u128 = 0x02d7708c1acffbf895faa6728ba5e037u128;
 
+    #[verus::line_count::ignore]
     #[repr(C)]
     #[derive(PmCopy, Copy)]
     pub struct ListRegionHeader {
@@ -65,11 +74,15 @@ verus! {
     // notes, 0 may be a valid next pointer. So, to indicate that a node
     // is the tail of its list, its next pointer will point to *itself*
     // rather than being set to 0.
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_NEXT_POINTER: u64 = 0;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_NODE_CRC: u64 = 8;
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_CONTENTS_AREA: u64 = 16;
 
     // `mem` is the full list node region, not just the bytes associated with this node
+    #[verus::line_count::ignore]
     pub open spec fn parse_list_node<L>(
         idx: int, 
         mem: Seq<u8>,
@@ -133,6 +146,7 @@ verus! {
 
     // per-element relative offsets. The CRC comes before the list element because we do not 
     // know the size of the list element here
+    #[verus::line_count::ignore]
     pub const RELATIVE_POS_OF_LIST_ELEMENT_CRC: u64 = 0;
     pub const RELATIVE_POS_OF_LIST_ELEMENT: u64 = 8;
 

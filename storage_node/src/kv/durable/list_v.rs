@@ -21,12 +21,14 @@ use vstd::prelude::*;
 use vstd::bytes::*;
 
 verus! {
+    #[verus::line_count::ignore]
     pub struct TrustedListPermission
     {
         // TODO: how many regions will this use? Probably just one?
         ghost is_state_allowable: spec_fn(Seq<u8>) -> bool
     }
 
+    #[verus::line_count::ignore]
     impl CheckPermission<Seq<u8>> for TrustedListPermission
     {
         closed spec fn check_permission(&self, state: Seq<u8>) -> bool
@@ -35,6 +37,7 @@ verus! {
         }
     }
 
+    #[verus::line_count::ignore]
     impl TrustedListPermission 
     {
          // TODO: REMOVE THIS
@@ -47,12 +50,14 @@ verus! {
          }
     }
 
+    #[verus::line_count::ignore]
     pub struct DurableListElementView<L>
     {
         crc: u64,
         list_element: L
     }
 
+    #[verus::line_count::ignore]
     impl<L> DurableListElementView<L>
     {
         pub closed spec fn new(crc: u64, list_element: L) -> Self 
@@ -69,6 +74,7 @@ verus! {
     // The `lists` field represents the current contents of the list. It abstracts away the physical 
     // nodes of the unrolled linked list that the list is actually stored in, but it may contain
     // tentatively-appended list elements that are not visible yet.
+    #[verus::line_count::ignore]
     #[verifier::reject_recursive_types(K)]
     pub struct DurableListView<K, L>
     {
@@ -76,6 +82,7 @@ verus! {
         pub tentative_lists: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
     }
 
+    #[verus::line_count::ignore]
     impl<K, L> DurableListView<K, L>
         where
             K: std::fmt::Debug,
@@ -186,6 +193,7 @@ verus! {
 
     pub const NUM_DURABLE_LIST_REGIONS: u64 = 1;
 
+    #[verus::line_count::ignore]
     #[verifier::reject_recursive_types(K)]
     pub struct DurableList<K, L>
         where
@@ -200,6 +208,7 @@ verus! {
         state: Ghost<DurableListView<K, L>>
     }
 
+    #[verus::line_count::ignore]
     impl<K, L> DurableList<K, L>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -231,52 +240,52 @@ verus! {
             // Self::parse_all_lists(main_table_view, mem, list_node_size, num_list_entries_per_node)
         }
 
-        pub open spec fn replay_log_list_nodes(
-            mem: Seq<u8>, 
-            node_size: u64, 
-            op_log: Seq<LogicalOpLogEntry<L>>, 
-        ) -> Seq<u8>
-            decreases op_log.len() 
-        {
-            if op_log.len() == 0 {
-                mem 
-            } else {
-                let current_op = op_log[0];
-                let op_log = op_log.drop_first();
-                let mem = Self::apply_log_op_to_list_node_mem(mem, node_size, current_op);
-                Self::replay_log_list_nodes(mem, node_size, op_log)
-            }
-        }
+        // pub open spec fn replay_log_list_nodes(
+        //     mem: Seq<u8>, 
+        //     node_size: u64, 
+        //     op_log: Seq<LogicalOpLogEntry<L>>, 
+        // ) -> Seq<u8>
+        //     decreases op_log.len() 
+        // {
+        //     if op_log.len() == 0 {
+        //         mem 
+        //     } else {
+        //         let current_op = op_log[0];
+        //         let op_log = op_log.drop_first();
+        //         let mem = Self::apply_log_op_to_list_node_mem(mem, node_size, current_op);
+        //         Self::replay_log_list_nodes(mem, node_size, op_log)
+        //     }
+        // }
 
-        pub open spec fn apply_log_op_to_list_node_mem(
-            mem: Seq<u8>, 
-            node_size: u64, 
-            op: LogicalOpLogEntry<L>, 
-        ) -> Seq<u8>
-        {
-            match op {
-                LogicalOpLogEntry::UpdateListElement { node_index, index_in_node, list_element } => {
-                    let node_addr = node_index * node_size;
-                    let list_entry_size = L::spec_size_of() + u64::spec_size_of(); // list element + CRC
-                    let list_element_slot = node_addr + list_entry_size * index_in_node;
-                    let crc_addr = list_element_slot;
-                    let list_element_addr = crc_addr + u64::spec_size_of();
-                    let new_element_bytes = list_element.spec_to_bytes();
-                    let new_crc_bytes = spec_crc_bytes(new_element_bytes);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + u64::spec_size_of() {
-                            new_crc_bytes[pos - crc_addr]
-                        } else if list_element_addr <= pos < list_element_addr + L::spec_size_of() {
-                            new_element_bytes[pos - list_element_addr]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                },
-                _ => mem // all other ops do not modify the list node region
-            }
-        }
+        // pub open spec fn apply_log_op_to_list_node_mem(
+        //     mem: Seq<u8>, 
+        //     node_size: u64, 
+        //     op: LogicalOpLogEntry<L>, 
+        // ) -> Seq<u8>
+        // {
+        //     match op {
+        //         LogicalOpLogEntry::UpdateListElement { node_index, index_in_node, list_element } => {
+        //             let node_addr = node_index * node_size;
+        //             let list_entry_size = L::spec_size_of() + u64::spec_size_of(); // list element + CRC
+        //             let list_element_slot = node_addr + list_entry_size * index_in_node;
+        //             let crc_addr = list_element_slot;
+        //             let list_element_addr = crc_addr + u64::spec_size_of();
+        //             let new_element_bytes = list_element.spec_to_bytes();
+        //             let new_crc_bytes = spec_crc_bytes(new_element_bytes);
+        //             let mem = mem.map(|pos: int, pre_byte: u8| {
+        //                 if crc_addr <= pos < crc_addr + u64::spec_size_of() {
+        //                     new_crc_bytes[pos - crc_addr]
+        //                 } else if list_element_addr <= pos < list_element_addr + L::spec_size_of() {
+        //                     new_element_bytes[pos - list_element_addr]
+        //                 } else {
+        //                     pre_byte
+        //                 }
+        //             });
+        //             mem
+        //         },
+        //         _ => mem // all other ops do not modify the list node region
+        //     }
+        // }
 
         pub open spec fn parse_all_lists(
             main_table: MainTableView<K>,
