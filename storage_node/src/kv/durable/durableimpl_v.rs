@@ -4286,8 +4286,6 @@ verus! {
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                 }),
         {
-            assume(false); // TODO @jay
-            
             assert({
                 &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.durable_state)
                 &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.read_state)
