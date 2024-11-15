@@ -5,6 +5,7 @@
 //! This file should be audited for correctness.
 
 #![allow(unused_imports)]
+#![verus::trusted]
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
