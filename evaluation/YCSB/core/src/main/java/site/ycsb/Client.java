@@ -303,13 +303,21 @@ public final class Client {
 
     final Tracer tracer = getTracer(props, workload);
 
+    System.err.println("Init workload");
+
     initWorkload(props, warningthread, workload, tracer);
 
     System.err.println("Starting test.");
     final CountDownLatch completeLatch = new CountDownLatch(threadcount);
 
+    // latch used to ensure we don't start taking measurements until 
+    // the DB has finished initialization
+    final CountDownLatch initLatch = new CountDownLatch(threadcount);
+
+    System.err.println("Init db");
+
     final List<ClientThread> clients = initDb(dbname, props, threadcount, targetperthreadperms,
-        workload, tracer, completeLatch);
+        workload, tracer, completeLatch, initLatch);
 
     if (status) {
       boolean standardstatus = false;
@@ -319,8 +327,9 @@ public final class Client {
       int statusIntervalSeconds = Integer.parseInt(props.getProperty("status.interval", "10"));
       boolean trackJVMStats = props.getProperty(Measurements.MEASUREMENT_TRACK_JVM_PROPERTY,
           Measurements.MEASUREMENT_TRACK_JVM_PROPERTY_DEFAULT).equals("true");
-      statusthread = new StatusThread(completeLatch, clients, label, standardstatus, statusIntervalSeconds,
+      statusthread = new StatusThread(completeLatch, initLatch, clients, label, standardstatus, statusIntervalSeconds,
           trackJVMStats);
+      System.err.println("Starting status thread");
       statusthread.start();
     }
 
@@ -402,7 +411,7 @@ public final class Client {
 
   private static List<ClientThread> initDb(String dbname, Properties props, int threadcount,
                                            double targetperthreadperms, Workload workload, Tracer tracer,
-                                           CountDownLatch completeLatch) {
+                                           CountDownLatch completeLatch, CountDownLatch initLatch) {
     boolean initFailed = false;
     boolean dotransactions = Boolean.valueOf(props.getProperty(DO_TRANSACTIONS_PROPERTY, String.valueOf(true)));
 
@@ -439,8 +448,10 @@ public final class Client {
           ++threadopcount;
         }
 
+        System.err.println("init new client thread");
+
         ClientThread t = new ClientThread(db, dotransactions, workload, props, threadopcount, targetperthreadperms,
-            completeLatch);
+            completeLatch, initLatch);
         t.setThreadId(threadid);
         t.setThreadCount(threadcount);
         clients.add(t);
@@ -451,6 +462,7 @@ public final class Client {
         System.exit(0);
       }
     }
+    System.err.println("done initing client threads");
     return clients;
   }
 

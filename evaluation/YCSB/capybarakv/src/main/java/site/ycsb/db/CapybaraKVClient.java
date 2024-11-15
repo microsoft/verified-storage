@@ -33,12 +33,14 @@ public class CapybaraKVClient extends DB {
 
   @Override
   public void init() throws DBException {
+    System.err.println("Init CapybaraKV");
     configFile = getProperties().getProperty(PROPERTY_CONFIG_FILE);
     if (configFile == null) {
       String message = "Please provide a config file.";
       throw new DBException(message);
     }
     initCapybaraKV();
+    System.err.println("Done init CapybaraKV");
   }
 
   private void initCapybaraKV() throws DBException {

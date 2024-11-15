@@ -15,6 +15,7 @@ use builtin_macros::*;
 use serde::Deserialize;
 use std::fs;
 use std::env;
+use chrono;
 
 const MAX_KEY_LEN: usize = 1024;
 const MAX_ITEM_LEN: usize = 1140; 
@@ -42,6 +43,7 @@ struct DbOptions {
 }
 
 fn parse_configs(config_file: String) -> DbOptions {
+    println!("{:?}", chrono::offset::Local::now());
     println!("Reading configs from {:?}", config_file);
     let config_contents = match fs::read_to_string(&config_file) {
         Ok(c) => c,

@@ -3,8 +3,10 @@
 DB=$1
 RESULTS_DIR=$2
 PM=$3
-OP_COUNT=10000000
-RECORD_COUNT=10000000
+OP_COUNT=5000000
+RECORD_COUNT=5000000
+# OP_COUNT=500000
+# RECORD_COUNT=500000
 mount_point=/mnt/pmem
 pm_device=/dev/pmem0
 dram_db_dir=~/db_files # TODO: should this be in /tmp?

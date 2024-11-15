@@ -4,6 +4,8 @@
 ### Setup
 1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev daxctl libzstd-dev cmake build-essential`
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.
+3. Build pmem-RocksDB: `cd` to `pmem-rocksdb` and build with `make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j 8`
+4. Build redis: `cd` to `pmem-redis` and run `make USE_NVM=yes` 
 3. Build YCSB:
     - CapybaraKV: `cd YCSB; mvn -pl site.ycsb:capybarakv-binding -am clean package`
     - redis (PM and standard): `cd YCSB; mvn -pl site.ycsb:redis-binding -am clean package`
@@ -12,7 +14,9 @@
 3. Run `export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release`
 4. Run `export JAVA_HOME=/usr/lib/jvm/java-X-openjdk-amd64/` where `X` is the Java version to use.
 
-### redis setup
+
+
+### redis troubleshooting
 <!-- 1. Install gcc-8 by running `sudo apt install gcc-8`. This may fail on newer Ubuntu distributions; if it does, run:
 ```
 sudo cat <<EOF | sudo tee /etc/apt/sources.list.d/gcc-8.list
@@ -50,8 +54,8 @@ If redis doesn't build, the following may help:
     - Check that `pmem-redis/deps/memkind/jemalloc/bin` exists and that it contains `jemalloc-config.in`, `jemalloc.sh.in`, and `jeprof.in`.
 
 
-#### pmem-rocksdb
-1. `cd` to `pmem-rocksdb` and build with `make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j 8`
+#### pmem-rocksdb troubleshooting
+If pmem-rocksdb builds but the YCSB bindings give an error that looks something like "class file has wrong version 65.0, should be 61.0", make sure `JAVA_HOME` points to the most recent installed Java version.
 
 ## Running experiments
 

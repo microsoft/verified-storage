@@ -12,14 +12,14 @@
   <artifactId>pmemrocksdb-binding</artifactId>
   <name>PM RocksDB Binding</name>
   <packaging>jar</packaging>
-
   <dependencies>
     <dependency>
       <groupId>org.rocksdb</groupId>
       <artifactId>pmem-rocksdbjni</artifactId>
       <scope>system</scope>
       <version>${project.version}</version>
-      <systemPath>${project.basedir}/../../pmem-rocksdb/java/target/rocksdbjni-6.11.4-linux64.jar</systemPath>
+      <systemPath>${pom.basedir}/../../pmem-rocksdb/java/target/rocksdbjni-6.11.4-linux64.jar</systemPath>
+      <!-- <url>file:${project.basedir}/../../pmem-rocksdb/java/target/rocksdbjni-6.11.4-linux64.jar</url> -->
     </dependency>
     <dependency>
       <groupId>site.ycsb</groupId>

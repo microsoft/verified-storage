@@ -29,6 +29,8 @@ import java.util.concurrent.locks.LockSupport;
 public class ClientThread implements Runnable {
   // Counts down each of the clients completing.
   private final CountDownLatch completeLatch;
+  // Counts down each of the clients initializing.
+  private final CountDownLatch initLatch;
 
   private static boolean spinSleep;
   private DB db;
@@ -55,9 +57,10 @@ public class ClientThread implements Runnable {
    * @param opcount              the number of operations (transactions or inserts) to do
    * @param targetperthreadperms target number of operations per thread per ms
    * @param completeLatch        The latch tracking the completion of all clients.
+   * @param initLatch            The latch tracking completion of client initialization
    */
   public ClientThread(DB db, boolean dotransactions, Workload workload, Properties props, int opcount,
-                      double targetperthreadperms, CountDownLatch completeLatch) {
+                      double targetperthreadperms, CountDownLatch completeLatch, CountDownLatch initLatch) {
     this.db = db;
     this.dotransactions = dotransactions;
     this.workload = workload;
@@ -71,6 +74,7 @@ public class ClientThread implements Runnable {
     measurements = Measurements.getMeasurements();
     spinSleep = Boolean.valueOf(this.props.getProperty("spin.sleep", "false"));
     this.completeLatch = completeLatch;
+    this.initLatch = initLatch;
   }
 
   public void setThreadId(final int threadId) {
@@ -89,6 +93,7 @@ public class ClientThread implements Runnable {
   public void run() {
     try {
       db.init();
+      initLatch.countDown();
     } catch (DBException e) {
       e.printStackTrace();
       e.printStackTrace(System.out);
