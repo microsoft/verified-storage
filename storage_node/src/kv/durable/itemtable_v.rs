@@ -318,8 +318,6 @@ verus! {
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
             &&& parse_item_table::<I, K>(pm_view.durable_state, overall_metadata.num_keys as nat,
                                        self.durable_valid_indices()) == Some(self@)
-            &&& parse_item_table::<I, K>(pm_view.read_state, overall_metadata.num_keys as nat,
-                                       self.durable_valid_indices()) == Some(self@)
             &&& forall|idx: u64| self.durable_valid_indices().contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.durable_state, index_to_offset(idx as nat, entry_size as nat),
                                                 entry_size as nat);
@@ -785,8 +783,6 @@ verus! {
             ensures
                 parse_item_table::<I, K>(v2.durable_state, overall_metadata.num_keys as nat,
                                          self.durable_valid_indices()) == Some(self@),
-                parse_item_table::<I, K>(v2.read_state, overall_metadata.num_keys as nat,
-                                         self.durable_valid_indices()) == Some(self@),
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             let num_keys = overall_metadata.num_keys;
@@ -812,24 +808,6 @@ verus! {
             }
             lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                 v1.durable_state, v2.durable_state, num_keys, self.durable_valid_indices()
-            );
-
-            assert(parse_item_table::<I, K>(v1.read_state, num_keys as nat, self.durable_valid_indices()) ==
-                   Some(self@));
-            assert forall|addr: int| {
-                       &&& 0 <= addr < v2.read_state.len()
-                       &&& v1.read_state[addr] != #[trigger] v2.read_state[addr]
-                   } implies
-                   address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, self.durable_valid_indices())
-            by {
-                let entry_size = I::spec_size_of() + u64::spec_size_of();
-                assert(!views_match_at_addr(v1, v2, addr));
-                assert(can_views_differ_at_addr(addr));
-                let addrs_entry = addr / entry_size as int;
-                lemma_addr_in_entry_divided_by_entry_size(which_entry as nat, entry_size as nat, addr);
-            }
-            lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
-                v1.read_state, v2.read_state, num_keys, self.durable_valid_indices()
             );
         }
 
@@ -1050,8 +1028,6 @@ verus! {
             }
 
             assert(parse_item_table::<I, K>(pm_view.durable_state, overall_metadata.num_keys as nat,
-                                            self.durable_valid_indices()) == Some(self@) &&
-                   parse_item_table::<I, K>(pm_view.read_state, overall_metadata.num_keys as nat,
                                             self.durable_valid_indices()) == Some(self@)) by {
                 old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
                     old_pm_view, pm_view, overall_metadata, free_index

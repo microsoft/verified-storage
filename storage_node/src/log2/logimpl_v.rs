@@ -1755,15 +1755,18 @@ impl UntrustedLogImpl {
             Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) ==
                 Some(old(self)@.drop_pending_appends()),
             forall |s2: Seq<u8>| {
-                let current_state = old(wrpm_region)@.read_state;
-                &&& current_state.len() == s2.len() 
-                &&& states_differ_only_in_log_region(s2, current_state, log_start_addr as nat, log_size as nat)
-                &&& {
-                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
-                           Some(old(self)@.drop_pending_appends())
-                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
-                           Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
-                    }
+                let flushed_state = old(wrpm_region)@.read_state;
+                &&& flushed_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(s2, flushed_state, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                       Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
+            } ==> perm.check_permission(s2),
+            forall |s2: Seq<u8>| {
+                let crash_state = old(wrpm_region)@.durable_state;
+                &&& crash_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(s2, crash_state, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                       Some(old(self)@.drop_pending_appends())
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
@@ -2225,12 +2228,15 @@ impl UntrustedLogImpl {
                 let flushed_state = old(wrpm_region)@.read_state;
                 &&& flushed_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(flushed_state, s2, log_start_addr as nat, log_size as nat)
-                &&& {
-                       ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
-                          Some(old(self).state@.drop_pending_appends())
-                       ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
-                          Some(prev_state.drop_pending_appends())
-                }
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                       Some(old(self).state@.drop_pending_appends())
+            } ==> perm.check_permission(s2),
+            forall |s2: Seq<u8>| {
+                let crash_state = old(wrpm_region)@.durable_state;
+                &&& crash_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(crash_state, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                       Some(prev_state.drop_pending_appends())
             } ==> perm.check_permission(s2),
 
             metadata_types_set(old(wrpm_region)@.durable_state, log_start_addr as nat),
@@ -2601,11 +2607,14 @@ impl UntrustedLogImpl {
                 let flushed_state = old(wrpm_region)@.read_state;
                 &&& flushed_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(flushed_state, s2, log_start_addr as nat, log_size as nat)
-                &&& {
-                       ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit())
-                       ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
-                          Some(old(self)@.drop_pending_appends())
-                }
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit())
+            } ==> perm.check_permission(s2),
+            forall |s2: Seq<u8>| {
+                let crash_state = old(wrpm_region)@.durable_state;
+                &&& crash_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(crash_state, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                       Some(old(self)@.drop_pending_appends())
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 

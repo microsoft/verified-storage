@@ -1711,19 +1711,21 @@ verus! {
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) ==
                 Some(AbstractOpLogState::initialize()),
-            Self::recover(old(log_wrpm)@.read_state, version_metadata, overall_metadata) ==
-                Some(AbstractOpLogState::initialize()),
             crash_pred(old(log_wrpm)@.durable_state),
             forall |s2: Seq<u8>| {
                 let flushed_state = old(log_wrpm)@.read_state;
                 &&& flushed_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(flushed_state, s2, overall_metadata.log_area_addr as nat,
                                                    overall_metadata.log_area_size as nat)
-                &&& {
-                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@.commit_op_log())
-                        ||| Self::recover(s2, version_metadata, overall_metadata) ==
-                               Some(AbstractOpLogState::initialize())
-                }
+                &&& Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@.commit_op_log())
+            } ==> perm.check_permission(s2),
+            forall |s2: Seq<u8>| {
+                let crash_state = old(log_wrpm)@.durable_state;
+                &&& crash_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(crash_state, s2, overall_metadata.log_area_addr as nat,
+                                                   overall_metadata.log_area_size as nat)
+                &&& Self::recover(s2, version_metadata, overall_metadata) ==
+                       Some(AbstractOpLogState::initialize())
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
@@ -1884,13 +1886,19 @@ verus! {
             Self::recover(old(log_wrpm)@.read_state, version_metadata, overall_metadata) == Some(old(self)@),
             crash_pred(old(log_wrpm)@.durable_state),
             forall |s2: Seq<u8>| {
-                let current_state = old(log_wrpm)@.read_state;
-                &&& current_state.len() == s2.len() 
-                &&& states_differ_only_in_log_region(s2, current_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                &&& {
-                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
-                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
-                    }
+                let flushed_state = old(log_wrpm)@.read_state;
+                &&& flushed_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(s2, flushed_state, overall_metadata.log_area_addr as nat,
+                                                   overall_metadata.log_area_size as nat)
+                &&& Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
+            } ==> #[trigger] crash_pred(s2),
+            forall |s2: Seq<u8>| {
+                let crash_state = old(log_wrpm)@.durable_state;
+                &&& crash_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(s2, crash_state,
+                                                   overall_metadata.log_area_addr as nat,
+                                                   overall_metadata.log_area_size as nat)
+                &&& Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
