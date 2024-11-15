@@ -7192,7 +7192,6 @@ verus! {
                     }
                 } ==> perm.check_permission(s2),
         {
-            assume(false); // TODO @jay
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
             lemma_log_replay_preserves_size(self.wrpm@.read_state, self.log@.physical_op_list);
 
