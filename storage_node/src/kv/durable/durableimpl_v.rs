@@ -3640,19 +3640,17 @@ verus! {
                 forall|addr: int| {
                     let entry_size = self.overall_metadata.main_table_entry_size as nat;
                     let start = index_to_offset(main_table_index as nat, entry_size);
+                    &&& #[trigger] trigger_addr(addr)
+                    &&& 0 <= addr < self.overall_metadata.main_table_size
+                    &&& !(start <= addr < start + entry_size)
+                } ==> {
                     let old_pm_view = get_subregion_view(self_before_main_table_create.wrpm@,
                                                          self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat);
-                    0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==> {
-                        &&& #[trigger] get_subregion_view(self.wrpm@,
+                    let new_pm_view = get_subregion_view(self.wrpm@,
                                                          self.overall_metadata.main_table_addr as nat,
-                                                         self.overall_metadata.main_table_size as nat).durable_state[addr] ==
-                           old_pm_view.durable_state[addr]
-                        &&& #[trigger] get_subregion_view(self.wrpm@,
-                                                         self.overall_metadata.main_table_addr as nat,
-                                                         self.overall_metadata.main_table_size as nat).read_state[addr] ==
-                           old_pm_view.durable_state[addr]
-                    }
+                                                         self.overall_metadata.main_table_size as nat);
+                    views_match_at_addr(old_pm_view, new_pm_view, addr)
                 },
                 self_before_main_table_create.tentative_main_table_valid(),
                 item_index < self.overall_metadata.num_keys,
@@ -4181,19 +4179,17 @@ verus! {
                 forall|addr: int| {
                     let entry_size = self.overall_metadata.main_table_entry_size as nat;
                     let start = index_to_offset(main_table_index as nat, entry_size);
+                    &&& #[trigger] trigger_addr(addr)
+                    &&& 0 <= addr < self.overall_metadata.main_table_size
+                    &&& !(start <= addr < start + entry_size)
+                } ==> {
                     let old_pm_view = get_subregion_view(self_before_main_table_create.wrpm@,
                                                          self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat);
-                    0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==> {
-                        &&& #[trigger] get_subregion_view(self.wrpm@,
+                    let new_pm_view = get_subregion_view(self.wrpm@,
                                                          self.overall_metadata.main_table_addr as nat,
-                                                         self.overall_metadata.main_table_size as nat).durable_state[addr] ==
-                           old_pm_view.durable_state[addr]
-                        &&& #[trigger] get_subregion_view(self.wrpm@,
-                                                         self.overall_metadata.main_table_addr as nat,
-                                                         self.overall_metadata.main_table_size as nat).read_state[addr] ==
-                           old_pm_view.read_state[addr]
-                    }
+                                                         self.overall_metadata.main_table_size as nat);
+                    views_match_at_addr(old_pm_view, new_pm_view, addr)
                 },
                 self_before_main_table_create.tentative_main_table().durable_main_table[main_table_index as int] is None,
                 item_index < self.overall_metadata.num_keys,
@@ -5058,7 +5054,6 @@ verus! {
                     }
                 })
         {
-            assume(false); // TODO @jay
             let ghost num_keys = self.overall_metadata.num_keys;
             let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
             let ghost main_table_addr = self.overall_metadata.main_table_addr;
@@ -5264,9 +5259,6 @@ verus! {
                                                  self.overall_metadata.main_table_entry_size) is Some) by {
 //                        lemma_persistent_memory_view_can_crash_as_flushed(pre_append_self.wrpm@.flush());
 //                        assert(pre_append_self.wrpm@.can_crash_as(pre_append_self.wrpm@.read_state));
-                        assert(self_before_main_table_create.condition_preserved_by_subregion_masks()(
-                            pre_append_self.wrpm@.read_state)
-                        );
 //                        assert(views_differ_only_in_log_region(pre_append_self.wrpm@.flush(), self.wrpm@,
 //                                                               self.overall_metadata.log_area_addr as nat,
 //                                                               self.overall_metadata.log_area_size as nat));
@@ -5297,6 +5289,7 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             proof {
+                self.wrpm.lemma_inv_implies_view_valid();
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );

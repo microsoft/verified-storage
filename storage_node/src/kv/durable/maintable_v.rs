@@ -1950,14 +1950,16 @@ verus! {
                               old(self).tentative_view().update(index as int, self.outstanding_entries[index].unwrap()@)
                         &&& self.tentative_view().valid_item_indices() ==
                               old(self).tentative_view().valid_item_indices().insert(item_table_index)
-                        &&& forall|addr: int| {
+                        &&& forall|addr: int|
+                        {
                             let entry_size = overall_metadata.main_table_entry_size as nat;
                             let start = index_to_offset(index as nat, entry_size);
                             let old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
-                            0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
-                                #[trigger] views_match_at_addr(subregion.view(wrpm_region),
-                                                               subregion.view(old::<&mut _>(wrpm_region)), addr)
-                        }
+                            &&& #[trigger] trigger_addr(addr)
+                            &&& 0 <= addr < overall_metadata.main_table_size
+                            &&& !(start <= addr < start + entry_size)
+                        } ==> views_match_at_addr(subregion.view(wrpm_region),
+                                                  subregion.view(old::<&mut _>(wrpm_region)), addr)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
