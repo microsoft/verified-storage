@@ -50,7 +50,7 @@ where
     &&& overall_metadata.item_table_addr >= overall_metadata.main_table_addr + overall_metadata.main_table_size
     &&& overall_metadata.item_table_size >= overall_metadata.num_keys * (overall_metadata.item_size + u64::spec_size_of())
     &&& overall_metadata.list_area_addr >= overall_metadata.item_table_addr + overall_metadata.item_table_size
-    &&& overall_metadata.list_area_size >= overall_metadata.num_list_nodes * overall_metadata.list_node_size
+    // &&& overall_metadata.list_area_size >= overall_metadata.num_list_nodes * overall_metadata.list_node_size // TODO: add back in when lists are implemented
     &&& overall_metadata.log_area_addr >= overall_metadata.list_area_addr + overall_metadata.list_area_size
     &&& overall_metadata.log_area_size >= overall_metadata.log_entry_size
     &&& overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE
@@ -288,8 +288,10 @@ pub fn initialize_overall_metadata<K, I, L> (
     if num_list_nodes * list_node_size > u64::MAX - persistence_chunk_size() {
         return Err(KvError::TooManyListNodes);
     }
-    let list_area_size: u64 = round_up_to_multiple_of_persistence_chunk_size(
-        num_list_nodes * list_node_size);
+    // TODO: allocate space for the list area when we implement lists
+    let list_area_size = 0;
+    // let list_area_size: u64 = round_up_to_multiple_of_persistence_chunk_size(
+    //     num_list_nodes * list_node_size);
 
     if list_area_size > u64::MAX - list_area_addr {
         return Err(KvError::TooManyListNodes);
