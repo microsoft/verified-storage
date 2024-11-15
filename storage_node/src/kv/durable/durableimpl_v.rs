@@ -4644,6 +4644,7 @@ verus! {
             self.tentative_main_table() == self.main_table.tentative_view(),
             self.tentative_item_table() == self.item_table.tentative_view(),
             self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices(),
+            PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list,
         ensures
             self.inv(),
         {
@@ -4658,7 +4659,31 @@ verus! {
             let item_table_size = overall_metadata.item_table_size;
             let log_area_addr = overall_metadata.log_area_addr;
             let log_area_size = overall_metadata.log_area_size;
-            assume(false); // TODO @jay
+
+            lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                pre_append_self.wrpm@,
+                self.wrpm@,
+                self.version_metadata,
+                self.overall_metadata
+            );
+
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat).durable_state =~=
+                   get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat).durable_state);
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat).read_state =~=
+                   get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat).read_state);
+
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                      self.overall_metadata.item_table_size as nat).durable_state =~=
+                   get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                      self.overall_metadata.item_table_size as nat).durable_state);
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                      self.overall_metadata.item_table_size as nat).read_state =~=
+                   get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                      self.overall_metadata.item_table_size as nat).read_state);
         }
 
         proof fn lemma_finalize_tentative_create(
@@ -4775,6 +4800,7 @@ verus! {
                 &&& new_main_table_view.unwrap().valid_item_indices() ==
                     main_table_view.unwrap().valid_item_indices().insert(entry.entry.item_index)
             }),
+            PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list,
         ensures
             self.inv(),
             old_self.tentative_view().unwrap().create(main_table_index as int, key, item) is Ok,
