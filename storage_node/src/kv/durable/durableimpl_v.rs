@@ -3837,7 +3837,6 @@ verus! {
                     get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                        self.overall_metadata.item_table_size as nat),
         {
-            assume(false); // TODO @jay
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -7160,6 +7159,7 @@ verus! {
             }
         }
 
+        #[verifier::rlimit(10)]
         proof fn lemma_commit_log_precondition(
             self,
             crash_pred: spec_fn(Seq<u8>) -> bool,
