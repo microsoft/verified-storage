@@ -198,30 +198,43 @@ verus! {
         }
     }
 
+    pub open spec fn trigger_main_entry(i: int) -> bool
+    {
+        true
+    }
+
     pub open spec fn no_duplicate_item_indexes<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
         where 
             K: PmCopy
     {
-        forall |i: int, j: int| {
+        forall |i: int, j: int|
+            #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+        {
+            &&& trigger_main_entry(i)
+            &&& trigger_main_entry(j)
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
             &&& entries[i] is Some
             &&& entries[j] is Some
-        } ==> #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index()
+        } ==> entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
     }
 
     pub open spec fn no_duplicate_keys<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
         where 
             K: PmCopy 
     {
-        forall |i: int, j: int| {
+        forall |i: int, j: int|
+            #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+        {
+            &&& trigger_main_entry(i)
+            &&& trigger_main_entry(j)
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
             &&& entries[i] is Some
             &&& entries[j] is Some
-        } ==> #[trigger] entries[i].unwrap().key() != #[trigger] entries[j].unwrap().key()
+        } ==> entries[i].unwrap().key() != entries[j].unwrap().key()
     }
 
     pub proof fn lemma_metadata_fits<K>(k: int, num_keys: int, main_table_entry_size: int)

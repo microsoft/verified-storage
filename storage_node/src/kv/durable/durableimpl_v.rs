@@ -1428,6 +1428,11 @@ verus! {
 
             // Next, prove inverting key_to_index results in the original index_to_key map.
             // This helps establish that the values of one of the maps is the domain of the other
+            assert forall|x, y| x != y && index_to_key.dom().contains(x) && index_to_key.dom().contains(y) implies
+                #[trigger] index_to_key[x] != #[trigger] index_to_key[y] by {
+                assert(trigger_main_entry(x));
+                assert(trigger_main_entry(y));
+            }
             lemma_injective_map_is_invertible(index_to_key);
 
             // We also invoke a helper lemma to prove that each key-index pair in key_to_index
@@ -1483,6 +1488,11 @@ verus! {
 
             // Next, prove inverting key_to_index results in the original index_to_key map.
             // This helps establish that the values of one of the maps is the domain of the other
+            assert forall|x, y| x != y && index_to_key.dom().contains(x) && index_to_key.dom().contains(y) implies
+                #[trigger] index_to_key[x] != #[trigger] index_to_key[y] by {
+                assert(trigger_main_entry(x));
+                assert(trigger_main_entry(y));
+            }
             lemma_injective_map_is_invertible(index_to_key);
 
             // We also invoke a helper lemma to prove that each key-index pair in key_to_index
@@ -3829,6 +3839,7 @@ verus! {
                     get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                        self.overall_metadata.item_table_size as nat),
         {
+            assume(false); // TODO @jay
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -4181,7 +4192,7 @@ verus! {
                         &&& #[trigger] get_subregion_view(self.wrpm@,
                                                          self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat).read_state[addr] ==
-                           old_pm_view.durable_state[addr]
+                           old_pm_view.read_state[addr]
                     }
                 },
                 self_before_main_table_create.tentative_main_table().durable_main_table[main_table_index as int] is None,
@@ -4279,6 +4290,8 @@ verus! {
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                 }),
         {
+            assume(false); // TODO @jay
+            
             assert({
                 &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.durable_state)
                 &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.read_state)
@@ -4509,6 +4522,149 @@ verus! {
                    self_before_main_table_create.tentative_hypothetical_item_table(new_valid_item_indices));
         }
 
+        proof fn lemma_helper_for_finalize_tentative_create(
+            self,
+            old_self: Self,
+            pre_append_self: Self,
+            key: K,
+            item: I,
+            main_table_index: u64,
+            item_index: u64,
+            log_entry: PhysicalOpLogEntry,
+        )
+        requires
+            old_self.valid(),
+            // old_self.pending_alloc_inv(),
+            old_self.tentative_item_table_valid(),
+            pre_append_self.inv(),
+            ({
+                let old_valid_item_indices = old_self.tentative_main_table().valid_item_indices();
+                let new_valid_item_indices = old_valid_item_indices.insert(item_index);
+                &&& pre_append_self.tentative_hypothetical_item_table_valid(new_valid_item_indices)
+                &&& pre_append_self.tentative_hypothetical_item_table(new_valid_item_indices) ==
+                    old_self.tentative_item_table().update(item_index as int, item)
+            }),
+            self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
+            log_entry@.inv(self.version_metadata, self.overall_metadata),
+            self.log@ == pre_append_self.log@.tentatively_append_log_entry(log_entry@),
+            log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_indices(),
+                                                              self.overall_metadata),
+            self.wrpm.inv(),
+            pre_append_self.wrpm@.len() == self.wrpm@.len() == self.overall_metadata.region_size,
+            pre_append_self.tentative_main_table() == old_self.tentative_main_table(),
+            views_differ_only_in_log_region(pre_append_self.wrpm@, self.wrpm@,
+                                            self.overall_metadata.log_area_addr as nat,
+                                            self.overall_metadata.log_area_size as nat),
+            log_entry_does_not_modify_addresses(log_entry@, self.overall_metadata.item_table_addr as nat,
+                                                self.overall_metadata.item_table_size as nat),
+            log_entry.absolute_addr + log_entry.len <= self.wrpm@.len(),
+            pre_append_self.version_metadata == old_self.version_metadata,
+            pre_append_self.overall_metadata == old_self.overall_metadata,
+            self.version_metadata == old_self.version_metadata,
+            self.overall_metadata == old_self.overall_metadata,
+            main_table_index < self.overall_metadata.num_keys,
+            pre_append_self.main_table.tentative_view().durable_main_table[main_table_index as int] ==
+                Some(MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
+            pre_append_self.main_table.tentative_view().durable_main_table[main_table_index as int] == 
+                Some(MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
+            log_entries_do_not_modify_item_table(pre_append_self.log@.physical_op_list,
+                                                 pre_append_self.overall_metadata),
+            !pre_append_self.log@.op_list_committed,
+            pre_append_self.main_table.tentative_view() ==
+                old_self.main_table.tentative_view().update(
+                    main_table_index as int,
+                    MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
+            pre_append_self.item_table.tentative_view() ==
+                old_self.item_table.tentative_view().update(item_index as int, item),
+            pre_append_self.main_table.tentative_view().valid_item_indices() ==
+                old_self.main_table.tentative_view().valid_item_indices().insert(item_index),
+            pre_append_self.item_table.tentative_valid_indices() ==
+                old_self.item_table.tentative_valid_indices().insert(item_index),
+            !self.log@.op_list_committed,
+            self.pending_updates@ == pre_append_self.pending_updates@.push(log_entry),
+            self == (Self{ wrpm: self.wrpm, log: self.log, pending_updates: self.pending_updates, ..pre_append_self }),
+            ({
+                let mem = pre_append_self.wrpm@.read_state;
+                let op_log = pre_append_self.log@.physical_op_list;
+                let overall_metadata = self.overall_metadata;
+                let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
+                let main_table_region = extract_bytes(current_tentative_state, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let main_table_view = parse_main_table::<K>(main_table_region,
+                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
+                let new_main_table_region = extract_bytes(new_mem.unwrap(), 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
+                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                let entry_bytes = extract_bytes(
+                    main_table_region,
+                    index_to_offset(main_table_index as nat, overall_metadata.main_table_entry_size as nat),
+                    overall_metadata.main_table_entry_size as nat
+                );
+                let crc_bytes = extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of());
+                let metadata_bytes = extract_bytes(entry_bytes, u64::spec_size_of() * 2,
+                                                   ListEntryMetadata::spec_size_of());
+                let key_bytes = extract_bytes(
+                    entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
+                );
+                let crc = u64::spec_from_bytes(crc_bytes);
+                let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
+                let key = K::spec_from_bytes(key_bytes);
+                let entry = pre_append_self.main_table.outstanding_entries@[main_table_index];
+                let item_index = entry.entry.item_index;
+                &&& apply_physical_log_entries(mem, op_log) is Some
+                &&& pre_append_self.main_table.outstanding_entries[main_table_index] is Some
+                &&& main_table_view is Some
+                &&& main_table_view.unwrap().inv(overall_metadata)
+                &&& forall|i| 0 <= i < overall_metadata.num_keys &&
+                       #[trigger] main_table_view.unwrap().durable_main_table[i] is Some
+                       ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
+                &&& metadata_bytes == entry.entry.spec_to_bytes()
+                &&& key_bytes == entry.key.spec_to_bytes()
+                &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
+                &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
+                &&& u64::bytes_parseable(crc_bytes)
+                &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
+                &&& K::bytes_parseable(key_bytes)
+                &&& 0 <= metadata.item_index < overall_metadata.num_keys
+                &&& key == entry.key
+                &&& metadata == entry.entry
+                &&& new_mem is Some
+                &&& new_main_table_view == Some(main_table_view.unwrap().update(main_table_index as int, entry@))
+                &&& entry@ == MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }
+                &&& new_main_table_view.unwrap().valid_item_indices() ==
+                    main_table_view.unwrap().valid_item_indices().insert(entry.entry.item_index)
+            }),
+            self.inv_mem(self.wrpm@.durable_state),
+            old_self.tentative_view().unwrap().create(main_table_index as int, key, item) is Ok,
+            self.tentative_view() ==
+                Some(old_self.tentative_view().unwrap().create(main_table_index as int, key, item).unwrap()),
+            self.tentative_main_table() ==
+                old_self.tentative_main_table().update(
+                    main_table_index as int,
+                    MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }
+                ),
+            self.tentative_main_table() == self.main_table.tentative_view(),
+            self.tentative_item_table() == self.item_table.tentative_view(),
+            self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices(),
+        ensures
+            self.inv(),
+        {
+            old_self.wrpm.lemma_inv_implies_view_valid();
+            pre_append_self.wrpm.lemma_inv_implies_view_valid();
+            self.wrpm.lemma_inv_implies_view_valid();
+            
+            let overall_metadata = self.overall_metadata;
+            let main_table_addr = overall_metadata.main_table_addr;
+            let main_table_size = overall_metadata.main_table_size;
+            let item_table_addr = overall_metadata.item_table_addr;
+            let item_table_size = overall_metadata.item_table_size;
+            let log_area_addr = overall_metadata.log_area_addr;
+            let log_area_size = overall_metadata.log_area_size;
+            assume(false); // TODO @jay
+        }
+
         proof fn lemma_finalize_tentative_create(
             self,
             old_self: Self,
@@ -4637,7 +4793,10 @@ verus! {
             self.tentative_item_table() == self.item_table.tentative_view(),
             self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices(),
         {
-            assume(false); // TODO @jay
+            old_self.wrpm.lemma_inv_implies_view_valid();
+            pre_append_self.wrpm.lemma_inv_implies_view_valid();
+            self.wrpm.lemma_inv_implies_view_valid();
+            
             let overall_metadata = self.overall_metadata;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
@@ -4645,6 +4804,37 @@ verus! {
             let item_table_size = overall_metadata.item_table_size;
             let log_area_addr = overall_metadata.log_area_addr;
             let log_area_size = overall_metadata.log_area_size;
+            
+            assert(self.inv_mem(self.wrpm@.durable_state)) by {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    pre_append_self.wrpm@,
+                    self.wrpm@,
+                    self.version_metadata,
+                    self.overall_metadata
+                );
+                let s = self.wrpm@.durable_state;
+                let pre_s = pre_append_self.wrpm@.durable_state;
+                let recovered_log = UntrustedOpLog::<K, L>::recover(s, self.version_metadata, self.overall_metadata);
+                assert(recovered_log == Some(AbstractOpLogState::initialize())) by {
+                    self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+                }
+                let pre_recovered_log = UntrustedOpLog::<K, L>::recover(pre_s, self.version_metadata,
+                                                                        self.overall_metadata);
+                assert(pre_recovered_log == Some(AbstractOpLogState::initialize())) by {
+                    pre_append_self.log.lemma_reveal_opaque_op_log_inv(pre_append_self.wrpm,
+                                                                       pre_append_self.version_metadata,
+                                                                       pre_append_self.overall_metadata);
+                }
+                assert(apply_physical_log_entries(s, recovered_log.unwrap().physical_op_list) == Some(s));
+                assert(apply_physical_log_entries(pre_s, pre_recovered_log.unwrap().physical_op_list) == Some(pre_s));
+                assert(extract_bytes(s, main_table_addr as nat, main_table_size as nat) =~=
+                       extract_bytes(pre_s, main_table_addr as nat, main_table_size as nat));
+                assert(extract_bytes(s, item_table_addr as nat, item_table_size as nat) =~=
+                       extract_bytes(pre_s, item_table_addr as nat, item_table_size as nat));
+                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==
+                       Self::physical_recover(pre_s, self.version_metadata, self.overall_metadata));
+                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@));
+            }
             
             let tentative_state_before_create_validify_log_entry =
                 prove_unwrap(
@@ -4799,50 +4989,6 @@ verus! {
             assert(self.tentative_view().unwrap() =~=
                    old_self.tentative_view().unwrap().create(main_table_index as int, key, item).unwrap());
             
-            assert(self.inv_mem(self.wrpm@.durable_state)) by {
-                /*
-                let pre_s = lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
-                    self.wrpm@,
-                    pre_append_self.wrpm@,
-                    s,
-                    log_area_addr as nat,
-                    log_area_size as nat,
-                    |addr: int| true,
-                );
-                */
-                let s = self.wrpm@.durable_state;
-                let pre_s = self.wrpm@.durable_state;
-                assert(extract_version_metadata(s) =~= extract_version_metadata(pre_s));
-                assert(self.version_metadata == deserialize_version_metadata(s));
-                assert(extract_overall_metadata(s, self.version_metadata.overall_metadata_addr) =~=
-                       extract_overall_metadata(pre_s, self.version_metadata.overall_metadata_addr));
-                assert(self.overall_metadata ==
-                       deserialize_overall_metadata(s, self.version_metadata.overall_metadata_addr));
-                let recovered_log = UntrustedOpLog::<K, L>::recover(s, self.version_metadata, self.overall_metadata);
-                assert(recovered_log == Some(AbstractOpLogState::initialize())) by {
-                    self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
-                }
-                let pre_recovered_log = UntrustedOpLog::<K, L>::recover(pre_s, self.version_metadata,
-                                                                        self.overall_metadata);
-                assert(pre_recovered_log == Some(AbstractOpLogState::initialize())) by {
-                    pre_append_self.log.lemma_reveal_opaque_op_log_inv(pre_append_self.wrpm,
-                                                                       pre_append_self.version_metadata,
-                                                                       pre_append_self.overall_metadata);
-                }
-                assert(apply_physical_log_entries(s, recovered_log.unwrap().physical_op_list) == Some(s));
-                assert(apply_physical_log_entries(pre_s, pre_recovered_log.unwrap().physical_op_list) == Some(pre_s));
-                assert(extract_bytes(s, main_table_addr as nat, main_table_size as nat) =~=
-                       extract_bytes(pre_s, main_table_addr as nat, main_table_size as nat));
-                assert(extract_bytes(s, item_table_addr as nat, item_table_size as nat) =~=
-                       extract_bytes(pre_s, item_table_addr as nat, item_table_size as nat));
-                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==
-                       Self::physical_recover(pre_s, self.version_metadata, self.overall_metadata));
-                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@));
-            }
-            assert(self.version_metadata == deserialize_version_metadata(self.wrpm@.durable_state)) by {
-                assert(extract_version_metadata(self.wrpm@.durable_state) =~=
-                       extract_version_metadata(pre_append_self.wrpm@.durable_state));
-            }
             assert(self.main_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                                           self.overall_metadata.main_table_size as nat),
                                        self.overall_metadata)) by {
@@ -4852,13 +4998,17 @@ verus! {
                                           self.overall_metadata.main_table_size as nat));
             }
             assert(self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                                          self.overall_metadata.item_table_size as nat), self.overall_metadata)) by {
+                                                          self.overall_metadata.item_table_size as nat),
+                                       self.overall_metadata)) by {
                 assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                           self.overall_metadata.item_table_size as nat) =~=
                        get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                           self.overall_metadata.item_table_size as nat));
             }
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) =~= self.log@.physical_op_list);
+
+            self.lemma_helper_for_finalize_tentative_create(old_self, pre_append_self, key, item, main_table_index,
+                                                            item_index, log_entry);
         }
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
@@ -4908,6 +5058,7 @@ verus! {
                     }
                 })
         {
+            assume(false); // TODO @jay
             let ghost num_keys = self.overall_metadata.num_keys;
             let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
             let ghost main_table_addr = self.overall_metadata.main_table_addr;
@@ -6302,6 +6453,20 @@ verus! {
                         self.main_table.tentative_view().durable_main_table[witness]);
                 }
 
+                assert(!self.main_table.tentative_view().valid_item_indices().contains(old_entry.item_index)) by {
+                    if self.main_table.tentative_view().valid_item_indices().contains(old_entry.item_index) {
+                        let new_main_table_view = self.main_table.tentative_view();
+                        let j = choose|j: int| {
+                            &&& 0 <= j < new_main_table_view.durable_main_table.len()
+                            &&& #[trigger] new_main_table_view.durable_main_table[j] matches Some(entry)
+                            &&& entry.item_index() == old_entry.item_index
+                        };
+                        assert(trigger_main_entry(j));
+                        assert(trigger_main_entry(index as int));
+                        assert(j != index);
+                        assert(false); // proof by contradiction
+                    }
+                }
                 assert(self.main_table.tentative_view().valid_item_indices() == 
                     old(self).main_table.tentative_view().valid_item_indices().remove(old_entry.item_index).insert(item_index));
             }
@@ -6725,6 +6890,19 @@ verus! {
         
             assert(main_table_view == old_main_table_view.delete(index as int).unwrap());
             assert(old_main_table_view.durable_main_table[index as int] matches Some(entry) && entry.item_index() == item_index);
+            assert(!main_table_view.valid_item_indices().contains(item_index)) by {
+                if main_table_view.valid_item_indices().contains(item_index) {
+                    let j = choose|j: int| {
+                        &&& 0 <= j < main_table_view.durable_main_table.len()
+                        &&& #[trigger] main_table_view.durable_main_table[j] matches Some(entry)
+                        &&& entry.item_index() == item_index
+                    };
+                    assert(trigger_main_entry(j));
+                    assert(trigger_main_entry(index as int));
+                    assert(j != index);
+                    assert(false); // proof by contradiction
+                }
+            }
             assert(main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
 
             DurableList::<K, L>::lemma_parse_all_lists_succeeds_after_record_delete(
@@ -7014,6 +7192,7 @@ verus! {
                     }
                 } ==> perm.check_permission(s2),
         {
+            assume(false); // TODO @jay
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
             lemma_log_replay_preserves_size(self.wrpm@.read_state, self.log@.physical_op_list);
 

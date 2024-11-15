@@ -79,11 +79,18 @@ verus! {
 
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
-            &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-                    &&& self.durable_main_table[i as int] is Some
-                    &&& self.durable_main_table[j as int] is Some
-                } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
-                    #[trigger] self.durable_main_table[j as int].unwrap().item_index()
+            &&& forall |i: int, j: int|
+               #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+               {
+                   &&& trigger_main_entry(i)
+                   &&& trigger_main_entry(j)
+                   &&& 0 <= i < overall_metadata.num_keys
+                   &&& 0 <= j < overall_metadata.num_keys
+                   &&& i != j
+                   &&& self.durable_main_table[i as int] is Some
+                   &&& self.durable_main_table[j as int] is Some
+               } ==> self.durable_main_table[i as int].unwrap().item_index() != 
+                     self.durable_main_table[j as int].unwrap().item_index()
         }
 
         pub open spec fn len(self) -> nat
@@ -1317,9 +1324,15 @@ verus! {
                     metadata_allocator@.no_duplicates(),
                     // no duplicate item indexes in the main table
                     // TODO: could/should this go in `parse_main_table` instead?
-                    forall |i: nat, j: nat| i < j < index ==> {
-                        &&& #[trigger] table.durable_main_table[i as int] is Some
-                        &&& #[trigger] table.durable_main_table[j as int] is Some
+                    forall |i: int, j: int| #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+                    {
+                        &&& trigger_main_entry(i)
+                        &&& trigger_main_entry(j)
+                        &&& 0 <= i < index
+                        &&& 0 <= j < index
+                        &&& i != j
+                        &&& table.durable_main_table[i as int] is Some
+                        &&& table.durable_main_table[j as int] is Some
                     } ==> table.durable_main_table[i as int].unwrap().item_index() != 
                             table.durable_main_table[j as int].unwrap().item_index()
             {
@@ -1518,6 +1531,8 @@ verus! {
                                 let valid_entry = table.durable_main_table[table_index as int].unwrap();
                                 assert(valid_entry.key() == cur_key);
                                 assert(key == table.durable_main_table[index as int].unwrap().key());
+                                assert(trigger_main_entry(index as int));
+                                assert(trigger_main_entry(table_index as int));
                             }
                         }
 
@@ -2059,14 +2074,18 @@ verus! {
                 let old_entries = old(self).tentative_view().durable_main_table;
                 let entries = self.tentative_view().durable_main_table;
                 let new_entry = OutstandingEntry { status: EntryStatus::Created, entry, key };
-                assert forall |i: int, j: int| {
+                assert forall |i: int, j: int|
+                       #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+                       {
+                           &&& trigger_main_entry(i)
+                           &&& trigger_main_entry(j)
                            &&& 0 <= i < entries.len()
                            &&& 0 <= j < entries.len()
                            &&& i != j
                            &&& entries[i] is Some
                            &&& entries[j] is Some
                        } implies
-                       #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index() by {
+                       entries[i].unwrap().item_index() != entries[j].unwrap().item_index() by {
                     assert(i != free_index ==> entries[i] == old_entries[i]);
                     assert(j != free_index ==> entries[j] == old_entries[j]);
                     assert(i != free_index ==> old_entries[i].unwrap().item_index() != entry.item_index);
@@ -2245,6 +2264,8 @@ verus! {
                     &&& #[trigger] old(self).tentative_view().durable_main_table[i] is Some
                 } implies old(self).tentative_view().durable_main_table[i].unwrap().entry.item_index !=
                           old_item_index by {
+                    assert(trigger_main_entry(i));
+                    assert(trigger_main_entry(index as int));
                     assert(old(self).tentative_view().durable_main_table[i as int].unwrap().item_index() !=
                            old(self).tentative_view().durable_main_table[index as int].unwrap().item_index());
                 }
@@ -2606,12 +2627,15 @@ verus! {
                 assert(old_entries[index as int] is None);
 
                 assert(no_duplicate_item_indexes(entries)) by {
-                    assert forall|i, j| {
+                    assert forall|i, j| #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+                    {
+                        &&& trigger_main_entry(i)
+                        &&& trigger_main_entry(j)
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
-                        &&& #[trigger] entries[i] is Some
-                        &&& #[trigger] entries[j] is Some
+                        &&& entries[i] is Some
+                        &&& entries[j] is Some
                     } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index() by {
                         assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
                         assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
@@ -2619,12 +2643,15 @@ verus! {
                 }
 
                 assert(no_duplicate_keys(entries)) by {
-                    assert forall|i, j| {
+                    assert forall|i, j| #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+                    {
+                        &&& trigger_main_entry(i)
+                        &&& trigger_main_entry(j)
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
-                        &&& #[trigger] entries[i] is Some
-                        &&& #[trigger] entries[j] is Some
+                        &&& entries[i] is Some
+                        &&& entries[j] is Some
                     } implies entries[i].unwrap().key() != entries[j].unwrap().key() by {
                         assert(i == index ==> old_entries[j].unwrap().key() != entry.key);
                         assert(j == index ==> old_entries[i].unwrap().key() != entry.key);
@@ -2839,12 +2866,15 @@ verus! {
                                                 overall_metadata.main_table_entry_size as nat);
 
                 assert(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)) by {
-                    assert forall|i, j| {
+                    assert forall|i, j| #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+                    {
+                        &&& trigger_main_entry(i)
+                        &&& trigger_main_entry(j)
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
-                        &&& #[trigger] entries[i] is Some
-                        &&& #[trigger] entries[j] is Some
+                        &&& entries[i] is Some
+                        &&& entries[j] is Some
                     } implies {
                         &&& entries[i].unwrap().item_index() != entries[j].unwrap().item_index() 
                         &&& entries[i].unwrap().key() != entries[j].unwrap().key() 
@@ -2901,23 +2931,29 @@ verus! {
                             new_entries[i].unwrap().item_index() == new_item_index
                 }
             ensures 
-                forall |i: int, j: int| {
+                forall |i: int, j: int| #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+                {
+                    &&& trigger_main_entry(i)
+                    &&& trigger_main_entry(j)
                     &&& 0 <= i < new_entries.len()
                     &&& 0 <= j < new_entries.len()
                     &&& i != j
-                    &&& #[trigger] new_entries[i] is Some
-                    &&& #[trigger] new_entries[j] is Some
+                    &&& new_entries[i] is Some
+                    &&& new_entries[j] is Some
                 } ==> {
                     &&& new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
                     &&& new_entries[i].unwrap().key() != new_entries[j].unwrap().key()
                 } 
         {
-            assert forall |i: int, j: int| {
+            assert forall |i: int, j: int| #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+            {
+                &&& trigger_main_entry(i)
+                &&& trigger_main_entry(j)
                 &&& 0 <= i < new_entries.len()
                 &&& 0 <= j < new_entries.len()
                 &&& i != j
-                &&& #[trigger] new_entries[i] is Some
-                &&& #[trigger] new_entries[j] is Some
+                &&& new_entries[i] is Some
+                &&& new_entries[j] is Some
             } implies {
                 new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
             } by {
@@ -3132,9 +3168,10 @@ verus! {
                 new_main_table_view.durable_main_table[idx] == updated_table_view.durable_main_table[idx]);
             assert(new_main_table_view == updated_table_view);
 
+
             let old_item_index = old_main_table_view.durable_main_table[index as int].unwrap().item_index();
             assert(new_main_table_view.valid_item_indices() =~= 
-                old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)) 
+                   old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)) 
             by {
                 // all indexes besides the one we are updating are unchanged
                 assert(forall |i: int| 0 <= i < updated_table_view.durable_main_table.len() && i != index ==> 
@@ -3145,6 +3182,21 @@ verus! {
                     &&& #[trigger] updated_table_view.durable_main_table[index as int] matches Some(entry)
                     &&& entry.item_index() == item_index
                 });
+                assert(old_item_index != item_index);
+
+                assert(!new_main_table_view.valid_item_indices().contains(old_item_index)) by {
+                    if new_main_table_view.valid_item_indices().contains(old_item_index) {
+                        let j = choose|j: int| {
+                            &&& 0 <= j < new_main_table_view.durable_main_table.len() 
+                            &&& #[trigger] new_main_table_view.durable_main_table[j] matches Some(entry)
+                            &&& entry.item_index() == old_item_index
+                        };
+                        assert(trigger_main_entry(j));
+                        assert(trigger_main_entry(index as int));
+                        assert(j != index);
+                        assert(false); // proof by contradiction
+                    }
+                }
             }
 
             lemma_log_entry_does_not_modify_free_main_table_entries(
