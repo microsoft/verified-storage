@@ -478,7 +478,10 @@ verus! {
             extracted_regions_match(s1, s2, overall_metadata),
             deserialize_version_metadata(s1) == deserialize_version_metadata(s2),
             deserialize_overall_metadata(s1, version_metadata.overall_metadata_addr) == 
-                deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr)
+                deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr),
+            deserialize_version_crc(s1) == deserialize_version_crc(s2),
+            deserialize_overall_crc(s1, version_metadata.overall_metadata_addr) ==
+                deserialize_overall_crc(s2, version_metadata.overall_metadata_addr),
     {
         lemma_establish_extract_bytes_equivalence(s1, s2);
     }

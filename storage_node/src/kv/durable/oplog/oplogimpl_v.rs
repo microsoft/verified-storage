@@ -48,7 +48,6 @@ verus! {
     // been cleared.
     pub struct AbstractOpLogState
     {
-        // pub logical_op_list: Seq<LogicalOpLogEntry<L>>,
         pub physical_op_list: Seq<AbstractPhysicalOpLogEntry>,
         pub op_list_committed: bool,
     }
@@ -57,7 +56,6 @@ verus! {
     {
         pub open spec fn initialize() -> Self {
             Self {
-                // logical_op_list: Seq::empty(),
                 physical_op_list: Seq::empty(),
                 op_list_committed: false,
             }
@@ -73,11 +71,9 @@ verus! {
 
         pub open spec fn tentatively_append_log_entry(
             self,
-            // logical_log_entry: LogicalOpLogEntry<L>,
             physical_log_entry: AbstractPhysicalOpLogEntry,
         ) -> Self {
             Self {
-                // logical_op_list: self.logical_op_list.push(logical_log_entry),
                 physical_op_list: self.physical_op_list.push(physical_log_entry),
                 op_list_committed: false
             }
@@ -89,7 +85,6 @@ verus! {
                 self
             } else {
                 Self {
-                    // logical_op_list: self.logical_op_list,
                     physical_op_list: self.physical_op_list,
                     op_list_committed: true,
                 }
@@ -103,7 +98,6 @@ verus! {
                 Err(())
             } else {
                 Ok(Self {
-                    // logical_op_list: Seq::empty(),
                     physical_op_list: Seq::empty(),
                     op_list_committed: false,
                 })
@@ -1446,7 +1440,8 @@ verus! {
                 Some(AbstractOpLogState::initialize()),
             self.inv(log_wrpm@, version_metadata, overall_metadata), // can we maintain this here?
             views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
-                                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                                            overall_metadata.log_area_addr as nat,
+                                            overall_metadata.log_area_size as nat),
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
@@ -1521,7 +1516,6 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                let ghost wrpm_view_before_abort = log_wrpm@;
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
                 match e {
                     LogErr::InsufficientSpaceForAppend{available_space} =>
@@ -1580,7 +1574,6 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                let ghost wrpm_view_before_abort = log_wrpm@;
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
                 match e {
                     LogErr::InsufficientSpaceForAppend{available_space} =>
@@ -1920,6 +1913,7 @@ verus! {
                 Some(AbstractOpLogState::initialize()),
             views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+            perm.check_permission(log_wrpm@.durable_state),
             match result {
                 Ok(()) => {
                     Ok::<_, ()>(self@) == old(self)@.clear_log()
@@ -1965,6 +1959,7 @@ verus! {
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().flatten() =~= self.log@.pending);
+
         Ok(())
     }
 }

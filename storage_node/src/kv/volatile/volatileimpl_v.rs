@@ -14,8 +14,6 @@ use crate::pmem::pmcopy_t::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-// TODO @hayley: deal with Clone
-
 verus! {
 
 broadcast use vstd::std_specs::hash::group_hash_axioms;
@@ -416,8 +414,7 @@ where
         &mut self,
         key: &K
     ) -> (result: Result<u64, KvError<K>>)
-    {
-        
+    {   
         assert(self@.valid()) by {
             self.lemma_valid_implies_view_valid();
         }

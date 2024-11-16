@@ -188,8 +188,9 @@ verus! {
                 None
             }
             else {
-                let entries = parse_main_entries(mem, num_keys as nat, main_table_entry_size as nat);
-                if no_duplicate_item_indexes(entries) && no_duplicate_keys(entries) {
+                let entries = parse_main_entries(mem, num_keys as nat, main_table_entry_size as nat);                
+                // no duplicates
+                if reverse_item_mapping_exists(entries) && reverse_key_mapping_exists(entries) {
                     Some(MainTableView::<K>::new(entries))
                 } else {
                     None
@@ -201,6 +202,47 @@ verus! {
     pub open spec fn trigger_main_entry(i: int) -> bool
     {
         true
+    }
+
+    // TODO: make these functions more general?
+    // The reverse mapping-related spec fns and proofs help prove that the main table has no
+    // duplicate keys or item indexes without instantiating a lot of expensive triggers
+    pub open spec fn reverse_item_mapping<K>(entries: Seq<Option<MainTableViewEntry<K>>>, reverse_mapping: spec_fn(u64) -> int) -> bool 
+    {
+        forall |i: int| 0 <= i < entries.len() && entries[i] is Some ==> 
+            i == reverse_mapping(#[trigger] entries[i].unwrap().item_index())
+    }
+
+    pub open spec fn reverse_key_mapping<K>(entries: Seq<Option<MainTableViewEntry<K>>>, reverse_mapping: spec_fn(K) -> int) -> bool 
+    {
+        forall |i: int| 0 <= i < entries.len() && entries[i] is Some ==> 
+            i == reverse_mapping(#[trigger] entries[i].unwrap().key())
+    }
+
+    pub open spec fn reverse_item_mapping_exists<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
+        where 
+            K: PmCopy
+    {
+        exists |f: spec_fn(u64) -> int| reverse_item_mapping(entries, f)
+    }
+
+    pub open spec fn reverse_key_mapping_exists<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
+    where 
+        K: PmCopy
+    {
+        exists |f: spec_fn(K) -> int| reverse_key_mapping(entries, f)
+    }
+
+    spec fn no_dup_keys_map<K>(entries: Seq<Option<MainTableViewEntry<K>>>, f: spec_fn(K) -> int) -> bool 
+    {
+        forall |i| 0 <= i < entries.len() && entries[i] is Some ==> 
+            f(#[trigger] entries[i].unwrap().key()) == i
+    }
+
+    spec fn no_dup_item_indexes_map<K>(entries: Seq<Option<MainTableViewEntry<K>>>, f: spec_fn(u64) -> int) -> bool 
+    {
+        forall |i| 0 <= i < entries.len() && entries[i] is Some ==> 
+            f(#[trigger] entries[i].unwrap().item_index()) == i
     }
 
     pub open spec fn no_duplicate_item_indexes<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
@@ -220,6 +262,82 @@ verus! {
         } ==> entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
     }
 
+    pub proof fn lemma_reverse_item_mapping_implies_no_duplicate_item_indexes<K>(entries: Seq<Option<MainTableViewEntry<K>>>)
+        where 
+            K: PmCopy
+        requires 
+            reverse_item_mapping_exists(entries)
+        ensures 
+            no_duplicate_item_indexes(entries)
+    {}
+
+    pub proof fn lemma_reverse_key_mapping_implies_no_duplicate_keys<K>(entries: Seq<Option<MainTableViewEntry<K>>>)
+        where 
+            K: PmCopy
+        requires 
+            reverse_key_mapping_exists(entries)
+        ensures 
+            no_duplicate_keys(entries)
+    {}
+
+    pub proof fn lemma_no_duplicate_keys_implies_reverse_key_mapping_exists<K>(entries: Seq<Option<MainTableViewEntry<K>>>)
+        where 
+            K: PmCopy
+        requires 
+            no_duplicate_keys(entries)
+        ensures 
+            reverse_key_mapping_exists(entries)
+    {
+        let f = |k: K| choose |i: int| 0 <= i < entries.len() && entries[i] is Some && #[trigger] entries[i].unwrap().key() == k;
+        assert forall |i| 0 <= i < entries.len() && entries[i] is Some implies
+            f(#[trigger] entries[i].unwrap().key()) == i by {
+            assert(trigger_main_entry(f(entries[i].unwrap().key())));
+            assert(trigger_main_entry(i));
+        }
+        assert(no_dup_keys_map(entries, f));
+        assert(reverse_key_mapping(entries, f));
+    }
+
+    pub proof fn lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists<K>(entries: Seq<Option<MainTableViewEntry<K>>>)
+        where 
+            K: PmCopy
+        requires 
+            no_duplicate_item_indexes(entries)
+        ensures 
+            reverse_item_mapping_exists(entries)
+    {
+        let f = |e: u64| choose |i: int| 0 <= i < entries.len() && entries[i] is Some && #[trigger] entries[i].unwrap().item_index() == e;
+        assert forall |i| 0 <= i < entries.len() && entries[i] is Some implies
+            f(#[trigger] entries[i].unwrap().item_index()) == i by {
+            assert(trigger_main_entry(f(entries[i].unwrap().item_index())));
+            assert(trigger_main_entry(i));
+        }
+        assert(no_dup_item_indexes_map(entries, f));
+        assert(reverse_item_mapping(entries, f));
+    }
+
+    pub proof fn lemma_no_dup_iff_reverse_mappings_exist<K>(entries: Seq<Option<MainTableViewEntry<K>>>)
+        where 
+            K: PmCopy,
+        ensures 
+            reverse_item_mapping_exists(entries) <==> no_duplicate_item_indexes(entries),
+            reverse_key_mapping_exists(entries) <==> no_duplicate_keys(entries),
+    {
+        if reverse_item_mapping_exists(entries) {
+            lemma_reverse_item_mapping_implies_no_duplicate_item_indexes(entries);
+        }
+        if no_duplicate_item_indexes(entries) {
+            lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(entries);
+        }
+        if reverse_key_mapping_exists(entries) {
+            lemma_reverse_key_mapping_implies_no_duplicate_keys(entries);
+        }
+        if no_duplicate_keys(entries) {
+            lemma_no_duplicate_keys_implies_reverse_key_mapping_exists(entries);
+        }
+    }
+
+    // TODO: replace no duplicate key/item spec fns with reverse mapping versions
     pub open spec fn no_duplicate_keys<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
         where 
             K: PmCopy 
@@ -557,7 +675,7 @@ verus! {
                        #[trigger] address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, main_table_entry_size),
         ensures
             parse_main_table::<K>(mem1, num_keys, main_table_entry_size) ==
-            parse_main_table::<K>(mem2, num_keys, main_table_entry_size)
+                parse_main_table::<K>(mem2, num_keys, main_table_entry_size)
     {
         if mem1.len() < num_keys * main_table_entry_size {
             return;
@@ -596,13 +714,33 @@ verus! {
             }
             (None, Some(table2)) => {
                 let entries = parse_main_entries::<K>(mem1, num_keys as nat, main_table_entry_size as nat);
-                assert(!(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)));
+                assert(!(reverse_item_mapping_exists(entries) && reverse_key_mapping_exists(entries)));
+                if !reverse_item_mapping_exists(entries) {
+                    assert(!no_duplicate_item_indexes(entries)) by {
+                        lemma_no_dup_iff_reverse_mappings_exist(entries);
+                    }
+                } else {
+                    assert(!reverse_key_mapping_exists(entries));
+                    assert(!no_duplicate_keys(entries)) by {
+                        lemma_no_dup_iff_reverse_mappings_exist(entries);
+                    }
+                }
                 assert(forall |i: int| 0 <= i < num_keys ==>
                     #[trigger] entries[i] == table2.durable_main_table[i]);
             }
             (Some(table1), None) => {
                 let entries = parse_main_entries::<K>(mem2, num_keys as nat, main_table_entry_size as nat);
-                assert(!(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)));
+                assert(!(reverse_item_mapping_exists(entries) && reverse_key_mapping_exists(entries)));
+                if !reverse_item_mapping_exists(entries) {
+                    assert(!no_duplicate_item_indexes(entries)) by {
+                        lemma_no_dup_iff_reverse_mappings_exist(entries);
+                    }
+                } else {
+                    assert(!reverse_key_mapping_exists(entries));
+                    assert(!no_duplicate_keys(entries)) by {
+                        lemma_no_dup_iff_reverse_mappings_exist(entries);
+                    }
+                }
                 assert(forall |i: int| 0 <= i < num_keys ==>
                     #[trigger] entries[i] == table1.durable_main_table[i]);
             }
@@ -730,6 +868,7 @@ verus! {
             });
             assert(false);
         }
+        lemma_no_dup_iff_reverse_mappings_exist(entries2);
     }
 
 
