@@ -33,6 +33,8 @@ public class StatusThread extends Thread {
   private final CountDownLatch completeLatch;
   // Counts down each of the clients initializting.
   private final CountDownLatch initLatch;
+  // Counts down each of the clients cleaning up.
+  private final CountDownLatch cleanupLatch;
 
   // Stores the measurements for the run
   private final Measurements measurements;
@@ -66,14 +68,17 @@ public class StatusThread extends Thread {
    *                              as they complete.
    * @param initLatch             The latch that each client thread will {@link CountDownLatch#countDown()}
    *                              as they finish initalizing.
+   * @param cleanupLatch          The latch that each client thread will {@link CountDownLatch#countDown()}
+   *                              when they are ready to clean up.
    * @param clients               The clients to collect metrics from.
    * @param label                 The label for the status.
    * @param standardstatus        If true the status is printed to stdout in addition to stderr.
    * @param statusIntervalSeconds The number of seconds between status updates.
    */
-  public StatusThread(CountDownLatch completeLatch, CountDownLatch initLatch, List<ClientThread> clients,
-                      String label, boolean standardstatus, int statusIntervalSeconds) {
-    this(completeLatch, initLatch, clients, label, standardstatus, statusIntervalSeconds, false);
+  public StatusThread(CountDownLatch completeLatch, CountDownLatch initLatch, CountDownLatch cleanupLatch,
+                      List<ClientThread> clients, String label, boolean standardstatus, 
+                      int statusIntervalSeconds) {
+    this(completeLatch, initLatch, cleanupLatch, clients, label, standardstatus, statusIntervalSeconds, false);
   }
 
   /**
@@ -83,17 +88,21 @@ public class StatusThread extends Thread {
    *                              as they complete.
    * @param initLatch             The latch that each client thread will {@link CountDownLatch#countDown()}
    *                              as they finish initalizing.
+   * @param cleanupLatch          The latch that each client thread will {@link CountDownLatch#countDown()}
+   *                              when they are ready to clean up.
    * @param clients               The clients to collect metrics from.
    * @param label                 The label for the status.
    * @param standardstatus        If true the status is printed to stdout in addition to stderr.
    * @param statusIntervalSeconds The number of seconds between status updates.
    * @param trackJVMStats         Whether or not to track JVM stats.
    */
-  public StatusThread(CountDownLatch completeLatch, CountDownLatch initLatch, List<ClientThread> clients,
+  public StatusThread(CountDownLatch completeLatch, CountDownLatch initLatch, 
+                      CountDownLatch cleanupLatch, List<ClientThread> clients,
                       String label, boolean standardstatus, int statusIntervalSeconds,
                       boolean trackJVMStats) {
     this.completeLatch = completeLatch;
     this.initLatch = initLatch;
+    this.cleanupLatch = cleanupLatch;
     this.clients = clients;
     this.label = label;
     this.standardstatus = standardstatus;

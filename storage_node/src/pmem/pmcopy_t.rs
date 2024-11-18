@@ -23,7 +23,7 @@
 //! a type is safe to copy from PM and defines some methods and 
 //! axioms for dealing with such structures.
 
-#![verus::trusted]
+// #![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;

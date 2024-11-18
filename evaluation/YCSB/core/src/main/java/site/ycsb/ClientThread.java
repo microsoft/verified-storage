@@ -31,6 +31,8 @@ public class ClientThread implements Runnable {
   private final CountDownLatch completeLatch;
   // Counts down each of the clients initializing.
   private final CountDownLatch initLatch;
+  // Counts down each of the clients cleaning up.
+  private final CountDownLatch cleanupLatch; 
 
   private static boolean spinSleep;
   private DB db;
@@ -58,9 +60,11 @@ public class ClientThread implements Runnable {
    * @param targetperthreadperms target number of operations per thread per ms
    * @param completeLatch        The latch tracking the completion of all clients.
    * @param initLatch            The latch tracking completion of client initialization
+   * @param cleanupLatch         The latch tracking when each thread is ready to clean up.
    */
   public ClientThread(DB db, boolean dotransactions, Workload workload, Properties props, int opcount,
-                      double targetperthreadperms, CountDownLatch completeLatch, CountDownLatch initLatch) {
+                      double targetperthreadperms, CountDownLatch completeLatch, CountDownLatch initLatch,
+                      CountDownLatch cleanupLatch) {
     this.db = db;
     this.dotransactions = dotransactions;
     this.workload = workload;
@@ -75,6 +79,7 @@ public class ClientThread implements Runnable {
     spinSleep = Boolean.valueOf(this.props.getProperty("spin.sleep", "false"));
     this.completeLatch = completeLatch;
     this.initLatch = initLatch;
+    this.cleanupLatch = cleanupLatch;
   }
 
   public void setThreadId(final int threadId) {

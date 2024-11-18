@@ -6,12 +6,19 @@ import site.ycsb.DB;
 import site.ycsb.DBException;
 import site.ycsb.Status;
 
+import net.jcip.annotations.GuardedBy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -25,26 +32,42 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class CapybaraKVClient extends DB {
 
   static final String PROPERTY_CONFIG_FILE = "capybarakv.configfile";
-  private static String configFile = null;
-
-  private CapybaraKV kv;  
+  @GuardedBy("CapybaraKVClient.class") private static String configFile = null;
   
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKVClient.class);
+
+  // maps shard IDs to the corresponding KV
+  // TODO: a more idiomatic approach would be to have a thread pool where each 
+  // thread handles one KV, but that might interact strangely with 
+  // the incoming YCSB-created threads, so let's try a slightly simpler approach first.
+  // TODO: should these be volatile? final?
+  private static volatile ConcurrentMap<Long, CapybaraKV> kvMap = new ConcurrentHashMap<>();
+  private static volatile ConcurrentMap<Long, Lock> kvLockMap = new ConcurrentHashMap<>();
+
+  private static AtomicInteger counter = new AtomicInteger(0);
 
   @Override
   public void init() throws DBException {
     System.err.println("Init CapybaraKV");
-    configFile = getProperties().getProperty(PROPERTY_CONFIG_FILE);
-    if (configFile == null) {
-      String message = "Please provide a config file.";
-      throw new DBException(message);
+    synchronized(CapybaraKVClient.class) {
+      if (configFile == null) {
+        configFile = getProperties().getProperty(PROPERTY_CONFIG_FILE);
+        if (configFile == null) {
+          String message = "Please provide a config file.";
+          throw new DBException(message);
+        }  
+      }
     }
     initCapybaraKV();
     System.err.println("Done init CapybaraKV");
   }
 
   private void initCapybaraKV() throws DBException {
-    kv = new CapybaraKV(configFile);
+    long id = Long.valueOf(counter.getAndAdd(1));
+    CapybaraKV kv = new CapybaraKV(configFile, id);
+    Lock lock = new ReentrantLock();
+    kvMap.put(id, kv);
+    kvLockMap.put(id, lock);
   }
 
   @Override
@@ -60,8 +83,13 @@ public class CapybaraKVClient extends DB {
       Map<String, ByteIterator> values) {
     try {
       byte[] serializedValues = serializeValues(values);
+      long id = getShardId(key);
+      CapybaraKV kv = kvMap.get(id);
+      Lock lock = kvLockMap.get(id);
+      lock.lock();
       kv.insert(table, key, serializedValues);
       kv.commit();
+      lock.unlock();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -74,6 +102,11 @@ public class CapybaraKVClient extends DB {
   public Status update(String table, String key,
       Map<String, ByteIterator> values) {
     try {
+      long id = getShardId(key);
+      CapybaraKV kv = kvMap.get(id);
+      Lock lock = kvLockMap.get(id);
+
+      lock.lock();
       // read the current value at this key
       byte[] currentValue = kv.read(table, key);
       final Map<String, ByteIterator> result = new HashMap<>();
@@ -84,6 +117,7 @@ public class CapybaraKVClient extends DB {
       byte[] updateBytes = serializeValues(result);
       kv.update(table, key, updateBytes);
       kv.commit();
+      lock.unlock();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -102,8 +136,13 @@ public class CapybaraKVClient extends DB {
   public Status read(String table, String key, Set<String> fields,
       Map<String, ByteIterator> result) {
     try {
+      long id = getShardId(key);
+      CapybaraKV kv = kvMap.get(id);
+      Lock lock = kvLockMap.get(id);
+      lock.lock();
       byte[] values = kv.read(table, key);
       deserializeValues(values, fields, result);
+      lock.unlock();
       return Status.OK;
     } catch(CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -113,13 +152,16 @@ public class CapybaraKVClient extends DB {
 
   @Override 
   public void cleanup() throws DBException {
-    kv.cleanup();
+    for (long id = 0; id < counter.get(); id++) {
+      CapybaraKV kv = kvMap.get(id);
+      Lock lock = kvLockMap.get(id);
+      lock.lock();
+      kv.cleanup();
+      lock.unlock();
+    }
   }
 
   // These functions are borrowed from RocksDBClient.java
-  // FIXME: you are only given a subset of fields to update! This is why this function isn't 
-  // working. Need to read the item, update it according to the new fields in the argument, and 
-  // then write THAT. that has to happen here in the client
   private Map<String, ByteIterator> deserializeValues(final byte[] values, final Set<String> fields,
       final Map<String, ByteIterator> result) {
     final ByteBuffer buf = ByteBuffer.allocate(4);
@@ -173,5 +215,13 @@ public class CapybaraKVClient extends DB {
       }
       return baos.toByteArray();
     }
+  }
+
+  private long getShardId(String key) {
+    // TODO: is this hashing approach acceptable?
+    long hash = Math.abs(Long.valueOf(key.hashCode()));
+    // the counter tells us how many shards there are
+    long id = hash % Long.valueOf(counter.get());
+    return id;
   }
 }

@@ -40,6 +40,7 @@ struct DbOptions {
     node_size: u32, 
     num_keys: u64, 
     region_size: u64, 
+    threads: u64,
 }
 
 fn parse_configs(config_file: String) -> DbOptions {
@@ -59,6 +60,10 @@ fn parse_configs(config_file: String) -> DbOptions {
     config.config
 }
 
+fn get_kv_file_name(kv_file: &str, id: u64) -> String {
+    format!("{}_{}", kv_file, id)
+}
+
 pub fn main() {
     let args: Vec<String> = env::args().collect();
     let config_file = if args.len() > 1 {
@@ -69,16 +74,27 @@ pub fn main() {
 
     let config = parse_configs(config_file);
 
-    // delete the test files if they already exist. Ignore the result,
-    // since it's ok if the files don't exist.
-    remove_file(&config.kv_file);
+    let per_thread_region_size = config.region_size / config.threads;
+    // add one to account for cases where the number of keys is not divisble
+    // by the number of threads. this ensures that the remaining keys are 
+    // spread out across multiple shards
+    let per_thread_num_keys = (config.num_keys / config.threads) + 1; 
 
-    // TODO: update kv store to not use reserve any space for list?
-    // Create a file, and a PM region, for each component
-    let mut kv_region = create_pm_region(&config.kv_file, config.region_size);
-    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", config.num_keys, config.node_size, config.region_size);
-    KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
-        &mut kv_region, KVSTORE_ID, config.num_keys, config.node_size, 1).unwrap();
+    for i in 0..config.threads {
+        let i: u64 = i.try_into().unwrap();
+        let current_file_name = get_kv_file_name(&config.kv_file, i);
+        println!("current file name: {:?}", current_file_name);
+
+        // delete the test files if they already exist. Ignore the result,
+        // since it's ok if the files don't exist.
+        remove_file(&current_file_name);
+
+        println!("Setting up KV {:?} with {:?} keys, {:?}B nodes, {:?}B regions", i, per_thread_num_keys, config.node_size, per_thread_region_size);
+        // Create a file, and a PM region, for each component
+        let mut kv_region = create_pm_region(&current_file_name, config.region_size);
+        KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
+            &mut kv_region, KVSTORE_ID, per_thread_num_keys, config.node_size, 1).unwrap();
+    }    
     println!("Done setting up! You can now run YCSB workloads");
 }
 
@@ -86,7 +102,8 @@ pub fn main() {
 pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
-    config_file: JByteArray<'local>
+    config_file: JByteArray<'local>,
+    id: jlong,
 ) -> jlong {
 
     let mut file = [0i8; MAX_CONFIG_FILE_NAME_LEN];
@@ -102,8 +119,11 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
     let config_file = String::from_utf8(file_name_slice.iter().map(|&c| c as u8).collect()).unwrap();
     let config = parse_configs(config_file);
 
+    let id: u64 = id.try_into().unwrap();
+    let kv_file = get_kv_file_name(&config.kv_file, id);
+
     // Create a file, and a PM region, for each component
-    let kv_region = open_pm_region(&config.kv_file, config.region_size);
+    let kv_region = open_pm_region(&kv_file, config.region_size);
 
     let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
 
