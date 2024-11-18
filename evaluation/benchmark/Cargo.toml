@@ -1,0 +1,16 @@
+[package]
+name = "benchmark"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+storage_node = { path = "../../storage_node/" }
+pmsafe = { path = "../../pmsafe" }
+builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+builtin = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+toml = { version = "0.8.19", features = ["parse"] }
+serde = { version = "1.0.215", features = ["derive"] }
+chrono = "0.4.38"

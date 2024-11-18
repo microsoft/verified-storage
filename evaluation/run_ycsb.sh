@@ -6,7 +6,7 @@ PM=$3
 # OP_COUNT=5000
 # RECORD_COUNT=100
 THREADS=1 # TODO: check that this matches the value in the toml file
-OP_COUNT=500000
+OP_COUNT=1000000
 RECORD_COUNT=500000
 mount_point=/mnt/pmem
 pm_device=/dev/pmem0
@@ -159,13 +159,13 @@ for iter in $(seq $iterations); do
         exit 1
     fi
 
-    ./bin/ycsb load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
+    ./bin/ycsb -- load $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
     check_error $?
-    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
+    ./bin/ycsb run $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
     check_error $?
-    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadb -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runb/Run$iter
+    ./bin/ycsb run $DB -s -P workloads/workloadb -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runb/Run$iter
     check_error $?
-    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadc -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runc/Run$iter
+    ./bin/ycsb run $DB -s -P workloads/workloadc -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runc/Run$iter
     check_error $?
 
     if [ $DB = "capybarakv" ]; then 
