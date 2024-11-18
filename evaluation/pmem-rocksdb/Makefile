@@ -80,6 +80,10 @@ ifeq ($(MAKECMDGOALS),install)
 	DEBUG_LEVEL=0
 endif
 
+ifeq ($(MAKECMDGOALS),rocksdbjava)
+	DEBUG_LEVEL=0
+endif
+
 ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
 	ifneq ($(DEBUG_LEVEL),2)
 		DEBUG_LEVEL=0
