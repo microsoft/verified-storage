@@ -1430,7 +1430,7 @@ verus! {
                                 relative_entry_addr + ListEntryMetadata::spec_size_of()
                             );
                         let ghost true_key_bytes =
-                            subregion.view(pm_region).read_state.subrange(
+                            subregion.view(pm_region).read_state.subrange(
                                 relative_key_addr as int,
                                 relative_key_addr + K::spec_size_of()
                             );
@@ -1739,7 +1739,7 @@ verus! {
                     _ => {
                         assert(false);
                         return Err(KvError::InternalError);
-                    },
+                    },
                 }
             } else {
                 let slot_addr = metadata_index * (main_table_entry_size as u64);
@@ -1843,7 +1843,7 @@ verus! {
                 } ==> views_match_at_addr(v1, v2, addr),
             ensures
                 parse_main_table::<K>(v2.durable_state, overall_metadata.num_keys,
-                                      overall_metadata.main_table_entry_size) == Some(self@),
+                                      overall_metadata.main_table_entry_size) == Some(self@),
         {
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -1883,7 +1883,7 @@ verus! {
         }
 
         // Since main table entries have a valid CDB, we can tentatively write the whole entry and
-        // log a commit op for it, then flip the CDB once the log has been committed
+        // log a commit op for it, then flip the CDB once the log has been committed
         pub exec fn tentative_create<Perm, PM>(
             &mut self,
             subregion: &WriteRestrictedPersistentMemorySubregion,
@@ -2060,7 +2060,7 @@ verus! {
             assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
                 let old_entries = old(self).tentative_view().durable_main_table;
                 let entries = self.tentative_view().durable_main_table;
-                let new_entry = OutstandingEntry { status: EntryStatus::Created, entry, key };
+                let new_entry = OutstandingEntry { status: EntryStatus::Created, entry, key };
                 assert forall |i: int, j: int|
                        #![trigger trigger_main_entry(i), trigger_main_entry(j)]
                        {
@@ -2079,7 +2079,7 @@ verus! {
                     assert(j != free_index ==> old_entries[j].unwrap().item_index() != entry.item_index);
                 }
             }
-
+
             assert(reverse_item_mapping_exists(self.tentative_view().durable_main_table)) by {
                 lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(
                     self.tentative_view().durable_main_table
@@ -2108,7 +2108,7 @@ verus! {
             proof {
                 lemma_auto_can_result_from_partial_write_effect();
             }
-
+
             assert(parse_main_table::<K>(pm_view.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@)) by {
                 old(self).lemma_changing_invalid_entry_doesnt_affect_parse_main_table(
@@ -3184,11 +3184,11 @@ verus! {
                             &&& 0 <= j < new_main_table_view.durable_main_table.len() 
                             &&& #[trigger] new_main_table_view.durable_main_table[j] matches Some(entry)
                             &&& entry.item_index() == old_item_index
-                        };
+                        };
                         assert(trigger_main_entry(j));
                         assert(trigger_main_entry(index as int));
                         assert(j != index);
-                        assert(false); // proof by contradiction
+                        assert(false); // proof by contradiction
                     }
                 }
             }
