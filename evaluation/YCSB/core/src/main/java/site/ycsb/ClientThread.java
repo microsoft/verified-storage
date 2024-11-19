@@ -157,6 +157,16 @@ public class ClientThread implements Runnable {
       System.exit(0);
     }
 
+    // Decrement the cleanup latch and wait for others to complete.
+    // In sharded workloads, this ensures that DBs are not cleaned up
+    // until all worker threads are done
+    cleanupLatch.countDown();
+    try {
+      cleanupLatch.await();
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt();
+    }
+
     try {
       measurements.setIntendedStartTimeNs(0);
       db.cleanup();

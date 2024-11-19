@@ -152,12 +152,20 @@ public class CapybaraKVClient extends DB {
 
   @Override 
   public void cleanup() throws DBException {
-    for (long id = 0; id < counter.get(); id++) {
-      CapybaraKV kv = kvMap.get(id);
-      Lock lock = kvLockMap.get(id);
-      lock.lock();
-      kv.cleanup();
-      lock.unlock();
+    synchronized(CapybaraKVClient.class) {
+      if (kvMap != null) {
+        System.out.println("Cleaning up");
+        for (long id = 0; id < counter.get(); id++) {
+          CapybaraKV kv = kvMap.get(id);
+          Lock lock = kvLockMap.get(id);
+          lock.lock();
+          kv.cleanup();
+          lock.unlock();
+        }
+        kvMap = null;
+        kvLockMap = null;
+      }
+      
     }
   }
 
