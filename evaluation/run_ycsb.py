@@ -172,6 +172,8 @@ def build_options(configs, db):
     record_count = configs["record_count"]
     results_dir = configs["results_dir"]
 
+    # TODO: get DB-specific options from config files rather than hardcoding them?
+
     # build options string, including DB-specific options
     options = []
     options += ["-p", "recordcount=" + str(record_count)]
@@ -187,6 +189,7 @@ def build_options(configs, db):
         options += ["-p", "rocksdb.dir=" + mount_point]
         options += ["-p", "rocksdb.allow_mmap_reads=true"]
         options += ["-p", "rocksdb.allow_mmap_writes=true"]
+        options += ["-p", "options.cache_index_and_filter_blocks_for_mmap_read=true"]
     else:
         assert False, "Not implemented"
     
