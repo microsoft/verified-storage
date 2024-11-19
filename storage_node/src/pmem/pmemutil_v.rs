@@ -397,7 +397,7 @@ verus! {
             PM: PersistentMemoryRegion,
         requires
             forall |i: int| 0 <= i < relative_cdb_addrs.len() ==> relative_cdb_addrs[i] <= subregion.view(pm_region).len(),
-            all_elements_unique(relative_cdb_addrs),
+            relative_cdb_addrs.no_duplicates(),
             ({
                 let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).read_state[relative_cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);

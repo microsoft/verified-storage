@@ -94,7 +94,7 @@ impl AbstractLogState {
 pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
     addrs: Seq<int>, impervious_to_corruption: bool) -> bool
 {
-    &&& all_elements_unique(addrs)
+    &&& addrs.no_duplicates()
     &&& if impervious_to_corruption {
             // If the region is impervious to corruption, the bytes read
             // must match the true bytes, i.e., the bytes last written.
@@ -2149,7 +2149,7 @@ impl UntrustedLogImpl {
 
             if !pm_region.constants().impervious_to_corruption {
                 assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs));
-                assert(all_elements_unique(addrs_part1 + addrs_part2));
+                assert((addrs_part1 + addrs_part2).no_duplicates());
             }
         }
 

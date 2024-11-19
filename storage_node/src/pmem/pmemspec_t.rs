@@ -120,10 +120,6 @@ verus! {
     // they're related by `maybe_corrupted_byte`.
     pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
-    pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
-        forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
-    }
-
     // A sequence of bytes `bytes` read from addresses `addrs` is a
     // possible corruption of the actual last-written bytes
     // `true_bytes` to those addresses if those addresses are all
@@ -193,8 +189,8 @@ verus! {
             maybe_corrupted(y_c, y, y_addrs),
             y_c == spec_crc_bytes(x_c),
             y == spec_crc_bytes(x),
-            all_elements_unique(x_addrs),
-            all_elements_unique(y_addrs),
+            x_addrs.no_duplicates(),
+            y_addrs.no_duplicates(),
         ensures
             x == x_c
     {}
@@ -230,7 +226,7 @@ verus! {
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
         requires
             maybe_corrupted(cdb_c, cdb, addrs),
-            all_elements_unique(addrs),
+            addrs.no_duplicates(),
             cdb.len() == u64::spec_size_of(),
             cdb_c == CDB_FALSE.spec_to_bytes() || cdb_c == CDB_TRUE.spec_to_bytes(),
             cdb == CDB_FALSE.spec_to_bytes() || cdb == CDB_TRUE.spec_to_bytes(),

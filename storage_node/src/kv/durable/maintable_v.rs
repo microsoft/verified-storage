@@ -296,6 +296,13 @@ verus! {
             subregion.is_writable_relative_addr(addr as int)
     }
 
+    // XXX
+    // The existence of this unused function allows some proofs in this file to succeed,
+    // which otherwise fail..
+    spec fn unused_function() -> () {
+        ()
+    }
+
     impl<K> MainTable<K>
         where 
             K: PmCopy + std::fmt::Debug,

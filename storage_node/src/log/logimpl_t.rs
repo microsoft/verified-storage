@@ -74,7 +74,7 @@ verus! {
             // disk (e.g., if it wrapped around the log area).
 
             exists |addrs: Seq<int>| {
-                &&& all_elements_unique(addrs)
+                &&& addrs.no_duplicates()
                 &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs)
             }
         }
