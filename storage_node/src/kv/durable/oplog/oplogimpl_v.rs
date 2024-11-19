@@ -714,6 +714,32 @@ verus! {
                 overall_metadata.region_size as nat);
         }
 
+        pub proof fn lemma_same_bytes_recover_to_same_state(
+            s1: Seq<u8>,
+            s2: Seq<u8>,
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata
+        )
+            requires 
+                s1.len() == overall_metadata.region_size,
+                s1.len() == s2.len(),
+                extract_bytes(s1, overall_metadata.log_area_addr as nat,
+                              overall_metadata.log_area_size as nat) == 
+                    extract_bytes(s2, overall_metadata.log_area_addr as nat,
+                                  overall_metadata.log_area_size as nat),
+                0 <= overall_metadata.log_area_addr <
+                    overall_metadata.log_area_addr + overall_metadata.log_area_size <=
+                    overall_metadata.region_size,
+                0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+            ensures
+                Self::recover(s1, version_metadata, overall_metadata) ==
+                    Self::recover(s2, version_metadata, overall_metadata)
+        {
+            lemma_same_log_bytes_recover_to_same_state(s1, s2, overall_metadata.log_area_addr as nat,
+                                                       overall_metadata.log_area_size as nat,
+                                                       overall_metadata.region_size as nat);
+        }
+
         pub proof fn lemma_same_op_log_view_preserves_invariant<Perm, PM>(
             self,
             wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,

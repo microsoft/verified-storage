@@ -34,11 +34,15 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
     {
         &&& 0 <= addr < addr + bytes.len() <= wrpm_region@.len()
-        &&& UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
-        &&& UntrustedLogImpl::recover(wrpm_region@.read_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+        &&& UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat,
+                                    overall_metadata.log_area_size as nat) is Some
+        &&& no_outstanding_writes_in_range(wrpm_region@, overall_metadata.log_area_addr as int,
+                                         overall_metadata.log_area_addr + overall_metadata.log_area_size)
         &&& forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(phys_log, i)
-        &&& addr + bytes.len() <= overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr
-        &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log)
+        &&& addr + bytes.len() <= overall_metadata.log_area_addr ||
+           overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr
+        &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata,
+                                                               overall_metadata, phys_log)
     }
 
     pub open spec fn recovery_write_region_invariant<Perm, PM, K, I, L>(
@@ -54,19 +58,17 @@ verus! {
             L: PmCopy + std::fmt::Debug + Copy,
             Perm: CheckPermission<Seq<u8>>,
     {
-        let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.durable_state, version_metadata, overall_metadata);
+        let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.durable_state, version_metadata,
+                                                              overall_metadata);
         &&& wrpm_region.inv()
-        &&& wrpm_region@.flush_predicted()
         &&& wrpm_region@.len() == overall_metadata.region_size
         &&& phys_log.len() > 0
         &&& UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat,
                                     overall_metadata.log_area_size as nat) is Some
-        &&& UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat,
-                                    overall_metadata.log_area_size as nat) ==
-            UntrustedLogImpl::recover(wrpm_region@.read_state, overall_metadata.log_area_addr as nat,
-                                      overall_metadata.log_area_size as nat)
-        &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) is Some
-        &&& 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size
+        &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata,
+                                                                overall_metadata) is Some
+        &&& 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <=
+               overall_metadata.region_size
         &&& 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size
         &&& abstract_op_log matches Some(abstract_op_log)
         &&& abstract_op_log.physical_op_list == phys_log
@@ -105,35 +107,19 @@ verus! {
             }),
             ({
                 let new_wrpm_region = update_bytes(wrpm_region@.read_state, addr, bytes);
-                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(new_wrpm_region, version_metadata,
-                                                                        overall_metadata) is Some
-                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state,
-                                                                        version_metadata, overall_metadata) ==
-                    DurableKvStore::<Perm, PM, K, I, L>::physical_recover(new_wrpm_region, version_metadata,
-                                                                          overall_metadata)
-            }),
-            ({
-                let new_wrpm_region = update_bytes(wrpm_region@.read_state, addr, bytes);
-                let abstract_op_log =
-                    UntrustedOpLog::<K, L>::recover(new_wrpm_region, version_metadata, overall_metadata);
-                &&& abstract_op_log matches Some(abstract_op_log)
-                &&& abstract_op_log.physical_op_list == phys_log
-                &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, version_metadata, overall_metadata)
+                forall|addr: int| overall_metadata.log_area_addr <= addr <
+                              overall_metadata.log_area_addr + overall_metadata.log_area_size ==>
+                    #[trigger] new_wrpm_region[addr] == wrpm_region@.read_state[addr]
             }),
     {
-        let new_wrpm_region_flushed = update_bytes(wrpm_region@.read_state, addr, bytes);
-
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
         let region_size = overall_metadata.region_size as nat;
 
         // The current pm state has the same log as the original pm state
         lemma_log_bytes_unchanged_during_recovery_write::<Perm, PM, K, I, L>(wrpm_region, version_metadata,
-                                                                             overall_metadata, phys_log, addr, bytes);
-        lemma_same_log_bytes_recover_to_same_state(wrpm_region@.durable_state, new_wrpm_region_flushed,
-                                                   overall_metadata.log_area_addr as nat,
-                                                   overall_metadata.log_area_size as nat,
-                                                   overall_metadata.region_size as nat);
+                                                                             overall_metadata, phys_log, addr,
+                                                                             bytes);
 
         // all crash states from this write recover to the same durable kvstore state
         lemma_crash_states_recover_to_same_state::<Perm, PM, K, I, L>(wrpm_region, version_metadata,
@@ -159,8 +145,10 @@ verus! {
         ensures
             ({
                 let new_wrpm_region_flushed = update_bytes(wrpm_region@.read_state, addr, bytes);
-                extract_bytes(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
-                    extract_bytes(new_wrpm_region_flushed, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                extract_bytes(wrpm_region@.read_state, overall_metadata.log_area_addr as nat,
+                              overall_metadata.log_area_size as nat) == 
+                    extract_bytes(new_wrpm_region_flushed, overall_metadata.log_area_addr as nat,
+                                  overall_metadata.log_area_size as nat)
             })
     {
         let new_wrpm_region_flushed = update_bytes(wrpm_region@.read_state, addr, bytes);
@@ -171,10 +159,10 @@ verus! {
         // bytes that were not updated by the write remain the same
 //        assert(new_wrpm_region.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + log_size) as int));
         assert(forall |i: int| log_start_addr <= i < log_start_addr + log_size ==> 
-            wrpm_region@.durable_state[i] == #[trigger] new_wrpm_region_flushed[i]);
+            wrpm_region@.read_state[i] == #[trigger] new_wrpm_region_flushed[i]);
     
         // Since the bytes cannot modify the log, the log's recovery state is unchanged by the write.
-        assert(extract_bytes(wrpm_region@.durable_state, log_start_addr, log_size) =~= 
+        assert(extract_bytes(wrpm_region@.read_state, log_start_addr, log_size) =~= 
             extract_bytes(new_wrpm_region_flushed, log_start_addr, log_size));
     }
 
@@ -204,14 +192,6 @@ verus! {
                         DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state,
                                                                               version_metadata, overall_metadata)
                 }
-            }),
-            ({
-                let s = update_bytes(wrpm_region@.read_state, addr, bytes);
-                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
-                      is Some
-                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) ==
-                    DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.read_state,
-                                                                          version_metadata, overall_metadata)
             }),
     {
         let log_start_addr = overall_metadata.log_area_addr as nat;
@@ -289,81 +269,7 @@ verus! {
                    DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state,
                                                                          version_metadata, overall_metadata));
         }
-
-        let s = update_bytes(wrpm_region@.read_state, addr, bytes);
-        // TODO: Factor out commonalities between the below proof and the above proof, since they're
-        // the same except the below proof has `read_state` instead of `durable_state`.
-        assert({
-            &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
-                   is Some
-            &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) ==
-                   DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.read_state,
-                                                                         version_metadata, overall_metadata)
-            }) by {
-            lemma_establish_extract_bytes_equivalence(wrpm_region@.read_state, s);
-            
-            // 1. Prove that physical recovery on s succeeds
-            // 2. Prove that it is equivalent to recovery on the original state
-
-            // addrs in log region are unchanged by the write 
-            assert(forall |i: int| log_start_addr <= i < log_start_addr + log_size ==>
-                   wrpm_region@.read_state[i] == #[trigger] s[i]);
-            // which means that the original log and s's log recover to the same state
-            assert(extract_bytes(wrpm_region@.read_state, log_start_addr, log_size) ==
-                   extract_bytes(s, log_start_addr, log_size));
-            let original_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.read_state, version_metadata,
-                                                               overall_metadata);
-            let crashed_log = UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata);
-            lemma_same_log_bytes_recover_to_same_state(wrpm_region@.read_state, s,
-                                                       overall_metadata.log_area_addr as nat,
-                                                       overall_metadata.log_area_size as nat,
-                                                       overall_metadata.region_size as nat);
-            assert(crashed_log is Some);
-            assert(crashed_log == original_log);
-            assert(original_log.unwrap().physical_op_list == phys_log);
-
-            // applying the log entries obtained from the log succeeds
-            // the only way this can fail is if one of the log entries is ill-formed, but we know that is not the case
-            lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata,
-                                                                             phys_log);
-            
-            assert(apply_physical_log_entries(s, phys_log) is Some);
-            assert(apply_physical_log_entries(wrpm_region@.read_state, phys_log) is Some);
-
-            // Applying the log to both s and the original state result in the same sequence of bytes
-            assert(apply_physical_log_entries(s, phys_log) == 
-                apply_physical_log_entries(wrpm_region@.read_state, phys_log)) 
-            by {
-                let mem = wrpm_region@.read_state;
-                let crash_replay = apply_physical_log_entries(s, phys_log);
-                let reg_replay = apply_physical_log_entries(mem, phys_log);
-                assert(crash_replay is Some);
-                assert(reg_replay is Some);
-                let crash_replay = crash_replay.unwrap();
-                let reg_replay = reg_replay.unwrap();
-
-                lemma_log_replay_preserves_size(mem, phys_log);
-                lemma_log_replay_preserves_size(s, phys_log);
-
-                assert(s.len() == mem.len());
-
-                // the only bytes that differ between s and mem are ones that will be overwritten by recovery
-                assert(forall |i: int| 0 <= i < s.len() && s[i] != mem[i] ==> addr_modified_by_recovery(phys_log, i));
-
-                lemma_mem_equal_after_recovery(mem, s, version_metadata, overall_metadata, phys_log);
-            }
-
-            assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata,
-                                                                         overall_metadata) is Some);
-            // s can only differ from the original state in locations that are overwritten by recovery
-            assert(forall |i: int| 0 <= i < s.len() && #[trigger] s[i] != #[trigger] wrpm_region@.read_state[i] ==>
-                   #[trigger] addr_modified_by_recovery(phys_log, i));
-
-            assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) ==
-                   DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.read_state,
-                                                                         version_metadata, overall_metadata));
-        }
-    }
+    }
 
     pub proof fn lemma_physical_recover_succeeds_implies_component_parse_succeeds<Perm, PM, K, I, L>(
         mem: Seq<u8>,
@@ -484,6 +390,54 @@ verus! {
                 deserialize_overall_crc(s2, version_metadata.overall_metadata_addr),
     {
         lemma_establish_extract_bytes_equivalence(s1, s2);
+    }
+
+    pub open spec fn states_have_matching_metadata(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
+    ) -> bool
+    {
+        forall|addr: int| {
+            ||| ABSOLUTE_POS_OF_VERSION_METADATA <= addr <
+                   ABSOLUTE_POS_OF_VERSION_METADATA + VersionMetadata::spec_size_of() + u64::spec_size_of()
+            ||| version_metadata.overall_metadata_addr <= addr <
+                   version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() +
+                   u64::spec_size_of()
+        } ==> #[trigger] s1[addr] == #[trigger] s2[addr]
+    }
+
+    pub proof fn lemma_states_have_matching_metadata_implies_metadata_unchanged(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
+    )
+        requires
+            states_have_matching_metadata(s1, s2, version_metadata, overall_metadata),
+            deserialize_version_metadata(s1) == version_metadata,
+            deserialize_overall_metadata(s1, version_metadata.overall_metadata_addr) == overall_metadata,
+            s1.len() == s2.len(),
+            s1.len() >= ABSOLUTE_POS_OF_VERSION_METADATA + VersionMetadata::spec_size_of() + u64::spec_size_of(),
+            s2.len() >= version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() +
+                       u64::spec_size_of(),
+        ensures
+            deserialize_version_metadata(s1) == deserialize_version_metadata(s2),
+            deserialize_overall_metadata(s1, version_metadata.overall_metadata_addr) == 
+                deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr),
+            deserialize_version_crc(s1) == deserialize_version_crc(s2),
+            deserialize_overall_crc(s1, version_metadata.overall_metadata_addr) ==
+                deserialize_overall_crc(s2, version_metadata.overall_metadata_addr),
+            version_and_overall_metadata_match_deserialized(s1, s2),
+    {
+        lemma_establish_extract_bytes_equivalence(s1, s2);
+        assert(extract_version_metadata(s1) =~= extract_version_metadata(s2));
+        assert(extract_version_crc(s1) =~= extract_version_crc(s2));
+        assert(extract_overall_metadata(s1, version_metadata.overall_metadata_addr) =~=
+               extract_overall_metadata(s2, version_metadata.overall_metadata_addr));
+        assert(extract_overall_crc(s1, version_metadata.overall_metadata_addr) =~=
+               extract_overall_crc(s2, version_metadata.overall_metadata_addr));
     }
 
     pub open spec fn extracted_regions_match(
