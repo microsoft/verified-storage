@@ -112,28 +112,28 @@ def run_experiment(configs, db, output_dir_paths):
                 ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloada"] + options, 
                 cwd="YCSB/",
                 stdout=f,
-                stderr=f,
+                # stderr=f,
                 check=True)
         with open(runa_output_path, "w") as f:
             subprocess.run(
                 ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloada"] + options, 
                 cwd="YCSB/",
                 stdout=f,
-                stderr=f,
+                # stderr=f,
                 check=True)
         with open(runb_output_path, "w") as f:
             subprocess.run(
                 ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadb"] + options, 
                 cwd="YCSB/",
                 stdout=f,
-                stderr=f,
+                # stderr=f,
                 check=True)
         with open(runc_output_path, "w") as f:
             subprocess.run(
                 ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadc"] + options, 
                 cwd="YCSB/",
                 stdout=f,
-                stderr=f,
+                # stderr=f,
                 check=True)
 
         if db == "capybarakv":
@@ -151,14 +151,14 @@ def run_experiment(configs, db, output_dir_paths):
                 ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloade"] + options, 
                 cwd="YCSB/",
                 stdout=f,
-                stderr=f,
+                # stderr=f,
                 check=True)
         with open(runf_output_path, "w") as f:
             subprocess.run(
                 ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadf"] + options, 
                 cwd="YCSB/",
                 stdout=f,
-                stderr=f,
+                # stderr=f,
                 check=True)
             
         if db == "redis":
