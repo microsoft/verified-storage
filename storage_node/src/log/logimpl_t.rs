@@ -56,9 +56,9 @@ verus! {
     // there was corruption on the persistent memory between the last
     // write and this read.
     pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
-                                                    impervious_to_corruption: bool) -> bool
+                                                    pmc: PersistentMemoryConstants) -> bool
     {
-        if impervious_to_corruption {
+        if pmc.impervious_to_corruption() {
             // If the region is impervious to corruption, the bytes read
             // must match the true bytes, i.e., the bytes last written.
 
@@ -74,8 +74,8 @@ verus! {
             // disk (e.g., if it wrapped around the log area).
 
             exists |addrs: Seq<int>| {
-                &&& all_elements_unique(addrs)
-                &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs)
+                &&& addrs.no_duplicates()
+                &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
             }
         }
     }
@@ -285,7 +285,7 @@ verus! {
                         &&& trusted_log_impl.constants() == pm_region.constants()
                         &&& crashes_as_abstract_state(pm_region@, log_id, trusted_log_impl@)
                     },
-                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
         {
@@ -440,7 +440,7 @@ verus! {
                             &&& pos >= head
                             &&& pos + len <= head + log.len()
                             &&& read_correct_modulo_corruption(bytes@, true_bytes,
-                                                             self.constants().impervious_to_corruption)
+                                                             self.constants())
                         },
                         Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& pos < head

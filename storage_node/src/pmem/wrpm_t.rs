@@ -44,7 +44,8 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         requires
             self.inv()
         ensures
-            self@.valid()
+            self@.valid(),
+            self.constants().valid(),
     {
         self.pm_region.lemma_inv_implies_view_valid();
     }

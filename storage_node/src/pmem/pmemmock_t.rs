@@ -57,6 +57,8 @@ verus! {
             // abstract state.
             &&& self.contents@ == self@.read_state
             &&& self.contents@ == self@.durable_state
+
+            &&& self.constants().valid()
         }
 
         closed spec fn constants(&self) -> PersistentMemoryConstants;
@@ -82,7 +84,7 @@ verus! {
 
             let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
             maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs),
-                                                Ghost(self.constants().impervious_to_corruption));
+                                                Ghost(self.constants()));
 
             Ok(maybe_corrupted_val)
         }

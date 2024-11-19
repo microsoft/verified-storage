@@ -20,10 +20,6 @@ use crc64fast::Digest;
 
 verus! {
 
-    pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
-        forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
-    }
-
     pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
     pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
@@ -71,8 +67,8 @@ verus! {
             maybe_corrupted(y_c, y, y_addrs),
             y == spec_crc_bytes(x),
             y_c == spec_crc_bytes(x_c),
-            all_elements_unique(x_addrs),
-            all_elements_unique(y_addrs)
+            x_addrs.no_duplicates(),
+            y_addrs.no_duplicates()
         ensures
             x == x_c
     {}
@@ -95,7 +91,7 @@ verus! {
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: u64, cdb: u64, addrs: Seq<int>)
         requires
             maybe_corrupted(spec_u64_to_le_bytes(cdb_c), spec_u64_to_le_bytes(cdb), addrs),
-            all_elements_unique(addrs),
+            addrs.no_duplicates(),
             cdb == cdb0_val || cdb == cdb1_val,
             cdb_c == cdb0_val || cdb_c == cdb1_val,
         ensures

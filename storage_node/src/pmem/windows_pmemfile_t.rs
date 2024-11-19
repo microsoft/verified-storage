@@ -333,11 +333,11 @@ impl FileBackedPersistentMemoryRegion
             0 <= addr <= addr + len <= self@.len()
         ensures 
             match result {
-                Ok(slice) => if self.constants().impervious_to_corruption {
+                Ok(slice) => if self.constants().impervious_to_corruption() {
                     slice@ == self@.read_state.subrange(addr as int, addr + len)
                 } else {
                     let addrs = Seq::new(len as nat, |i: int| addr + i);
-                    maybe_corrupted(slice@, self@.read_state.subrange(addr as int, addr + len), addrs)
+                    self.constants().maybe_corrupted(slice@, self@.read_state.subrange(addr as int, addr + len), addrs)
                 }
                 _ => false
             }
@@ -365,8 +365,10 @@ impl FileBackedPersistentMemoryRegion
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
-    closed spec fn inv(&self) -> bool;
     closed spec fn constants(&self) -> PersistentMemoryConstants;
+    closed spec fn inv(&self) -> bool {
+        self.constants().valid()
+    }
 
     #[verifier::external_body]
     proof fn lemma_inv_implies_view_valid(&self)
@@ -390,7 +392,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
 
         maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs),
-                                            Ghost(self.constants().impervious_to_corruption));
+                                            Ghost(self.constants()));
         
         Ok(maybe_corrupted_val)
     }

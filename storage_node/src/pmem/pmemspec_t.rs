@@ -120,20 +120,6 @@ verus! {
     // they're related by `maybe_corrupted_byte`.
     pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
-    pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
-        forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
-    }
-
-    // A sequence of bytes `bytes` read from addresses `addrs` is a
-    // possible corruption of the actual last-written bytes
-    // `true_bytes` to those addresses if those addresses are all
-    // distinct and if each corresponding byte pair is related by
-    // `maybe_corrupted_byte`.
-    pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
-        &&& bytes.len() == true_bytes.len() == addrs.len()
-        &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
-    }
-
     // This function indicates that the given bytes were read from
     // storage. If the storage was impervious to corruption, the bytes
     // are the last bytes written. Otherwise, they're a
@@ -142,15 +128,16 @@ verus! {
         read_bytes: Seq<u8>,
         true_bytes: Seq<u8>,
         addr: int,
-        impervious_to_corruption: bool
+        pmc: PersistentMemoryConstants
     ) -> bool
     {
-        if impervious_to_corruption {
+        pmc.valid() &&
+        if pmc.impervious_to_corruption() {
             read_bytes == true_bytes
         }
         else {
             let addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + addr);
-            maybe_corrupted(read_bytes, true_bytes, addrs)
+            pmc.maybe_corrupted(read_bytes, true_bytes, addrs)
         }
     }
 
@@ -187,14 +174,16 @@ verus! {
 
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted2(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>,
+                                         pmc: PersistentMemoryConstants)
         requires
-            maybe_corrupted(x_c, x, x_addrs),
-            maybe_corrupted(y_c, y, y_addrs),
+            pmc.valid(),
+            pmc.maybe_corrupted(x_c, x, x_addrs),
+            pmc.maybe_corrupted(y_c, y, y_addrs),
             y_c == spec_crc_bytes(x_c),
             y == spec_crc_bytes(x),
-            all_elements_unique(x_addrs),
-            all_elements_unique(y_addrs),
+            x_addrs.no_duplicates(),
+            y_addrs.no_duplicates(),
         ensures
             x == x_c
     {}
@@ -227,10 +216,12 @@ verus! {
     pub const CDB_TRUE: u64  = 0xab21aa73069531b7; // CRC(b"1")
 
     #[verifier(external_body)]
-    pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
+    pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>,
+                                                    pmc: PersistentMemoryConstants)
         requires
-            maybe_corrupted(cdb_c, cdb, addrs),
-            all_elements_unique(addrs),
+            pmc.valid(),
+            pmc.maybe_corrupted(cdb_c, cdb, addrs),
+            addrs.no_duplicates(),
             cdb.len() == u64::spec_size_of(),
             cdb_c == CDB_FALSE.spec_to_bytes() || cdb_c == CDB_TRUE.spec_to_bytes(),
             cdb == CDB_FALSE.spec_to_bytes() || cdb == CDB_TRUE.spec_to_bytes(),
@@ -325,7 +316,21 @@ verus! {
     // remain the same across all operations on persistent memory.
 
     pub struct PersistentMemoryConstants {
-        pub impervious_to_corruption: bool
+    }
+
+    impl PersistentMemoryConstants {
+        pub spec fn impervious_to_corruption(self) -> bool;
+        pub spec fn valid(self) -> bool;
+
+        // A sequence of bytes `bytes` read from addresses `addrs` is a
+        // possible corruption of the actual last-written bytes
+        // `true_bytes` to those addresses if those addresses are all
+        // distinct and if each corresponding byte pair is related by
+        // `maybe_corrupted_byte`.
+        pub open spec fn maybe_corrupted(self, bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
+            &&& bytes.len() == true_bytes.len() == addrs.len()
+            &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
+        }
     }
 
     pub trait PersistentMemoryRegion : Sized
@@ -340,7 +345,8 @@ verus! {
             requires
                 self.inv()
             ensures
-                self@.valid()
+                self@.valid(),
+                self.constants().valid(),
         ;
 
         fn get_region_size(&self) -> (result: u64)
@@ -363,7 +369,7 @@ verus! {
                     Ok(bytes) => bytes_read_from_storage(bytes@,
                                                         self@.read_state.subrange(addr as int, addr + S::spec_size_of()),
                                                         addr as int,
-                                                        self.constants().impervious_to_corruption),
+                                                        self.constants()),
                     _ => false,
                 }
             ;
@@ -377,7 +383,7 @@ verus! {
                     Ok(bytes) => bytes_read_from_storage(bytes@,
                                                         self@.read_state.subrange(addr as int, addr + num_bytes as nat),
                                                         addr as int,
-                                                        self.constants().impervious_to_corruption),
+                                                        self.constants()),
                     _ => false,
                 }
                 

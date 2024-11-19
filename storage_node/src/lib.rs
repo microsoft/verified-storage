@@ -195,7 +195,7 @@ verus! {
 //     // wasn't corrupted.
 //     if let Ok(bytes) = multilog.read(0, 1, 2) {
 //         runtime_assert(bytes.len() == 2);
-//         assert(multilog.constants().impervious_to_corruption ==> bytes[0] == 42);
+//         assert(multilog.constants().impervious_to_corruption() ==> bytes[0] == 42);
 //     }
 
 //     // We now advance the head of log #0 to position 2. This causes the
@@ -215,7 +215,7 @@ verus! {
 //     // If we read from position 2 of log #0, we get the same thing we
 //     // would have gotten before the advance-head operation.
 //     if let Ok(_bytes) = multilog.read(0, 2, 1) {
-//         assert(multilog.constants().impervious_to_corruption ==> _bytes[0] == 100);
+//         assert(multilog.constants().impervious_to_corruption() ==> _bytes[0] == 100);
 //     }
 
 //     // But if we try to read from position 0 of log #0, we get an
@@ -283,7 +283,7 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     // wasn't corrupted.
     if let Ok(bytes) = log.read(1, 2) {
         runtime_assert(bytes.len() == 2);
-        assert(log.constants().impervious_to_corruption ==> bytes[0] == 42);
+        assert(log.constants().impervious_to_corruption() ==> bytes[0] == 42);
     }
 
     // We now advance the head of the log to position 2. This causes the
@@ -303,7 +303,7 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     // If we read from position 2 of the log, we get the same thing we
     // would have gotten before the advance-head operation.
     if let Ok(bytes) = log.read(2, 1) {
-        assert(log.constants().impervious_to_corruption ==> bytes[0] == 100);
+        assert(log.constants().impervious_to_corruption() ==> bytes[0] == 100);
     }
 
     // But if we try to read from position 0, we get an

@@ -279,7 +279,7 @@ verus! {
                         &&& log_impl@ == state
                         &&& crashes_as_abstract_state(wrpm_region@, log_id, state.drop_pending_appends())
                     },
-                    Err(LogErr::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
+                    Err(LogErr::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption(),
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
         {
@@ -1301,7 +1301,7 @@ verus! {
                             &&& pos >= log.head
                             &&& pos + len <= log.head + log.log.len()
                             &&& read_correct_modulo_corruption(bytes@, true_bytes,
-                                                              wrpm_region.constants().impervious_to_corruption)
+                                                              wrpm_region.constants())
                         },
                         Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& pos < log.head
@@ -1336,7 +1336,7 @@ verus! {
                 // Case 0: The trivial case where we're being asked to read zero bytes.
 
                 assert (true_bytes =~= Seq::<u8>::empty());
-                assert (maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
+                assert (wrpm_region.constants().maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
                 return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
             }
 
@@ -1463,9 +1463,9 @@ verus! {
                                            |i: int| i + ABSOLUTE_POS_OF_LOG_AREA);
                 assert(true_part1 + true_part2 =~= s.log.subrange(pos - s.head, pos + len - s.head));
 
-                if !pm_region.constants().impervious_to_corruption {
-                    assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs1 + addrs2));
-                    assert(all_elements_unique(addrs1 + addrs2));
+                if !pm_region.constants().impervious_to_corruption() {
+                    assert(pm_region.constants().maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs1 + addrs2));
+                    assert((addrs1 + addrs2).no_duplicates());
                 }
             }
 

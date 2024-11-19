@@ -212,11 +212,11 @@ impl FileBackedPersistentMemoryRegion
             0 <= addr <= addr + len <= self@.len()
         ensures 
             match result {
-                Ok(slice) => if self.constants().impervious_to_corruption {
-                    slice@ == self@.committed().subrange(addr as int, addr + len)
+                Ok(slice) => if self.constants().impervious_to_corruption() {
+                    slice@ == self@.read_state.subrange(addr as int, addr + len)
                 } else {
                     let addrs = Seq::new(len as nat, |i: int| addr + i);
-                    maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
+                    self.constants().maybe_corrupted(slice@, self@.read_state.subrange(addr as int, addr + len), addrs)
                 }
                 _ => false
             }
@@ -246,10 +246,10 @@ impl FileBackedPersistentMemoryRegion
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
-
-    closed spec fn inv(&self) -> bool;
-
     closed spec fn constants(&self) -> PersistentMemoryConstants;
+    closed spec fn inv(&self) -> bool {
+        self.constants().valid()
+    }
 
     #[verifier::external_body]
     proof fn lemma_inv_implies_view_valid(&self)
@@ -268,12 +268,12 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     {
         let pm_slice = self.get_slice_at_offset(addr, S::size_of() as u64)?;
         let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
-        let ghost true_bytes = self@.committed().subrange(addr as int, addr + S::spec_size_of());
+        let ghost true_bytes = self@.read_state.subrange(addr as int, addr + S::spec_size_of());
         let ghost true_val = S::spec_from_bytes(true_bytes);
         let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
 
         maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs),
-                                            Ghost(self.constants().impervious_to_corruption));
+                                            Ghost(self.constants()));
         
         Ok(maybe_corrupted_val)
     }

@@ -925,7 +925,7 @@ verus! {
                             &&& forall |i: int| 0 <= i < phys_log_view.len() ==> #[trigger] (phys_log_view[i]).inv(version_metadata, overall_metadata)
                         }
                     }
-                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     Err(KvError::LogErr{log_err}) => {
                         &&& log_err matches LogErr::PmemErr{err}
                         &&& err matches PmemError::AccessOutOfRange
@@ -1137,7 +1137,7 @@ verus! {
                         }
                     }
                 }
-                Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                 Err(KvError::LogErr{log_err}) => {
                     &&& log_err matches LogErr::PmemErr{err}
                     &&& err matches PmemError::AccessOutOfRange
@@ -1232,11 +1232,11 @@ verus! {
             let true_log_bytes = log@.read(head as int, len as int);
             let true_crc_bytes = spec_crc_bytes(true_log_bytes);
             if {
-                &&& !pm_region.constants().impervious_to_corruption
+                &&& !pm_region.constants().impervious_to_corruption()
                 &&& crcs_match
             } {
                 axiom_bytes_uncorrupted2(log_bytes@, true_log_bytes, log_addrs@, crc_bytes@,
-                                         true_crc_bytes, crc_addrs@);
+                                         true_crc_bytes, crc_addrs@, pm_region.constants());
             }
         }
 
