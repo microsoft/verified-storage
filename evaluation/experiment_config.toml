@@ -1,0 +1,8 @@
+[experiment_config]
+results_dir = "results/20241119"
+threads = 2
+mount_point = "/mnt/pmem"
+pm_device = "/dev/pmem0"
+iterations = 1
+op_count = 100
+record_count = 100

@@ -30,8 +30,13 @@ struct YcsbKV {
 }
 
 #[derive(Deserialize, Debug)]
-struct Config {
-    config: DbOptions,
+struct CapybaraKvConfig {
+    capybarakv_config: DbOptions,
+}
+
+#[derive(Deserialize, Debug)]
+struct ExperimentConfig {
+    experiment_config: ExperimentOptions,
 }
 
 #[derive(Deserialize, Debug)]
@@ -40,24 +45,53 @@ struct DbOptions {
     node_size: u32, 
     num_keys: u64, 
     region_size: u64, 
-    threads: u64,
 }
 
-fn parse_configs(config_file: String) -> DbOptions {
+// Most of these options are not used at all in this crate,
+// but a few are, and reading from this config file makes it 
+// easier to ensure that we use the same configurations everywhere
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+struct ExperimentOptions {
+    results_dir: String,
+    threads: u64,
+    mount_point: String,
+    pm_device: String,
+    iterations: u64,
+    op_count: u64,
+    record_count: u64,
+}
+
+fn parse_capybarakv_configs(capybarakv_config_file: String) -> DbOptions {
     println!("{:?}", chrono::offset::Local::now());
-    println!("Reading configs from {:?}", config_file);
-    let config_contents = match fs::read_to_string(&config_file) {
+    println!("Reading CapybaraKV configs from {:?}", capybarakv_config_file);
+    let capybarakv_config_contents = match fs::read_to_string(&capybarakv_config_file) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Could not read file `{}`: {}", config_file, e);
+            eprintln!("Could not read file `{}`: {}", capybarakv_config_file, e);
             panic!();
         }
     };
 
     // TODO: Proper error handling of invalid config files
-    let config: Config = toml::from_str(&config_contents).unwrap();
-    println!("config: {:?}", config);
-    config.config
+    let capybarakv_config: CapybaraKvConfig = toml::from_str(&capybarakv_config_contents).unwrap();
+    println!("capybarakv_config: {:?}", capybarakv_config);
+    capybarakv_config.capybarakv_config
+}
+
+fn parse_experiment_configs(experiment_config_file: String) -> ExperimentOptions {
+    println!("Reading experiment configs from {:?}", experiment_config_file);
+    let experiment_config_contents = match fs::read_to_string(&experiment_config_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Could not read file `{}`: {}", experiment_config_file, e);
+            panic!();
+        }
+    };
+
+    let experiment_config: ExperimentConfig = toml::from_str(&experiment_config_contents).unwrap();
+    println!("experiment_config: {:?}", experiment_config);
+    experiment_config.experiment_config
 }
 
 fn get_kv_file_name(kv_file: &str, id: u64) -> String {
@@ -66,34 +100,46 @@ fn get_kv_file_name(kv_file: &str, id: u64) -> String {
 
 pub fn main() {
     let args: Vec<String> = env::args().collect();
-    let config_file = if args.len() > 1 {
+    let capybarakv_config_file = if args.len() > 1 {
         args[1].clone()
     } else {
-        "capybarakv_config.toml".to_string()
+        // "capybarakv_config.toml".to_string()
+        panic!("Please provide a path to the CapybaraKV config file");
+    };
+    let experiment_config_file = if args.len() > 2 {
+        args[2].clone()
+    } else {
+        panic!("Please provide a path to the experiment config file");
     };
 
-    let config = parse_configs(config_file);
+    let capybarakv_config = parse_capybarakv_configs(capybarakv_config_file);
+    let experiment_config = parse_experiment_configs(experiment_config_file);
 
-    let per_thread_region_size = config.region_size / config.threads;
+    // TODO: more explanatory error messages when these fail
+    // the KV must have enough space for the number of records used in the experiment
+    assert!(capybarakv_config.num_keys >= experiment_config.record_count);
+    // sanity check -- we will never want to use more threads than keys
+    assert!(capybarakv_config.num_keys >= experiment_config.threads);
+
+    let per_thread_region_size = capybarakv_config.region_size / experiment_config.threads;
     // add one to account for cases where the number of keys is not divisble
     // by the number of threads. this ensures that the remaining keys are 
     // spread out across multiple shards
-    let per_thread_num_keys = (config.num_keys / config.threads) + 1; 
+    let per_thread_num_keys = (capybarakv_config.num_keys / experiment_config.threads) + 1; 
 
-    for i in 0..config.threads {
+    for i in 0..experiment_config.threads {
         let i: u64 = i.try_into().unwrap();
-        let current_file_name = get_kv_file_name(&config.kv_file, i);
-        println!("current file name: {:?}", current_file_name);
+        let current_file_name = get_kv_file_name(&capybarakv_config.kv_file, i);
 
         // delete the test files if they already exist. Ignore the result,
         // since it's ok if the files don't exist.
         remove_file(&current_file_name);
 
-        println!("Setting up KV {:?} with {:?} keys, {:?}B nodes, {:?}B regions", i, per_thread_num_keys, config.node_size, per_thread_region_size);
+        println!("Setting up KV {:?} with {:?} keys, {:?}B nodes, {:?}B regions", i, per_thread_num_keys, capybarakv_config.node_size, per_thread_region_size);
         // Create a file, and a PM region, for each component
-        let mut kv_region = create_pm_region(&current_file_name, config.region_size);
+        let mut kv_region = create_pm_region(&current_file_name, capybarakv_config.region_size);
         KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
-            &mut kv_region, KVSTORE_ID, per_thread_num_keys, config.node_size, 1).unwrap();
+            &mut kv_region, KVSTORE_ID, per_thread_num_keys, capybarakv_config.node_size, 1).unwrap();
     }    
     println!("Done setting up! You can now run YCSB workloads");
 }
@@ -105,7 +151,6 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
     config_file: JByteArray<'local>,
     id: jlong,
 ) -> jlong {
-
     let mut file = [0i8; MAX_CONFIG_FILE_NAME_LEN];
     let config_file_name_len: usize = env.get_array_length(&config_file).unwrap().try_into().unwrap();
     if config_file_name_len > MAX_CONFIG_FILE_NAME_LEN {
@@ -117,7 +162,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
     let file_name_slice = &mut file[0..config_file_name_len];
     env.get_byte_array_region(config_file, 0, file_name_slice).unwrap();
     let config_file = String::from_utf8(file_name_slice.iter().map(|&c| c as u8).collect()).unwrap();
-    let config = parse_configs(config_file);
+    let config = parse_capybarakv_configs(config_file);
 
     let id: u64 = id.try_into().unwrap();
     let kv_file = get_kv_file_name(&config.kv_file, id);
