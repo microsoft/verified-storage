@@ -1768,7 +1768,7 @@ verus! {
                             }
                         }
                     }
-                    Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption(),
                     // TODO: proper handling of other error types
                     Err(KvError::LogErr { log_err }) => true,
                     Err(KvError::InternalError) => true, 
@@ -2390,7 +2390,7 @@ verus! {
                             None => false,
                         }
                     },
-                    Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption(),
                     Err(_) => false,
                 }
         {
@@ -6312,7 +6312,7 @@ verus! {
                                 Self::physical_recover_given_log(self.wrpm_view().read_state,
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
-                        &&& !self.constants().impervious_to_corruption
+                        &&& !self.constants().impervious_to_corruption()
                         &&& self.wrpm_view().flush_predicted()
                         &&& self.tentative_view() == Some(self@)
                     }
@@ -6615,7 +6615,7 @@ verus! {
                                 Self::physical_recover_given_log(self.wrpm_view().read_state,
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
-                        &&& !self.constants().impervious_to_corruption
+                        &&& !self.constants().impervious_to_corruption()
                     }
                     Err(_) => false,
                 }
@@ -7045,7 +7045,7 @@ verus! {
                               self.spec_overall_metadata(), AbstractOpLogState::initialize())
                         &&& self@ == old(self)@
                         &&& Some(self@) == self.tentative_view()
-                        &&& e is CRCMismatch ==> !self.constants().impervious_to_corruption
+                        &&& e is CRCMismatch ==> !self.constants().impervious_to_corruption()
                     }
                 }
         {
@@ -7502,7 +7502,7 @@ verus! {
                             self.spec_overall_metadata(), AbstractOpLogState::initialize())
                         &&& self@ == old(self)@
                         &&& self.tentative_view() == Some(old(self)@)
-                        &&& !self.constants().impervious_to_corruption
+                        &&& !self.constants().impervious_to_corruption()
                     }
                     Err(e) => {
                         // Transaction has been aborted due to an error in the log.

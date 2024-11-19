@@ -403,7 +403,7 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
         match result {
             Ok(version_metadata) => 
                 version_metadata == deserialize_version_metadata(pm@.durable_state),
-            Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption,
+            Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption(),
             Err(_) => false,
         }
 {
@@ -427,7 +427,7 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
 
     if !check_crc(maybe_corrupted_version_metadata.as_slice(), maybe_corrupted_crc.as_slice(),
                   Ghost(true_version_metadata_bytes),
-                  Ghost(pm.constants().impervious_to_corruption),
+                  Ghost(pm.constants().impervious_to_corruption()),
                   Ghost(ABSOLUTE_POS_OF_VERSION_METADATA as int),
                   Ghost(ABSOLUTE_POS_OF_VERSION_CRC as int))
     {
@@ -453,7 +453,7 @@ pub exec fn read_overall_metadata<PM, K, I, L>(pm: &PM, version_metadata: &Versi
     ensures 
         match result {
             Ok(overall_metadata) => overall_metadata == deserialize_overall_metadata(pm@.durable_state, version_metadata.overall_metadata_addr),
-            Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption,
+            Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption(),
             Err(_) => false,
         }
 {
@@ -481,7 +481,7 @@ pub exec fn read_overall_metadata<PM, K, I, L>(pm: &PM, version_metadata: &Versi
 
     if !check_crc(maybe_corrupted_overall_metadata.as_slice(), maybe_corrupted_crc.as_slice(),
                   Ghost(true_overall_metadata_bytes),
-                  Ghost(pm.constants().impervious_to_corruption),
+                  Ghost(pm.constants().impervious_to_corruption()),
                   Ghost(metadata_addr as int),
                   Ghost(crc_addr as int))
     {

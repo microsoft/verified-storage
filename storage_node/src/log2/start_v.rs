@@ -39,7 +39,7 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
             // To make sure this code doesn't spuriously generate CRC-mismatch errors,
             // it's obligated to prove that it won't generate such an error when
             // the persistent memory is impervious to corruption.
-            Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+            Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
             Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
         }
 {
@@ -57,7 +57,7 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
     };
     
     let result = check_cdb(log_cdb, Ghost(true_cdb_bytes),
-                           Ghost(pm_region.constants().impervious_to_corruption),
+                           Ghost(pm_region.constants().impervious_to_corruption()),
                            Ghost(log_start_addr as int));
     match result {
         Some(b) => Ok(b),
@@ -88,7 +88,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
                                                     state.unwrap(), false)
                 },
                 Err(LogErr::CRCMismatch) =>
-                    state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
+                    state.is_Some() ==> !pm_region.constants().impervious_to_corruption(),
                 Err(LogErr::StartFailedDueToInvalidMemoryContents) =>
                     state is None,
                 _ => false,
@@ -125,7 +125,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
         assert(true_log_metadata.spec_to_bytes() == true_log_metadata_bytes);
 
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(true_log_metadata_bytes),
-                      Ghost(pm_region.constants().impervious_to_corruption),
+                      Ghost(pm_region.constants().impervious_to_corruption()),
                       Ghost(log_metadata_pos as int),
                       Ghost(log_crc_pos as int)) {
             return Err(LogErr::CRCMismatch);

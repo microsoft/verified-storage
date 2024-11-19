@@ -243,7 +243,7 @@ where
                     &&& kv.wrpm_view().flush_predicted()
                     &&& Some(kv@) == Self::recover(kv.wrpm_view().durable_state, kvstore_id)
                 }
-                Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
+                Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption(),
                 // TODO: proper handling of other error types
                 Err(KvError::LogErr { log_err }) => true,
                 Err(KvError::InternalError) => true, 
@@ -445,7 +445,7 @@ where
                         None => false,
                     }
                 }
-                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption(),
                 Err(KvError::KeyNotFound) => !self.tentative_view().contains_key(*key),
                 Err(_) => false,
             }
@@ -555,7 +555,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@
@@ -677,7 +677,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
@@ -782,7 +782,7 @@ where
                         old(self).tentative_view().create(*key, *item),
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyAlreadyExists) => {
                     &&& self@ == old(self)@
@@ -982,7 +982,7 @@ where
                         old(self).tentative_view().delete(*key),
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@

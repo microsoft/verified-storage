@@ -1186,7 +1186,7 @@ impl UntrustedLogImpl {
                         &&& log_impl.inv(pm_region@, log_start_addr as nat, log_size as nat)
                         &&& Self::can_only_crash_as_state(pm_region@, log_start_addr as nat, log_size as nat, state)
                     }
-                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
             })   
@@ -1954,7 +1954,7 @@ impl UntrustedLogImpl {
                         &&& pos >= log.head
                         &&& pos + len <= log.head + log.log.len()
                         &&& read_correct_modulo_corruption(bytes@, true_bytes, addrs@,
-                                                         pm_region.constants().impervious_to_corruption)
+                                                         pm_region.constants().impervious_to_corruption())
                         &&& addrs@.len() == len
                     },
                     Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
@@ -2028,7 +2028,7 @@ impl UntrustedLogImpl {
                 let read_bytes = self@.read(pos as int, len as int);
                 assert(true_bytes =~= read_bytes);
                 assert(read_correct_modulo_corruption(bytes@, true_bytes, addrs,
-                                                      pm_region.constants().impervious_to_corruption));
+                                                      pm_region.constants().impervious_to_corruption()));
             }
             return Ok((bytes, Ghost(addrs)));
         }
@@ -2147,7 +2147,7 @@ impl UntrustedLogImpl {
                 log_start_addr + spec_log_area_pos() + len - max_len_without_wrapping
             ));
 
-            if !pm_region.constants().impervious_to_corruption {
+            if !pm_region.constants().impervious_to_corruption() {
                 assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs));
                 assert((addrs_part1 + addrs_part2).no_duplicates());
             }

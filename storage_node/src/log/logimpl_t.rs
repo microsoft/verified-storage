@@ -285,7 +285,7 @@ verus! {
                         &&& trusted_log_impl.constants() == pm_region.constants()
                         &&& crashes_as_abstract_state(pm_region@, log_id, trusted_log_impl@)
                     },
-                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
         {
@@ -440,7 +440,7 @@ verus! {
                             &&& pos >= head
                             &&& pos + len <= head + log.len()
                             &&& read_correct_modulo_corruption(bytes@, true_bytes,
-                                                             self.constants().impervious_to_corruption)
+                                                             self.constants().impervious_to_corruption())
                         },
                         Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& pos < head

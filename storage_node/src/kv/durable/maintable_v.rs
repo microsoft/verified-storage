@@ -1235,7 +1235,7 @@ verus! {
                         let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
                         overall_metadata.num_keys > overall_metadata.main_table_size / entry_slot_size
                     }
-                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false
                 }
@@ -1406,7 +1406,7 @@ verus! {
                     u64::spec_size_of()
                 ));
 
-                match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_cdb_addrs)) {
+                match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants().impervious_to_corruption()), Ghost(relative_cdb_addrs)) {
                     Some(false) => {
                         // Slot is free -- we just need to put it in the allocator
                         let ghost old_metadata_allocator = metadata_allocator@;
@@ -1488,7 +1488,7 @@ verus! {
                             entry.as_slice(), key.as_slice(), crc.as_slice(), subregion, pm_region, 
                             Ghost(relative_entry_addr as int),
                             Ghost(relative_key_addr as int), Ghost(relative_crc_addr as int)) {
-                            assert(!pm_region.constants().impervious_to_corruption);
+                            assert(!pm_region.constants().impervious_to_corruption());
                             return Err(KvError::CRCMismatch);
                         }
 
@@ -1721,7 +1721,7 @@ verus! {
                                     &&& e.entry == entry
                                 }
                         },
-                        Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                        Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                         _ => false,
                     }
                 }),
@@ -1781,7 +1781,7 @@ verus! {
                     }
                 };
                 let cdb_result = check_cdb(cdb, Ghost(true_cdb_bytes),
-                                           Ghost(pm_region.constants().impervious_to_corruption),
+                                           Ghost(pm_region.constants().impervious_to_corruption()),
                                            Ghost(cdb_addr + subregion.start()));
                 match cdb_result {
                     Some(true) => {}, // continue 
@@ -1814,7 +1814,7 @@ verus! {
                     metadata_entry.as_slice(), key.as_slice(), crc.as_slice(),
                     Ghost(true_entry_bytes),
                     Ghost(true_key_bytes),                        
-                    Ghost(pm_region.constants().impervious_to_corruption),
+                    Ghost(pm_region.constants().impervious_to_corruption()),
                     Ghost(entry_addr + subregion.start()),
                     Ghost(key_addr + subregion.start()),
                     Ghost(crc_addr + subregion.start()))
@@ -3340,7 +3340,7 @@ verus! {
                         &&& old_entry == self.get_latest_entry(index).unwrap().entry
                         &&& key == self.get_latest_entry(index).unwrap().key
                     }
-                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     _ => false,
                 }
         {

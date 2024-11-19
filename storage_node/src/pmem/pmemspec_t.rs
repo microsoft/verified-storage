@@ -321,7 +321,10 @@ verus! {
     // remain the same across all operations on persistent memory.
 
     pub struct PersistentMemoryConstants {
-        pub impervious_to_corruption: bool
+    }
+
+    impl PersistentMemoryConstants {
+        pub spec fn impervious_to_corruption(self) -> bool;
     }
 
     pub trait PersistentMemoryRegion : Sized
@@ -359,7 +362,7 @@ verus! {
                     Ok(bytes) => bytes_read_from_storage(bytes@,
                                                         self@.read_state.subrange(addr as int, addr + S::spec_size_of()),
                                                         addr as int,
-                                                        self.constants().impervious_to_corruption),
+                                                        self.constants().impervious_to_corruption()),
                     _ => false,
                 }
             ;
@@ -373,7 +376,7 @@ verus! {
                     Ok(bytes) => bytes_read_from_storage(bytes@,
                                                         self@.read_state.subrange(addr as int, addr + num_bytes as nat),
                                                         addr as int,
-                                                        self.constants().impervious_to_corruption),
+                                                        self.constants().impervious_to_corruption()),
                     _ => false,
                 }
                 

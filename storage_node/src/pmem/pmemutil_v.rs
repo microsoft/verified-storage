@@ -214,11 +214,11 @@ verus! {
                                                                   relative_data_addr2 + data2_c@.len());
                 let true_crc_bytes = spec_crc_bytes(true_data_bytes1 + true_data_bytes2);
                 &&& bytes_read_from_storage(data1_c@, true_data_bytes1, relative_data_addr1 + subregion.start(),
-                                          pm_region.constants().impervious_to_corruption)
+                                          pm_region.constants().impervious_to_corruption())
                 &&& bytes_read_from_storage(data2_c@, true_data_bytes2, relative_data_addr2 + subregion.start(),
-                                          pm_region.constants().impervious_to_corruption)
+                                          pm_region.constants().impervious_to_corruption())
                 &&& bytes_read_from_storage(crc_c@, true_crc_bytes, relative_crc_addr + subregion.start(),
-                                          pm_region.constants().impervious_to_corruption)
+                                          pm_region.constants().impervious_to_corruption())
             }),
         ensures
             ({
@@ -235,7 +235,7 @@ verus! {
                     &&& crc_c@ == true_crc_bytes
                 }
                 else {
-                    !pm_region.constants().impervious_to_corruption
+                    !pm_region.constants().impervious_to_corruption()
                 }
             }),
     {
@@ -274,7 +274,7 @@ verus! {
             // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
             // detected corruption.
             if {
-                &&& !pm_region.constants().impervious_to_corruption
+                &&& !pm_region.constants().impervious_to_corruption()
                 &&& crcs_match
             } {
                 let data_c = data1_c@ + data2_c@;

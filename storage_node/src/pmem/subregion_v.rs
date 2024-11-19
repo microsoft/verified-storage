@@ -656,7 +656,7 @@ impl WriteRestrictedPersistentMemorySubregion
                     // subregion at a certain start.
                     let absolute_addr = relative_addr + self.start();
                     bytes_read_from_storage(bytes@, true_bytes, absolute_addr,
-                                            wrpm.constants().impervious_to_corruption)
+                                            wrpm.constants().impervious_to_corruption())
                 },
                 Err(_) => false,
             }
@@ -686,7 +686,7 @@ impl WriteRestrictedPersistentMemorySubregion
                         absolute_addr + num_bytes - self.start()
                     );
                     bytes_read_from_storage(bytes@, true_bytes, absolute_addr as int,
-                                            wrpm.constants().impervious_to_corruption)
+                                            wrpm.constants().impervious_to_corruption())
                 },
                 Err(_) => false,
             }
@@ -727,7 +727,7 @@ impl WriteRestrictedPersistentMemorySubregion
                     );
                     let absolute_addr = relative_addr + self.start();
                     bytes_read_from_storage(bytes@, true_bytes, absolute_addr,
-                                            wrpm.constants().impervious_to_corruption)
+                                            wrpm.constants().impervious_to_corruption())
                 },
                 Err(_) => false,
             }
@@ -758,7 +758,7 @@ impl WriteRestrictedPersistentMemorySubregion
                 Ok(bytes) => {
                     let true_bytes = true_val.spec_to_bytes();
                     bytes_read_from_storage(bytes@, true_bytes, absolute_addr as int,
-                                            wrpm.constants().impervious_to_corruption)
+                                            wrpm.constants().impervious_to_corruption())
                 },
                 Err(_) => false,
             }
@@ -1048,7 +1048,7 @@ impl PersistentMemorySubregion
                     // to corruption, read returns the last bytes
                     // written. Otherwise, it returns a
                     // possibly-corrupted version of those bytes.
-                    if pm.constants().impervious_to_corruption {
+                    if pm.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     }
                     else {
@@ -1088,7 +1088,7 @@ impl PersistentMemorySubregion
                     // to corruption, read returns the last bytes
                     // written. Otherwise, it returns a
                     // possibly-corrupted version of those bytes.
-                    if pm.constants().impervious_to_corruption {
+                    if pm.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     }
                     else {
@@ -1138,7 +1138,7 @@ impl PersistentMemorySubregion
                         relative_addr as nat,
                         S::spec_size_of(),
                     );
-                    if pm.constants().impervious_to_corruption {
+                    if pm.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     } else {
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| relative_addr + self.start() + i);
@@ -1174,7 +1174,7 @@ impl PersistentMemorySubregion
                         absolute_addr - self.start(),
                         absolute_addr + S::spec_size_of() - self.start()
                     );
-                    if pm.constants().impervious_to_corruption {
+                    if pm.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     } else {
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| absolute_addr + i);
@@ -1457,7 +1457,7 @@ impl WritablePersistentMemorySubregion
                     // to corruption, read returns the last bytes
                     // written. Otherwise, it returns a
                     // possibly-corrupted version of those bytes.
-                    if pm.constants().impervious_to_corruption {
+                    if pm.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     }
                     else {
@@ -1495,7 +1495,7 @@ impl WritablePersistentMemorySubregion
                     // to corruption, read returns the last bytes
                     // written. Otherwise, it returns a
                     // possibly-corrupted version of those bytes.
-                    if pm.constants().impervious_to_corruption {
+                    if pm.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     }
                     else {
@@ -1542,7 +1542,7 @@ impl WritablePersistentMemorySubregion
                         relative_addr as int,
                         relative_addr + S::spec_size_of(),
                     );
-                    if self.constants().impervious_to_corruption {
+                    if self.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     } else {
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat,
@@ -1579,7 +1579,7 @@ impl WritablePersistentMemorySubregion
                         absolute_addr - self.start(),
                         absolute_addr + S::spec_size_of() - self.start()
                     );
-                    if self.constants().impervious_to_corruption {
+                    if self.constants().impervious_to_corruption() {
                         bytes@ == true_bytes
                     } else {
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| absolute_addr + i);

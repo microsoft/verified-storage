@@ -688,7 +688,7 @@ verus! {
             ensures
                 match result {
                     Ok(item) => Some(*item) == self.get_latest_item_at_index(item_table_index),
-                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     _ => false,
                 },
         {
@@ -748,7 +748,7 @@ verus! {
                 };
                 
                 if !check_crc(item.as_slice(), crc.as_slice(), Ghost(true_item_bytes),
-                              Ghost(pm_region.constants().impervious_to_corruption),
+                              Ghost(pm_region.constants().impervious_to_corruption()),
                               Ghost(item_addr + subregion.start()),
                               Ghost(crc_addr + subregion.start())) {
                     return Err(KvError::CRCMismatch);
@@ -1133,7 +1133,7 @@ verus! {
                             &&& item_table.tentative_valid_indices() == in_use_indices
                         }
                     }
-                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                     Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false
                 }

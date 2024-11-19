@@ -317,6 +317,7 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
         info.head + info.log_plus_pending_length <= u128::MAX,
         state.log.len() == info.log_length,
         state.pending.len() == info.log_plus_pending_length - info.log_length,
+        // The forall below is split into two cases to make the proof more stable.
         forall |pos_relative_to_head: int| {
             let log_area_offset =
                 #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
@@ -327,6 +328,13 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
                    &&& pm_region_view.read_state[absolute_addr] == state.log[pos_relative_to_head]
                    &&& pm_region_view.read_state[absolute_addr] == pm_region_view.durable_state[absolute_addr]
                }
+        },
+        forall |pos_relative_to_head: int| {
+            let log_area_offset =
+                #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                info.head_log_area_offset as int,
+                                                                info.log_area_len as int);
+            let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
             &&& info.log_length <= pos_relative_to_head < info.log_plus_pending_length ==>
                    pm_region_view.read_state[absolute_addr] == state.pending[pos_relative_to_head - info.log_length]
         }
