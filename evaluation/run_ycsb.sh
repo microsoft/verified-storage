@@ -1,13 +1,15 @@
 #!/bin/bash
 
+# TODO: rewrite this in python or something to make it easier to deal with configs and errors
+
 DB=$1
 RESULTS_DIR=$2
 PM=$3
-# OP_COUNT=5000
-# RECORD_COUNT=100
-THREADS=1 # TODO: check that this matches the value in the toml file
-OP_COUNT=1000000
-RECORD_COUNT=500000
+OP_COUNT=50000
+RECORD_COUNT=100
+THREADS=2 # TODO: check that this matches the value in the toml file
+# OP_COUNT=1000000
+# RECORD_COUNT=500000
 mount_point=/mnt/pmem
 pm_device=/dev/pmem0
 dram_db_dir=~/db_files # TODO: should this be in /tmp?
@@ -30,7 +32,7 @@ setup_capybarakv() {
     fi
     cd ../ycsb_ffi
     pwd
-    cargo run -- ../capybarakv_config.toml
+    cargo run --release -- ../capybarakv_config.toml
     check_error $?
     cd ../YCSB
 }
@@ -126,9 +128,7 @@ options+=" -threads $THREADS"
 
 echo $options
 
-export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/debug
-
-
+export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release
 
 mkdir -p $RESULTS_DIR/$DB/Loada
 check_error $?
@@ -161,27 +161,27 @@ for iter in $(seq $iterations); do
 
     ./bin/ycsb -- load $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
     check_error $?
-    ./bin/ycsb run $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
-    check_error $?
-    ./bin/ycsb run $DB -s -P workloads/workloadb -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runb/Run$iter
-    check_error $?
-    ./bin/ycsb run $DB -s -P workloads/workloadc -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runc/Run$iter
-    check_error $?
+    # ./bin/ycsb run $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
+    # check_error $?
+    # ./bin/ycsb run $DB -s -P workloads/workloadb -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runb/Run$iter
+    # check_error $?
+    # ./bin/ycsb run $DB -s -P workloads/workloadc -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runc/Run$iter
+    # check_error $?
 
-    if [ $DB = "capybarakv" ]; then 
-        setup_capybarakv $use_pm
-    elif [ $DB = "redis" ]; then 
-        setup_redis $use_pm
-    elif [ $DB = "rocksdb" ] || [ $DB = "pmemrocksdb" ]; then 
-        setup_rocksdb $use_pm
-    else 
-        echo "Unrecognized database $DB"
-        exit 1
-    fi
-    ./bin/ycsb load $DB -threads 1 -s -P workloads/workloade -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loade/Run$iter
-    check_error $?
-    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadf -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runf/Run$iter
-    check_error $?
+    # if [ $DB = "capybarakv" ]; then 
+    #     setup_capybarakv $use_pm
+    # elif [ $DB = "redis" ]; then 
+    #     setup_redis $use_pm
+    # elif [ $DB = "rocksdb" ] || [ $DB = "pmemrocksdb" ]; then 
+    #     setup_rocksdb $use_pm
+    # else 
+    #     echo "Unrecognized database $DB"
+    #     exit 1
+    # fi
+    # ./bin/ycsb load $DB -threads 1 -s -P workloads/workloade -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loade/Run$iter
+    # check_error $?
+    # ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadf -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runf/Run$iter
+    # check_error $?
 
     cleanup
 done
