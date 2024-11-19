@@ -17,20 +17,6 @@
 
 
 ### redis troubleshooting
-<!-- 1. Install gcc-8 by running `sudo apt install gcc-8`. This may fail on newer Ubuntu distributions; if it does, run:
-```
-sudo cat <<EOF | sudo tee /etc/apt/sources.list.d/gcc-8.list
-deb http://old-releases.ubuntu.com/ubuntu/ impish main restricted universe multiverse
-EOF
-```
-Then
-```
-sudo apt update
-sudo apt install gcc-8
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 25
-sudo update-alternatives --config gcc
-```
-Make sure `gcc-8` is selected.-->
 1. `cd` to `pmem-redis` and run `make USE_NVM=yes` 
 
 If redis doesn't build, the following may help:
