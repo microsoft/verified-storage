@@ -1151,7 +1151,7 @@ verus! {
 
             // 4. Check for corruption
             if !check_crc(list_elem.as_slice(), crc.as_slice(), Ghost(true_elem_bytes),
-                Ghost(pm_region.constants().impervious_to_corruption()), Ghost(elem_addr as int), Ghost(crc_addr as int))
+                Ghost(pm_region.constants()), Ghost(elem_addr as int), Ghost(crc_addr as int))
             {
                 return Err(KvError::CRCMismatch);
             }
@@ -1251,7 +1251,7 @@ verus! {
 
             if !check_crc(region_header.as_slice(), region_header_crc.as_slice(),
                           Ghost(true_header_bytes),
-                          Ghost(pm_region.constants().impervious_to_corruption()),
+                          Ghost(pm_region.constants()),
                           Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int),
                           Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int))
             {
@@ -1306,7 +1306,7 @@ verus! {
 
             if !check_crc(next_ptr.as_slice(), crc.as_slice(),
                           Ghost(true_next_ptr_bytes),
-                          Ghost(pm_region.constants().impervious_to_corruption()),
+                          Ghost(pm_region.constants()),
                           Ghost(next_ptr_addr as int), Ghost(crc_addr as int))
             {
                 return Err(KvError::CRCMismatch);

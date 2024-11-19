@@ -262,13 +262,13 @@ verus! {
             bytes: &[u8], 
             Ghost(true_val): Ghost<S>,
             Ghost(addrs): Ghost<Seq<int>>,
-            Ghost(impervious_to_corruption): Ghost<bool>
+            Ghost(pmc): Ghost<PersistentMemoryConstants>
         )
             requires 
-                if impervious_to_corruption {
+                if pmc.impervious_to_corruption() {
                     bytes@ == true_val.spec_to_bytes()
                 } else {
-                    maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
+                    pmc.maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
                 },
                 bytes@.len() == S::spec_size_of(),
             ensures 
@@ -352,13 +352,13 @@ verus! {
             self, 
             Ghost(true_bytes): Ghost<Seq<u8>>, 
             Ghost(addrs): Ghost<Seq<int>>,
-            Ghost(impervious_to_corruption): Ghost<bool>
+            Ghost(pmc): Ghost<PersistentMemoryConstants>
         ) -> (out: Box<u64>)
             requires 
-                if impervious_to_corruption {
+                if pmc.impervious_to_corruption() {
                     self@ == true_bytes
                 } else {
-                    maybe_corrupted(self@, true_bytes, addrs)
+                    pmc.maybe_corrupted(self@, true_bytes, addrs)
                 },
                 ({
                     let true_val = u64::spec_from_bytes(true_bytes);

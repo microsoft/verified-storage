@@ -1210,7 +1210,7 @@ verus! {
                 &&& crcs_match
             } {
                 axiom_bytes_uncorrupted2(log_bytes@, true_log_bytes, log_addrs@, crc_bytes@,
-                                         true_crc_bytes, crc_addrs@);
+                                         true_crc_bytes, crc_addrs@, pm_region.constants());
             }
         }
 

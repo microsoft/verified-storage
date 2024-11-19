@@ -53,21 +53,21 @@ verus! {
         data_c: &[u8],
         crc_c: &[u8],
         Ghost(true_bytes): Ghost<Seq<u8>>,
-        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(pmc): Ghost<PersistentMemoryConstants>,
         Ghost(data_addr): Ghost<int>,
         Ghost(crc_addr): Ghost<int>,
     ) -> (b: bool)
         requires
             crc_c@.len() == u64::spec_size_of(),
-            bytes_read_from_storage(data_c@, true_bytes, data_addr, impervious_to_corruption),
-            bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes), crc_addr, impervious_to_corruption),
+            bytes_read_from_storage(data_c@, true_bytes, data_addr, pmc),
+            bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes), crc_addr, pmc),
         ensures
             if b {
                 &&& data_c@ == true_bytes
                 &&& crc_c@ == spec_crc_bytes(true_bytes)
             }
             else {
-               !impervious_to_corruption
+               !pmc.impervious_to_corruption()
             },
     {
         // Compute a CRC for the bytes we read.
@@ -89,13 +89,13 @@ verus! {
             // because we don't need it. #1 is a requirement to call this lemma. If #2 is false,
             // then no corruption has happened. If #3 is false, then we've detected corruption.
             if {
-                &&& !impervious_to_corruption
+                &&& !pmc.impervious_to_corruption()
                 &&& crcs_match
             } {
                 let data_addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + data_addr);
                 let true_crc_bytes = spec_crc_bytes(true_bytes);
                 let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
-                axiom_bytes_uncorrupted2(data_c@, true_bytes, data_addrs, crc_c@, true_crc_bytes, crc_addrs);
+                axiom_bytes_uncorrupted2(data_c@, true_bytes, data_addrs, crc_c@, true_crc_bytes, crc_addrs, pmc);
             }
         }
         crcs_match
@@ -107,7 +107,7 @@ verus! {
         crc_c: &[u8],
         Ghost(true_bytes1): Ghost<Seq<u8>>,
         Ghost(true_bytes2): Ghost<Seq<u8>>,
-        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(pmc): Ghost<PersistentMemoryConstants>,
         Ghost(data_addr1): Ghost<int>,
         Ghost(data_addr2): Ghost<int>,
         Ghost(crc_addr): Ghost<int>,
@@ -118,10 +118,9 @@ verus! {
                 ||| data_addr1 + data1_c@.len() <= data_addr2
                 ||| data_addr2 + data2_c@.len() <= data_addr1
             }),
-            bytes_read_from_storage(data1_c@, true_bytes1, data_addr1, impervious_to_corruption),
-            bytes_read_from_storage(data2_c@, true_bytes2, data_addr2, impervious_to_corruption),
-            bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes1 + true_bytes2), crc_addr,
-                                    impervious_to_corruption),
+            bytes_read_from_storage(data1_c@, true_bytes1, data_addr1, pmc),
+            bytes_read_from_storage(data2_c@, true_bytes2, data_addr2, pmc),
+            bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes1 + true_bytes2), crc_addr, pmc),
         ensures
             ({
                 if b {
@@ -130,7 +129,7 @@ verus! {
                     &&& crc_c@ == spec_crc_bytes(true_bytes1 + true_bytes2)
                 }
                 else {
-                    !impervious_to_corruption
+                    !pmc.impervious_to_corruption()
                 }
             })
     {
@@ -160,7 +159,7 @@ verus! {
             // because we don't need it. #1 is a precondition for calling this lemma. If #2 is false,
             // then no corruption has happened. If #3 is false, then we've detected corruption.
             if {
-                &&& !impervious_to_corruption
+                &&& !pmc.impervious_to_corruption()
                 &&& crcs_match
             } {
                 let data_c = data1_c@ + data2_c@;
@@ -170,7 +169,7 @@ verus! {
                 let data_addrs2 = Seq::<int>::new(data2_c@.len(), |i: int| i + data_addr2);
                 let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
                 axiom_bytes_uncorrupted2(data_c, true_data, data_addrs1 + data_addrs2,
-                                         crc_c@, true_crc_bytes, crc_addrs);
+                                         crc_c@, true_crc_bytes, crc_addrs, pmc);
                 assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
                 assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
                 assert(data1_c@ == true_bytes1);
@@ -214,11 +213,11 @@ verus! {
                                                                   relative_data_addr2 + data2_c@.len());
                 let true_crc_bytes = spec_crc_bytes(true_data_bytes1 + true_data_bytes2);
                 &&& bytes_read_from_storage(data1_c@, true_data_bytes1, relative_data_addr1 + subregion.start(),
-                                          pm_region.constants().impervious_to_corruption())
+                                          pm_region.constants())
                 &&& bytes_read_from_storage(data2_c@, true_data_bytes2, relative_data_addr2 + subregion.start(),
-                                          pm_region.constants().impervious_to_corruption())
+                                          pm_region.constants())
                 &&& bytes_read_from_storage(crc_c@, true_crc_bytes, relative_crc_addr + subregion.start(),
-                                          pm_region.constants().impervious_to_corruption())
+                                          pm_region.constants())
             }),
         ensures
             ({
@@ -286,7 +285,7 @@ verus! {
                 let absolute_crc_addrs = Seq::new(u64::spec_size_of(),
                                                   |i: int| i + relative_crc_addr + subregion.start());
                 axiom_bytes_uncorrupted2(data_c, true_data, absolute_data_addrs1 + absolute_data_addrs2,
-                                         crc_c@, true_crc_bytes, absolute_crc_addrs);
+                                         crc_c@, true_crc_bytes, absolute_crc_addrs, pm_region.constants());
                 assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
                 assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
                 assert(data1_c@ == true_data_bytes1);
@@ -330,11 +329,11 @@ verus! {
     pub fn check_cdb(
         cdb_c: MaybeCorruptedBytes<u64>,
         Ghost(true_cdb_bytes): Ghost<Seq<u8>>,
-        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(pmc): Ghost<PersistentMemoryConstants>,
         Ghost(cdb_addr): Ghost<int>,
     ) -> (result: Option<bool>)
         requires
-            bytes_read_from_storage(cdb_c@, true_cdb_bytes, cdb_addr, impervious_to_corruption),
+            bytes_read_from_storage(cdb_c@, true_cdb_bytes, cdb_addr, pmc),
             ({
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 &&& u64::bytes_parseable(true_cdb_bytes)
@@ -346,7 +345,7 @@ verus! {
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
                                else { true_cdb == CDB_FALSE },
-                    None => !impervious_to_corruption,
+                    None => !pmc.impervious_to_corruption(),
                 }
             }),
     {
@@ -357,12 +356,12 @@ verus! {
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
-            if !impervious_to_corruption && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
-                axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, cdb_addrs);
+            if !pmc.impervious_to_corruption() && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
+                axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, cdb_addrs, pmc);
             }  
         }
         
-        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(cdb_addrs), Ghost(impervious_to_corruption));
+        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(cdb_addrs), Ghost(pmc));
         assert(cdb_val.spec_to_bytes() == cdb_c@);
 
         // If the read encoded CDB is one of the expected ones, translate
@@ -390,7 +389,7 @@ verus! {
         cdb_c: MaybeCorruptedBytes<u64>,
         subregion: &PersistentMemorySubregion,
         pm_region: &PM,
-        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(pmc): Ghost<PersistentMemoryConstants>,
         Ghost(relative_cdb_addrs): Ghost<Seq<int>>,
     ) -> (result: Option<bool>)
         where 
@@ -403,8 +402,8 @@ verus! {
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 &&& u64::bytes_parseable(true_cdb_bytes)
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
-                &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
-                        else { subregion.maybe_corrupted_relative(cdb_c@, true_cdb_bytes, relative_cdb_addrs) }
+                &&& if pmc.impervious_to_corruption() { cdb_c@ == true_cdb_bytes }
+                        else { subregion.maybe_corrupted_relative(cdb_c@, true_cdb_bytes, relative_cdb_addrs, pmc) }
             })
         ensures
             ({
@@ -413,7 +412,7 @@ verus! {
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
                                else { true_cdb == CDB_FALSE },
-                    None => !impervious_to_corruption,
+                    None => !pmc.impervious_to_corruption(),
                 }
             })
     {
@@ -424,12 +423,12 @@ verus! {
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
-            if !impervious_to_corruption && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
-                axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, absolute_cdb_addrs);
+            if !pmc.impervious_to_corruption() && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
+                axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, absolute_cdb_addrs, pmc);
             }  
         }
         
-        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(absolute_cdb_addrs), Ghost(impervious_to_corruption));
+        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(absolute_cdb_addrs), Ghost(pmc));
         assert(cdb_val.spec_to_bytes() == cdb_c@);
 
         // If the read encoded CDB is one of the expected ones, translate

@@ -92,10 +92,10 @@ impl AbstractLogState {
 // there was corruption on the persistent memory between the last
 // write and this read.
 pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
-    addrs: Seq<int>, impervious_to_corruption: bool) -> bool
+    addrs: Seq<int>, pmc: PersistentMemoryConstants) -> bool
 {
     &&& addrs.no_duplicates()
-    &&& if impervious_to_corruption {
+    &&& if pmc.impervious_to_corruption() {
             // If the region is impervious to corruption, the bytes read
             // must match the true bytes, i.e., the bytes last written.
             bytes == true_bytes
@@ -108,7 +108,7 @@ pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<
             // don't require the sequence of addresses to be
             // contiguous because the data might not be contiguous on
             // disk (e.g., if it wrapped around the log area).
-            maybe_corrupted(bytes, true_bytes, addrs)
+            pmc.maybe_corrupted(bytes, true_bytes, addrs)
         }
 }
 
@@ -1954,7 +1954,7 @@ impl UntrustedLogImpl {
                         &&& pos >= log.head
                         &&& pos + len <= log.head + log.log.len()
                         &&& read_correct_modulo_corruption(bytes@, true_bytes, addrs@,
-                                                         pm_region.constants().impervious_to_corruption())
+                                                         pm_region.constants())
                         &&& addrs@.len() == len
                     },
                     Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
@@ -1991,7 +1991,7 @@ impl UntrustedLogImpl {
             // Case 0: The trivial case where we're being asked to read zero bytes.
             let ghost addrs = Seq::empty();
             assert(true_bytes =~= Seq::<u8>::empty());
-            assert(maybe_corrupted(Seq::<u8>::empty(), true_bytes, addrs));
+            assert(pm_region.constants().maybe_corrupted(Seq::<u8>::empty(), true_bytes, addrs));
             return Ok((Vec::<u8>::new(), Ghost(addrs)));
         }
 
@@ -2028,7 +2028,7 @@ impl UntrustedLogImpl {
                 let read_bytes = self@.read(pos as int, len as int);
                 assert(true_bytes =~= read_bytes);
                 assert(read_correct_modulo_corruption(bytes@, true_bytes, addrs,
-                                                      pm_region.constants().impervious_to_corruption()));
+                                                      pm_region.constants()));
             }
             return Ok((bytes, Ghost(addrs)));
         }
@@ -2148,7 +2148,7 @@ impl UntrustedLogImpl {
             ));
 
             if !pm_region.constants().impervious_to_corruption() {
-                assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs));
+                assert(pm_region.constants().maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs));
                 assert((addrs_part1 + addrs_part2).no_duplicates());
             }
         }

@@ -1399,7 +1399,7 @@ verus! {
                     u64::spec_size_of()
                 ));
 
-                match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants().impervious_to_corruption()), Ghost(relative_cdb_addrs)) {
+                match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants()), Ghost(relative_cdb_addrs)) {
                     Some(false) => {
                         // Slot is free -- we just need to put it in the allocator
                         let ghost old_metadata_allocator = metadata_allocator@;
@@ -1774,7 +1774,7 @@ verus! {
                     }
                 };
                 let cdb_result = check_cdb(cdb, Ghost(true_cdb_bytes),
-                                           Ghost(pm_region.constants().impervious_to_corruption()),
+                                           Ghost(pm_region.constants()),
                                            Ghost(cdb_addr + subregion.start()));
                 match cdb_result {
                     Some(true) => {}, // continue 
@@ -1807,7 +1807,7 @@ verus! {
                     metadata_entry.as_slice(), key.as_slice(), crc.as_slice(),
                     Ghost(true_entry_bytes),
                     Ghost(true_key_bytes),                        
-                    Ghost(pm_region.constants().impervious_to_corruption()),
+                    Ghost(pm_region.constants()),
                     Ghost(entry_addr + subregion.start()),
                     Ghost(key_addr + subregion.start()),
                     Ghost(crc_addr + subregion.start()))

@@ -64,7 +64,7 @@ verus! {
         };
         
         let result = check_cdb(log_cdb, Ghost(true_cdb_bytes),
-                               Ghost(pm_region.constants().impervious_to_corruption()),
+                               Ghost(pm_region.constants()),
                                Ghost(ABSOLUTE_POS_OF_LOG_CDB as int));
         match result {
             Some(b) => Ok(b),
@@ -187,7 +187,7 @@ verus! {
 
         if !check_crc(global_metadata.as_slice(), global_crc.as_slice(),
                       Ghost(true_global_metadata_bytes),
-                      Ghost(pm_region.constants().impervious_to_corruption()),
+                      Ghost(pm_region.constants()),
                       Ghost(ABSOLUTE_POS_OF_GLOBAL_METADATA as int),
                       Ghost(ABSOLUTE_POS_OF_GLOBAL_CRC as int)) {
             return Err(LogErr::CRCMismatch);
@@ -240,7 +240,7 @@ verus! {
 
         if !check_crc(region_metadata.as_slice(), region_crc.as_slice(),
                       Ghost(true_region_metadata_bytes),
-                      Ghost(pm_region.constants().impervious_to_corruption()),
+                      Ghost(pm_region.constants()),
                       Ghost(ABSOLUTE_POS_OF_REGION_METADATA as int),
                       Ghost(ABSOLUTE_POS_OF_REGION_CRC as int)) {
             return Err(LogErr::CRCMismatch);
@@ -321,7 +321,7 @@ verus! {
         assert(true_log_metadata.spec_to_bytes() == true_log_metadata_bytes);
 
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(true_log_metadata_bytes),
-                      Ghost(pm_region.constants().impervious_to_corruption()),
+                      Ghost(pm_region.constants()),
                       Ghost(log_metadata_pos as int), Ghost(log_crc_pos as int)) {
             return Err(LogErr::CRCMismatch);
         }

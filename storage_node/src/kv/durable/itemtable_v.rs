@@ -748,7 +748,7 @@ verus! {
                 };
                 
                 if !check_crc(item.as_slice(), crc.as_slice(), Ghost(true_item_bytes),
-                              Ghost(pm_region.constants().impervious_to_corruption()),
+                              Ghost(pm_region.constants()),
                               Ghost(item_addr + subregion.start()),
                               Ghost(crc_addr + subregion.start())) {
                     return Err(KvError::CRCMismatch);

@@ -56,9 +56,9 @@ verus! {
     // there was corruption on the persistent memory between the last
     // write and this read.
     pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
-                                                    impervious_to_corruption: bool) -> bool
+                                                    pmc: PersistentMemoryConstants) -> bool
     {
-        if impervious_to_corruption {
+        if pmc.impervious_to_corruption() {
             // If the region is impervious to corruption, the bytes read
             // must match the true bytes, i.e., the bytes last written.
 
@@ -75,7 +75,7 @@ verus! {
 
             exists |addrs: Seq<int>| {
                 &&& addrs.no_duplicates()
-                &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs)
+                &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
             }
         }
     }
@@ -440,7 +440,7 @@ verus! {
                             &&& pos >= head
                             &&& pos + len <= head + log.len()
                             &&& read_correct_modulo_corruption(bytes@, true_bytes,
-                                                             self.constants().impervious_to_corruption())
+                                                             self.constants())
                         },
                         Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& pos < head
