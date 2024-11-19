@@ -4,8 +4,11 @@ import argparse
 import toml
 import subprocess
 import os
+import time
 import sys
 from pathlib import Path
+
+DBS = ["capybarakv", "pmemrocksdb", "redis"]
 
 def main():
     # Get command line arguments
@@ -23,12 +26,11 @@ def main():
 
     output_dir_paths = create_output_dirs(configs, db)
 
-    if db == "capybarakv":
-        setup_capybarakv(configs)
-        run_experiment(configs, db, output_dir_paths)
-    else:
+    if not db in DBS: 
         print("Unknown db", db)
         return -1
+
+    run_experiment(configs, db, output_dir_paths)
 
 def arg_parser():
     # Most arguments are obtained from the config file, not command line.
@@ -53,6 +55,21 @@ def setup_capybarakv(configs):
         cwd="ycsb_ffi/"
     )
 
+def setup_redis(configs):
+    # start the redis server in the background
+    p = subprocess.Popen(
+        ["sudo", "./src/redis-server", "redis.conf"],
+        cwd="pmem-redis/"
+    )
+    return p
+
+def cleanup(configs, db, redis_process=None):
+    if db == "redis":
+        print("terminating redis process")
+        subprocess.call(["sudo", "pkill", "redis"])
+    time.sleep(5)
+    subprocess.call(["sudo", "umount", configs["pm_device"]]);
+
 def create_output_dirs(configs, db):
     results_dir = configs["results_dir"]
     mode = 0o777
@@ -68,11 +85,11 @@ def create_output_dirs(configs, db):
 
     for path in paths:
         os.makedirs(path, mode, exist_ok=True)
-
     return paths
     
 def run_experiment(configs, db, output_dir_paths):
     iterations = configs["iterations"]
+    p = None
 
     options = build_options(configs, db)
 
@@ -87,6 +104,8 @@ def run_experiment(configs, db, output_dir_paths):
         setup_pm(configs)
         if db == "capybarakv":
             setup_capybarakv(configs)
+        if db == "redis":
+            p = setup_redis(configs)
 
         with open(loada_output_path, "w") as f:
             subprocess.run(
@@ -117,9 +136,15 @@ def run_experiment(configs, db, output_dir_paths):
                 stderr=f,
                 check=True)
 
-        setup_pm(configs)
         if db == "capybarakv":
+            setup_pm(configs)
             setup_capybarakv(configs)
+        elif db == "redis":
+            cleanup(configs, db, redis_process=p)
+            setup_pm(configs)
+            p = setup_redis(configs)
+        else:
+            setup_pm(configs)
 
         with open(loade_output_path, "w") as f:
             subprocess.run(
@@ -135,10 +160,14 @@ def run_experiment(configs, db, output_dir_paths):
                 stdout=f,
                 stderr=f,
                 check=True)
+            
+        if db == "redis":
+            cleanup(configs, db, redis_process=p)
 
 def build_options(configs, db):
     iterations = configs["iterations"]
     threads = configs["threads"]
+    mount_point = configs["mount_point"]
     op_count = configs["op_count"]
     record_count = configs["record_count"]
     results_dir = configs["results_dir"]
@@ -151,6 +180,13 @@ def build_options(configs, db):
 
     if db == "capybarakv":
         options += ["-p", "capybarakv.configfile=../capybarakv_config.toml"]
+    elif db == "redis":
+        options += ["-p", "redis.host=127.0.0.1"]
+        options += ["-p", "redis.port=6379"]
+    elif db == "pmemrocksdb":
+        options += ["-p", "rocksdb.dir=" + mount_point]
+        options += ["-p", "rocksdb.allow_mmap_reads=true"]
+        options += ["-p", "rocksdb.allow_mmap_writes=true"]
     else:
         assert False, "Not implemented"
     
