@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# TODO: rewrite this in python or something to make it easier to deal with configs and errors
+# **IMPORTANT NOTE**: this script is no longer supported. use run_ycsb.py instead
 
 DB=$1
 RESULTS_DIR=$2
