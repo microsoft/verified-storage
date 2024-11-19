@@ -94,6 +94,7 @@ impl AbstractLogState {
 pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
     addrs: Seq<int>, pmc: PersistentMemoryConstants) -> bool
 {
+    &&& pmc.valid()
     &&& addrs.no_duplicates()
     &&& if pmc.impervious_to_corruption() {
             // If the region is impervious to corruption, the bytes read
@@ -1992,6 +1993,9 @@ impl UntrustedLogImpl {
             let ghost addrs = Seq::empty();
             assert(true_bytes =~= Seq::<u8>::empty());
             assert(pm_region.constants().maybe_corrupted(Seq::<u8>::empty(), true_bytes, addrs));
+            proof {
+                pm_region.lemma_inv_implies_view_valid();
+            };
             return Ok((Vec::<u8>::new(), Ghost(addrs)));
         }
 

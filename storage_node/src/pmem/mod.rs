@@ -10,3 +10,4 @@ pub mod subregion_v;
 pub mod wrpm_t;
 pub mod crc_t;
 pub mod traits_t;
+pub mod hamming_v;

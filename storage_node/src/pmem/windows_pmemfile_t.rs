@@ -365,8 +365,10 @@ impl FileBackedPersistentMemoryRegion
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
-    closed spec fn inv(&self) -> bool;
     closed spec fn constants(&self) -> PersistentMemoryConstants;
+    closed spec fn inv(&self) -> bool {
+        self.constants().valid()
+    }
 
     #[verifier::external_body]
     proof fn lemma_inv_implies_view_valid(&self)

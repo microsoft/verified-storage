@@ -58,6 +58,7 @@ verus! {
         Ghost(crc_addr): Ghost<int>,
     ) -> (b: bool)
         requires
+            pmc.valid(),
             crc_c@.len() == u64::spec_size_of(),
             bytes_read_from_storage(data_c@, true_bytes, data_addr, pmc),
             bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes), crc_addr, pmc),
@@ -113,6 +114,7 @@ verus! {
         Ghost(crc_addr): Ghost<int>,
     ) -> (b: bool)
         requires
+            pmc.valid(),
             crc_c@.len() == u64::spec_size_of(),
             ({
                 ||| data_addr1 + data1_c@.len() <= data_addr2
@@ -192,6 +194,7 @@ verus! {
         where 
             PM: PersistentMemoryRegion
         requires
+            pm_region.constants().valid(),
             0 <= relative_data_addr1,
             0 <= relative_data_addr2,
             0 <= relative_crc_addr,
@@ -333,6 +336,7 @@ verus! {
         Ghost(cdb_addr): Ghost<int>,
     ) -> (result: Option<bool>)
         requires
+            pmc.valid(),
             bytes_read_from_storage(cdb_c@, true_cdb_bytes, cdb_addr, pmc),
             ({
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
@@ -395,6 +399,7 @@ verus! {
         where 
             PM: PersistentMemoryRegion,
         requires
+            pmc.valid(),
             forall |i: int| 0 <= i < relative_cdb_addrs.len() ==> relative_cdb_addrs[i] <= subregion.view(pm_region).len(),
             relative_cdb_addrs.no_duplicates(),
             ({

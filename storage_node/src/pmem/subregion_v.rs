@@ -1041,6 +1041,7 @@ impl PersistentMemorySubregion
             self.inv(pm),
             relative_addr + num_bytes <= self.len(),
         ensures
+            pm.constants().valid(),
             match result {
                 Ok(bytes) => {
                     let true_bytes = self.view(pm).read_state.subrange(relative_addr as int, relative_addr + num_bytes);
@@ -1078,6 +1079,7 @@ impl PersistentMemorySubregion
             self.start() <= absolute_addr,
             absolute_addr + num_bytes <= self.end(),
         ensures
+            pm.constants().valid(),
             match result {
                 Ok(bytes) => {
                     let true_bytes = self.view(pm).read_state.subrange(
@@ -1127,6 +1129,7 @@ impl PersistentMemorySubregion
             relative_addr + S::spec_size_of() <= self.len(),
             S::bytes_parseable(extract_bytes(self.view(pm).read_state, relative_addr as nat, S::spec_size_of())),
         ensures
+            pm.constants().valid(),
             match result {
                 Ok(bytes) => {
                     // let true_bytes = self.view(pm).read_state.subrange(
@@ -1168,6 +1171,7 @@ impl PersistentMemorySubregion
                                                    absolute_addr + S::spec_size_of() - self.start())
             ),
         ensures
+            pm.constants().valid(),
             match result {
                 Ok(bytes) => {
                     let true_bytes = self.view(pm).read_state.subrange(

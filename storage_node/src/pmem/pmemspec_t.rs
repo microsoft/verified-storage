@@ -131,6 +131,7 @@ verus! {
         pmc: PersistentMemoryConstants
     ) -> bool
     {
+        pmc.valid() &&
         if pmc.impervious_to_corruption() {
             read_bytes == true_bytes
         }
@@ -176,6 +177,7 @@ verus! {
                                          y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>,
                                          pmc: PersistentMemoryConstants)
         requires
+            pmc.valid(),
             pmc.maybe_corrupted(x_c, x, x_addrs),
             pmc.maybe_corrupted(y_c, y, y_addrs),
             y_c == spec_crc_bytes(x_c),
@@ -217,6 +219,7 @@ verus! {
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>,
                                                     pmc: PersistentMemoryConstants)
         requires
+            pmc.valid(),
             pmc.maybe_corrupted(cdb_c, cdb, addrs),
             addrs.no_duplicates(),
             cdb.len() == u64::spec_size_of(),
@@ -317,6 +320,7 @@ verus! {
 
     impl PersistentMemoryConstants {
         pub spec fn impervious_to_corruption(self) -> bool;
+        pub spec fn valid(self) -> bool;
 
         // A sequence of bytes `bytes` read from addresses `addrs` is a
         // possible corruption of the actual last-written bytes
@@ -341,7 +345,8 @@ verus! {
             requires
                 self.inv()
             ensures
-                self@.valid()
+                self@.valid(),
+                self.constants().valid(),
         ;
 
         fn get_region_size(&self) -> (result: u64)

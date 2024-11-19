@@ -57,6 +57,8 @@ verus! {
             // abstract state.
             &&& self.contents@ == self@.read_state
             &&& self.contents@ == self@.durable_state
+
+            &&& self.constants().valid()
         }
 
         closed spec fn constants(&self) -> PersistentMemoryConstants;
