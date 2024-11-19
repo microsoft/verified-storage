@@ -38,20 +38,12 @@
 //! the prophecy model is correct under the traditional model of a
 //! storage system. So the model is a reasonable and sound one.
 //!
-//! Another thing this file models is how bit corruption manifests. It
-//! models a persistent memory region as either impervious to
-//! corruption or not so. If a memory is impervious to corruption,
-//! then bit corruption never occurs and reads always return the
-//! last-written bytes. However, if memory isn't impervious to
-//! corruption, then all that's guaranteed is that the bytes that are
-//! read and the last-written bytes are related by `maybe_corrupted`.
-//!
-//! This file also provides axioms allowing possibly-corrupted bytes
-//! to be freed of suspicion of corruption. Both axioms require the
-//! use of CRCs to detect possible corruption, and model a CRC match
-//! as showing evidence of an absence of corruption.
+//! Another thing this file models is how bit corruption manifests,
+//! in terms of a Hamming bound (i.e., total number of bits that could
+//! be corrupted on read).
 
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::hamming_v::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -105,21 +97,6 @@ verus! {
         AccessOutOfRange,
     }
 
-    /// This is our model of bit corruption. It models corruption of a
-    /// read byte sequence as a sequence of corruptions happening to
-    /// each byte. This way, we can concatenate two read byte
-    /// sequences (say, to do a wrapping read) and consider them to be
-    /// analogously corrupted. We don't allow arbitrary concatenation
-    /// of bytes to prevent proofs from assembling CRC collisions and
-    /// thereby proving `false`. Specifically, we only allow byte
-    /// sequences to be put together if they all came from different
-    /// addresses.
-
-    // A byte `byte` read from address `addr` is a possible corruption
-    // of the actual last-written byte `true_byte` to that address if
-    // they're related by `maybe_corrupted_byte`.
-    pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
-
     // This function indicates that the given bytes were read from
     // storage. If the storage was impervious to corruption, the bytes
     // are the last bytes written. Otherwise, they're a
@@ -147,6 +124,42 @@ verus! {
 
     pub closed spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
 
+    pub open spec fn spec_crc_hamming_bound(len: nat) -> nat {
+        // From https://users.ece.cmu.edu/~koopman/crc/crc64.html as one example.
+        // For the CRC64-ECMA variant.
+        if len <= (32768+7)/8 {
+            8
+        } else if len <= (32768+7)/8 {
+            7
+        } else if len <= (126701+7)/8 {
+            6
+        } else if len <= (126701+7)/8 {
+            5
+        } else if len <= (8589606850+7)/8 {
+            4
+        } else if len <= (8589606850+7)/8 {
+            3
+        } else {
+            2
+        }
+    }
+
+    // This proof function is marked verifier::external_body to assume that the
+    // CRC64 function, as captured by spec_crc_bytes(), correctly achieves the
+    // Hamming bounds described in spec_crc_hamming_bound.  This is, in principle,
+    // provable from the definition of the CRC64 function, but in practice it's
+    // messy to prove, so we assume it as an axiom.
+    #[verifier::external_body]
+    pub proof fn crc_hamming_bound_valid(bytes1: Seq<u8>, bytes2: Seq<u8>, crc1: Seq<u8>, crc2: Seq<u8>)
+        requires
+            crc1 == spec_crc_bytes(bytes1),
+            crc2 == spec_crc_bytes(bytes2),
+            (bytes1 + crc1).len() == (bytes2 + crc2).len(),
+        ensures
+            bytes1 == bytes2 ||
+            hamming(bytes1 + crc1, bytes2 + crc2) >= spec_crc_hamming_bound((bytes1 + crc1).len())
+    {}
+
     // This executable method can be called to compute the CRC of a
     // sequence of bytes. It uses the `crc` crate.
     #[verifier::external_body]
@@ -159,34 +172,6 @@ verus! {
         digest.write(bytes);
         u64_to_le_bytes(digest.sum64())
     }
-
-    /// We make two assumptions about how CRCs can be used to detect
-    /// corruption.
-
-    /// The first assumption, encapsulated in
-    /// `axiom_bytes_uncorrupted`, is that if we store byte sequences
-    /// `x` and `y` to persistent memory where `y` is the CRC of `x`,
-    /// then we can detect an absence of corruption by reading both of
-    /// them. Specifically, if we read from those locations and get
-    /// `x_c` and `y_c` (corruptions of `x` and `y` respectively), and
-    /// `y_c` is the CRC of `x_c`, then we can conclude that `x` wasn't
-    /// corrupted, i.e., that `x_c == x`.
-
-    #[verifier(external_body)]
-    pub proof fn axiom_bytes_uncorrupted2(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>,
-                                         pmc: PersistentMemoryConstants)
-        requires
-            pmc.valid(),
-            pmc.maybe_corrupted(x_c, x, x_addrs),
-            pmc.maybe_corrupted(y_c, y, y_addrs),
-            y_c == spec_crc_bytes(x_c),
-            y == spec_crc_bytes(x),
-            x_addrs.no_duplicates(),
-            y_addrs.no_duplicates(),
-        ensures
-            x == x_c
-    {}
 
     #[verifier::external_body]
     #[inline(always)]
@@ -201,32 +186,14 @@ verus! {
         crc1_u64 == crc2
     }
 
-    /// The second assumption, encapsulated in
-    /// `axiom_corruption_detecting_boolean`, is that the values
-    /// `CDB_FALSE` and `CDB_TRUE` are so randomly different from each
-    /// other that corruption can't make one appear to be the other.
-    /// That is, if we know we wrote either `CDB_FALSE` or `CDB_TRUE`
-    /// to a certain part of persistent memory, and when we read that
-    /// same part we get `CDB_FALSE` or `CDB_TRUE`, we can conclude it
-    /// matches what we last wrote to it. To justify the assumption
-    /// that `CDB_FALSE` and `CDB_TRUE` are different from each other,
-    /// we set them to CRC(b"0") and CRC(b"1"), respectively.
-
     pub const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
     pub const CDB_TRUE: u64  = 0xab21aa73069531b7; // CRC(b"1")
 
-    #[verifier(external_body)]
-    pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>,
-                                                    pmc: PersistentMemoryConstants)
-        requires
-            pmc.valid(),
-            pmc.maybe_corrupted(cdb_c, cdb, addrs),
-            addrs.no_duplicates(),
-            cdb.len() == u64::spec_size_of(),
-            cdb_c == CDB_FALSE.spec_to_bytes() || cdb_c == CDB_TRUE.spec_to_bytes(),
-            cdb == CDB_FALSE.spec_to_bytes() || cdb == CDB_TRUE.spec_to_bytes(),
+    // Provable but requires understanding spec_to_bytes() which is annoyingly opaque..
+    #[verifier::external_body]
+    pub proof fn cdb_hamming()
         ensures
-            cdb_c == cdb
+            hamming(CDB_FALSE.spec_to_bytes(), CDB_TRUE.spec_to_bytes()) > 8
     {}
 
     /// We model the persistent memory as getting flushed in chunks,
@@ -316,11 +283,34 @@ verus! {
     // remain the same across all operations on persistent memory.
 
     pub struct PersistentMemoryConstants {
+        pub corruption: Seq<u8>
     }
 
     impl PersistentMemoryConstants {
-        pub spec fn impervious_to_corruption(self) -> bool;
-        pub spec fn valid(self) -> bool;
+        pub open spec fn impervious_to_corruption(self) -> bool {
+            popcnt(self.corruption) == 0
+        }
+
+        pub open spec fn valid(self) -> bool {
+            popcnt(self.corruption) < 2
+        }
+
+        pub open spec fn maybe_corrupted_byte(self, byte: u8, true_byte: u8, addr: int) -> bool {
+            &&& valid_index(self.corruption, addr)
+            &&& exists |mask: u8| byte == #[trigger] (true_byte ^ (mask & self.corruption[addr]))
+        }
+
+        proof fn maybe_corrupted_byte_popcnt(self, byte: u8, true_byte: u8, addr: int)
+            requires
+                self.maybe_corrupted_byte(byte, true_byte, addr)
+            ensures
+                popcnt_byte(byte ^ true_byte) <= popcnt_byte(self.corruption[addr])
+        {
+            let c = self.corruption[addr];
+            assert forall |mask: u8| popcnt_byte(#[trigger] (true_byte ^ (mask & c)) ^ true_byte) <= popcnt_byte(c) by {
+                byte_xor_mask_popcnt_byte_le(true_byte, mask, c);
+            };
+        }
 
         // A sequence of bytes `bytes` read from addresses `addrs` is a
         // possible corruption of the actual last-written bytes
@@ -329,7 +319,117 @@ verus! {
         // `maybe_corrupted_byte`.
         pub open spec fn maybe_corrupted(self, bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
             &&& bytes.len() == true_bytes.len() == addrs.len()
-            &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
+            &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> self.maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
+        }
+
+        pub proof fn maybe_corrupted_zero(self, bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>)
+            requires
+                self.maybe_corrupted(bytes, true_bytes, addrs),
+                popcnt(self.corruption) == 0,
+            ensures
+                bytes =~= true_bytes
+        {
+            assert forall |i: int| 0 <= i < bytes.len() implies bytes[i] == true_bytes[i] by {
+                popcnt_index_le(self.corruption, addrs[i]);
+                popcnt_byte_zero(self.corruption[addrs[i]]);
+                assert forall |mask: u8| (mask & 0) == 0 by {
+                    byte_and_zero(mask);
+                };
+                xor_byte_zero(true_bytes[i]);
+            };
+        }
+
+        proof fn maybe_corrupted_hamming(self, bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>)
+            requires
+                self.maybe_corrupted(bytes, true_bytes, addrs),
+                addrs.no_duplicates(),
+            ensures
+                hamming(bytes, true_bytes) <= popcnt(self.corruption)
+        {
+            assert forall |i: int| 0 <= i < bytes.len() implies #[trigger] popcnt_byte(bytes[i] ^ true_bytes[i]) <= popcnt_byte(self.corruption[addrs[i]]) by {
+                self.maybe_corrupted_byte_popcnt(bytes[i], true_bytes[i], addrs[i]);
+            };
+            popcnt_ext_le(xor(bytes, true_bytes), S(self.corruption)[addrs]);
+            popcnt_indexes_le(self.corruption, addrs);
+        }
+
+        proof fn _maybe_corrupted_crc(self,
+                                      x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
+                                      y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+            requires
+                x_c.len() == x.len(),
+                y == spec_crc_bytes(x),
+                y_c == spec_crc_bytes(x_c),
+                (x_addrs + y_addrs).no_duplicates(),
+                self.maybe_corrupted(x_c, x, x_addrs),
+                self.maybe_corrupted(y_c, y, y_addrs),
+                popcnt(self.corruption) < spec_crc_hamming_bound((x+y).len()),
+            ensures
+                x == x_c
+        {
+            self.maybe_corrupted_hamming(x_c + y_c, x + y, x_addrs + y_addrs);
+            crc_hamming_bound_valid(x_c, x, y_c, y);
+        }
+
+        /// The first main lemmas about corruption, `_maybe_corrupted_crc` above,
+        /// is that if we have byte sequences `x` and `y` stored in persistent memory,
+        /// where `y` is the CRC of `x`, then we can detect an absence of corruption
+        /// by reading both of them and checking the CRC checksum.
+        ///
+        /// Specifically, if we read from those locations and get `x_c` and `y_c`
+        /// (corruptions of `x` and `y` respectively), and `y_c` is the CRC of `x_c`,
+        /// and the total number of corrupted bits is smaller than CRC64's Hamming
+        /// bound, then we can conclude that `x` wasn't corrupted, i.e., `x_c == x`.
+        ///
+        /// The valid() predicate of PersistentMemoryConstants asserts that the max
+        /// number of corrupted bits is less than CRC64's Hamming bound for any length,
+        /// which simplifies the statement of the `maybe_corrupted_crc` lemma.
+
+        pub proof fn maybe_corrupted_crc(self,
+                                         x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
+                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+            requires
+                x_c.len() == x.len(),
+                y == spec_crc_bytes(x),
+                y_c == spec_crc_bytes(x_c),
+                (x_addrs + y_addrs).no_duplicates(),
+                self.maybe_corrupted(x_c, x, x_addrs),
+                self.maybe_corrupted(y_c, y, y_addrs),
+                self.valid(),
+            ensures
+                x == x_c
+        {
+            self._maybe_corrupted_crc(x_c, x, x_addrs, y_c, y, y_addrs);
+        }
+
+        /// The second lemma, encapsulated in `maybe_corrupted_cdb`, is that the
+        /// values `CDB_FALSE` and `CDB_TRUE` are so randomly different from each
+        /// other that corruption can't make one appear to be the other.
+        /// (CDB stands for Corruption-Detecting Boolean.)
+        ///
+        /// That is, if we know we wrote either `CDB_FALSE` or `CDB_TRUE`
+        /// to a certain part of persistent memory, and when we read that
+        /// same part we get `CDB_FALSE` or `CDB_TRUE`, we can conclude it
+        /// matches what we last wrote to it.
+        ///
+        /// We set these values to CRC(b"0") and CRC(b"1"), respectively.
+
+        pub proof fn maybe_corrupted_cdb(self, cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
+            requires
+                self.valid(),
+                self.maybe_corrupted(cdb_c, cdb, addrs),
+                addrs.no_duplicates(),
+                cdb.len() == u64::spec_size_of(),
+                cdb_c == CDB_FALSE.spec_to_bytes() || cdb_c == CDB_TRUE.spec_to_bytes(),
+                cdb == CDB_FALSE.spec_to_bytes() || cdb == CDB_TRUE.spec_to_bytes(),
+            ensures
+                cdb_c == cdb
+        {
+            if cdb_c != cdb {
+                self.maybe_corrupted_hamming(cdb_c, cdb, addrs);
+                cdb_hamming();
+                xor_comm(CDB_FALSE.spec_to_bytes(), CDB_TRUE.spec_to_bytes());
+            }
         }
     }
 

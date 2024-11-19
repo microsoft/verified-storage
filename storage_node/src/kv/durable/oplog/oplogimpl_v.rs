@@ -1201,29 +1201,21 @@ verus! {
             // to avoid underflow later.
             return Err(KvError::InternalError); 
         }
-        let len = (tail - head) as u64 - traits_t::size_of::<u64>() as u64;
-        
-        let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
+
+        let (mut combined_bytes, combined_addrs) = match log.read(pm_region, log_start_addr, log_size, head, (tail - head) as u64) {
             Ok(bytes) => bytes,
             Err(e) => {
                 assert(head == log@.head);
-                assert(head + len < log@.head + log@.log.len());
+                assert(tail < log@.head + log@.log.len());
                 return Err(KvError::LogErr { log_err: e });
             }
         };
-        let (crc_bytes, crc_addrs) = match log.read(pm_region, log_start_addr, log_size,
-                                                    tail - traits_t::size_of::<u64>() as u128,
-                                                    traits_t::size_of::<u64>() as u64) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                proof {
-                    let log_tail = log@.head + log@.log.len() as int;
-                    assert(tail - u64::spec_size_of() >= log@.head);
-                    assert(tail == log_tail);
-                }
-                return Err(KvError::LogErr { log_err: e });
-            }
-        };
+
+        let len = ((tail - head) as u64 - traits_t::size_of::<u64>() as u64) as usize;
+        let crc_bytes = combined_bytes.split_off(len);
+        let log_bytes = combined_bytes;
+        let ghost log_addrs = combined_addrs@.subrange(0 as int, len as int);
+        let ghost crc_addrs = combined_addrs@.subrange(len as int, combined_addrs@.len() as int);
 
         let computed_crc = calculate_crc_bytes(log_bytes.as_slice());
         let crcs_match = compare_crcs(crc_bytes.as_slice(), computed_crc);
@@ -1231,12 +1223,12 @@ verus! {
         proof {
             let true_log_bytes = log@.read(head as int, len as int);
             let true_crc_bytes = spec_crc_bytes(true_log_bytes);
-            if {
-                &&& !pm_region.constants().impervious_to_corruption()
-                &&& crcs_match
-            } {
-                axiom_bytes_uncorrupted2(log_bytes@, true_log_bytes, log_addrs@, crc_bytes@,
-                                         true_crc_bytes, crc_addrs@, pm_region.constants());
+            if pm_region.constants().impervious_to_corruption() {
+                assert(log_bytes@ == true_log_bytes);
+                assert(crc_bytes@ == true_crc_bytes);
+            } else if crcs_match {
+                pm_region.constants().maybe_corrupted_crc(log_bytes@, true_log_bytes, log_addrs,
+                                                          crc_bytes@, true_crc_bytes, crc_addrs);
             }
         }
 

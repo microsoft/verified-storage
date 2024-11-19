@@ -425,6 +425,7 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
         }
     };
 
+    assert(VersionMetadata::spec_size_of() == 32) by { reveal(spec_padding_needed); };
     if !check_crc(maybe_corrupted_version_metadata.as_slice(), maybe_corrupted_crc.as_slice(),
                   Ghost(true_version_metadata_bytes),
                   Ghost(pm.constants()),

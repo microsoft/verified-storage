@@ -1204,6 +1204,7 @@ impl UntrustedLogImpl {
 
     // The `tentatively_append_to_log` method is called by
     // `tentatively_append` to perform writes to the log area.
+    #[verifier::rlimit(20)]
     exec fn tentatively_append_to_log<Perm, PMRegion>(
         &self,
         wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
@@ -1929,6 +1930,7 @@ impl UntrustedLogImpl {
     // containing the read bytes. It doesn't guarantee that those
     // bytes aren't corrupted by persistent memory corruption. See
     // `README.md` for more documentation and examples of its use.
+    #[verifier::rlimit(20)]
     pub exec fn read<Perm, PM>(
         &self,
         pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
