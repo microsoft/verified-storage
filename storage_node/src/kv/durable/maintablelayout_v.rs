@@ -199,6 +199,11 @@ verus! {
         }
     }
 
+    pub open spec fn trigger_main_entry(i: int) -> bool
+    {
+        true
+    }
+
     // TODO: make these functions more general?
     // The reverse mapping-related spec fns and proofs help prove that the main table has no
     // duplicate keys or item indexes without instantiating a lot of expensive triggers
@@ -244,13 +249,17 @@ verus! {
         where 
             K: PmCopy
     {
-        forall |i: int, j: int| {
+        forall |i: int, j: int|
+            #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+        {
+            &&& trigger_main_entry(i)
+            &&& trigger_main_entry(j)
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
             &&& entries[i] is Some
             &&& entries[j] is Some
-        } ==> #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index()
+        } ==> entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
     }
 
     pub proof fn lemma_reverse_item_mapping_implies_no_duplicate_item_indexes<K>(entries: Seq<Option<MainTableViewEntry<K>>>)
@@ -280,6 +289,11 @@ verus! {
             reverse_key_mapping_exists(entries)
     {
         let f = |k: K| choose |i: int| 0 <= i < entries.len() && entries[i] is Some && #[trigger] entries[i].unwrap().key() == k;
+        assert forall |i| 0 <= i < entries.len() && entries[i] is Some implies
+            f(#[trigger] entries[i].unwrap().key()) == i by {
+            assert(trigger_main_entry(f(entries[i].unwrap().key())));
+            assert(trigger_main_entry(i));
+        }
         assert(no_dup_keys_map(entries, f));
         assert(reverse_key_mapping(entries, f));
     }
@@ -293,6 +307,11 @@ verus! {
             reverse_item_mapping_exists(entries)
     {
         let f = |e: u64| choose |i: int| 0 <= i < entries.len() && entries[i] is Some && #[trigger] entries[i].unwrap().item_index() == e;
+        assert forall |i| 0 <= i < entries.len() && entries[i] is Some implies
+            f(#[trigger] entries[i].unwrap().item_index()) == i by {
+            assert(trigger_main_entry(f(entries[i].unwrap().item_index())));
+            assert(trigger_main_entry(i));
+        }
         assert(no_dup_item_indexes_map(entries, f));
         assert(reverse_item_mapping(entries, f));
     }
@@ -323,13 +342,17 @@ verus! {
         where 
             K: PmCopy 
     {
-        forall |i: int, j: int| {
+        forall |i: int, j: int|
+            #![trigger trigger_main_entry(i), trigger_main_entry(j)]
+        {
+            &&& trigger_main_entry(i)
+            &&& trigger_main_entry(j)
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
             &&& entries[i] is Some
             &&& entries[j] is Some
-        } ==> #[trigger] entries[i].unwrap().key() != #[trigger] entries[j].unwrap().key()
+        } ==> entries[i].unwrap().key() != entries[j].unwrap().key()
     }
 
     pub proof fn lemma_metadata_fits<K>(k: int, num_keys: int, main_table_entry_size: int)

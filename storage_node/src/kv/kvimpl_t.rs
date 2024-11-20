@@ -144,8 +144,8 @@ where
             pm_region.inv(),
             match result {
                 Ok(()) => {
-                    &&& pm_region@.no_outstanding_writes()
-                    &&& AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.committed(), kvstore_id) matches Some(recovered_view)
+                    &&& pm_region@.flush_predicted()
+                    &&& AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.durable_state, kvstore_id) matches Some(recovered_view)
                     &&& recovered_view == AbstractKvStoreState::<K, I, L>::init(kvstore_id)
                 }
                 Err(_) => true
@@ -162,14 +162,14 @@ where
     ) -> (result: Result<Self, KvError<K>>)
         requires 
             pm_region.inv(),
-            AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.flush().committed(), kvstore_id) is Some,
+            AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.read_state, kvstore_id) is Some,
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
             vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures 
             match result {
                 Ok(kvstore) => kvstore.valid(),
-                Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
                 // TODO: proper handling of other error types
                 Err(KvError::LogErr { log_err }) => true,
                 Err(KvError::InternalError) => true,
@@ -180,7 +180,7 @@ where
     {
         let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);
         wrpm_region.flush(); // ensure there are no outstanding writes
-        let ghost state = AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(wrpm_region@.committed(), kvstore_id).unwrap();
+        let ghost state = AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(wrpm_region@.durable_state, kvstore_id).unwrap();
         let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(kvstore_id, state);
         let durable_store = UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_start(
             wrpm_region, kvstore_id, Ghost(state), Tracked(&perm))?;
@@ -205,7 +205,7 @@ where
                         None => false,
                     }
                 }
-                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption(),
                 Err(KvError::KeyNotFound) => !self.tentative_view().contains_key(*key),
                 Err(_) => false,
             }
@@ -229,7 +229,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyAlreadyExists) => {
                     &&& self@ == old(self)@
@@ -263,7 +263,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@
@@ -295,7 +295,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@
@@ -324,7 +324,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
-                    &&& !self.constants().impervious_to_corruption
+                    &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
@@ -377,7 +377,7 @@ where
 //     //     ensures
 //     //         match result {
 //     //             Ok(restored_kv) => {
-//     //                 let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, V, E>::recover(pmem@.committed(), kvstore_id);
+//     //                 let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, V, E>::recover(pmem@.durable_state, kvstore_id);
 //     //                 match restored_state {
 //     //                     Some(restored_state) => restored_kv@ == restored_state,
 //     //                     None => false
