@@ -13,7 +13,7 @@ THREADS=2 # TODO: check that this matches the value in the toml file
 mount_point=/mnt/pmem
 pm_device=/dev/pmem0
 dram_db_dir=~/db_files # TODO: should this be in /tmp?
-iterations=1
+iterations=10
 
 REDIS_PID=0
 
@@ -48,17 +48,18 @@ setup_redis() {
     if [ $use_pm = true ]; then 
         setup_pm
         cd ../pmem-redis 
-        ./src/redis-server --nvm-maxcapacity 1 --nvm-dir $mount_point --nvm-threshold 0 &
+        numactl --membind 0 --cpunodebind 0 ./src/redis-server redis.conf &
         REDIS_PID=$!
         echo "redis is running with PID $REDIS_PID"
         cd ../YCSB
     else 
         rm -rf $dram_db_dir 2> /dev/null
         mkdir $dram_db_dir
-        cd redis 
-        ./src/redis-server --dir $dram_db_dir &
+        cd ../pmem-redis
+        numactl --membind 0 --cpunodebind 0 ./src/redis-server --dir $dram_db_dir &
         REDIS_PID=$!
-        cd ..
+        echo "redis pid $REDIS_PID"
+        cd ../YCSB
     fi
 }
 
@@ -152,6 +153,7 @@ for iter in $(seq $iterations); do
     elif [ $DB = "redis" ]; then 
         echo "Starting redis..."
         setup_redis $use_pm
+        echo "Done starting redis"
     elif [ $DB = "rocksdb" ] || [ $DB = "pmemrocksdb" ]; then 
         setup_rocksdb $use_pm
     else 
@@ -159,7 +161,7 @@ for iter in $(seq $iterations); do
         exit 1
     fi
 
-    ./bin/ycsb -- load $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
+    numactl --membind 0 --cpunodebind 0 ./bin/ycsb -- load $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
     check_error $?
     # ./bin/ycsb run $DB -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
     # check_error $?

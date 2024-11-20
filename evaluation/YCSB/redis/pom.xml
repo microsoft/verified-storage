@@ -33,7 +33,7 @@ LICENSE file.
     <dependency>
       <groupId>redis.clients</groupId>
       <artifactId>jedis</artifactId>
-      <version>${redis.version}</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>site.ycsb</groupId>
