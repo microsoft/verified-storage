@@ -12,7 +12,7 @@ pub trait KvInterface<K, V> : Sized
     // do both setup and start (if they are separate) in this function.
     fn init() -> Result<Self, Self::E>;
 
-    fn db_name(&self) -> String;
+    fn db_name() -> String;
 
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E>;
 }

@@ -14,6 +14,9 @@ use std::env;
 use std::time::Instant;
 use std::io::{BufWriter, Write};
 
+use rand::thread_rng;
+use rand::seq::SliceRandom;
+
 use crate::redis_client::*;
 use crate::kv_interface::*;
 
@@ -23,6 +26,9 @@ pub mod redis_client;
 // length of key and value in byte
 const KEY_LEN: usize = 8;
 const VALUE_LEN: usize = 8;
+
+const PM_DEV: &str = "/dev/pmem0";
+const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 5000;
@@ -65,14 +71,20 @@ fn main() {
         panic!("Please provide output dir path");
     };
 
-    let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
-    
     // create per-KV output directories
-    let redis_output_dir = output_dir.clone() + "/" + &redis_client.db_name();
+    let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     fs::create_dir_all(&redis_output_dir).unwrap();
 
-    run_sequential_put(&mut redis_client, &redis_output_dir).unwrap();
-
+    {
+        let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
+        run_sequential_put(&mut redis_client, &redis_output_dir).unwrap();
+    }
+    
+    {
+        let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
+        run_rand_put(&mut redis_client, &redis_output_dir).unwrap();
+    }
+    
 }
 
 fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File>
@@ -81,6 +93,18 @@ fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File>
     let f = fs::File::create(&output_file).unwrap();
     let out_stream = BufWriter::new(f);
     out_stream
+}
+
+fn u64_to_test_key(i: u64) -> TestKey {
+    let mut key = TestKey { key: [0u8; KEY_LEN] };
+    let i_str = i.to_string();
+    if i_str.len() > KEY_LEN {
+        panic!("key len {:?} is greater than maximum len {:?}", i_str.len(), KEY_LEN);
+    }
+    let byte_vec: Vec<u8> = i_str.into_bytes();
+    key.key[..byte_vec.len()].copy_from_slice(&byte_vec);
+
+    key
 }
 
 // TODO: actually take generics key and value here?
@@ -92,16 +116,10 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     let output_file = output_dir.to_owned() + "/" + "sequential_put";
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    println!("PUT");
+    println!("SEQUENTIAL PUT");
     let value = TestValue { value: [0u8; VALUE_LEN] };
     for i in 0..NUM_KEYS {
-        let mut key = TestKey { key: [0u8; KEY_LEN] };
-        let i_str = i.to_string();
-        if i_str.len() > KEY_LEN {
-            panic!("key len {:?} is greater than maximum len {:?}", i_str.len(), KEY_LEN);
-        }
-        let byte_vec: Vec<u8> = i_str.into_bytes();
-        key.key[..byte_vec.len()].copy_from_slice(&byte_vec);
+        let key = u64_to_test_key(i);
 
         let t0 = Instant::now();
         if let Err(e) = kv.put(&key, &value) {
@@ -111,7 +129,37 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
         out_stream.write(&elapsed.into_bytes()).unwrap();
     }
     out_stream.flush().unwrap();
-    println!("PUT DONE");
+    println!("SEQUENTIAL PUT DONE");
+
+    Ok(())
+}
+
+fn run_rand_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    let output_file = output_dir.to_owned() + "/" + "rand_put";
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    let value = TestValue { value: [0u8; VALUE_LEN] };
+
+    // randomize key order
+    let mut key_vec = Vec::from_iter(0..NUM_KEYS);
+    key_vec.shuffle(&mut thread_rng());
+
+    println!("RAND PUT");
+    for i in key_vec {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.put(&key, &value) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("RAND PUT DONE");
 
     Ok(())
 }
