@@ -143,7 +143,7 @@ public class RedisClient extends DB {
   @Override
   public Status insert(String table, String key,
       Map<String, ByteIterator> values) {
-    if (jedis.hset(key, StringByteIterator.getStringMap(values)) > 0) {
+    if (jedis.hmset(key, StringByteIterator.getStringMap(values)).equals("OK")) {
       jedis.zadd(INDEX_KEY, hash(key), key);
       return Status.OK;
     }
@@ -159,7 +159,7 @@ public class RedisClient extends DB {
   @Override
   public Status update(String table, String key,
       Map<String, ByteIterator> values) {
-    return jedis.hset(key, StringByteIterator.getStringMap(values)) > 0 ? Status.OK : Status.ERROR;
+    return jedis.hmset(key, StringByteIterator.getStringMap(values)).equals("OK") ? Status.OK : Status.ERROR;
   }
 
   @Override
