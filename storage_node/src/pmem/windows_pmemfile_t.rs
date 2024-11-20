@@ -6,7 +6,7 @@
 use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmemspec_t::{
-    copy_from_slice, maybe_corrupted, PersistentMemoryConstants, PersistentMemoryRegion,
+    copy_from_slice, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PmemError,
 };
 use crate::pmem::pmcopy_t::*;
