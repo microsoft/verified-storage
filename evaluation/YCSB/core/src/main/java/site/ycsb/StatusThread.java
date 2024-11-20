@@ -31,6 +31,10 @@ import java.util.concurrent.TimeUnit;
 public class StatusThread extends Thread {
   // Counts down each of the clients completing
   private final CountDownLatch completeLatch;
+  // Counts down each of the clients initializting.
+  private final CountDownLatch initLatch;
+  // Counts down each of the clients cleaning up.
+  private final CountDownLatch cleanupLatch;
 
   // Stores the measurements for the run
   private final Measurements measurements;
@@ -62,14 +66,19 @@ public class StatusThread extends Thread {
    *
    * @param completeLatch         The latch that each client thread will {@link CountDownLatch#countDown()}
    *                              as they complete.
+   * @param initLatch             The latch that each client thread will {@link CountDownLatch#countDown()}
+   *                              as they finish initalizing.
+   * @param cleanupLatch          The latch that each client thread will {@link CountDownLatch#countDown()}
+   *                              when they are ready to clean up.
    * @param clients               The clients to collect metrics from.
    * @param label                 The label for the status.
    * @param standardstatus        If true the status is printed to stdout in addition to stderr.
    * @param statusIntervalSeconds The number of seconds between status updates.
    */
-  public StatusThread(CountDownLatch completeLatch, List<ClientThread> clients,
-                      String label, boolean standardstatus, int statusIntervalSeconds) {
-    this(completeLatch, clients, label, standardstatus, statusIntervalSeconds, false);
+  public StatusThread(CountDownLatch completeLatch, CountDownLatch initLatch, CountDownLatch cleanupLatch,
+                      List<ClientThread> clients, String label, boolean standardstatus, 
+                      int statusIntervalSeconds) {
+    this(completeLatch, initLatch, cleanupLatch, clients, label, standardstatus, statusIntervalSeconds, false);
   }
 
   /**
@@ -77,16 +86,23 @@ public class StatusThread extends Thread {
    *
    * @param completeLatch         The latch that each client thread will {@link CountDownLatch#countDown()}
    *                              as they complete.
+   * @param initLatch             The latch that each client thread will {@link CountDownLatch#countDown()}
+   *                              as they finish initalizing.
+   * @param cleanupLatch          The latch that each client thread will {@link CountDownLatch#countDown()}
+   *                              when they are ready to clean up.
    * @param clients               The clients to collect metrics from.
    * @param label                 The label for the status.
    * @param standardstatus        If true the status is printed to stdout in addition to stderr.
    * @param statusIntervalSeconds The number of seconds between status updates.
    * @param trackJVMStats         Whether or not to track JVM stats.
    */
-  public StatusThread(CountDownLatch completeLatch, List<ClientThread> clients,
+  public StatusThread(CountDownLatch completeLatch, CountDownLatch initLatch, 
+                      CountDownLatch cleanupLatch, List<ClientThread> clients,
                       String label, boolean standardstatus, int statusIntervalSeconds,
                       boolean trackJVMStats) {
     this.completeLatch = completeLatch;
+    this.initLatch = initLatch;
+    this.cleanupLatch = cleanupLatch;
     this.clients = clients;
     this.label = label;
     this.standardstatus = standardstatus;
@@ -107,6 +123,16 @@ public class StatusThread extends Thread {
     long lastTotalOps = 0;
 
     boolean alldone;
+
+    // System.err.println("Waiting for client threads to finish initialization");
+    // // wait for all client threads to finish initializing
+    // try {
+    //   initLatch.await();
+    // } catch (InterruptedException ie) {
+    //   // If we are interrupted the thread is being asked to shutdown.
+    //   Thread.currentThread().interrupt();
+    // }
+    
 
     do {
       long nowMs = System.currentTimeMillis();

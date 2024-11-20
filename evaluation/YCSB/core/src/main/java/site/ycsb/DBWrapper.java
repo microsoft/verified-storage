@@ -87,6 +87,7 @@ public class DBWrapper extends DB {
    */
   public void init() throws DBException {
     try (final TraceScope span = tracer.newScope(scopeStringInit)) {
+      System.err.println("init db wrapper");
       db.init();
 
       this.reportLatencyForEachError = Boolean.parseBoolean(getProperties().
@@ -107,6 +108,7 @@ public class DBWrapper extends DB {
             " for latency are: " + this.latencyTrackedErrors.toString());
       }
     }
+    System.err.println("done init db wrapper");
   }
 
   /**

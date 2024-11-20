@@ -400,3 +400,10 @@ FodyWeavers.xsd
 */target/
 
 Cargo.lock
+
+# make sure files in bin/ directories that are not built 
+# at compile time are not ignored
+!evaluation/YCSB/bin
+!evaluation/pmem-redis/deps/jemalloc/bin
+!evaluation/pmem-redis/deps/pmdk/src/jemalloc/bin
+!evaluation/pmem-redis/deps/memkind/jemalloc/bin

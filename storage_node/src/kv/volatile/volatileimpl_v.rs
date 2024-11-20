@@ -146,7 +146,7 @@ pub enum PendingIndexEntry {
 #[verifier::reject_recursive_types(K)]
 pub struct VolatileKvIndexImpl<K>
 where
-    K: PmCopy + Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Clone + Sized + std::fmt::Debug,
 {
     pub m: HashMap<K, VolatileKvIndexEntryImpl>,
     pub tentative: HashMap<K, PendingIndexEntry>, // TODO prob need to differentiate deleted vs created?
@@ -156,7 +156,7 @@ where
 
 impl<K> VolatileKvIndex<K> for VolatileKvIndexImpl<K>
 where
-    K: PmCopy + Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Clone + Sized + std::fmt::Debug,
 {
     open spec fn view(&self) -> VolatileKvIndexView<K>
     {
@@ -444,7 +444,8 @@ where
                             })
                     {
                         let current_key = &self.tentative_keys[i];
-                        if current_key.key_eq(key) {
+                        // if current_key.key_eq(key) {
+                        if current_key.eq_provable(key) {
                             assert(self.tentative_keys@[i as int] == key);
                             break;
                         }
@@ -522,7 +523,7 @@ where
 
 impl<K> VolatileKvIndexImpl<K>
 where
-    K: PmCopy + Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Clone + Sized + std::fmt::Debug,
 {
     proof fn lemma_valid_implies_view_valid(&self)
         requires

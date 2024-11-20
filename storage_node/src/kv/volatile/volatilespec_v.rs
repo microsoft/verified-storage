@@ -40,7 +40,7 @@ impl VolatileKvIndexEntry
 #[verifier::reject_recursive_types(K)]
 pub struct VolatileKvIndexView<K>
 where
-    K: PmCopy + Hash + Eq,
+    K: PmCopy + Hash,
 {
     pub contents: Map<K, VolatileKvIndexEntry>,
     pub num_list_entries_per_node: int
@@ -48,7 +48,7 @@ where
 
 impl<K> VolatileKvIndexView<K>
 where
-    K: PmCopy + Hash + Eq + std::fmt::Debug,
+    K: PmCopy + Hash + std::fmt::Debug,
 {
     pub open spec fn spec_index(self, key: K) -> Option<VolatileKvIndexEntry>
     {
@@ -229,7 +229,7 @@ where
 
 pub trait VolatileKvIndex<K> : Sized
 where
-    K: PmCopy + Hash + Eq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Clone + Sized + std::fmt::Debug,
 {
     spec fn view(&self) -> VolatileKvIndexView<K>;
 

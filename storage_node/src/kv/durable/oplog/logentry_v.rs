@@ -25,58 +25,6 @@ use deps_hack::{PmCopy};
 
 
 verus! {
-    // Each concrete log entry corresponds to a logical
-    // log entry type representing a logical operation on one 
-    // of the components. We use these types both to 
-    // represent logical operations in DRAM during execution
-    // so they can be applied during commit and to abstractly
-    // represent the state of the physical log.
-    // Note that there are only log entries for the main table
-    // and list area because recovering the item table does
-    // not use logged info (although it does rely on info from
-    // a recovered main table)
-    #[derive(Debug)]
-    pub enum LogicalOpLogEntry<L>
-        where 
-            L: PmCopy 
-    {
-        // Main table operations
-
-        CommitMainTableEntry {
-            index: u64,
-        },
-        InvalidateMainTableEntry {
-            index: u64,
-        },
-        UpdateMainTableEntry {
-            index: u64, 
-            new_crc: u64, // we log the new CRC so we don't have to log the key and recalculate the CRC
-            new_metadata: ListEntryMetadata,
-        },
-
-        // List area operations
-        // // don't actually need this one! just need to use the list len to determine what 
-        // // nodes have a valid next ptr and which don't
-        // SetListNodeNext {
-        //     node_index: u64,
-        //     new_next: u64,
-        // },
-        UpdateListElement {
-            node_index: u64,
-            index_in_node: u64,
-            list_element: L,
-        },
-
-        // This variant is NOT written to storage; it's used only in DRAM
-        // to record which list nodes to deallocate during commit. We don't 
-        // have to log it because it only represents a volatile operation 
-        // (adding the nodes back to the allocator free list)
-        NodeDeallocInMemory {
-            old_head: u64,
-            new_head: u64,
-        }
-    }
-
     // DRAM-only representation of a physical log entry, for use during recovery/
     // log installation.
     pub struct PhysicalOpLogEntry 

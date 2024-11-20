@@ -18,7 +18,7 @@ use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
 use vstd::assert_seqs_equal;
-use vstd::hash_map::*;
+// use vstd::hash_map::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use std::collections::HashMap;

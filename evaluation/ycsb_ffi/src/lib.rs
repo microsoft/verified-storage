@@ -3,81 +3,133 @@ use jni::objects::{JClass, JByteArray};
 use jni::sys::jlong;
 
 use storage_node::kv::kvimpl_t::*;
-use storage_node::kv::volatile::volatileimpl_v::*;
 use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
-use pmsafe::{PmSized, PmSafe};
+use pmsafe::{PmCopy};
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
 
+use serde::Deserialize;
+use std::fs;
+use std::env;
+use chrono;
+
 const MAX_KEY_LEN: usize = 1024;
 const MAX_ITEM_LEN: usize = 1140; 
-const REGION_SIZE: u64 = 1024*1024*1024*10; // 20GB
-const NUM_KEYS: u64 = 500001; 
+const MAX_CONFIG_FILE_NAME_LEN: usize = 1024;
 
 // use a constant log id so we don't run into issues trying to restore a KV
 const KVSTORE_ID: u128 = 500;
 
 struct YcsbKV {
-    kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>,
-    kvstore_id: u128,
+    kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement>,
+    _kvstore_id: u128,
+}
+
+#[derive(Deserialize, Debug)]
+struct Config {
+    config: DbOptions,
+}
+
+#[derive(Deserialize, Debug)]
+struct DbOptions {
+    kv_file: String,
+    node_size: u32, 
+    num_keys: u64, 
+    region_size: u64, 
+    threads: u64,
+}
+
+fn parse_configs(config_file: String) -> DbOptions {
+    println!("{:?}", chrono::offset::Local::now());
+    println!("Reading configs from {:?}", config_file);
+    let config_contents = match fs::read_to_string(&config_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Could not read file `{}`: {}", config_file, e);
+            panic!();
+        }
+    };
+
+    // TODO: Proper error handling of invalid config files
+    let config: Config = toml::from_str(&config_contents).unwrap();
+    println!("config: {:?}", config);
+    config.config
+}
+
+fn get_kv_file_name(kv_file: &str, id: u64) -> String {
+    format!("{}_{}", kv_file, id)
 }
 
 pub fn main() {
-    // TODO: these should be parameters in a config file or something
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
+    let args: Vec<String> = env::args().collect();
+    let config_file = if args.len() > 1 {
+        args[1].clone()
+    } else {
+        "capybarakv_config.toml".to_string()
+    };
 
-    let node_size = 16;
+    let config = parse_configs(config_file);
 
-    // delete the test files if they already exist. Ignore the result,
-    // since it's ok if the files don't exist.
-    remove_file(log_file_name);
-    remove_file(metadata_file_name);
-    remove_file(item_table_file_name);
-    remove_file(list_file_name);
+    let per_thread_region_size = config.region_size / config.threads;
+    // add one to account for cases where the number of keys is not divisble
+    // by the number of threads. this ensures that the remaining keys are 
+    // spread out across multiple shards
+    let per_thread_num_keys = (config.num_keys / config.threads) + 1; 
 
-    // Create a file, and a PM region, for each component
-    let mut log_region = create_pm_region(log_file_name, REGION_SIZE);
-    let mut metadata_region = create_pm_region(metadata_file_name, REGION_SIZE);
-    let mut item_table_region = create_pm_region(item_table_file_name, REGION_SIZE);
-    let mut list_region = create_pm_region(list_file_name, REGION_SIZE);
+    for i in 0..config.threads {
+        let i: u64 = i.try_into().unwrap();
+        let current_file_name = get_kv_file_name(&config.kv_file, i);
+        println!("current file name: {:?}", current_file_name);
 
-    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", NUM_KEYS, node_size, REGION_SIZE);
-    KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::setup(
-        &mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
+        // delete the test files if they already exist. Ignore the result,
+        // since it's ok if the files don't exist.
+        remove_file(&current_file_name);
+
+        println!("Setting up KV {:?} with {:?} keys, {:?}B nodes, {:?}B regions", i, per_thread_num_keys, config.node_size, per_thread_region_size);
+        // Create a file, and a PM region, for each component
+        let mut kv_region = create_pm_region(&current_file_name, config.region_size);
+        KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
+            &mut kv_region, KVSTORE_ID, per_thread_num_keys, config.node_size, 1).unwrap();
+    }    
     println!("Done setting up! You can now run YCSB workloads");
 }
 
 #[no_mangle]
-pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<'local>,
-        _class: JClass<'local>) -> jlong {
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    config_file: JByteArray<'local>,
+    id: jlong,
+) -> jlong {
 
-    // TODO: these should be parameters in a config file or something
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
+    let mut file = [0i8; MAX_CONFIG_FILE_NAME_LEN];
+    let config_file_name_len: usize = env.get_array_length(&config_file).unwrap().try_into().unwrap();
+    if config_file_name_len > MAX_CONFIG_FILE_NAME_LEN {
+        let err_str = format!("Error: config file path too long (length {:?}, max {:?})", config_file_name_len, MAX_CONFIG_FILE_NAME_LEN);
+        println!("{}", err_str);
+        env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        unreachable!();
+    }
+    let file_name_slice = &mut file[0..config_file_name_len];
+    env.get_byte_array_region(config_file, 0, file_name_slice).unwrap();
+    let config_file = String::from_utf8(file_name_slice.iter().map(|&c| c as u8).collect()).unwrap();
+    let config = parse_configs(config_file);
 
-    let node_size = 16;
+    let id: u64 = id.try_into().unwrap();
+    let kv_file = get_kv_file_name(&config.kv_file, id);
 
     // Create a file, and a PM region, for each component
-    let log_region = open_pm_region(log_file_name, REGION_SIZE);
-    let metadata_region = open_pm_region(metadata_file_name, REGION_SIZE);
-    let item_table_region = open_pm_region(item_table_file_name, REGION_SIZE);
-    let list_region = open_pm_region(list_file_name, REGION_SIZE);
+    let kv_region = open_pm_region(&kv_file, config.region_size);
 
-    let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::start(
-        metadata_region, item_table_region, list_region, log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
+    let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
 
     let ret = Box::new(YcsbKV {
         kv,
-        kvstore_id: KVSTORE_ID
+        _kvstore_id: KVSTORE_ID
     });
     Box::into_raw(ret) as i64
 }
@@ -122,7 +174,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let ret = kv.kv.create(&ycsb_key, &ycsb_item, kv.kvstore_id);
+    let ret = kv.kv.create(&ycsb_key, &ycsb_item);
     match ret {
         Ok(_) => {}
         Err(e) => {
@@ -208,11 +260,33 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let ret = kv.kv.update_item(&ycsb_key, &ycsb_item, kv.kvstore_id);
+    let ret = kv.kv.update_item(&ycsb_key, &ycsb_item);
     match ret {
         Ok(_) => {}
         Err(e) => {
             let err_str = format!("Error updating item: {:?}", e);
+            println!("{}", err_str);
+            env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvCommit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>, 
+    kv_pointer: jlong, 
+) {
+    // Obtain a reference to the KV. We don't use Box::from_raw because we don't want ownership of the KV
+    // (otherwise it will be dropped too early)
+    let raw_kv_pointer = kv_pointer as *mut YcsbKV;
+    let kv: &mut YcsbKV = unsafe { &mut *raw_kv_pointer };
+
+    let ret = kv.kv.commit();
+    match ret {
+        Ok(_) => {}
+        Err(e) => {
+            let err_str = format!("Error committing transaction: {:?}", e);
             println!("{}", err_str);
             env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
         }
@@ -255,11 +329,10 @@ fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemo
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Debug, Hash)]
 struct YcsbKey {
     key: [i8; MAX_KEY_LEN],
 }
-impl PmCopy for YcsbKey {}
 
 impl YcsbKey {
     fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
@@ -273,11 +346,10 @@ impl YcsbKey {
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Debug, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Debug)]
 struct YcsbItem {
     item: [i8; MAX_ITEM_LEN]
 }
-impl PmCopy for YcsbItem {}
 
 impl YcsbItem {
     fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
@@ -291,11 +363,10 @@ impl YcsbItem {
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Debug)]
+#[derive(PmCopy, Copy, Debug)]
 struct TestListElement {
     val: u64,
 }
-impl PmCopy for TestListElement {}
 
 fn remove_file(name: &str) {
     let _ = std::fs::remove_file(name);

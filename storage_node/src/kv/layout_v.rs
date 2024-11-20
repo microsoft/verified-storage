@@ -58,7 +58,7 @@ verus! {
     }
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Default)]
+    #[derive(PmCopy, Copy, Default, Debug)]
     pub struct OverallMetadata {
         pub key_size: u32, // K::size_of()
         pub list_element_size: u32, // L::size_of()

@@ -1,3 +1,4 @@
+// #![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use core::ffi::c_void;
@@ -138,7 +139,7 @@ impl MemoryMappedFileSection
 }
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum FileOpenBehavior {
     CreateNew,
     OpenExisting,

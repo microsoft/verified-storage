@@ -43,7 +43,7 @@ verus! {
 pub struct UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + KeyEq + Clone + PmCopy + std::fmt::Debug,
+    K: Hash + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
     // V: VolatileKvIndex<K>,
@@ -56,7 +56,7 @@ where
 impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
     // V: VolatileKvIndex<K>,
@@ -103,6 +103,15 @@ where
     pub closed spec fn spec_num_log_entries_in_current_transaction(self) -> nat 
     {
         self.durable_store.spec_num_log_entries_in_current_transaction()
+    }
+
+    pub exec fn num_log_entries_in_current_transaction(&self) -> (out: usize) 
+        requires 
+            self.valid(),
+        ensures 
+            out == self.spec_num_log_entries_in_current_transaction()
+    {
+        self.durable_store.num_log_entries_in_current_transaction()
     }
 
     pub closed spec fn valid(self) -> bool
@@ -549,6 +558,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
         ensures 
             self.valid(),
+            old(self)@.id == self@.id,
             match result {
                 Ok(()) => {
                     Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == old(self).tentative_view().update_item(*key, *new_item)
@@ -659,8 +669,8 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            !old(self).transaction_committed(),
-            Self::recover(old(self).wrpm_view().durable_state, kvstore_id) == Some(old(self)@),
+            // !old(self).transaction_committed(),
+            // Self::recover(old(self).wrpm_view().durable_state, kvstore_id) == Some(old(self)@),
             old(self)@.id == kvstore_id,
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
@@ -671,9 +681,11 @@ where
             old(self).spec_num_log_entries_in_current_transaction() > 0,
         ensures 
             self.valid(),
+            self@.id == old(self)@.id,
             match result {
                 Ok(()) => {
                     &&& self@ == old(self).tentative_view()
+                    &&& self@ == self.tentative_view()
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@

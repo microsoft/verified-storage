@@ -9,7 +9,9 @@ use deps_hack::{PmCopy};
 verus! {
 
     // TODO: this should probably be given by the user/determined based on the size of log entry structs being appended
-    pub const MIN_LOG_AREA_SIZE: u64 = 1;
+    // 12 is the minimum size for a validify/delete log entry -- 8 byte address, 8 byte length,
+    // and 8 bytes to write
+    pub const MIN_LOG_AREA_SIZE: u64 = 24;
 
     #[repr(C)]
     #[derive(PmCopy, Copy, Default)]

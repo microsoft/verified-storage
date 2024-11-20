@@ -42,6 +42,7 @@
 //! in terms of a Hamming bound (i.e., total number of bits that could
 //! be corrupted on read).
 
+// #![verus::trusted]
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::hamming_v::*;
 use builtin::*;
@@ -202,6 +203,13 @@ verus! {
     /// `addr / const_persistence_chunk_size() == c`.
 
     pub open spec fn const_persistence_chunk_size() -> int { 8 }
+
+    pub exec fn persistence_chunk_size() -> (out: u64) 
+        ensures 
+            out == const_persistence_chunk_size()
+    {
+        8
+    }
 
     /// We model the state of a region of persistent memory as a
     /// `PersistentMemoryRegionView`, which is two sequences of `u8`.

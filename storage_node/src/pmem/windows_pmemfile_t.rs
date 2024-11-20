@@ -3,6 +3,7 @@
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
 
+// #![verus::trusted]
 use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmemspec_t::{

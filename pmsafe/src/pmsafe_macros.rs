@@ -293,8 +293,12 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
 pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>) -> Result<proc_macro2::TokenStream, TokenStream>
 {
     let name = &ast.ident;
-    let spec_name = syn::Ident::new(&format!("ex_{}_clone", name.to_string().to_lowercase()), name.span());
-    
+    let clone_spec_name = syn::Ident::new(&format!("ex_{}_clone", name.to_string().to_lowercase()), name.span());
+    let eq_spec_name = syn::Ident::new(&format!("ex_{}_eq", name.to_string().to_lowercase()), name.span());
+
+    let first_n_names = &names[0..names.len()-1];
+    let last_name = &names[names.len()-1];
+
     let gen = quote!{
         // to ensure that the deriver does not provide a conflicting implementation 
         // of Clone, we implement it here.
@@ -312,13 +316,34 @@ pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>)
             }
         }
 
+        // Same with PartialEq -- providing an implementation here ensures 
+        // that clients cannot provide an incorrect implementation for their 
+        // own PmCopy types.
+        impl PartialEq for #name {
+            fn eq(&self, other: &Self) -> bool
+            {
+                #( self.#first_n_names == other.#first_n_names && )*
+                self.#last_name == other.#last_name
+            } 
+        }
+
+        impl Eq for #name {}
+
         ::builtin_macros::verus!{
             #[verifier::external_fn_specification]
-            pub fn #spec_name(b: &#name) -> (res: #name)
+            pub fn #clone_spec_name(b: &#name) -> (res: #name)
                 ensures
                     *b == res
             {
                 b.clone()
+            }
+
+            #[verifier::external_fn_specification]
+            pub fn #eq_spec_name(lhs: &#name, rhs: &#name) -> (b: bool)
+                ensures 
+                    b == (lhs == rhs)
+            {
+                lhs.eq(rhs)    
             }
 
             impl CloneProof for #name 
@@ -328,6 +353,16 @@ pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>)
                         *self == res
                 {
                     self.clone()
+                }
+            }
+
+            impl EqProof for #name 
+            {
+                fn eq_provable(&self, other: &Self) -> (b: bool) 
+                    ensures 
+                        b == (self == other)
+                {
+                    self.eq(other)
                 }
             }
         }
@@ -424,6 +459,16 @@ pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
                         *self == res
                 {
                     self.clone()
+                }
+            }
+
+            impl EqProof for #ty 
+            {
+                fn eq_provable(&self, other: &Self) -> (b: bool) 
+                    ensures 
+                        b == (self == other)
+                {
+                    self == other
                 }
             }
         );

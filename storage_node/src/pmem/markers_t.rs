@@ -1,3 +1,4 @@
+// #![verus::trusted]
 use builtin_macros::*;
 use builtin::*;
 use vstd::prelude::*;

@@ -29,6 +29,10 @@ import java.util.concurrent.locks.LockSupport;
 public class ClientThread implements Runnable {
   // Counts down each of the clients completing.
   private final CountDownLatch completeLatch;
+  // Counts down each of the clients initializing.
+  private final CountDownLatch initLatch;
+  // Counts down each of the clients cleaning up.
+  private final CountDownLatch cleanupLatch; 
 
   private static boolean spinSleep;
   private DB db;
@@ -55,9 +59,12 @@ public class ClientThread implements Runnable {
    * @param opcount              the number of operations (transactions or inserts) to do
    * @param targetperthreadperms target number of operations per thread per ms
    * @param completeLatch        The latch tracking the completion of all clients.
+   * @param initLatch            The latch tracking completion of client initialization
+   * @param cleanupLatch         The latch tracking when each thread is ready to clean up.
    */
   public ClientThread(DB db, boolean dotransactions, Workload workload, Properties props, int opcount,
-                      double targetperthreadperms, CountDownLatch completeLatch) {
+                      double targetperthreadperms, CountDownLatch completeLatch, CountDownLatch initLatch,
+                      CountDownLatch cleanupLatch) {
     this.db = db;
     this.dotransactions = dotransactions;
     this.workload = workload;
@@ -71,6 +78,8 @@ public class ClientThread implements Runnable {
     measurements = Measurements.getMeasurements();
     spinSleep = Boolean.valueOf(this.props.getProperty("spin.sleep", "false"));
     this.completeLatch = completeLatch;
+    this.initLatch = initLatch;
+    this.cleanupLatch = cleanupLatch;
   }
 
   public void setThreadId(final int threadId) {
@@ -89,6 +98,7 @@ public class ClientThread implements Runnable {
   public void run() {
     try {
       db.init();
+      initLatch.countDown();
     } catch (DBException e) {
       e.printStackTrace();
       e.printStackTrace(System.out);
@@ -145,6 +155,16 @@ public class ClientThread implements Runnable {
       e.printStackTrace();
       e.printStackTrace(System.out);
       System.exit(0);
+    }
+
+    // Decrement the cleanup latch and wait for others to complete.
+    // In sharded workloads, this ensures that DBs are not cleaned up
+    // until all worker threads are done
+    cleanupLatch.countDown();
+    try {
+      cleanupLatch.await();
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt();
     }
 
     try {

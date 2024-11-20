@@ -19,6 +19,7 @@
 //! TODO: handle errors properly in postconditions
 
 #![allow(unused_imports)]
+// #![verus::trusted]
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -70,6 +71,7 @@ where
     EntryIsValid,
     EntryIsNotValid,
     InvalidLogEntryType,
+    NoCurrentTransaction,
     LogErr { log_err: LogErr },
     PmemErr { pmem_err: PmemError },
 }
@@ -80,20 +82,6 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
-// This trait helps us check equality of keys
-// Keys need to provide an impl with an external
-// body implemntation of key_eq if the key type
-// is a non-SMT equality type.
-// TODO: We may also need to provide a specification 
-// of `clone` based on the assumption that 
-// the cloned key is equal to the original key
-pub trait KeyEq : Eq {
-    fn key_eq(&self, other: &Self) -> (b: bool) 
-        ensures 
-            b == (self == other)
-    ;
-}
-
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
@@ -101,7 +89,7 @@ pub trait KeyEq : Eq {
 pub struct KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {
@@ -113,7 +101,7 @@ where
 impl<PM, K, I, L> KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {
@@ -136,6 +124,11 @@ where
     pub closed spec fn constants(self) -> PersistentMemoryConstants
     {
         self.untrusted_kv_impl.constants()
+    }
+
+    pub closed spec fn spec_num_log_entries_in_current_transaction(self) -> nat 
+    {
+        self.untrusted_kv_impl.spec_num_log_entries_in_current_transaction()
     }
 
     pub exec fn setup(
@@ -254,6 +247,39 @@ where
         result
     }
 
+    pub exec fn update_item(
+        &mut self,
+        key: &K,
+        item: &I,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().update_item(*key, *item)
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption()
+                }, 
+                Err(KvError::KeyNotFound) => {
+                    &&& self@ == old(self)@
+                    &&& !self.tentative_view().contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
+        self.untrusted_kv_impl.untrusted_update_item(key, item, self.id, Tracked(&perm))
+    }
+
     pub exec fn delete(
         &mut self,
         key: &K,
@@ -283,8 +309,43 @@ where
             }
     {
         let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
-        let result = self.untrusted_kv_impl.untrusted_delete(key, self.id, Tracked(&perm));
-        result
+        self.untrusted_kv_impl.untrusted_delete(key, self.id, Tracked(&perm))
+    }
+
+    pub exec fn commit(&mut self) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    &&& self@ == old(self).tentative_view()
+                    &&& self@ == self.tentative_view()
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption()
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(KvError::LogErr { log_err }) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(KvError::NoCurrentTransaction) => {
+                    &&& self@ == old(self)@
+                    &&& self.spec_num_log_entries_in_current_transaction() == 0
+                }
+                Err(_) => false,
+            }
+    {
+        if self.untrusted_kv_impl.num_log_entries_in_current_transaction() == 0 {
+            return Err(KvError::NoCurrentTransaction)
+        }
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self.tentative_view());
+        self.untrusted_kv_impl.untrusted_commit(self.id, Tracked(&perm))
     }
 
     /* 

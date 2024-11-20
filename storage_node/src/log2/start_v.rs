@@ -1,7 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::arithmetic::div_mod::lemma_mod_bound;
+use vstd::arithmetic::div_mod::*;
 use crate::log2::inv_v::*;
 use crate::log2::logimpl_v::*;
 use crate::log2::layout_v::*;

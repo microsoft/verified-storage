@@ -23,6 +23,7 @@
 //! a type is safe to copy from PM and defines some methods and 
 //! axioms for dealing with such structures.
 
+// #![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -67,7 +68,7 @@ verus! {
     // the macros that derive `PmSized` and `PmSafe` require that the deriving
     // type be repr(C), as this is the best way to ensure a predictable in-memory
     // layout and size.
-    pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy + CloneProof {}
+    pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy + CloneProof + EqProof {}
 
     // PmCopyHelper is a subtrait of PmCopy that exists to provide a blanket
     // implementation of these methods for all PmCopy objects. 
@@ -512,6 +513,13 @@ verus! {
         exec fn clone_provable(&self) -> (res: Self)
             ensures
                 *self == res
+        ;
+    }
+
+    pub trait EqProof : Sized + Eq + PartialEq {
+        exec fn eq_provable(&self, other: &Self) -> (b: bool)
+            ensures 
+                b == (self == other)
         ;
     }
 

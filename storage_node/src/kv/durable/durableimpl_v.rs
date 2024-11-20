@@ -32,7 +32,7 @@ use crate::log2::logimpl_v::*;
 use crate::log2::inv_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmemutil_v::lemma_establish_extract_bytes_equivalence;
+use crate::pmem::pmemutil_v::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
@@ -43,7 +43,7 @@ use crate::util_v::*;
 use std::borrow::Borrow;
 use std::hash::Hash;
 
-use super::inv_v::lemma_safe_recovery_writes;
+use super::inv_v::*;
 
 verus! {
     pub struct DurableKvStoreList<L>
@@ -554,6 +554,15 @@ verus! {
             self.log@.physical_op_list.len()
         }
 
+        pub exec fn num_log_entries_in_current_transaction(&self) -> (out: usize)
+            requires 
+                self.valid(),
+            ensures 
+                out == self.spec_num_log_entries_in_current_transaction()
+        {
+            self.pending_updates.len()
+        }
+
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
@@ -613,59 +622,6 @@ verus! {
                 }
             } else {
                 None
-            }
-        }
-
-        pub closed spec fn phys_log_entry_corresponds_to_logical_log_entry(
-            mem: Seq<u8>, 
-            phys_entry: AbstractPhysicalOpLogEntry,
-            logical_entry: LogicalOpLogEntry<L>,
-            version_metadata: VersionMetadata,
-            overall_metadata: OverallMetadata,
-        ) -> bool 
-        {
-            let pre_replay_kvstore_state = Self::physical_recover(mem, version_metadata, overall_metadata);
-            // applying the physical log entry and the logical log entry should result in the 
-            // same recovery state
-            let phys_replay_state = apply_physical_log_entry(mem, phys_entry);
-            if let Some(phys_replay_state) = phys_replay_state {
-                let log_replay_state = if logical_entry matches LogicalOpLogEntry::UpdateListElement{..} {
-                    DurableList::<K, L>::apply_log_op_to_list_node_mem(mem, overall_metadata.list_node_size, logical_entry)
-                } else {
-                    MainTable::<K>::apply_log_op_to_main_table_mem(mem, logical_entry)
-                };
-                phys_replay_state == log_replay_state
-            } else {
-                false
-            }
-        }
-
-        pub closed spec fn phys_log_corresponds_to_logical_log(
-            mem: Seq<u8>,
-            phys_log: Seq<AbstractPhysicalOpLogEntry>,
-            logical_log: Seq<LogicalOpLogEntry<L>>,
-            version_metadata: VersionMetadata,
-            overall_metadata: OverallMetadata
-        ) -> bool
-            decreases phys_log.len() 
-        {
-            if phys_log.len() != logical_log.len() {
-                false
-            } else if phys_log.len() == 0 {
-                true
-            } else {
-                let phys_entry = phys_log[0];
-                let logical_entry = logical_log[0];
-                if !Self::phys_log_entry_corresponds_to_logical_log_entry(mem, phys_entry, logical_entry, version_metadata, overall_metadata) {
-                    false 
-                } else {
-                    let new_mem = apply_physical_log_entry(mem, phys_entry);
-                    if let Some(new_mem) = new_mem {
-                        Self::phys_log_corresponds_to_logical_log(new_mem, phys_log.drop_first(), logical_log.drop_first(), version_metadata, overall_metadata)
-                    } else {
-                        false
-                    }
-                }
             }
         }
 
@@ -1263,54 +1219,6 @@ verus! {
             });
         }
 
-        // In logical recovery, we replay logical log entries based on replay functions provided by each component
-        // TODO: might be useful to return mem from here?
-        pub open spec fn logical_recover(mem: Seq<u8>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> 
-        {
-            let recovered_log = UntrustedOpLog::<K, L>::recover(mem, version_metadata, overall_metadata);
-            if let Some(recovered_log) = recovered_log {
-                let logical_log_entries = choose |logical_log: Seq<LogicalOpLogEntry<L>>| 
-                    Self::phys_log_corresponds_to_logical_log(mem, recovered_log.physical_op_list, logical_log, version_metadata, overall_metadata);
-                // recover main table from logical log
-                let main_table_region = extract_bytes(mem, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let main_table_region = MainTable::<K>::spec_replay_log_main_table(main_table_region, logical_log_entries);
-                let main_table_view = parse_main_table::<K>(
-                    main_table_region, 
-                    overall_metadata.num_keys,
-                    overall_metadata.main_table_entry_size
-                );
-                if let Some(main_table_view) = main_table_view {
-                    // recover item table. This does not involve the logical log, so we can just directly parse it
-                    let item_table_region = extract_bytes(mem, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                    let item_table_view = parse_item_table::<I, K>(
-                        item_table_region,
-                        overall_metadata.num_keys as nat,
-                        main_table_view.valid_item_indices()
-                    );
-                    if let Some(item_table_view) = item_table_view {
-                        /* REMOVED UNTIL WE IMPLEMENT LISTS
-                        // recover the list area from logical log
-                        let list_area_region = extract_bytes(mem, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-                        let list_area_region = DurableList::<K, L>::replay_log_list_nodes(list_area_region, overall_metadata.list_node_size, logical_log_entries);
-                        let list_view = DurableList::<K, L>::parse_all_lists(
-                            main_table_view,
-                            list_area_region,
-                            overall_metadata.list_node_size,
-                            overall_metadata.num_list_entries_per_node
-                        );
-                        */
-                        Some(Self::recover_from_component_views(main_table_view, item_table_view))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-
         // Note: this fn assumes that the item and list head in the main table entry point 
         // to valid entries in the corresponding structures.
         pub open spec fn recover_from_component_views(
@@ -1513,7 +1421,6 @@ verus! {
                         &&& pm_region@.flush_predicted()
                         &&& memory_correctly_set_up_on_region::<K, I, L>(pm_region@.durable_state, kvstore_id)
                         &&& Self::physical_recover(pm_region@.durable_state, version_metadata, overall_metadata) matches Some(recovered_view)
-                        &&& Self::physical_recover(pm_region@.durable_state, version_metadata, overall_metadata) == Self::logical_recover(pm_region@.durable_state, version_metadata, overall_metadata)
                         &&& recovered_view == DurableKvStoreView::<K, I, L>::init()
                         &&& deserialize_version_metadata(pm_region@.durable_state) == version_metadata
                         &&& deserialize_version_crc(pm_region@.durable_state) == version_metadata.spec_crc()
@@ -1589,6 +1496,7 @@ verus! {
                 // TODO: refactor this into a lemma
                 let bytes = pm_region@.durable_state;
                 let recovered_view = Self::physical_recover(bytes, version_metadata, overall_metadata);
+                // assert(recovered_view is Some);
                 lemma_establish_extract_bytes_equivalence(pre_log_setup_bytes, bytes);
 
                 // First, prove that the recovered view is Some if recovery of all of the other components succeeds.
@@ -1596,37 +1504,25 @@ verus! {
                 // which is already part of log setup's postcondition, but we need to invoke lemma_subrange_of_extract_bytes_equal
                 // to make Verus do the required reasoning about subranges.
 
-                // Op log recovery succeeds
-                let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, version_metadata, overall_metadata);
-                let recovered_log = recovered_log.unwrap();
-
-                // At setup, we know that a logical log corresponding to the physical log exists, because the physical log is empty
-                assert(exists |logical_log: Seq<LogicalOpLogEntry<L>>| 
-                    Self::phys_log_corresponds_to_logical_log(bytes, recovered_log.physical_op_list, logical_log, version_metadata, overall_metadata)) 
-                by {
-                    assert(recovered_log.physical_op_list.len() == 0);
-                    let witness = Seq::<LogicalOpLogEntry<L>>::empty();
-                    assert(Self::phys_log_corresponds_to_logical_log(bytes, recovered_log.physical_op_list, witness, version_metadata, overall_metadata));
-                }
+                let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, version_metadata, overall_metadata).unwrap();
+                let recovered_bytes = apply_physical_log_entries(bytes, recovered_log.physical_op_list).unwrap();
 
                 // Main table recovery succeeds
-                let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let logical_log = choose |logical_log: Seq<LogicalOpLogEntry<L>>| 
-                    Self::phys_log_corresponds_to_logical_log(bytes, recovered_log.physical_op_list, logical_log, version_metadata, overall_metadata);
-                let post_install_main_table_bytes = MainTable::<K>::spec_replay_log_main_table(main_table_bytes, logical_log);
-                let recovered_main_table = parse_main_table::<K>(post_install_main_table_bytes, overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.main_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.main_table_size as nat);
+                let main_table_bytes = extract_bytes(recovered_bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let recovered_main_table = parse_main_table::<K>(main_table_bytes, overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                lemma_subrange_of_extract_bytes_equal(recovered_bytes, 0, overall_metadata.main_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.main_table_size as nat);
+
+                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().durable_main_table.len() ==> 
+                    #[trigger] recovered_main_table.unwrap().durable_main_table[i] is None);
 
                 // Item table recover succeeds
-                let item_table_bytes = extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let item_table_bytes = extract_bytes(recovered_bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 let valid_indices = recovered_main_table.unwrap().valid_item_indices();
-                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
+                lemma_subrange_of_extract_bytes_equal(recovered_bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
 
                 // List recover succeeds
-                let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
-                
-                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().durable_main_table.len() ==> #[trigger] recovered_main_table.unwrap().durable_main_table[i] is None);
+                let list_area_bytes = extract_bytes(recovered_bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                lemma_subrange_of_extract_bytes_equal(recovered_bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
 
                 DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
                     recovered_main_table.unwrap().durable_main_table,
@@ -2244,8 +2140,10 @@ verus! {
                                       overall_metadata.log_area_size as nat),
                     ({
                         let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                        let replayed_ops = phys_log_view.subrange(0, index as int);
-                        apply_physical_log_entries(old_wrpm.read_state, replayed_ops) ==
+
+                        let replayed_ops = phys_log_view.subrange(0, index as int);
+
+                        apply_physical_log_entries(old_wrpm.read_state, replayed_ops) ==
                             Some(wrpm_region@.read_state)
                     }),
             {
@@ -2278,7 +2176,8 @@ verus! {
                 
                     // Prove that installing this log entry has the intended effect
                     Self::lemma_install_single_log_entry(phys_log_view, index as int, old_wrpm,
-                                                         *wrpm_region, version_metadata, overall_metadata,
+                                                         *wrpm_region, 
+version_metadata, overall_metadata,
                                                          final_recovery_state);
                 }
 
@@ -2288,12 +2187,15 @@ verus! {
                                                                       op.absolute_addr as int, op.bytes@) implies
                        perm.check_permission(s) by {
                    assert(Self::physical_recover(s, version_metadata, overall_metadata) ==
-                          Some(final_recovery_state));
-                   assert(version_and_overall_metadata_match_deserialized(s, old_wrpm.durable_state));
+                          Some(final_recovery_state)
+);
+                   assert(version_and_overall_metadata_match_deserialized(s, old_wrpm.durable_state)
+);
                    assert(Self::physical_recover(old(wrpm_region)@.durable_state, version_metadata,
                                                  overall_metadata) ==
                           Self::physical_recover(s, version_metadata, overall_metadata));
-                   assert(version_and_overall_metadata_match_deserialized(s, old(wrpm_region)@.durable_state));
+                   assert(version_and_overall_metadata_match_deserialized(s, old(wrpm_region)@.durable_state)
+);
                 }
 
                 // write the current op's updates to the specified location on storage
@@ -2351,7 +2253,8 @@ verus! {
                 Self::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) ==
                     Some(final_recovery_state),
                 recovery_write_region_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata,
-                                                                     overall_metadata, phys_log_view),
+                                                                     overall_metadata, phys_log_view)
+,
                 no_outstanding_writes_in_range(wrpm_region@, overall_metadata.log_area_addr as int,
                                                overall_metadata.log_area_addr + overall_metadata.log_area_size),
                 0 <= index < phys_log_view.len(),
@@ -2377,7 +2280,8 @@ verus! {
                 AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata),
                 ({
                     let replayed_ops = phys_log_view.subrange(0, index as int);
-                    apply_physical_log_entries(old_wrpm.read_state, replayed_ops) ==
+
+                    apply_physical_log_entries(old_wrpm.read_state, replayed_ops) ==
                         Some(wrpm_region@.read_state)
                 }),
             ensures 
@@ -2472,7 +2376,8 @@ verus! {
                     overall_metadata,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 recovery_write_region_invariant::<Perm, PM, K, I, L>(current_wrpm, version_metadata,
-                                                                     overall_metadata, phys_log_view),
+                                                                     overall_metadata, phys_log_view)
+,
                 ({
                     let op = phys_log_view[index];
                     forall |s| can_result_from_partial_write(s, current_wrpm@.durable_state, op.absolute_addr as int,
@@ -4210,7 +4115,8 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(40)] // TODO @jay
+        #[verifier::rlimit(40)]
+ // TODO @jay
         proof fn lemma_justify_validify_log_entry(
             self,
             old_self: Self,
