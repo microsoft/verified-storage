@@ -28,22 +28,22 @@ verus! {
 pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_start_addr: u64, log_size: u64) -> (result: Result<bool, LogErr>)
     requires
         pm_region.inv(),
-        recover_cdb(pm_region@.committed(), log_start_addr as nat).is_Some(),
-        pm_region@.no_outstanding_writes(),
+        recover_cdb(pm_region@.durable_state, log_start_addr as nat).is_Some(),
+        pm_region@.flush_predicted(),
         pm_region@.len() >= log_start_addr + log_size,
         log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-        metadata_types_set(pm_region@.committed(), log_start_addr as nat),
+        metadata_types_set(pm_region@.durable_state, log_start_addr as nat),
     ensures
         match result {
-            Ok(b) => Some(b) == recover_cdb(pm_region@.committed(), log_start_addr as nat),
+            Ok(b) => Some(b) == recover_cdb(pm_region@.durable_state, log_start_addr as nat),
             // To make sure this code doesn't spuriously generate CRC-mismatch errors,
             // it's obligated to prove that it won't generate such an error when
             // the persistent memory is impervious to corruption.
-            Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+            Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
             Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
         }
 {
-    let ghost mem = pm_region@.committed();
+    let ghost mem = pm_region@.durable_state;
     let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_start_addr + i);
 
     let ghost true_cdb_bytes = extract_bytes(mem, log_start_addr as nat, u64::spec_size_of());
@@ -56,9 +56,9 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
         Err(e) => return Err(LogErr::PmemErr{ err: e }),
     };
     
-    let result = check_cdb(log_cdb, Ghost(mem),
-                            Ghost(pm_region.constants().impervious_to_corruption),
-                            Ghost(log_cdb_addrs));
+    let result = check_cdb(log_cdb, Ghost(true_cdb_bytes),
+                           Ghost(pm_region.constants()),
+                           Ghost(log_start_addr as int));
     match result {
         Some(b) => Ok(b),
         None => Err(LogErr::CRCMismatch)
@@ -73,41 +73,40 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
 ) -> (result: Result<LogInfo, LogErr>)
     requires
         pm_region.inv(),
-        pm_region@.no_outstanding_writes(),
-        metadata_types_set(pm_region@.committed(), log_start_addr as nat),
+        pm_region@.flush_predicted(),
+        metadata_types_set(pm_region@.durable_state, log_start_addr as nat),
         log_start_addr + log_size <= pm_region@.len() <= u64::MAX,
-        cdb == spec_check_log_cdb(pm_region@.committed(), log_start_addr as nat).unwrap(),
+        cdb == spec_check_log_cdb(pm_region@.durable_state, log_start_addr as nat).unwrap(),
         log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
     ensures
         ({
-            let state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, log_size as nat, cdb);
+            let state = recover_given_cdb(pm_region@.durable_state, log_start_addr as nat, log_size as nat, cdb);
             match result {
                 Ok(info) => state.is_Some() ==> {
-                    &&& metadata_consistent_with_info(pm_region@, log_start_addr as nat, log_size as nat, cdb, info)
-                    &&& info_consistent_with_log_area(pm_region@, log_start_addr as nat, log_size as nat, info, state.unwrap())
+                    &&& metadata_consistent_with_info(pm_region@, log_start_addr as nat, log_size as nat, cdb, info, false)
+                    &&& info_consistent_with_log_area(pm_region@, log_start_addr as nat, log_size as nat, info,
+                                                    state.unwrap(), false)
                 },
                 Err(LogErr::CRCMismatch) =>
-                    state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
+                    state.is_Some() ==> !pm_region.constants().impervious_to_corruption(),
                 Err(LogErr::StartFailedDueToInvalidMemoryContents) =>
                     state is None,
                 _ => false,
             }
         })
     {
-        let ghost mem = pm_region@.committed();
-        let ghost state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, log_size as nat, cdb);
+        let ghost mem = pm_region@.durable_state;
+        let ghost state = recover_given_cdb(pm_region@.durable_state, log_start_addr as nat, log_size as nat, cdb);
         reveal(spec_padding_needed);
 
         let log_metadata_pos = get_active_log_metadata_pos(cdb) + log_start_addr;
         let log_crc_pos = get_active_log_crc_pos(cdb) + log_start_addr;
-        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of()));
-        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_crc_pos as nat, u64::spec_size_of()));
-        let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
-        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
-        let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);
-        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+        let ghost true_log_metadata_bytes = extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of());
+        let ghost true_log_metadata = LogMetadata::spec_from_bytes(true_log_metadata_bytes);
 
-        assert(pm_region@.committed().subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == true_bytes);
+        assert(pm_region@.durable_state.subrange(log_metadata_pos as int,
+                                                 log_metadata_pos + LogMetadata::spec_size_of()) ==
+               true_log_metadata_bytes);
         let log_metadata = match pm_region.read_aligned::<LogMetadata>(log_metadata_pos) {
             Ok(log_metadata) => log_metadata,
             Err(e) => {
@@ -123,11 +122,12 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             }
         };
 
-        assert(true_log_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
+        assert(true_log_metadata.spec_to_bytes() == true_log_metadata_bytes);
 
-        if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem),
-                                   Ghost(pm_region.constants().impervious_to_corruption),
-                                    Ghost(log_metadata_addrs), Ghost(crc_addrs)) {
+        if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(true_log_metadata_bytes),
+                      Ghost(pm_region.constants()),
+                      Ghost(log_metadata_pos as int),
+                      Ghost(log_crc_pos as int)) {
             return Err(LogErr::CRCMismatch);
         }
 

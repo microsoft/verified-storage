@@ -1644,7 +1644,7 @@ verus! {
 
                 if !pm_regions.constants().impervious_to_corruption {
                     assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs1 + addrs2));
-                    assert(all_elements_unique(addrs1 + addrs2));
+                    assert((addrs1 + addrs2).no_duplicates());
                 }
             }
 

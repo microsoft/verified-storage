@@ -7,6 +7,7 @@ use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*, wrpm_t
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::util_v::*;
 
 verus! {
@@ -21,7 +22,7 @@ pub open spec fn no_outstanding_writes_to_metadata(
     log_start_addr: nat,
 ) -> bool
 {
-    pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + spec_log_area_pos()) as int)
+    no_outstanding_writes_in_range(pm_region_view, log_start_addr as int, (log_start_addr + spec_log_area_pos()) as int)
 }
 
 // This invariant is similar to no_outstanding_writes_to_metadata, except that it allows outstanding writes
@@ -34,9 +35,9 @@ pub open spec fn no_outstanding_writes_to_active_metadata(
 {
     // Note that we include the active log metadata's CRC in the region
     let metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
-    &&& pm_region_view.no_outstanding_writes_in_range(
+    &&& no_outstanding_writes_in_range(pm_region_view,
         metadata_pos as int, (metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) as int)
-    &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
+    &&& no_outstanding_writes_in_range(pm_region_view, log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
 }
 
 pub open spec fn active_metadata_is_equal(
@@ -45,8 +46,8 @@ pub open spec fn active_metadata_is_equal(
     log_start_addr: nat,
 ) -> bool 
 {
-    let pm_bytes1 = pm_region_view1.committed();
-    let pm_bytes2 = pm_region_view2.committed();
+    let pm_bytes1 = pm_region_view1.durable_state;
+    let pm_bytes2 = pm_region_view2.durable_state;
     active_metadata_bytes_are_equal(pm_bytes1, pm_bytes2, log_start_addr)
 }
 
@@ -63,7 +64,8 @@ pub open spec fn active_metadata_bytes_are_equal(
     &&& cdb2 matches Some(cdb2)
     &&& cdb1 == cdb2 
     // this follows from the CDB check but it helps some proofs to state it explicitly
-    &&& extract_bytes(bytes1, log_start_addr, u64::spec_size_of()) == extract_bytes(bytes2, log_start_addr, u64::spec_size_of())
+    &&& extract_bytes(bytes1, log_start_addr, u64::spec_size_of()) ==
+           extract_bytes(bytes2, log_start_addr, u64::spec_size_of())
     &&& {
         let metadata_pos = spec_get_active_log_metadata_pos(cdb1) + log_start_addr;
         extract_bytes(bytes1, metadata_pos, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
@@ -107,8 +109,8 @@ pub open spec fn inactive_metadata_types_set(mem: Seq<u8>, log_start_addr: nat) 
 
 pub open spec fn memory_matches_deserialized_cdb(pm_region_view: PersistentMemoryRegionView, log_start_addr: nat, cdb: bool) -> bool
 {
-    &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
-    &&& spec_check_log_cdb(pm_region_view.committed(), log_start_addr) == Some(cdb)
+    &&& no_outstanding_writes_in_range(pm_region_view, log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
+    &&& spec_check_log_cdb(pm_region_view.durable_state, log_start_addr) == Some(cdb)
 }
 
 // This invariant says that there are no outstanding writes to the
@@ -128,24 +130,36 @@ pub open spec fn memory_matches_deserialized_cdb(pm_region_view: PersistentMemor
 //
 // `info` -- various variables describing information about this
 // log
+//
+// `after_flush` -- only consider whether this will hold after
+// the next flush
 pub open spec fn metadata_consistent_with_info(
     pm_region_view: PersistentMemoryRegionView,
     log_start_addr: nat,
     log_size: nat,
     cdb: bool,
     info: LogInfo,
+    after_flush: bool,
 ) -> bool
 {
-    let mem = pm_region_view.committed();
+    let mem = if after_flush { pm_region_view.read_state } else { pm_region_view.durable_state };
     let read_cdb = spec_check_log_cdb(mem, log_start_addr);
     let log_metadata = spec_get_active_log_metadata(mem, log_start_addr, cdb);
     let log_crc = spec_get_active_log_crc(mem, log_start_addr, cdb);
 
     // No outstanding writes to the CDB, log metadata, or log metadata CRC
-    &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
+    &&& {
+           ||| after_flush
+           ||| no_outstanding_writes_in_range(pm_region_view, log_start_addr as int,
+                                            (log_start_addr + u64::spec_size_of()) as int)
+    }
     // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
-    &&& pm_region_view.no_outstanding_writes_in_range((log_start_addr + spec_get_active_log_metadata_pos(cdb)) as int,
-            (log_start_addr + spec_get_active_log_crc_end(cdb)) as int)
+    &&& {
+           ||| after_flush
+           ||| no_outstanding_writes_in_range(pm_region_view,
+                                            (log_start_addr + spec_get_active_log_metadata_pos(cdb)) as int,
+                                            (log_start_addr + spec_get_active_log_crc_end(cdb)) as int)
+    }
 
     // All the CRCs match
     &&& log_crc == log_metadata.spec_crc()
@@ -158,14 +172,17 @@ pub open spec fn metadata_consistent_with_info(
     &&& log_size == spec_log_area_pos() + info.log_area_len
     &&& mem.len() >= log_start_addr + spec_log_area_pos() + info.log_area_len
     &&& log_start_addr + spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() <
-            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < log_start_addr + spec_log_area_pos() <= log_start_addr + log_size
+            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() <
+            log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm_region_view.len()
 }
 
 // This invariant says that the log area of the given
 // persistent-memory region view is consistent with both the log
-// information `info` and the abstract log state `state`. Also,
-// `info` satisfies certain invariant properties and is consistent
-// with `state`.
+// information `info` and the abstract log state `state`. (Or, if
+// `after_flush` is true, it means it *will* be consistent after a
+// flush that ensures the durable and read states match.) Also, `info`
+// satisfies certain invariant properties and is consistent with
+// `state`.
 //
 // This means three things for every relative log position
 // `pos` and its corresponding persistent-memory byte `pmb`:
@@ -192,6 +209,7 @@ pub open spec fn info_consistent_with_log_area(
     log_size: nat,
     info: LogInfo,
     state: AbstractLogState,
+    after_flush: bool,
 ) -> bool
 {
     // `info` satisfies certain invariant properties
@@ -213,15 +231,15 @@ pub open spec fn info_consistent_with_log_area(
                                                                 info.head_log_area_offset as int,
                                                                 info.log_area_len as int);
             let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
-            let pmb = pm_region_view.state[absolute_addr];
             &&& 0 <= pos_relative_to_head < info.log_length ==> {
-                    &&& pmb.state_at_last_flush == state.log[pos_relative_to_head]
-                    &&& pmb.outstanding_write.is_none()
+                    &&& pm_region_view.read_state[absolute_addr] == state.log[pos_relative_to_head]
+                    &&& {
+                           ||| after_flush
+                           ||| pm_region_view.read_state[absolute_addr] == pm_region_view.durable_state[absolute_addr]
+                       }
                 }
             &&& info.log_length <= pos_relative_to_head < info.log_plus_pending_length ==>
-                    pmb.flush_byte() == state.pending[pos_relative_to_head - info.log_length]
-            &&& info.log_plus_pending_length <= pos_relative_to_head < info.log_area_len ==>
-                    pmb.outstanding_write.is_none()
+                    pm_region_view.read_state[absolute_addr] == state.pending[pos_relative_to_head - info.log_length]
         }
 }
 
@@ -245,7 +263,7 @@ pub proof fn lemma_addresses_in_log_area_correspond_to_relative_log_positions(
         info.head_log_area_offset < info.log_area_len,
         info.log_area_len > 0,
     ensures
-        forall |addr: int| #![trigger pm_region_view.state[addr]]
+        forall |addr: int| #![trigger pm_region_view.durable_state[addr]] #![trigger pm_region_view.read_state[addr]]
             log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + info.log_area_len ==> {
                 let log_area_offset = addr - (log_start_addr + spec_log_area_pos());
                 let pos_relative_to_head =
@@ -274,7 +292,7 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
     state: AbstractLogState, 
 )
     requires 
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state, false),
         state == prev_state.advance_head(new_head),
         // the rest of the precondition is parts of info_consistent_with_log_area that we already know
         // are satisfied
@@ -298,26 +316,32 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
         info.head + info.log_plus_pending_length <= u128::MAX,
         state.log.len() == info.log_length,
         state.pending.len() == info.log_plus_pending_length - info.log_length,
+        // The forall below is split into two cases to make the proof more stable.
         forall |pos_relative_to_head: int| {
             let log_area_offset =
                 #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
                                                                 info.head_log_area_offset as int,
                                                                 info.log_area_len as int);
             let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
-            let pmb = pm_region_view.flush().state[absolute_addr];
             &&& 0 <= pos_relative_to_head < info.log_length ==> {
-                    &&& pmb.state_at_last_flush == state.log[pos_relative_to_head]
-                    &&& pmb.outstanding_write.is_none()
-                }
+                   &&& pm_region_view.read_state[absolute_addr] == state.log[pos_relative_to_head]
+                   &&& pm_region_view.read_state[absolute_addr] == pm_region_view.durable_state[absolute_addr]
+               }
+        },
+        forall |pos_relative_to_head: int| {
+            let log_area_offset =
+                #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                info.head_log_area_offset as int,
+                                                                info.log_area_len as int);
+            let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
             &&& info.log_length <= pos_relative_to_head < info.log_plus_pending_length ==>
-                    pmb.flush_byte() == state.pending[pos_relative_to_head - info.log_length]
-            &&& info.log_plus_pending_length <= pos_relative_to_head < info.log_area_len ==>
-                    pmb.outstanding_write.is_none()
+                   pm_region_view.read_state[absolute_addr] == state.pending[pos_relative_to_head - info.log_length]
         }
     ensures 
-        info_consistent_with_log_area(pm_region_view.flush(), log_start_addr, log_size, info, state)
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, true),
 {
-    lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, prev_info);
+    lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr,
+                                                                     log_size, prev_info);
 }
 
 pub proof fn lemma_auto_subranges_of_same_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>)
@@ -373,9 +397,12 @@ pub proof fn lemma_same_log_bytes_recover_to_same_state(
             reveal(spec_padding_needed);
         }
         // Proves that metadata, CRC, and log area are the same
-        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
-        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
-        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(), log_size, (log_size - spec_log_area_pos()) as nat);
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos,
+                                              log_size, LogMetadata::spec_size_of());
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos,
+                                              log_size, u64::spec_size_of());
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(),
+                                              log_size, (log_size - spec_log_area_pos()) as nat);
     } else {
         // both are None
     }
@@ -410,8 +437,8 @@ pub open spec fn log_area_offset_unreachable_during_recovery(
 // 3) view `v2` can crash into state `crash_state`,
 //
 // then `crash_state` recovers to the same abstract state as
-// `v1.committed()`. This is useful to know for the following
-// reason. `v1` can obviously crash as `v1.committed()`. So, if we
+// `v1.durable_state`. This is useful to know for the following
+// reason. `v1` can obviously crash as `v1.durable_state`. So, if we
 // know that all possible crash states of `v1` recover to a valid
 // state then we know `crash_state` recovers to a valid state.
 //
@@ -429,7 +456,6 @@ pub open spec fn log_area_offset_unreachable_during_recovery(
 pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
-    crash_state: Seq<u8>,
     log_start_addr: nat,
     log_size: nat,
     cdb: bool,
@@ -440,11 +466,10 @@ pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recove
     requires
         no_outstanding_writes_to_metadata(v1, log_start_addr),
         memory_matches_deserialized_cdb(v1, log_start_addr, cdb),
-        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state, false),
         log_size == info.log_area_len + spec_log_area_pos(),
         log_start_addr + spec_log_area_pos() + info.log_area_len <= v1.len(),
-        v2.can_crash_as(crash_state),
         v1.len() == v2.len(),
         forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
             &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
@@ -456,14 +481,13 @@ pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recove
         views_differ_only_where_subregion_allows(v1, v2, log_start_addr + spec_log_area_pos(),
                                                     info.log_area_len as nat, is_writable_absolute_addr),
     ensures
-        v1.can_crash_as(v1.committed()),
-        recover_state(crash_state, log_start_addr, log_size) == recover_state(v1.committed(), log_start_addr, log_size),
+        recover_state(v2.durable_state, log_start_addr, log_size) ==
+            recover_state(v1.durable_state, log_start_addr, log_size),
 {
     reveal(spec_padding_needed);
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
-    // lemma_establish_subrange_equivalence(crash_state, v1.committed());
-    lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
-    assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(v1.committed(), log_start_addr, log_size));
+    lemma_establish_extract_bytes_equivalence(v2.durable_state, v1.durable_state);
+    assert(recover_state(v2.durable_state, log_start_addr, log_size) =~=
+           recover_state(v1.durable_state, log_start_addr, log_size));
 }
 
 // This lemma proves that if the only bytes that differ between v1 and v2 are in inactive metadata 
@@ -471,7 +495,6 @@ pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recove
 pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log_area_then_recovery_state_matches(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
-    crash_state: Seq<u8>,
     log_start_addr: nat,
     log_size: nat,
     cdb: bool,
@@ -482,11 +505,10 @@ pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log
     requires 
         no_outstanding_writes_to_metadata(v1, log_start_addr),
         memory_matches_deserialized_cdb(v1, log_start_addr, cdb),
-        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state, false),
         log_size == info.log_area_len + spec_log_area_pos(),
         log_start_addr + spec_log_area_pos() + info.log_area_len <= v1.len(),
-        v2.can_crash_as(crash_state),
         v1.len() == v2.len(),
         ({
             let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
@@ -501,44 +523,35 @@ pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log
                                 addr - (log_start_addr + spec_log_area_pos()))
                     }
                     // or it's in the inactive metadata
-                    ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
+                    ||| inactive_metadata_pos <= addr <
+                           inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
                 }
-            &&& active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
-            &&& inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
+            &&& active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <=
+                   log_start_addr + spec_log_area_pos()
+            &&& inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <=
+                   log_start_addr + spec_log_area_pos()
         }),
-        views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat, is_writable_absolute_addr),
+        views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat,
+                                                 is_writable_absolute_addr),
     ensures 
-        v1.can_crash_as(v1.committed()),
-        recover_state(crash_state, log_start_addr, log_size) == recover_state(v1.committed(), log_start_addr, log_size),
+        recover_state(v2.durable_state, log_start_addr, log_size) ==
+        recover_state(v1.durable_state, log_start_addr, log_size),
 {
     broadcast use pmcopy_axioms;
-    lemma_establish_extract_bytes_equivalence(v1.committed(), v2.committed());
-    assert(views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat, is_writable_absolute_addr));
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
-    lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
-    assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(v1.committed(), log_start_addr, log_size));
+    lemma_establish_extract_bytes_equivalence(v1.durable_state, v2.durable_state);
+    assert(views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat,
+                                                    is_writable_absolute_addr));
+    lemma_establish_extract_bytes_equivalence(v2.durable_state, v1.durable_state);
+    assert(recover_state(v2.durable_state, log_start_addr, log_size) =~=
+           recover_state(v1.durable_state, log_start_addr, log_size));
 }
 
-pub proof fn lemma_auto_smaller_range_of_seq_is_subrange(mem1: Seq<u8>)
-    ensures 
-        forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() ==> mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
-{
-    assert forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() implies mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) by {
-        lemma_smaller_range_of_seq_is_subrange(mem1, i, j, k, l);
-    }
-}
-
-pub proof fn lemma_smaller_range_of_seq_is_subrange(mem1: Seq<u8>, i: int, j: int, k: int, l: int)
-    requires 
-        0 <= i <= k <= l <= j <= mem1.len()
-    ensures 
-        mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
-{
-    assert(mem1.subrange(k, l) == mem1.subrange(i + k - i, i + l - i));
-    assert(mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(i + k - i, i + l - i));
-}
-
-pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>, log_start_addr: nat, log_size: nat)
+pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(
+    mem1: Seq<u8>,
+    mem2: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat
+)
     requires 
         log_start_addr + spec_log_area_pos() < log_start_addr + log_size <= mem1.len(),
         log_start_addr + spec_log_area_pos() < log_start_addr + log_size <= mem2.len(),
@@ -557,33 +570,36 @@ pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: 
     lemma_auto_smaller_range_of_seq_is_subrange(mem1);
 }
 
-// This lemma proves that if we two PM states have the same bytes in the log header and no outstanding writes in that region,
-// and one of the states has metadata types set, then the other also has metadata types set. This is useful for proving 
-// that the metadata types invariant holds when appending to the log.
+// This lemma proves that if we two PM states have the same bytes in
+// the log header and no outstanding writes in that region, and one of
+// the states has metadata types set, then the other also has metadata
+// types set. This is useful for proving that the metadata types
+// invariant holds when appending to the log.
 pub proof fn lemma_metadata_matches_implies_metadata_types_set(
     pm1: PersistentMemoryRegionView,
     pm2: PersistentMemoryRegionView,
     log_start_addr: nat,
     cdb: bool
 )
-    requires 
+    requires
+        pm1.valid(),
+        pm2.valid(),
         no_outstanding_writes_to_active_metadata(pm1, log_start_addr, cdb),
         no_outstanding_writes_to_active_metadata(pm2, log_start_addr, cdb),
-        metadata_types_set(pm1.committed(), log_start_addr),
+        metadata_types_set(pm1.durable_state, log_start_addr),
         memory_matches_deserialized_cdb(pm1, log_start_addr, cdb),
-        // 0 < ABSOLUTE_POS_OF_LOG_AREA < pm1.committed().len(),
-        // 0 < ABSOLUTE_POS_OF_LOG_AREA < pm2.committed().len(),
         active_metadata_is_equal(pm1, pm2, log_start_addr),
         pm1.len() == pm2.len(),
         log_start_addr + spec_log_area_pos() <= pm1.len(),
     ensures 
-        metadata_types_set(pm2.committed(), log_start_addr)
+        metadata_types_set(pm2.durable_state, log_start_addr)
 {
     assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
         reveal(spec_padding_needed);
     }
 
-    lemma_active_metadata_bytes_equal_implies_metadata_types_set(pm1.committed(), pm2.committed(), log_start_addr, cdb);
+    lemma_active_metadata_bytes_equal_implies_metadata_types_set(pm1.durable_state, pm2.durable_state,
+                                                                 log_start_addr, cdb);
 }
 
 // This lemma proves that if two sequences have equal active metadata bytes,
@@ -622,43 +638,6 @@ pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
     lemma_auto_smaller_range_of_seq_is_subrange(mem1);
 }
 
-// // This lemma proves that if two sequences have equal active metadata bytes 
-// // and one does not have its metadata types set, then the other sequence also 
-// // does not have its metadata types set. 
-// pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_not_types_set(
-//     mem1: Seq<u8>,
-//     mem2: Seq<u8>,
-//     log_start_addr: nat,
-//     cdb: bool
-// )
-//     requires 
-//         mem1.len() == mem2.len(),
-//         active_metadata_bytes_are_equal(mem1, mem2, log_start_addr),
-//         ({
-//             let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
-//             let cdb2 = spec_check_log_cdb(mem2, log_start_addr);
-//             &&& cdb1 is Some 
-//             &&& cdb2 is Some 
-//             &&& cdb ==> cdb1.unwrap() && cdb2.unwrap()
-//             &&& !cdb ==> !cdb1.unwrap() && !cdb2.unwrap()
-//         }),
-//         !metadata_types_set(mem1, log_start_addr),
-//         log_start_addr + spec_log_area_pos() <= mem1.len(),
-//     ensures 
-//         !metadata_types_set(mem2, log_start_addr),
-// {
-//     assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
-//         reveal(spec_padding_needed);
-//     }
-    
-//     lemma_establish_extract_bytes_equivalence(mem1, mem2);
-
-//     // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
-//     // so knowing that the assertions below cover subranges of larger, equal subranges is enough to establish equality
-//     // (but we have to assert it explicitly to hit the triggers)
-//     lemma_auto_smaller_range_of_seq_is_subrange(mem1);
-// }
-
 // This lemma proves that if the log metadata has been properly set up and there are no outstanding writes to 
 // metadata, then the metadata_types_set invariant holds after any crash. This is useful when proving the invariant
 // after an update that does not touch metadata.
@@ -669,38 +648,37 @@ pub proof fn lemma_metadata_set_after_crash(
 )
     requires 
         no_outstanding_writes_to_active_metadata(pm_region_view, log_start_addr, cdb),
-        metadata_types_set(pm_region_view.committed(), log_start_addr),
+        metadata_types_set(pm_region_view.durable_state, log_start_addr),
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
     ensures 
-        forall |s| #![auto] {
-            &&& pm_region_view.can_crash_as(s) 
-            &&& 0 <= log_start_addr < log_start_addr + spec_log_area_pos() < s.len()
-        } ==> metadata_types_set(s, log_start_addr),
+        0 <= log_start_addr < log_start_addr + spec_log_area_pos() < pm_region_view.len()
+            ==> metadata_types_set(pm_region_view.durable_state, log_start_addr),
 {
     reveal(spec_padding_needed);
 
-    let pm_bytes = pm_region_view.committed();
+    let pm_bytes = pm_region_view.durable_state;
     assert(cdb == spec_check_log_cdb(pm_bytes, log_start_addr).unwrap());
 
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-
-    assert forall |s| {
-        &&& pm_region_view.can_crash_as(s) 
-        &&& 0 <= log_start_addr < log_start_addr + spec_log_area_pos() < s.len()
-    } implies {
-        let s_cdb = spec_check_log_cdb(s, log_start_addr).unwrap();
-        &&& s_cdb == cdb 
-        &&& spec_get_active_log_metadata(s, log_start_addr, s_cdb) == spec_get_active_log_metadata(pm_bytes, log_start_addr, s_cdb)
-        &&& spec_get_active_log_crc(s, log_start_addr, s_cdb) == spec_get_active_log_crc(pm_bytes, log_start_addr, s_cdb)
-    } by {
-        lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+    let s = pm_bytes;
+    if 0 <= log_start_addr < log_start_addr + spec_log_area_pos() < pm_region_view.len() {
+        assert({
+            let s_cdb = spec_check_log_cdb(s, log_start_addr).unwrap();
+            &&& s_cdb == cdb 
+            &&& spec_get_active_log_metadata(s, log_start_addr, s_cdb) ==
+                   spec_get_active_log_metadata(pm_bytes, log_start_addr, s_cdb)
+            &&& spec_get_active_log_crc(s, log_start_addr, s_cdb) ==
+                   spec_get_active_log_crc(pm_bytes, log_start_addr, s_cdb)
+        }) by {
+            lemma_establish_extract_bytes_equivalence(s, pm_region_view.durable_state);
+        }
     }
 
-    assert forall |s| #![auto] {
-        &&& pm_region_view.can_crash_as(s) 
-        &&& 0 <= log_start_addr < log_start_addr + spec_log_area_pos() < s.len()
-    } implies metadata_types_set(s, log_start_addr) by {
-        lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+
+    let s = pm_region_view.durable_state;
+    if 0 <= log_start_addr < log_start_addr + spec_log_area_pos() < s.len() {
+        assert(metadata_types_set(s, log_start_addr)) by {
+            lemma_establish_extract_bytes_equivalence(s, pm_region_view.durable_state);
+        }
     }
 }
 
@@ -725,23 +703,25 @@ pub proof fn lemma_invariants_imply_crash_recover_forall(
 )
     requires
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
-        metadata_types_set(pm_region_view.committed(), log_start_addr),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
+        metadata_types_set(pm_region_view.durable_state, log_start_addr),
     ensures
-        forall |mem| #[trigger] pm_region_view.can_crash_as(mem) ==> {
+        ({
+            let mem = pm_region_view.durable_state;
             &&& recover_cdb(mem, log_start_addr) == Some(cdb)
             &&& recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends())
             &&& metadata_types_set(mem, log_start_addr)
-        }
+        }),
 {
-    assert forall |mem| #[trigger] pm_region_view.can_crash_as(mem) implies {
+    let mem = pm_region_view.durable_state;
+    assert({
                 &&& recover_cdb(mem, log_start_addr) == Some(cdb)
                 &&& recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends())
                 &&& metadata_types_set(mem, log_start_addr)
-            } by
+          }) by
     {
-        lemma_invariants_imply_crash_recover(pm_region_view, mem, log_start_addr, log_size, cdb, info, state);
+        lemma_invariants_imply_crash_recover(pm_region_view, log_start_addr, log_size, cdb, info, state);
     }
 }
 
@@ -759,7 +739,6 @@ pub proof fn lemma_invariants_imply_crash_recover_forall(
 // `state` -- the abstract multilog state
 proof fn lemma_invariants_imply_crash_recover(
     pm_region_view: PersistentMemoryRegionView,
-    mem: Seq<u8>,
     log_start_addr: nat,
     log_size: nat,
     cdb: bool,
@@ -767,35 +746,35 @@ proof fn lemma_invariants_imply_crash_recover(
     state: AbstractLogState,
 )
     requires
-        pm_region_view.can_crash_as(mem),
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
-        metadata_types_set(pm_region_view.committed(), log_start_addr),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
+        metadata_types_set(pm_region_view.durable_state, log_start_addr),
     ensures
-        recover_cdb(mem, log_start_addr) == Some(cdb),
-        recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends()),
-        metadata_types_set(mem, log_start_addr),
+        ({
+            let mem = pm_region_view.durable_state;
+            &&& recover_cdb(mem, log_start_addr) == Some(cdb)
+            &&& recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends())
+            &&& metadata_types_set(mem, log_start_addr)
+        }),
 {
-    // reveal(spec_padding_needed);
-
     // For the CDB, we observe that:
     //
     // (1) there are no outstanding writes, so the crashed-into
     // state `mem` must match the committed state
-    // `pm_region_view.committed()`, and
+    // `pm_region_view.durable_state`, and
     //
     // (2) wherever the crashed-into state matches the committed
     // state on a per-byte basis, any `extract_bytes` results will
     // also match.
     //
-    // Therefore, since the metadata in `pm_region_view.committed()`
+    // Therefore, since the metadata in `pm_region_view.durable_state`
     // matches `cdb` (per the invariants), the metadata in
     // `mem` must also match `cdb`.
 
+    let mem = pm_region_view.durable_state;
     assert (recover_cdb(mem, log_start_addr) == Some(cdb)) by {
-        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-        lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+        lemma_establish_extract_bytes_equivalence(mem, pm_region_view.durable_state);
     }
 
     // Use `lemma_invariants_imply_crash_recover_for_one_log` on
@@ -803,7 +782,7 @@ proof fn lemma_invariants_imply_crash_recover(
     // regions.
 
     assert(recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())) by {
-        lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, mem, log_start_addr, log_size, cdb, info, state);
+        lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, log_start_addr, log_size, cdb, info, state);
     }
 
     // Get Z3 to see the equivalence of the recovery
@@ -831,7 +810,6 @@ proof fn lemma_invariants_imply_crash_recover(
 // `state` -- the abstract log state
 proof fn lemma_invariants_imply_crash_recover_for_one_log(
     pm_region_view: PersistentMemoryRegionView,
-    mem: Seq<u8>,
     log_start_addr: nat,
     log_size: nat,
     cdb: bool,
@@ -840,27 +818,27 @@ proof fn lemma_invariants_imply_crash_recover_for_one_log(
 )
     requires
         log_start_addr < log_start_addr + log_size <= pm_region_view.len(),
-        pm_region_view.can_crash_as(mem),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
     ensures
-        recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())
+        recover_given_cdb(pm_region_view.durable_state, log_start_addr, log_size, cdb) ==
+            Some(state.drop_pending_appends())
 {
+    let mem = pm_region_view.durable_state;
     broadcast use pmcopy_axioms;
 
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-    lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+    lemma_establish_extract_bytes_equivalence(mem, pm_region_view.durable_state);
 
     let active_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
     let active_crc_pos = spec_get_active_log_crc_pos(cdb) + log_start_addr;
 
     // Since there are no outstanding writes to the active metadata, all crash states recover to the same state
-    assert(pm_region_view.no_outstanding_writes_in_range(active_metadata_pos as int, LogMetadata::spec_size_of() as int));
-    assert(pm_region_view.no_outstanding_writes_in_range(active_crc_pos as int, u64::spec_size_of() as int));
+    assert(no_outstanding_writes_in_range(pm_region_view, active_metadata_pos as int, LogMetadata::spec_size_of() as int));
+    assert(no_outstanding_writes_in_range(pm_region_view, active_crc_pos as int, u64::spec_size_of() as int));
 
-    assert(extract_bytes(pm_region_view.committed(), active_metadata_pos as nat, LogMetadata::spec_size_of()) ==
+    assert(extract_bytes(pm_region_view.durable_state, active_metadata_pos as nat, LogMetadata::spec_size_of()) ==
         extract_bytes(mem, active_metadata_pos as nat, LogMetadata::spec_size_of()));
-    assert(extract_bytes(pm_region_view.committed(), active_crc_pos as nat, u64::spec_size_of()) ==
+    assert(extract_bytes(pm_region_view.durable_state, active_crc_pos as nat, u64::spec_size_of()) ==
         extract_bytes(mem, active_crc_pos as nat, u64::spec_size_of()));
 
     assert(recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends()));
@@ -881,22 +859,24 @@ pub proof fn lemma_metadata_consistent_with_info_after_cdb_update(
         new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
         new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
         new_cdb_bytes.len() == u64::spec_size_of(),
-        old_pm_region_view.no_outstanding_writes(),
-        new_pm_region_view.no_outstanding_writes(),
+        old_pm_region_view.flush_predicted(),
+        new_pm_region_view.flush_predicted(),
         log_start_addr + log_size <= old_pm_region_view.len(),
         log_size > u64::spec_size_of(),
         log_start_addr + spec_get_active_log_crc_end(new_cdb) <= old_pm_region_view.len(),
-        new_pm_region_view =~= old_pm_region_view.write(log_start_addr as int, new_cdb_bytes).flush(),
-        metadata_consistent_with_info(old_pm_region_view, log_start_addr, log_size, new_cdb, info),
+        new_pm_region_view.flush_predicted(),
+        new_pm_region_view.read_state == update_bytes(old_pm_region_view.read_state, log_start_addr as int,
+                                                      new_cdb_bytes),
+        metadata_consistent_with_info(old_pm_region_view, log_start_addr, log_size, new_cdb, info, false),
     ensures
-        metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info),
+        metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info, false),
 {
     broadcast use pmcopy_axioms;
-    let old_mem = old_pm_region_view.committed();
-    let new_mem = new_pm_region_view.committed();
+    let old_mem = old_pm_region_view.durable_state;
+    let new_mem = new_pm_region_view.durable_state;
     lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
     assert(extract_bytes(new_mem, log_start_addr, u64::spec_size_of()) == new_cdb_bytes);
-    assert(metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info));
+    assert(metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info, false));
 }
 
 pub proof fn lemma_metadata_types_set_after_cdb_update(
@@ -908,8 +888,8 @@ pub proof fn lemma_metadata_types_set_after_cdb_update(
     old_cdb: bool,
 )
     requires 
-        old_pm_region_view.no_outstanding_writes(),
-        new_pm_region_view.no_outstanding_writes(),
+        old_pm_region_view.flush_predicted(),
+        new_pm_region_view.flush_predicted(),
         log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= old_pm_region_view.len(),
         old_pm_region_view.len() == new_pm_region_view.len(),
         log_size >= spec_log_header_area_size(),
@@ -917,16 +897,18 @@ pub proof fn lemma_metadata_types_set_after_cdb_update(
         new_cdb_bytes == CDB_FALSE.spec_to_bytes() || new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
         old_cdb ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
         !old_cdb ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
-        new_pm_region_view =~= old_pm_region_view.write(log_start_addr as int, new_cdb_bytes).flush(),
-        metadata_types_set(old_pm_region_view.committed(), log_start_addr),
-        inactive_metadata_types_set(old_pm_region_view.committed(), log_start_addr),
+        new_pm_region_view.flush_predicted(),
+        new_pm_region_view.read_state == update_bytes(old_pm_region_view.read_state, log_start_addr as int,
+                                                      new_cdb_bytes),
+        metadata_types_set(old_pm_region_view.durable_state, log_start_addr),
+        inactive_metadata_types_set(old_pm_region_view.durable_state, log_start_addr),
     ensures 
-        metadata_types_set(new_pm_region_view.committed(), log_start_addr)
+        metadata_types_set(new_pm_region_view.durable_state, log_start_addr)
 {
     broadcast use pmcopy_axioms;
 
-    let old_mem = old_pm_region_view.committed();
-    let new_mem = new_pm_region_view.committed();
+    let old_mem = old_pm_region_view.durable_state;
+    let new_mem = new_pm_region_view.durable_state;
     lemma_auto_smaller_range_of_seq_is_subrange(old_mem);
     lemma_auto_smaller_range_of_seq_is_subrange(new_mem);
     lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
@@ -951,52 +933,37 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
 )
     requires
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
-        metadata_types_set(pm_region_view.committed(), log_start_addr),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
+        metadata_types_set(pm_region_view.durable_state, log_start_addr),
         log_start_addr + spec_log_area_pos() <= pm_region_view.len(),
     ensures
-        ({
-            let pm_region_view2 = pm_region_view.flush();
-            &&& memory_matches_deserialized_cdb(pm_region_view2, log_start_addr, cdb)
-            &&& metadata_consistent_with_info(pm_region_view2, log_start_addr, log_size, cdb, info)
-            &&& info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, info, state)
-            &&& metadata_types_set(pm_region_view2.committed(), log_start_addr)
-        })
+        pm_region_view.flush_predicted() ==> {
+            &&& memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb)
+            &&& metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false)
+            &&& info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false)
+            &&& metadata_types_set(pm_region_view.read_state, log_start_addr)
+        },
 {
-    let pm_region_view2 = pm_region_view.flush();
-
     assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
         reveal(spec_padding_needed);
     }
 
-    assert(memory_matches_deserialized_cdb(pm_region_view2, log_start_addr, cdb)) by {
-        assert(extract_bytes(pm_region_view2.committed(), log_start_addr, u64::spec_size_of()) == 
-            extract_bytes(pm_region_view.committed(), log_start_addr, u64::spec_size_of()));
+    assert(memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb)) by {
+        assert(extract_bytes(pm_region_view.durable_state, log_start_addr, u64::spec_size_of()) == 
+            extract_bytes(pm_region_view.durable_state, log_start_addr, u64::spec_size_of()));
     }
 
     // To show that all the metadata still matches even after the
     // flush, observe that everywhere the bytes match, any call to
     // `extract_bytes` will also match.
 
-    assert(metadata_consistent_with_info(pm_region_view2, log_start_addr, log_size, cdb, info)) by {
-        lemma_establish_extract_bytes_equivalence(pm_region_view.committed(), pm_region_view2.committed());
+    assert(metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false)) by {
+        lemma_establish_extract_bytes_equivalence(pm_region_view.durable_state, pm_region_view.durable_state);
     }
 
-    // Prove that the bytes in the active metadata are unchanged after the flush, so 
-    // the metadata types are still set.
-    
-    assert(active_metadata_is_equal(pm_region_view, pm_region_view2, log_start_addr)) by {
-        broadcast use pmcopy_axioms;
-        let mem1 = pm_region_view.committed();
-        let mem2 = pm_region_view2.committed();
-        let log_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
-
-        assert(extract_bytes(mem1, log_start_addr, u64::spec_size_of()) =~= extract_bytes(mem2, log_start_addr, u64::spec_size_of()));
-        assert(extract_bytes(mem1, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) =~= 
-            extract_bytes(mem2, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
-    }
-    lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, log_start_addr, cdb);
+    // It's trivial to prove that the bytes in the active metadata are
+    // unchanged after the flush, so the metadata types are still set.
 }
 
 pub open spec fn states_differ_only_in_log_region(
@@ -1019,10 +986,39 @@ pub open spec fn views_differ_only_in_log_region(
     log_size: nat
 ) -> bool 
 {
-    forall |addr: int|{
-        &&& 0 <= addr < v1.len() 
-        &&& v1.state[addr] != #[trigger] v2.state[addr] 
-    } ==> log_start_addr <= addr < log_start_addr + log_size
+    &&& v1.len() == v2.len()
+    &&& forall |addr: int| #![trigger v2.durable_state[addr]] #![trigger v2.read_state[addr]]
+           0 <= addr < v1.len() && !(log_start_addr <= addr < log_start_addr + log_size)
+           ==> views_match_at_addr(v1, v2, addr)
+}
+
+pub proof fn lemma_if_views_differ_only_in_region_then_states_do(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat
+)
+    requires
+        v1.valid(),
+        v2.valid(),
+        views_differ_only_in_log_region(v1, v2, log_start_addr, log_size),
+    ensures
+        states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size),
+        states_differ_only_in_log_region(v1.read_state, v2.read_state, log_start_addr, log_size),
+{
+    assert forall |addr: int|{
+        &&& 0 <= addr < v1.durable_state.len() 
+        &&& v1.durable_state[addr] != #[trigger] v2.durable_state[addr] 
+    } implies log_start_addr <= addr < log_start_addr + log_size by {
+        assert(!views_match_at_addr(v1, v2, addr));
+    }
+
+    assert forall |addr: int|{
+        &&& 0 <= addr < v1.read_state.len() 
+        &&& v1.read_state[addr] != #[trigger] v2.read_state[addr] 
+    } implies log_start_addr <= addr < log_start_addr + log_size by {
+        assert(!views_match_at_addr(v1, v2, addr));
+    }
 }
 
 pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstanding_writes_then_views_differ_only_in_log_region(
@@ -1031,33 +1027,22 @@ pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstand
     log_start_addr: nat,
     log_size: nat
 )
-    requires 
-        states_differ_only_in_log_region(v1.committed(), v2.committed(), log_start_addr, log_size),
+    requires
+        states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size),
         v1.len() == v2.len(),
-        v1.no_outstanding_writes(),
-        v2.no_outstanding_writes(),
+        v1.flush_predicted(),
+        v2.flush_predicted(),
     ensures 
         views_differ_only_in_log_region(v1, v2, log_start_addr, log_size),
 {
-    let s1 = v1.committed();
-    let s2 = v2.committed();
+    let s1 = v1.durable_state;
+    let s2 = v2.durable_state;
     assert(v1.len() == s1.len());
     assert(v2.len() == s2.len());
 
-    assert(forall |addr: int|{
-        &&& 0 <= addr < s1.len() 
-        &&& s1[addr] == #[trigger] s2[addr] 
-    } ==> v1.state[addr] == v2.state[addr]);
-
-    assert(forall |addr: int| {
-        &&& 0 <= addr < s1.len() 
-        &&& v1.state[addr] != #[trigger] v2.state[addr]
-    } ==> s1[addr] != s2[addr]);
-
-    assert(forall |addr: int|{
-        &&& 0 <= addr < v1.len() 
-        &&& v1.state[addr] != #[trigger] v2.state[addr] 
-    } ==> log_start_addr <= addr < log_start_addr + log_size);
+    assert(forall|addr: int| #![trigger v2.durable_state[addr]] #![trigger v2.read_state[addr]]
+           0 <= addr < v1.len() && !(log_start_addr <= addr < log_start_addr + log_size) ==>
+           views_match_at_addr(v1, v2, addr));
 }
 
 pub open spec fn states_differ_only_outside_log_region(
@@ -1078,162 +1063,15 @@ pub open spec fn states_differ_only_outside_log_region(
 
 pub proof fn lemma_metadata_fits_in_log_header_area()
     ensures 
-        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos(),
-        forall |cdb: bool| spec_get_inactive_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos(),
+        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <=
+            spec_log_area_pos(),
+        forall |cdb: bool| spec_get_inactive_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <=
+            spec_log_area_pos(),
 {
     broadcast use pmcopy_axioms;
     reveal(spec_padding_needed);
-    assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+    assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <=
+           spec_log_area_pos()) by (compute_only);
 }
 
-// This lemma proves that if we write bytes to the log area, then regardless of whether 
-// there are any outstanding bytes (either in the log or elsewhere), then for 
-// every crash state of the post-write PM state, there exists a crash state of the 
-// pre-write PM state that is equivalent everywhere outside of the log.
-pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
-    v1: PersistentMemoryRegionView,
-    v2: PersistentMemoryRegionView,
-    write_addr: int,
-    write_bytes: Seq<u8>,
-    log_start_addr: nat,
-    log_size: nat
-) 
-    requires 
-        v2 == v1.write(write_addr, write_bytes),
-        v1.len() == v2.len(),
-        0 <= log_start_addr <= write_addr <= write_addr + write_bytes.len() <= log_start_addr + log_size <= v1.len(),
-        log_start_addr % const_persistence_chunk_size() as nat == 0,
-        log_size % const_persistence_chunk_size() as nat == 0,
-    ensures 
-        forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
-            exists |s1: Seq<u8>| {
-                &&& v1.can_crash_as(s1)
-                &&& #[trigger] s1.len() == s2.len()
-                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
-            }
-{
-    // The body of this lemma would be exactly the same as the wrapping case lemma, it just has a different
-    // precondition, so we fake the second write here to use the wrapping proof in the single-write case.
-    assert(v1.write(write_addr, write_bytes).write(log_start_addr as int, Seq::empty()) == v1.write(write_addr, write_bytes));
-    lemma_crash_state_differing_only_in_log_region_exists_wrapping(
-        v1, v2, write_addr, write_bytes, log_start_addr as int, Seq::empty(), log_start_addr, log_size
-    );
-}
-
-// TODO: rename to reflect the fact that this is general for two-write situations
-// and not just for wrapping appends
-pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
-    v1: PersistentMemoryRegionView,
-    v2: PersistentMemoryRegionView,
-    write_addr1: int,
-    write_bytes1: Seq<u8>,
-    write_addr2: int,
-    write_bytes2: Seq<u8>,
-    log_start_addr: nat,
-    log_size: nat
-) 
-    requires 
-        v2 == v1.write(write_addr1, write_bytes1).write(write_addr2, write_bytes2),
-        v1.len() == v2.len(),
-        0 <= log_start_addr <= write_addr1 <= write_addr1 + write_bytes1.len() <= log_start_addr + log_size <= v1.len(),
-        0 <= log_start_addr <= write_addr2 <= write_addr2 + write_bytes2.len() <= log_start_addr + log_size <= v1.len(),
-        log_start_addr % const_persistence_chunk_size() as nat == 0,
-        log_size % const_persistence_chunk_size() as nat == 0,
-    ensures 
-        forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
-            exists |s1: Seq<u8>| {
-                &&& v1.can_crash_as(s1)
-                &&& #[trigger] s1.len() == s2.len()
-                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
-            }
-{
-    assert forall |s2: Seq<u8>| v2.can_crash_as(s2) implies 
-        exists |s1: Seq<u8>| {
-            &&& v1.can_crash_as(s1)
-            &&& #[trigger] s1.len() == s2.len()
-            &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
-        }
-    by {
-        // We need to construct a state that is a valid crash state of v1, and matches
-        // s2 in all addresses except for the log addrs.
-        // It doesn't really matter what we put in the log, so we'll just use 
-        // the post-flush byte for each of those addresses.
-        // The rest of this proof is focused on proving that v1 can in fact
-        // crash into this witness state.
-        let witness = Seq::new(v1.len(), |addr: int| {
-            if log_start_addr <= addr < log_start_addr + log_size {
-                v1.state[addr].flush_byte()
-            } else {
-                // outside of the log
-                s2[addr]
-            }
-        });
-
-        // Then we have to prove that this witness is, in fact, a crash state of v1. This is not trivial
-        // because we defined the witness in terms of bytes, but crash states are reasoned about in 
-        // terms of 8-byte chunks.
-        assert(v1.can_crash_as(witness)) by {
-            // We'll prove that the chunks outside of the log and the chunks inside the log are valid
-            // separately.
-            
-            // First, prove that the bytes outside the log represent a valid crash state for v1
-            assert forall |chunk: int| {
-                ||| 0 <= chunk * const_persistence_chunk_size() < log_start_addr 
-                ||| log_start_addr + log_size <= chunk * const_persistence_chunk_size() < v1.len()
-            } implies {
-                ||| v1.chunk_corresponds_ignoring_outstanding_writes(chunk, witness)
-                ||| v1.chunk_corresponds_after_flush(chunk, witness)
-            } by {
-                // From definition of `can_crash_as`. We already know this, but asserting it 
-                // here helps Verus with triggers.
-                assert({
-                    ||| v2.chunk_corresponds_after_flush(chunk, s2)
-                    ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2)
-                });
-
-                // Either all addrs for this chunk are flushed or they are all not. 
-                // This comes from the definitions of chunk_corresponds_{after_flush, ignoring_outstanding_writes}
-                assert({
-                    ||| forall |addr: int| {
-                            &&& 0 <= addr < v1.len()
-                            &&& addr_in_chunk(chunk, addr)
-                        } ==> #[trigger] s2[addr] == v2.state[addr].flush_byte()
-                    ||| forall |addr: int| {
-                            &&& 0 <= addr < v1.len()
-                            &&& addr_in_chunk(chunk, addr)
-                        } ==> #[trigger] s2[addr] == v2.state[addr].state_at_last_flush
-                });
-
-                // Finally, we have to establish that the addresses in this chunk
-                // correspond to addresses that we already know something about,
-                // which just requires making Verus do some arithmetic.
-                assert forall |addr: int| {
-                    &&& 0 <= addr < v1.len()
-                    &&& addr_in_chunk(chunk, addr)
-                } implies #[trigger] witness[addr] == s2[addr] by {    
-                    lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
-                    lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
-                }
-            }
-
-            // Second, prove that the bytes inside the log are also part of a valid crash state.
-            // This one is slightly simpler because there is only one valid state for each chunk.
-            // We just have to do the arithmetic to prove that these bytes corresond to locations that 
-            // we know have been set to v1's flushed bytes
-            assert forall |chunk: int| {
-                0 <= log_start_addr <= chunk * const_persistence_chunk_size() < log_start_addr + log_size < v1.len()
-            } implies {
-                v1.chunk_corresponds_after_flush(chunk, witness)
-            } by {
-                assert forall |addr: int| {
-                    &&& 0 <= addr < v1.len()
-                    &&& addr_in_chunk(chunk, addr)
-                } implies #[trigger] witness[addr] == v1.state[addr].flush_byte() by {
-                    lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
-                    lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
-                }
-            }
-        }
-    }
-}
 }

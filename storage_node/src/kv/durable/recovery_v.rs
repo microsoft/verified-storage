@@ -164,11 +164,6 @@ pub proof fn lemma_log_entry_does_not_modify_free_main_table_entries(
     }
 }
 
-pub open spec fn update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> Seq<u8>
-{
-    Seq::new(s.len(), |i: int| if addr <= i < addr + bytes.len() { bytes[i - addr] } else { s[i] })
-}
-
 pub proof fn lemma_update_to_free_main_table_entry_commutes_with_log_replay(
     mem: Seq<u8>,
     op_log: Seq<AbstractPhysicalOpLogEntry>,
@@ -563,8 +558,8 @@ pub proof fn lemma_effect_of_apply_physical_log_entries_on_one_byte(
         overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size,
     ensures
         ({
-            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log);
-            let mem2 = apply_physical_log_entries(v2.flush().committed(), op_log);
+            let mem1 = apply_physical_log_entries(v1.read_state, op_log);
+            let mem2 = apply_physical_log_entries(v2.read_state, op_log);
             match (mem1, mem2) {
                 (Some(mem1_plus), Some(mem2_plus)) => {
                     &&& mem1_plus.len() == mem2_plus.len() == overall_metadata.region_size
@@ -599,8 +594,8 @@ pub proof fn lemma_effect_of_apply_physical_log_entries_on_views_differing_only_
         overall_metadata.log_area_addr >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
     ensures
         ({
-            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log);
-            let mem2 = apply_physical_log_entries(v2.flush().committed(), op_log);
+            let mem1 = apply_physical_log_entries(v1.read_state, op_log);
+            let mem2 = apply_physical_log_entries(v2.read_state, op_log);
             match (mem1, mem2) {
                 (Some(mem1_plus), Some(mem2_plus)) => {
                     &&& mem1_plus.len() == mem2_plus.len() == overall_metadata.region_size
@@ -618,8 +613,8 @@ pub proof fn lemma_effect_of_apply_physical_log_entries_on_views_differing_only_
             }
         })
 {
-    let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log);
-    let mem2 = apply_physical_log_entries(v2.flush().committed(), op_log);
+    let mem1 = apply_physical_log_entries(v1.read_state, op_log);
+    let mem2 = apply_physical_log_entries(v2.read_state, op_log);
     lemma_effect_of_apply_physical_log_entries_on_one_byte(v1, v2, op_log, version_metadata, overall_metadata, 0);
     match (mem1, mem2) {
         (Some(mem1_plus), Some(mem2_plus)) => {
@@ -696,18 +691,18 @@ pub proof fn lemma_effect_of_tentatively_append_log_entry_on_main_table_region(
         log_entry.absolute_addr + log_entry.len <= overall_metadata.log_area_addr,
         log_entry.len == log_entry.bytes.len(),
         ({
-            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log1.physical_op_list);
+            let mem1 = apply_physical_log_entries(v1.read_state, op_log1.physical_op_list);
             let mem2 = apply_physical_log_entry(mem1.unwrap(), log_entry);
-            let mem3 = apply_physical_log_entries(v2.flush().committed(), op_log2.physical_op_list);
+            let mem3 = apply_physical_log_entries(v2.read_state, op_log2.physical_op_list);
             &&& mem1 is Some
             &&& mem2 is Some
             &&& mem3 is Some
         }),
     ensures
         ({
-            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log1.physical_op_list);
+            let mem1 = apply_physical_log_entries(v1.read_state, op_log1.physical_op_list);
             let mem2 = apply_physical_log_entry(mem1.unwrap(), log_entry);
-            let mem3 = apply_physical_log_entries(v2.flush().committed(), op_log2.physical_op_list);
+            let mem3 = apply_physical_log_entries(v2.read_state, op_log2.physical_op_list);
             let mem2_main_region = extract_bytes(mem2.unwrap(), overall_metadata.main_table_addr as nat,
                                                  overall_metadata.main_table_size as nat);
             let mem3_main_region = extract_bytes(mem3.unwrap(), overall_metadata.main_table_addr as nat,
@@ -722,9 +717,9 @@ pub proof fn lemma_effect_of_tentatively_append_log_entry_on_main_table_region(
 {
     lemma_effect_of_tentatively_append_log_entry_on_one_byte(v1, v2, op_log1, op_log2, log_entry,
                                                              version_metadata, overall_metadata, 0);
-    let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log1.physical_op_list);
+    let mem1 = apply_physical_log_entries(v1.read_state, op_log1.physical_op_list);
     let mem2 = apply_physical_log_entry(mem1.unwrap(), log_entry);
-    let mem3 = apply_physical_log_entries(v2.flush().committed(), op_log2.physical_op_list);
+    let mem3 = apply_physical_log_entries(v2.read_state, op_log2.physical_op_list);
     let mem2_main_region = extract_bytes(mem2.unwrap(), overall_metadata.main_table_addr as nat,
                                          overall_metadata.main_table_size as nat);
     let mem3_main_region = extract_bytes(mem3.unwrap(), overall_metadata.main_table_addr as nat,
