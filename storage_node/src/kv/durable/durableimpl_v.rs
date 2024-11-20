@@ -7375,6 +7375,7 @@ verus! {
             }
         }
 
+        #[verifier::rlimit(20)]
         proof fn lemma_commit_log_precondition(
             self,
             crash_pred: spec_fn(Seq<u8>) -> bool,
