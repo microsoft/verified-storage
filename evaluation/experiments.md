@@ -16,8 +16,6 @@
 4. Run `export JAVA_HOME=/usr/lib/jvm/java-X-openjdk-amd64/` where `X` is the Java version to use.
 
 ### redis troubleshooting
-1. `cd` to `pmem-redis` and run `make USE_NVM=yes` 
-
 If redis doesn't build, the following may help:
 1. Check that the following files and directories are present. They should be, but an bad .gitignore or clean can sometimes cause issues. If any are missing, create them and copy them in from the repository manually.
     - Check that `pmem-redis/deps/jemalloc/bin/` exists and that it contains the following files: `jemalloc-config.in`, `jemalloc.sh.in`, and `jeprof.in`. If the directory does not exist, or if any of these files are missing or empty, 
@@ -49,7 +47,7 @@ To run all YCSB experiments on a given DB:
     - `capybarakv_config.toml` specifies CapybaraKV-specific options such as the name and size of backing file and the number of keys to allocate space for. 
 2. `cd` to `evaluation/` and run:
 ```
-python3 run_ycsb.py <db name>
+python3 run_ycsb.py --db <db name>
 ```
 
 ### Troubleshooting
