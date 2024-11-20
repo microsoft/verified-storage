@@ -1290,7 +1290,7 @@ impl UntrustedLogImpl {
     {
         proof {
             wrpm_region.lemma_inv_implies_view_valid();
-            lemma_auto_can_result_from_write_effect();
+            lemma_auto_can_result_from_partial_write_effect();
             lemma_auto_smaller_range_of_seq_is_subrange(wrpm_region@.durable_state);
         }
         

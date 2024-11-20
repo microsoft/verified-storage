@@ -109,7 +109,7 @@ verus! {
         assert forall|pm_region_view2: PersistentMemoryRegionView|
                   #[trigger] pm_region_view2.can_result_from_write(pm_region_view, write_addr, bytes_to_append)
                   implies info_consistent_with_log_area(pm_region_view2, new_info, new_state) by {
-            lemma_auto_can_result_from_write_effect_on_durable_state();
+            lemma_auto_can_result_from_partial_write_effect();
             lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(pm_region_view2, new_info);
         }
     }
@@ -214,7 +214,7 @@ verus! {
                   &&& pm_region_view2.can_result_from_write(pm_region_view, write_addr, bytes_to_append_part1)
                   &&& pm_region_view3.can_result_from_write(pm_region_view2, 0int, bytes_to_append_part2)
                } implies info_consistent_with_log_area(pm_region_view3, new_info, new_state) by {
-            lemma_auto_can_result_from_write_effect_on_durable_state();
+            lemma_auto_can_result_from_partial_write_effect();
             // Invoke `lemma_tentatively_append` on each write.
             lemma_tentatively_append(pm_region_view, bytes_to_append_part1, prev_info, prev_state);
             lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, intermediate_info, intermediate_state);

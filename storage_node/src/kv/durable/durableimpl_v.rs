@@ -2300,7 +2300,7 @@ verus! {
                 wrpm_region.write(op.absolute_addr, op.bytes.as_slice(), Tracked(perm));
 
                 proof {
-                    lemma_auto_can_result_from_write_effect();
+                    lemma_auto_can_result_from_partial_write_effect();
                 }
              
                 assert(extract_bytes(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat,
