@@ -47,15 +47,30 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
     type E = RedisError;
 
     fn init() -> Result<Self, Self::E> {
-        // First, start the redis instance
-        // TODO: don't hardcode paths?
+        // TODO @hayley don't hardcode paths in this function
+
+        println!("Mounting PM FS...");
+        // Set up PM with a fresh file system instance
+        let status = Command::new("sudo")
+            .args(["mkfs.ext4", crate::PM_DEV, "-F"])
+            .status()
+            .expect("mkfs.ext4 failed");
+
+        let status = Command::new("sudo")
+            .args(["mount", "-o", "dax", crate::PM_DEV, crate::MOUNT_POINT])
+            .status()
+            .expect("mount failed");
+        println!("Mounted");
+
+        // Start the redis instance
+        
         let redis_server = Command::new("sudo")
             .args(["../pmem-redis/src/redis-server"]) // path to server binary
             .args(["../pmem-redis/redis.conf"]) // config file
             .spawn()
             .expect("redis-server failed to start");
             
-        println!("Started redis server...");
+        println!("Started redis server");
         
         sleep(Duration::from_secs(2));
 
@@ -72,7 +87,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
         })
     }
 
-    fn db_name(&self) -> String {
+    fn db_name() -> String {
         "redis".to_string()
     }
 
@@ -105,6 +120,17 @@ impl<K, V> Drop for RedisClient<K, V>
     // connection when the Connection is dropped
     fn drop(&mut self) {
         self.server.kill().expect("redis-server could not be killed");
-        println!("Stopped redis server");
+        println!("Stopped redis server, unmounting...");
+
+        sleep(Duration::from_secs(2));
+
+        let status = Command::new("sudo")
+            .args(["umount", crate::PM_DEV])
+            .status();
+        if let Err(e) = status {
+            println!("{:?}", e);
+        }
+
+        println!("Finished cleaning up redis");
     }
 }
