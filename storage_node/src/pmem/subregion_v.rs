@@ -788,12 +788,12 @@ impl WriteRestrictedPersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(old::<&mut _>(wrpm), perm),
-            relative_addr + bytes@.len() <= self.view(old::<&mut _>(wrpm)).len(),
+            self.inv(&*old(wrpm), perm),
+            relative_addr + bytes@.len() <= self.view(&*old(wrpm)).len(),
             forall |i: int| relative_addr <= i < relative_addr + bytes@.len() ==> self.is_writable_relative_addr(i),
         ensures
             self.inv(wrpm, perm),
-            self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), relative_addr as int, bytes@),
+            self.view(wrpm).can_result_from_write(self.view(&*old(wrpm)), relative_addr as int, bytes@),
     {
         assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
                    !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
@@ -815,14 +815,14 @@ impl WriteRestrictedPersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(old::<&mut _>(wrpm), perm),
+            self.inv(&*old(wrpm), perm),
             self.start() <= absolute_addr,
             absolute_addr + bytes@.len() <= self.len(),
             forall |i: int| absolute_addr <= i < absolute_addr + bytes@.len() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
             self.inv(wrpm, perm),
-            self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), absolute_addr - self.start(), bytes@),
+            self.view(wrpm).can_result_from_write(self.view(&*old(wrpm)), absolute_addr - self.start(), bytes@),
     {
         proof {
             self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write_always();
@@ -843,13 +843,13 @@ impl WriteRestrictedPersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(old::<&mut _>(wrpm), perm),
-            relative_addr + S::spec_size_of() <= self.view(old::<&mut _>(wrpm)).len(),
+            self.inv(&*old(wrpm), perm),
+            relative_addr + S::spec_size_of() <= self.view(&*old(wrpm)).len(),
             forall |i: int| relative_addr <= i < relative_addr + S::spec_size_of() ==>
                 self.is_writable_relative_addr(i),
         ensures
             self.inv(wrpm, perm),
-            self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), relative_addr as int,
+            self.view(wrpm).can_result_from_write(self.view(&*old(wrpm)), relative_addr as int,
                                                   to_write.spec_to_bytes()),
             wrpm@.read_state.subrange(relative_addr + self.start(),
                                       relative_addr + self.start() + S::spec_size_of()) == to_write.spec_to_bytes(),
@@ -878,14 +878,14 @@ impl WriteRestrictedPersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(old::<&mut _>(wrpm), perm),
+            self.inv(&*old(wrpm), perm),
             self.start() <= absolute_addr,
             absolute_addr + S::spec_size_of() <= self.len(),
             forall |i: int| absolute_addr <= i < absolute_addr + S::spec_size_of() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
             self.inv(wrpm, perm),
-            self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), absolute_addr - self.start(),
+            self.view(wrpm).can_result_from_write(self.view(&*old(wrpm)), absolute_addr - self.start(),
                                                   to_write.spec_to_bytes()),
             wrpm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()) ==
                 to_write.spec_to_bytes(),
@@ -1613,12 +1613,12 @@ impl WritablePersistentMemorySubregion
         bytes: &[u8],
     )
         requires
-            self.inv(old::<&mut _>(pm)),
-            relative_addr + bytes@.len() <= self.view(old::<&mut _>(pm)).len(),
+            self.inv(&*old(pm)),
+            relative_addr + bytes@.len() <= self.view(&*old(pm)).len(),
             forall |i: int| relative_addr <= i < relative_addr + bytes@.len() ==> self.is_writable_relative_addr(i),
         ensures
             self.inv(pm),
-            self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), relative_addr as int, bytes@),
+            self.view(pm).can_result_from_write(self.view(&*old(pm)), relative_addr as int, bytes@),
     {
         assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
                    !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
@@ -1636,14 +1636,14 @@ impl WritablePersistentMemorySubregion
         bytes: &[u8],
     )
         requires
-            self.inv(old::<&mut _>(pm)),
+            self.inv(&*old(pm)),
             self.start() <= absolute_addr,
             absolute_addr + bytes@.len() <= self.len(),
             forall |i: int| absolute_addr <= i < absolute_addr + bytes@.len() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
             self.inv(pm),
-            self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), absolute_addr - self.start(), bytes@),
+            self.view(pm).can_result_from_write(self.view(&*old(pm)), absolute_addr - self.start(), bytes@),
     {
         pm.write(absolute_addr, bytes);
         proof {
@@ -1662,14 +1662,14 @@ impl WritablePersistentMemorySubregion
             S: PmCopy + Sized,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(old::<&mut _>(pm)),
-            relative_addr + S::spec_size_of() <= self.view(old::<&mut _>(pm)).len(),
+            self.inv(&*old(pm)),
+            relative_addr + S::spec_size_of() <= self.view(&*old(pm)).len(),
             forall |i: int| relative_addr <= i < relative_addr + S::spec_size_of() ==>
                 self.is_writable_relative_addr(i),
         ensures
             pm@.len() == old(pm)@.len(),
             self.inv(pm),
-            self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), relative_addr as int,
+            self.view(pm).can_result_from_write(self.view(&*old(pm)), relative_addr as int,
                                                 to_write.spec_to_bytes()),
             pm@.read_state.subrange(relative_addr + self.start(),
                                     relative_addr + self.start() + S::spec_size_of()) == to_write.spec_to_bytes(),
@@ -1696,14 +1696,14 @@ impl WritablePersistentMemorySubregion
             S: PmCopy + Sized,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(old::<&mut _>(pm)),
+            self.inv(&*old(pm)),
             self.start() <= absolute_addr,
             absolute_addr + S::spec_size_of() <= self.len(),
             forall |i: int| absolute_addr <= i < absolute_addr + S::spec_size_of() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
             self.inv(pm),
-            self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), absolute_addr - self.start(),
+            self.view(pm).can_result_from_write(self.view(&*old(pm)), absolute_addr - self.start(),
                                                 to_write.spec_to_bytes()),
             pm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()) == to_write.spec_to_bytes(),
     {

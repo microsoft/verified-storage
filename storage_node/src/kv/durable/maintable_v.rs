@@ -1898,8 +1898,8 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires 
-                subregion.inv(old::<&mut _>(wrpm_region), perm),
-                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                subregion.inv(&*old(wrpm_region), perm),
+                old(self).inv(subregion.view(&*old(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.main_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
                 !old(self).tentative_view().valid_item_indices().contains(item_table_index),
@@ -1934,12 +1934,12 @@ verus! {
                         {
                             let entry_size = overall_metadata.main_table_entry_size as nat;
                             let start = index_to_offset(index as nat, entry_size);
-                            let old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
+                            let old_pm_view = subregion.view(&*old(wrpm_region));
                             &&& #[trigger] trigger_addr(addr)
                             &&& 0 <= addr < overall_metadata.main_table_size
                             &&& !(start <= addr < start + entry_size)
                         } ==> views_match_at_addr(subregion.view(wrpm_region),
-                                                  subregion.view(old::<&mut _>(wrpm_region)), addr)
+                                                  subregion.view(&*old(wrpm_region)), addr)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -2140,7 +2140,7 @@ verus! {
                                                         overall_metadata.main_table_entry_size) by {
                 assert(!old(self).outstanding_entries@.contains_key(idx));
                 assert(idx != free_index);
-                assert(old(self).no_outstanding_writes_to_entry(subregion.view(old::<&mut _>(wrpm_region)), idx,
+                assert(old(self).no_outstanding_writes_to_entry(subregion.view(&*old(wrpm_region)), idx,
                                                               overall_metadata.main_table_entry_size));
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, main_table_entry_size as nat);

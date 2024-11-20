@@ -827,11 +827,11 @@ verus! {
                 PM: PersistentMemoryRegion,
                 Perm: CheckPermission<Seq<u8>>,
             requires
-                subregion.inv(old::<&mut _>(wrpm_region), perm),
-                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                subregion.inv(&*old(wrpm_region), perm),
+                old(self).inv(subregion.view(&*old(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
-                    &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
+                    &&& 0 <= addr < subregion.view(&*old(wrpm_region)).len()
                     &&& address_belongs_to_invalid_item_table_entry::<I>(
                         addr, overall_metadata.num_keys,
                         old(self).durable_valid_indices().union(old(self).tentative_valid_indices())
@@ -839,8 +839,8 @@ verus! {
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
                 old(self).free_list().disjoint(old(self).tentative_valid_indices()),
                 // we have not yet made any modifications to the subregion
-                subregion.initial_subregion_view() == subregion.view(old::<&mut _>(wrpm_region)),
-                subregion.initial_region_view() == old::<&mut _>(wrpm_region)@,
+                subregion.initial_subregion_view() == subregion.view(&*old(wrpm_region)),
+                subregion.initial_region_view() == (&*old(wrpm_region))@,
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
@@ -895,7 +895,7 @@ verus! {
                 // PM or the outstanding item map, this part still holds
                 assert(self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), free_index)) by {
                     assert(!self.modified_indices@.contains(free_index));
-                    assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(old::<&mut _>(wrpm_region)), free_index));
+                    assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(&*old(wrpm_region)), free_index));
                 }
 
                 assert(old(self).free_list().contains(free_index));
@@ -970,7 +970,7 @@ verus! {
             // calculate and write the CRC of the provided item
             let crc: u64 = calculate_crc(item);
 
-            assert(subregion.view(wrpm_region) == subregion.view(old::<&mut _>(wrpm_region)));
+            assert(subregion.view(wrpm_region) == subregion.view(&*old(wrpm_region)));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
             
             let ghost cur_wrpm = *wrpm_region;
@@ -996,9 +996,9 @@ verus! {
                 let start = index_to_offset(idx as nat, entry_size as nat) as int;
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(old::<&mut _>(wrpm_region)),
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(&*old(wrpm_region)),
                                                                             idx));
-                assert(no_outstanding_writes_in_range(subregion.view(old::<&mut _>(wrpm_region)), start,
+                assert(no_outstanding_writes_in_range(subregion.view(&*old(wrpm_region)), start,
                                                       start + entry_size));
             }
 
@@ -1012,7 +1012,7 @@ verus! {
                 let entry_bytes = extract_bytes(pm_view.durable_state, (idx * entry_size) as nat, entry_size as nat);
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).durable_state,
+                assert(entry_bytes =~= extract_bytes(subregion.view(&*old(wrpm_region)).durable_state,
                                                      (idx * entry_size) as nat, entry_size as nat));
             }
 

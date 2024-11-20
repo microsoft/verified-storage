@@ -335,10 +335,10 @@ verus! {
             requires
                 bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
                 self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
-                subregion.inv(old::<&mut _>(wrpm_region), perm),
+                subregion.inv(&*old(wrpm_region), perm),
                 subregion.start() == ABSOLUTE_POS_OF_LOG_AREA,
                 subregion.len() == self.info.log_area_len,
-                subregion.view(old::<&mut _>(wrpm_region)).valid(),
+                subregion.view(&*old(wrpm_region)).valid(),
                 info_consistent_with_log_area(subregion.view(&*old(wrpm_region)), self.info, self.state@),
                 forall |log_area_offset: int|
                     #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
@@ -647,7 +647,7 @@ verus! {
             where
                 PMRegion: PersistentMemoryRegion,
             requires
-                subregion.inv(old::<&mut _>(wrpm_region), perm),
+                subregion.inv(&*old(wrpm_region), perm),
                 subregion.len() == LogMetadata::spec_size_of() + u64::spec_size_of(),
                 forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
             ensures
