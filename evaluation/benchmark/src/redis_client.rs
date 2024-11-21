@@ -49,18 +49,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
     fn init() -> Result<Self, Self::E> {
         // TODO @hayley don't hardcode paths in this function
 
-        println!("Mounting PM FS...");
-        // Set up PM with a fresh file system instance
-        let status = Command::new("sudo")
-            .args(["mkfs.ext4", crate::PM_DEV, "-F"])
-            .status()
-            .expect("mkfs.ext4 failed");
-
-        let status = Command::new("sudo")
-            .args(["mount", "-o", "dax", crate::PM_DEV, crate::MOUNT_POINT])
-            .status()
-            .expect("mount failed");
-        println!("Mounted");
+        crate::init_and_mount_pm_fs();
 
         // Start the redis instance
         
@@ -132,6 +121,11 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
 
         Ok(())
     }
+
+    fn flush(&mut self) {}
+
+    fn cleanup() {}
+    
 }
 
 impl<K, V> Drop for RedisClient<K, V> 
@@ -148,12 +142,7 @@ impl<K, V> Drop for RedisClient<K, V>
 
         sleep(Duration::from_secs(2));
 
-        let status = Command::new("sudo")
-            .args(["umount", crate::PM_DEV])
-            .status();
-        if let Err(e) = status {
-            println!("{:?}", e);
-        }
+        crate::unmount_pm_fs();
 
         println!("Finished cleaning up redis");
     }

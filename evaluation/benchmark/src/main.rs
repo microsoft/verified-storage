@@ -13,17 +13,21 @@ use redis::{FromRedisValue, RedisResult};
 
 use std::fs;
 use std::env;
-use std::time::Instant;
+use std::time::{Instant, Duration};
+use std::thread::sleep;
 use std::io::{BufWriter, Write};
+use std::process::Command;
 
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 
 use crate::redis_client::*;
+use crate::rocksdb_client::*;
 use crate::kv_interface::*;
 
 pub mod kv_interface;
 pub mod redis_client;
+pub mod rocksdb_client;
 
 // length of key and value in byte
 const KEY_LEN: usize = 8;
@@ -34,7 +38,7 @@ const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 5000;
-const ITERATIONS: u64 = 10;
+const ITERATIONS: u64 = 5;
 
 
 #[repr(C)]
@@ -49,10 +53,22 @@ impl Key for TestKey {
     }
 }
 
+impl AsRef<[u8]> for TestKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.key
+    }
+}
+
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct TestValue {
     value: [u8; VALUE_LEN]
+}
+
+impl AsRef<[u8]> for TestValue {
+    fn as_ref(&self) -> &[u8] {
+        &self.value
+    }
 }
 
 impl Value for TestValue {
@@ -62,6 +78,15 @@ impl Value for TestValue {
 
     fn value_str(&self) -> &str {
         std::str::from_utf8(&self.value).unwrap()
+    }
+
+    fn from_byte_vec(v: Vec<u8>) -> Self {
+        if v.len() > VALUE_LEN {
+            panic!("value is too long");
+        }
+        let mut value = TestValue { value: [0u8; VALUE_LEN] };
+        value.value[0..v.len()].copy_from_slice(&v);
+        value
     }
 }
 
@@ -102,25 +127,42 @@ fn main() {
 
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
+    let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
+
     fs::create_dir_all(&redis_output_dir).unwrap();
+    fs::create_dir_all(&rocksdb_output_dir).unwrap();
+
 
     for i in 1..ITERATIONS+1 {
-        {
-            let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
-            run_sequential_put(&mut redis_client, &redis_output_dir, i).unwrap();
-            run_sequential_get(&mut redis_client, &redis_output_dir, i).unwrap();
-            run_sequential_update(&mut redis_client, &redis_output_dir, i).unwrap();
-            run_sequential_delete(&mut redis_client, &redis_output_dir, i).unwrap();
-        }
-        
-        {
-            let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
-            run_rand_put(&mut redis_client, &redis_output_dir, i).unwrap();
-            run_rand_get(&mut redis_client, &redis_output_dir, i).unwrap();
-            run_rand_update(&mut redis_client, &redis_output_dir, i).unwrap();
-            run_rand_delete(&mut redis_client, &redis_output_dir, i).unwrap();
-        }
+        // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
     }
+}
+
+fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    {
+        let mut client = KV::init()?;
+        run_sequential_put(&mut client, &output_dir, i)?;
+        client.flush();
+        run_sequential_get(&mut client, &output_dir, i)?;
+        run_sequential_update(&mut client, &output_dir, i)?;
+        run_sequential_delete(&mut client, &output_dir, i)?;
+    }
+    KV::cleanup();
+
+    {
+        let mut client = KV::init()?;
+        run_rand_put(&mut client, &output_dir, i)?;
+        run_rand_get(&mut client, &output_dir, i)?;
+        run_rand_update(&mut client, &output_dir, i)?;
+        run_rand_delete(&mut client, &output_dir, i)?;
+    }
+    KV::cleanup();
+
+    Ok(())
 }
 
 fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File>
@@ -380,6 +422,37 @@ fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::
     Ok(())
 }
 
+pub fn init_and_mount_pm_fs() {
+    println!("Mounting PM FS...");
+
+    unmount_pm_fs();
+
+    // Set up PM with a fresh file system instance
+    let status = Command::new("sudo")
+        .args(["mkfs.ext4", PM_DEV, "-F"])
+        .status()
+        .expect("mkfs.ext4 failed");
+
+    let status = Command::new("sudo")
+        .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
+        .status()
+        .expect("mount failed");
+
+    let status = Command::new("sudo")
+        .args(["chmod", "777", MOUNT_POINT])
+        .status()
+        .expect("chmod failed");
+    println!("Mounted");
+}
+
+pub fn unmount_pm_fs() {
+    let status = Command::new("sudo")
+        .args(["umount", PM_DEV])
+        .status();
+    if let Err(e) = status {
+        println!("{:?}", e);
+    }
+}
 // fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
 // {
 //     #[cfg(target_os = "windows")]

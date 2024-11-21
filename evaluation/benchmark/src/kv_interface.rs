@@ -21,6 +21,16 @@ pub trait KvInterface<K, V> : Sized
     fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E>;
 
     fn delete(&mut self, key: &K) -> Result<(), Self::E>;
+
+    // RocksDB requires a cleanup function to run AFTER the RocksDB client
+    // has gone out of scope. This associated function should only be 
+    // implemented by the RocksDB client and should act like the Drop impl
+    // does for the other clients.
+    fn cleanup();
+
+    // Also only required for RocksDB to make updates visible for subsequent ops
+    // TODO @hayley -- is this necessary after EVERY put in rocksdb??
+    fn flush(&mut self);
 }
 
 pub trait Key {
@@ -31,4 +41,6 @@ pub trait Value {
     fn field_str(&self) -> &str;
 
     fn value_str(&self) -> &str;
+
+    fn from_byte_vec(v: Vec<u8>) -> Self;
 }
