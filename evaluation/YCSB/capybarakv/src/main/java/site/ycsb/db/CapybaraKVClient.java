@@ -68,6 +68,7 @@ public class CapybaraKVClient extends DB {
     Lock lock = new ReentrantLock();
     kvMap.put(id, kv);
     kvLockMap.put(id, lock);
+    System.out.println("Created shard with id " + id);
   }
 
   @Override
@@ -84,7 +85,13 @@ public class CapybaraKVClient extends DB {
     try {
       byte[] serializedValues = serializeValues(values);
       long id = getShardId(key);
-      CapybaraKV kv = kvMap.get(id);
+      CapybaraKV kv = null;
+      // Shard setup may race with operations, so keep trying to 
+      // access the KV we want until it exists.
+      // TODO: there should a timeout/maximum number of iterations
+      while (kv == null) {
+        kv = kvMap.get(id);
+      }
       Lock lock = kvLockMap.get(id);
       lock.lock();
       kv.insert(table, key, serializedValues);
@@ -103,7 +110,13 @@ public class CapybaraKVClient extends DB {
       Map<String, ByteIterator> values) {
     try {
       long id = getShardId(key);
-      CapybaraKV kv = kvMap.get(id);
+      CapybaraKV kv = null;
+      // Shard setup may race with operations, so keep trying to 
+      // access the KV we want until it exists.
+      // TODO: there should a timeout/maximum number of iterations
+      while (kv == null) {
+        kv = kvMap.get(id);
+      }
       Lock lock = kvLockMap.get(id);
 
       lock.lock();
@@ -137,7 +150,13 @@ public class CapybaraKVClient extends DB {
       Map<String, ByteIterator> result) {
     try {
       long id = getShardId(key);
-      CapybaraKV kv = kvMap.get(id);
+      CapybaraKV kv = null;
+      // Shard setup may race with operations, so keep trying to 
+      // access the KV we want until it exists.
+      // TODO: there should a timeout/maximum number of iterations
+      while (kv == null) {
+        kv = kvMap.get(id);
+      }
       Lock lock = kvLockMap.get(id);
       lock.lock();
       byte[] values = kv.read(table, key);
