@@ -85,14 +85,18 @@ fn build_rocksdb() {
 
     // println!("cargo:rustc-link-search=libpmemlog1");
     // println!("cargo:rustc-link-lib=static=pmemlog");
+    // Need to do some additional linking for pmem-rocksdb
     config.include("/usr/local/include");
     println!("cargo:rustc-link-search=/usr/local/lib/");
-    println!("cargo:rustc-link-search=-L/usr/local/lib64/");
+    println!("cargo:rustc-link-search=/usr/local/lib64/");
+    println!("cargo:rustc-link-search=/usr/lib/gcc/x86_64-linux-gnu/11");
     println!("cargo:rustc-link-lib=pmem");
     println!("cargo:rustc-link-lib=pmemobj");
 
     config.define("ROCKSDB_ON_DCPMM", Some("1"));
     config.define("ON_DCPMM", Some("1"));
+
+    config.cpp_link_stdlib("stdc++");
 
     config.include(".");
     config.define("NDEBUG", Some("1"));
@@ -343,13 +347,13 @@ fn main() {
         fail_on_empty_directory("rocksdb");
         build_rocksdb();
     } else {
-        let target = env::var("TARGET").unwrap();
-        // according to https://github.com/alexcrichton/cc-rs/blob/master/src/lib.rs#L2189
-        if target.contains("apple") || target.contains("freebsd") || target.contains("openbsd") {
-            println!("cargo:rustc-link-lib=dylib=c++");
-        } else if target.contains("linux") {
-            println!("cargo:rustc-link-lib=dylib=stdc++");
-        }
+        // let target = env::var("TARGET").unwrap();
+        // // according to https://github.com/alexcrichton/cc-rs/blob/master/src/lib.rs#L2189
+        // if target.contains("apple") || target.contains("freebsd") || target.contains("openbsd") {
+        //     println!("cargo:rustc-link-lib=dylib=c++");
+        // } else if target.contains("linux") {
+        //     println!("cargo:rustc-link-lib=dylib=stdc++");
+        // }
     }
     if cfg!(feature = "snappy") && !try_to_find_and_link_lib("SNAPPY") {
         println!("cargo:rerun-if-changed=snappy/");
