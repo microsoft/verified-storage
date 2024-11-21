@@ -23,14 +23,6 @@ pub struct RocksDbClient<K, V>
     _value_type: PhantomData<V>,
 }
 
-impl<K, V> RocksDbClient<K, V>
-    where 
-        K: PmCopy + Key,
-        V: PmCopy + Value,
-{
-
-}
-
 impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
     where 
         K: PmCopy + Key + AsRef<[u8]>,

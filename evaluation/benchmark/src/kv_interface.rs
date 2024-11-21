@@ -22,13 +22,12 @@ pub trait KvInterface<K, V> : Sized
 
     fn delete(&mut self, key: &K) -> Result<(), Self::E>;
 
-    // RocksDB requires a cleanup function to run AFTER the RocksDB client
-    // has gone out of scope. This associated function should only be 
-    // implemented by the RocksDB client and should act like the Drop impl
-    // does for the other clients.
+    // RocksDB and CapybaraKV use a cleanup function *after* the KV
+    // itself has been dropped. Redis can kill the server and clean up
+    // in its Drop impl, but the other two need to drop the KV first.
     fn cleanup();
 
-    // Also only required for RocksDB to make updates visible for subsequent ops
+    // Only required for RocksDB to make updates visible for subsequent ops
     // TODO @hayley -- is this necessary after EVERY put in rocksdb??
     fn flush(&mut self);
 }
