@@ -15,6 +15,8 @@ pub trait KvInterface<K, V> : Sized
     fn db_name() -> String;
 
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E>;
+
+    fn get(&mut self, key: &K) -> Result<V, Self::E>;
 }
 
 pub trait Key {

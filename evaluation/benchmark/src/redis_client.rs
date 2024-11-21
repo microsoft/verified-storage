@@ -1,4 +1,4 @@
-use redis::{Client, Connection, RedisResult, RedisError, Commands};
+use redis::{Client, Connection, RedisResult, RedisError, Commands, FromRedisValue};
 use crate::kv_interface::{KvInterface, Key, Value};
 use std::process::*;
 use std::thread::sleep;
@@ -42,7 +42,7 @@ impl<K, V> RedisClient<K, V>
 impl<K, V> KvInterface<K, V> for RedisClient<K, V>
     where
         K: PmCopy + Key,
-        V: PmCopy + Value,
+        V: PmCopy + Value + FromRedisValue,
 {
     type E = RedisError;
 
@@ -107,6 +107,13 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
         self.cxn.zadd(INDEX_KEY, key_str, Self::hash(key_str))?;
 
         Ok(())
+    }
+
+    fn get(&mut self, key: &K) -> Result<V, Self::E> {
+        let key_str = key.key_str();
+        let redis_value = self.cxn.hgetall::<&str, redis::Value>(key_str)?;
+        let result = V::from_redis_value(&redis_value);
+        result
     }
 }
 
