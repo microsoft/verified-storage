@@ -21,13 +21,15 @@ use std::process::Command;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 
+use crate::kv_interface::*;
 use crate::redis_client::*;
 use crate::rocksdb_client::*;
-use crate::kv_interface::*;
+use crate::capybarakv_client::*;
 
 pub mod kv_interface;
 pub mod redis_client;
 pub mod rocksdb_client;
+pub mod capybarakv_client;
 
 // length of key and value in byte
 const KEY_LEN: usize = 8;
@@ -37,12 +39,12 @@ const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
-const NUM_KEYS: u64 = 5000;
-const ITERATIONS: u64 = 5;
+const NUM_KEYS: u64 = 500000;
+const ITERATIONS: u64 = 10;
 
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Hash)]
+#[derive(PmCopy, Copy, Hash, Debug)]
 struct TestKey {
     key: [u8; KEY_LEN]
 }
@@ -90,6 +92,15 @@ impl Value for TestValue {
     }
 }
 
+// CapybaraKv requires a list element type parameter but 
+// currently doesn't use it; we still have to define one
+// because it has to be PmCopy (so we can't use () or something)
+#[repr(C)]
+#[derive(PmCopy, Copy, Debug)]
+pub struct PlaceholderListElem {
+    _val: u64,
+}
+
 impl FromRedisValue for TestValue {
     fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
         use redis::Value::*;
@@ -128,14 +139,17 @@ fn main() {
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
+    let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
     fs::create_dir_all(&rocksdb_output_dir).unwrap();
+    fs::create_dir_all(&capybara_output_dir).unwrap();
 
 
     for i in 1..ITERATIONS+1 {
         // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
     }
 }
 
@@ -453,41 +467,6 @@ pub fn unmount_pm_fs() {
         println!("{:?}", e);
     }
 }
-// fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
-// {
-//     #[cfg(target_os = "windows")]
-//     let pm_region = FileBackedPersistentMemoryRegion::restore(
-//         &file_name, 
-//         MemoryMappedFileMediaType::SSD,
-//         region_size,
-//     ).unwrap();
-//     #[cfg(target_os = "linux")]
-//     let pm_region = FileBackedPersistentMemoryRegion::restore(
-//         &file_name, 
-//         region_size
-//     ).unwrap();
-
-//     pm_region
-// }
-
-
-// fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
-// {
-//     #[cfg(target_os = "windows")]
-//     let pm_region = FileBackedPersistentMemoryRegion::new(
-//         &file_name, MemoryMappedFileMediaType::SSD,
-//         region_size,
-//         FileCloseBehavior::TestingSoDeleteOnClose
-//     ).unwrap();
-//     #[cfg(target_os = "linux")]
-//     let pm_region = FileBackedPersistentMemoryRegion::new(
-//         &file_name,
-//         region_size,
-//         PersistentMemoryCheck::DontCheckForPersistentMemory,
-//     ).unwrap();
-
-//     pm_region
-// }
 
 
 fn remove_file(name: &str) {
