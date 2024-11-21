@@ -9,6 +9,8 @@ use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
 
+use redis::{FromRedisValue, RedisResult};
+
 use std::fs;
 use std::env;
 use std::time::Instant;
@@ -48,7 +50,7 @@ impl Key for TestKey {
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Hash)]
+#[derive(PmCopy, Copy, Hash, Debug)]
 struct TestValue {
     value: [u8; VALUE_LEN]
 }
@@ -61,6 +63,33 @@ impl Value for TestValue {
     fn value_str(&self) -> &str {
         std::str::from_utf8(&self.value).unwrap()
     }
+}
+
+impl FromRedisValue for TestValue {
+    fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
+        use redis::Value::*;
+
+        // TODO: better error handling for unexpected value types
+        let mut out_value = Self { value: [0u8; VALUE_LEN] };
+        if let Array(array) = v {
+            if array.len() > 2 {
+                panic!("Invalid value structure");
+            }
+            // NOTE: The structure of the values here is hardcoded
+            // if you change it, this will also have to change!
+            let value = &array[1];
+            if let BulkString(s) = value {
+                if s.len() > VALUE_LEN {
+                    panic!("Value too long");
+                }
+                out_value.value[..s.len()].copy_from_slice(s);
+            } else {
+                panic!("Invalid redis value");
+            }
+        }
+        Ok(out_value)
+    }
+    
 }
 
 fn main() {
@@ -78,11 +107,13 @@ fn main() {
     {
         let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
         run_sequential_put(&mut redis_client, &redis_output_dir).unwrap();
+        run_sequential_get(&mut redis_client, &redis_output_dir).unwrap();
     }
     
     {
         let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
         run_rand_put(&mut redis_client, &redis_output_dir).unwrap();
+        run_rand_get(&mut redis_client, &redis_output_dir).unwrap();
     }
     
 }
@@ -134,11 +165,36 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     Ok(())
 }
 
+fn run_sequential_get<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>
+{
+    let output_file = output_dir.to_owned() + "/" + "sequential_get";
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    println!("SEQUENTIAL GET");
+    let value = TestValue { value: [0u8; VALUE_LEN] };
+    for i in 0..NUM_KEYS {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.get(&key) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("SEQUENTIAL GET DONE");
+
+    Ok(())
+}
+
 fn run_rand_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
-    let output_file = output_dir.to_owned() + "/" + "rand_put";
+    let output_file = output_dir.to_owned() + "/" + "rand_get";
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     let value = TestValue { value: [0u8; VALUE_LEN] };
@@ -160,6 +216,36 @@ fn run_rand_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     }
     out_stream.flush().unwrap();
     println!("RAND PUT DONE");
+
+    Ok(())
+}
+
+fn run_rand_get<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>
+{
+    let output_file = output_dir.to_owned() + "/" + "sequential_get";
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    let value = TestValue { value: [0u8; VALUE_LEN] };
+
+    // randomize key order
+    let mut key_vec = Vec::from_iter(0..NUM_KEYS);
+    key_vec.shuffle(&mut thread_rng());
+
+    println!("RAND GET");
+    for i in 0..NUM_KEYS {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.get(&key) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("RAND GET DONE");
 
     Ok(())
 }
