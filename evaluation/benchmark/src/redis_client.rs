@@ -115,6 +115,23 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
         let result = V::from_redis_value(&redis_value);
         result
     }
+
+    fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
+        let key_str = key.key_str();
+        let field_str = value.field_str();
+        let value_str = value.value_str();
+        self.cxn.hset(key_str, field_str, value_str)?;
+
+        Ok(())
+    }
+
+    fn delete(&mut self, key: &K) -> Result<(), Self::E> {
+        let key_str = key.key_str();
+        self.cxn.del(&key_str)?;
+        self.cxn.zrem(INDEX_KEY, &key_str)?;
+
+        Ok(())
+    }
 }
 
 impl<K, V> Drop for RedisClient<K, V> 

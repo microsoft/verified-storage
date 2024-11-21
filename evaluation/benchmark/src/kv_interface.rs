@@ -17,6 +17,10 @@ pub trait KvInterface<K, V> : Sized
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E>;
 
     fn get(&mut self, key: &K) -> Result<V, Self::E>;
+
+    fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E>;
+
+    fn delete(&mut self, key: &K) -> Result<(), Self::E>;
 }
 
 pub trait Key {

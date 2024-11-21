@@ -34,7 +34,7 @@ const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 5000;
-// const ITERATIONS: u64 = 100;
+const ITERATIONS: u64 = 10;
 
 
 #[repr(C)]
@@ -104,18 +104,23 @@ fn main() {
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     fs::create_dir_all(&redis_output_dir).unwrap();
 
-    {
-        let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
-        run_sequential_put(&mut redis_client, &redis_output_dir).unwrap();
-        run_sequential_get(&mut redis_client, &redis_output_dir).unwrap();
+    for i in 1..ITERATIONS+1 {
+        {
+            let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
+            run_sequential_put(&mut redis_client, &redis_output_dir, i).unwrap();
+            run_sequential_get(&mut redis_client, &redis_output_dir, i).unwrap();
+            run_sequential_update(&mut redis_client, &redis_output_dir, i).unwrap();
+            run_sequential_delete(&mut redis_client, &redis_output_dir, i).unwrap();
+        }
+        
+        {
+            let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
+            run_rand_put(&mut redis_client, &redis_output_dir, i).unwrap();
+            run_rand_get(&mut redis_client, &redis_output_dir, i).unwrap();
+            run_rand_update(&mut redis_client, &redis_output_dir, i).unwrap();
+            run_rand_delete(&mut redis_client, &redis_output_dir, i).unwrap();
+        }
     }
-    
-    {
-        let mut redis_client = RedisClient::<TestKey, TestValue>::init().unwrap();
-        run_rand_put(&mut redis_client, &redis_output_dir).unwrap();
-        run_rand_get(&mut redis_client, &redis_output_dir).unwrap();
-    }
-    
 }
 
 fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File>
@@ -140,11 +145,13 @@ fn u64_to_test_key(i: u64) -> TestKey {
 
 // TODO: actually take generics key and value here?
 // TODO: more useful error code
-fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
-    let output_file = output_dir.to_owned() + "/" + "sequential_put";
+    let exp_output_dir = output_dir.to_owned() + "/sequential_put/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("SEQUENTIAL PUT");
@@ -165,15 +172,16 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     Ok(())
 }
 
-fn run_sequential_get<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+fn run_sequential_get<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>
 {
-    let output_file = output_dir.to_owned() + "/" + "sequential_get";
+    let exp_output_dir = output_dir.to_owned() + "/sequential_get/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("SEQUENTIAL GET");
-    let value = TestValue { value: [0u8; VALUE_LEN] };
     for i in 0..NUM_KEYS {
         let key = u64_to_test_key(i);
 
@@ -190,11 +198,67 @@ fn run_sequential_get<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     Ok(())
 }
 
-fn run_rand_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+fn run_sequential_update<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>
+{
+    let exp_output_dir = output_dir.to_owned() + "/sequential_update/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    println!("SEQUENTIAL UPDATE");
+    let value = TestValue { value: [1u8; VALUE_LEN] };
+    
+    for i in 0..NUM_KEYS {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.update(&key, &value) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("SEQUENTIAL UPDATE DONE");
+
+    Ok(())
+}
+
+fn run_sequential_delete<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>
+{
+    let exp_output_dir = output_dir.to_owned() + "/sequential_delete/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    println!("SEQUENTIAL DELETE");
+    for i in 0..NUM_KEYS {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.delete(&key) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("SEQUENTIAL DELETE DONE");
+
+    Ok(())
+}
+
+fn run_rand_put<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
-    let output_file = output_dir.to_owned() + "/" + "rand_get";
+    let exp_output_dir = output_dir.to_owned() + "/rand_put/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     let value = TestValue { value: [0u8; VALUE_LEN] };
@@ -220,11 +284,13 @@ fn run_rand_put<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     Ok(())
 }
 
-fn run_rand_get<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
+fn run_rand_get<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>
 {
-    let output_file = output_dir.to_owned() + "/" + "sequential_get";
+    let exp_output_dir = output_dir.to_owned() + "/rand_get/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     let value = TestValue { value: [0u8; VALUE_LEN] };
@@ -246,6 +312,70 @@ fn run_rand_get<KV>(kv: &mut KV, output_dir: &str) -> Result<(), KV::E>
     }
     out_stream.flush().unwrap();
     println!("RAND GET DONE");
+
+    Ok(())
+}
+
+fn run_rand_update<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    let exp_output_dir = output_dir.to_owned() + "/rand_update/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    let value = TestValue { value: [1u8; VALUE_LEN] };
+
+    // randomize key order
+    let mut key_vec = Vec::from_iter(0..NUM_KEYS);
+    key_vec.shuffle(&mut thread_rng());
+
+    println!("RAND UPDATE");
+    for i in key_vec {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.update(&key, &value) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("RAND UPDATE DONE");
+
+    Ok(())
+}
+
+fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    let exp_output_dir = output_dir.to_owned() + "/rand_delete/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    let value = TestValue { value: [1u8; VALUE_LEN] };
+
+    // randomize key order
+    let mut key_vec = Vec::from_iter(0..NUM_KEYS);
+    key_vec.shuffle(&mut thread_rng());
+
+    println!("RAND DELETE");
+    for i in key_vec {
+        let key = u64_to_test_key(i);
+
+        let t0 = Instant::now();
+        if let Err(e) = kv.delete(&key) {
+            return Err(e);
+        }
+        let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+    }
+    out_stream.flush().unwrap();
+    println!("RAND DELETE DONE");
 
     Ok(())
 }
