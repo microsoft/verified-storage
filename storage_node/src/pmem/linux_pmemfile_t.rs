@@ -213,9 +213,7 @@ impl FileBackedPersistentMemoryRegion
             0 <= addr <= addr + len <= self@.len()
         ensures 
             match result {
-                Ok(slice) => if self.constants().impervious_to_corruption() {
-                    slice@ == self@.read_state.subrange(addr as int, addr + len)
-                } else {
+                Ok(slice) => {
                     let addrs = Seq::new(len as nat, |i: int| addr + i);
                     self.constants().maybe_corrupted(slice@, self@.read_state.subrange(addr as int, addr + len), addrs)
                 }

@@ -85,14 +85,19 @@ verus! {
 
         proof {
             let true_crc_bytes = spec_crc_bytes(true_bytes);
+            let data_addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + data_addr);
+            let true_crc_bytes = spec_crc_bytes(true_bytes);
+            let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
+
+            if pmc.impervious_to_corruption() {
+                pmc.maybe_corrupted_zero(data_c@, true_bytes);
+                pmc.maybe_corrupted_zero(crc_c@, true_crc_bytes);
+            }
 
             if {
                 &&& !pmc.impervious_to_corruption()
                 &&& crcs_match
             } {
-                let data_addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + data_addr);
-                let true_crc_bytes = spec_crc_bytes(true_bytes);
-                let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
                 pmc.maybe_corrupted_crc(data_c@, true_bytes, data_addrs, crc_c@, true_crc_bytes, crc_addrs);
             }
         }
@@ -155,16 +160,26 @@ verus! {
         let crcs_match = compare_crcs(crc_c, computed_crc);
 
         proof {
+            let data_c = data1_c@ + data2_c@;
+            let true_data = true_bytes1 + true_bytes2;
+            let true_crc_bytes = spec_crc_bytes(true_data);
+            let data_addrs1 = Seq::<int>::new(data1_c@.len(), |i: int| i + data_addr1);
+            let data_addrs2 = Seq::<int>::new(data2_c@.len(), |i: int| i + data_addr2);
+            let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
+
+            if pmc.impervious_to_corruption() {
+                pmc.maybe_corrupted_zero_addrs(data_c, true_data, data_addrs1 + data_addrs2);
+                pmc.maybe_corrupted_zero(crc_c@, true_crc_bytes);
+                assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
+                assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
+                assert(data1_c@ == true_bytes1);
+                assert(data2_c@ == true_bytes2);
+            }
+
             if {
                 &&& !pmc.impervious_to_corruption()
                 &&& crcs_match
             } {
-                let data_c = data1_c@ + data2_c@;
-                let true_data = true_bytes1 + true_bytes2;
-                let true_crc_bytes = spec_crc_bytes(true_data);
-                let data_addrs1 = Seq::<int>::new(data1_c@.len(), |i: int| i + data_addr1);
-                let data_addrs2 = Seq::<int>::new(data2_c@.len(), |i: int| i + data_addr2);
-                let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
                 pmc.maybe_corrupted_crc(data_c, true_data, data_addrs1 + data_addrs2,
                                         crc_c@, true_crc_bytes, crc_addrs);
                 assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
@@ -267,18 +282,28 @@ verus! {
                                                               relative_data_addr2 + data2_c@.len());
             let true_crc_bytes = spec_crc_bytes(true_data_bytes1 + true_data_bytes2);
 
+            let data_c = data1_c@ + data2_c@;
+            let true_data = true_data_bytes1 + true_data_bytes2;
+            let absolute_data_addrs1 = Seq::new(data1_c@.len(),
+                                                |i: int| i + relative_data_addr1 + subregion.start());
+            let absolute_data_addrs2 = Seq::new(data2_c@.len(),
+                                                |i: int| i + relative_data_addr2 + subregion.start());
+            let absolute_crc_addrs = Seq::new(u64::spec_size_of(),
+                                              |i: int| i + relative_crc_addr + subregion.start());
+
+            if pm_region.constants().impervious_to_corruption() {
+                pm_region.constants().maybe_corrupted_zero_addrs(data_c, true_data, absolute_data_addrs1 + absolute_data_addrs2);
+                pm_region.constants().maybe_corrupted_zero(crc_c@, true_crc_bytes);
+                assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
+                assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
+                assert(data1_c@ == true_data_bytes1);
+                assert(data2_c@ == true_data_bytes2);
+            }
+
             if {
                 &&& !pm_region.constants().impervious_to_corruption()
                 &&& crcs_match
             } {
-                let data_c = data1_c@ + data2_c@;
-                let true_data = true_data_bytes1 + true_data_bytes2;
-                let absolute_data_addrs1 = Seq::new(data1_c@.len(),
-                                                    |i: int| i + relative_data_addr1 + subregion.start());
-                let absolute_data_addrs2 = Seq::new(data2_c@.len(),
-                                                    |i: int| i + relative_data_addr2 + subregion.start());
-                let absolute_crc_addrs = Seq::new(u64::spec_size_of(),
-                                                  |i: int| i + relative_crc_addr + subregion.start());
                 pm_region.constants().maybe_corrupted_crc(data_c, true_data, absolute_data_addrs1 + absolute_data_addrs2,
                                                           crc_c@, true_crc_bytes, absolute_crc_addrs);
                 assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
@@ -350,6 +375,9 @@ verus! {
             // We may need to invoke the lemma `maybe_corrupted_cdb` to justify
             // concluding that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't
             // have been corrupted.
+            if pmc.impervious_to_corruption() {
+                pmc.maybe_corrupted_zero(cdb_c@, true_cdb_bytes);
+            }
             if !pmc.impervious_to_corruption() && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
                 pmc.maybe_corrupted_cdb(cdb_c@, true_cdb_bytes, cdb_addrs);
             }  
@@ -397,8 +425,7 @@ verus! {
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 &&& u64::bytes_parseable(true_cdb_bytes)
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
-                &&& if pmc.impervious_to_corruption() { cdb_c@ == true_cdb_bytes }
-                        else { subregion.maybe_corrupted_relative(cdb_c@, true_cdb_bytes, relative_cdb_addrs, pmc) }
+                &&& subregion.maybe_corrupted_relative(cdb_c@, true_cdb_bytes, relative_cdb_addrs, pmc)
             })
         ensures
             ({
@@ -417,6 +444,9 @@ verus! {
             // We may need to invoke the lemma `maybe_corrupted_cdb` to justify
             // concluding that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't
             // have been corrupted.
+            if pmc.impervious_to_corruption() {
+                pmc.maybe_corrupted_zero(cdb_c@, true_cdb_bytes);
+            }
             if !pmc.impervious_to_corruption() && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
                 pmc.maybe_corrupted_cdb(cdb_c@, true_cdb_bytes, absolute_cdb_addrs);
             }  

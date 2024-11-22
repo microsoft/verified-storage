@@ -1224,6 +1224,8 @@ verus! {
             let true_log_bytes = log@.read(head as int, len as int);
             let true_crc_bytes = spec_crc_bytes(true_log_bytes);
             if pm_region.constants().impervious_to_corruption() {
+                pm_region.constants().maybe_corrupted_zero_addrs(log_bytes@, true_log_bytes, log_addrs);
+                pm_region.constants().maybe_corrupted_zero_addrs(crc_bytes@, true_crc_bytes, crc_addrs);
                 assert(log_bytes@ == true_log_bytes);
                 assert(crc_bytes@ == true_crc_bytes);
             } else if crcs_match {

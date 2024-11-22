@@ -266,11 +266,7 @@ verus! {
             Ghost(pmc): Ghost<PersistentMemoryConstants>
         )
             requires 
-                if pmc.impervious_to_corruption() {
-                    bytes@ == true_val.spec_to_bytes()
-                } else {
-                    pmc.maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
-                },
+                pmc.maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs),
                 bytes@.len() == S::spec_size_of(),
             ensures 
                 self@ == bytes@
@@ -356,11 +352,7 @@ verus! {
             Ghost(pmc): Ghost<PersistentMemoryConstants>
         ) -> (out: Box<u64>)
             requires 
-                if pmc.impervious_to_corruption() {
-                    self@ == true_bytes
-                } else {
-                    pmc.maybe_corrupted(self@, true_bytes, addrs)
-                },
+                pmc.maybe_corrupted(self@, true_bytes, addrs),
                 ({
                     let true_val = u64::spec_from_bytes(true_bytes);
                     ||| true_val == CDB_TRUE

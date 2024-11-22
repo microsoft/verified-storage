@@ -283,6 +283,11 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     // wasn't corrupted.
     if let Ok(bytes) = log.read(1, 2) {
         runtime_assert(bytes.len() == 2);
+        proof {
+            if log.constants().impervious_to_corruption() {
+                log.constants().maybe_corrupted_zero(bytes@, log@.read(1, 2));
+            }
+        }
         assert(log.constants().impervious_to_corruption() ==> bytes[0] == 42);
     }
 
@@ -303,6 +308,11 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     // If we read from position 2 of the log, we get the same thing we
     // would have gotten before the advance-head operation.
     if let Ok(bytes) = log.read(2, 1) {
+        proof {
+            if log.constants().impervious_to_corruption() {
+                log.constants().maybe_corrupted_zero(bytes@, log@.read(2, 1));
+            }
+        }
         assert(log.constants().impervious_to_corruption() ==> bytes[0] == 100);
     }
 

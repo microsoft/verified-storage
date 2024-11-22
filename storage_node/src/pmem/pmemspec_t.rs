@@ -109,14 +109,9 @@ verus! {
         pmc: PersistentMemoryConstants
     ) -> bool
     {
+        let addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + addr);
         pmc.valid() &&
-        if pmc.impervious_to_corruption() {
-            read_bytes == true_bytes
-        }
-        else {
-            let addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + addr);
-            pmc.maybe_corrupted(read_bytes, true_bytes, addrs)
-        }
+        pmc.maybe_corrupted(read_bytes, true_bytes, addrs)
     }
 
     pub open spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8> {
@@ -330,10 +325,10 @@ verus! {
             &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> self.maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
         }
 
-        pub proof fn maybe_corrupted_zero(self, bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>)
+        pub proof fn maybe_corrupted_zero_addrs(self, bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>)
             requires
                 self.maybe_corrupted(bytes, true_bytes, addrs),
-                popcnt(self.corruption) == 0,
+                self.impervious_to_corruption(),
             ensures
                 bytes =~= true_bytes
         {
@@ -344,6 +339,17 @@ verus! {
                     byte_and_zero(mask);
                 };
                 xor_byte_zero(true_bytes[i]);
+            };
+        }
+        pub proof fn maybe_corrupted_zero(self, bytes: Seq<u8>, true_bytes: Seq<u8>)
+            requires
+                exists |addrs: Seq<int>| #[trigger] self.maybe_corrupted(bytes, true_bytes, addrs),
+                self.impervious_to_corruption(),
+            ensures
+                bytes =~= true_bytes
+        {
+            assert forall |addrs: Seq<int>| #[trigger] self.maybe_corrupted(bytes, true_bytes, addrs) implies bytes =~= true_bytes by {
+                self.maybe_corrupted_zero_addrs(bytes, true_bytes, addrs);
             };
         }
 

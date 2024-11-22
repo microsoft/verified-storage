@@ -58,25 +58,17 @@ verus! {
     pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
                                                     pmc: PersistentMemoryConstants) -> bool
     {
-        if pmc.impervious_to_corruption() {
-            // If the region is impervious to corruption, the bytes read
-            // must match the true bytes, i.e., the bytes last written.
+        // There must exist a sequence of distinct
+        // addresses `addrs` such that the nth byte of `bytes` is
+        // a possibly corrupted version of the nth byte of
+        // `true_bytes` read from the nth address in `addrs`.  We
+        // don't require the sequence of addresses to be
+        // contiguous because the data might not be contiguous on
+        // disk (e.g., if it wrapped around the log area).
 
-            bytes == true_bytes
-        }
-        else {
-            // Otherwise, there must exist a sequence of distinct
-            // addresses `addrs` such that the nth byte of `bytes` is
-            // a possibly corrupted version of the nth byte of
-            // `true_bytes` read from the nth address in `addrs`.  We
-            // don't require the sequence of addresses to be
-            // contiguous because the data might not be contiguous on
-            // disk (e.g., if it wrapped around the log area).
-
-            exists |addrs: Seq<int>| {
-                &&& addrs.no_duplicates()
-                &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
-            }
+        exists |addrs: Seq<int>| {
+            &&& addrs.no_duplicates()
+            &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
         }
     }
 
