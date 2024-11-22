@@ -186,13 +186,13 @@ def run_experiment(configs, db, output_dir_paths, workloads):
             else:
                 setup_pm(configs)
 
-                with open(loade_output_path, "w") as f:
-                    subprocess.run(
-                        ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloade"] + options, 
-                        cwd="YCSB/",
-                        stdout=f,
-                        # stderr=f,
-                        check=True)
+            with open(loade_output_path, "w") as f:
+                subprocess.run(
+                    ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloade"] + options, 
+                    cwd="YCSB/",
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
             if "F" in workloads:
                 with open(runf_output_path, "w") as f:
                     subprocess.run(
