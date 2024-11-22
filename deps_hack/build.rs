@@ -7,8 +7,6 @@ use std::path::PathBuf;
 #[cfg(target_os = "linux")]
 fn setup_linux()
 {
-    println!("cargo:rustc-link-search=libpmemlog1");
-    println!("cargo:rustc-link-lib=pmemlog");
     println!("cargo:rustc-link-lib=pmem");
 
     let bindings = bindgen::Builder::default()
