@@ -16,8 +16,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.HashMap;
 import java.util.Map;
@@ -44,7 +43,7 @@ public class CapybaraKVClient extends DB {
   // the incoming YCSB-created threads, so let's try a slightly simpler approach first.
   // TODO: should these be volatile? final?
   private static volatile ConcurrentMap<Long, CapybaraKV> kvMap = new ConcurrentHashMap<>();
-  private static volatile ConcurrentMap<Long, Lock> kvLockMap = new ConcurrentHashMap<>();
+  private static volatile ConcurrentMap<Long, ReentrantReadWriteLock> kvLockMap = new ConcurrentHashMap<>();
 
   private static AtomicInteger counter = new AtomicInteger(0);
 
@@ -74,7 +73,7 @@ public class CapybaraKVClient extends DB {
   private void initCapybaraKV() throws DBException {
     long id = Long.valueOf(counter.getAndAdd(1));
     CapybaraKV kv = new CapybaraKV(capybarakvConfigFile, experimentConfigFile, id);
-    Lock lock = new ReentrantLock();
+    ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     kvMap.put(id, kv);
     kvLockMap.put(id, lock);
     System.out.println("Created shard with id " + id);
@@ -101,11 +100,11 @@ public class CapybaraKVClient extends DB {
       while (kv == null) {
         kv = kvMap.get(id);
       }
-      Lock lock = kvLockMap.get(id);
-      lock.lock();
+      ReentrantReadWriteLock lock = kvLockMap.get(id);
+      lock.writeLock().lock();
       kv.insert(table, key, serializedValues);
       kv.commit();
-      lock.unlock();
+      lock.writeLock().unlock();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -126,9 +125,9 @@ public class CapybaraKVClient extends DB {
       while (kv == null) {
         kv = kvMap.get(id);
       }
-      Lock lock = kvLockMap.get(id);
+      ReentrantReadWriteLock lock = kvLockMap.get(id);
 
-      lock.lock();
+      lock.writeLock().lock();
       // read the current value at this key
       byte[] currentValue = kv.read(table, key);
       final Map<String, ByteIterator> result = new HashMap<>();
@@ -139,7 +138,7 @@ public class CapybaraKVClient extends DB {
       byte[] updateBytes = serializeValues(result);
       kv.update(table, key, updateBytes);
       kv.commit();
-      lock.unlock();
+      lock.writeLock().unlock();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -166,11 +165,11 @@ public class CapybaraKVClient extends DB {
       while (kv == null) {
         kv = kvMap.get(id);
       }
-      Lock lock = kvLockMap.get(id);
-      lock.lock();
+      ReentrantReadWriteLock lock = kvLockMap.get(id);
+      lock.readLock().lock();
       byte[] values = kv.read(table, key);
       deserializeValues(values, fields, result);
-      lock.unlock();
+      lock.readLock().unlock();
       return Status.OK;
     } catch(CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -185,10 +184,10 @@ public class CapybaraKVClient extends DB {
         System.out.println("Cleaning up");
         for (long id = 0; id < counter.get(); id++) {
           CapybaraKV kv = kvMap.get(id);
-          Lock lock = kvLockMap.get(id);
-          lock.lock();
+          ReentrantReadWriteLock lock = kvLockMap.get(id);
+          lock.writeLock().lock();
           kv.cleanup();
-          lock.unlock();
+          lock.writeLock().unlock();
         }
         kvMap = null;
         kvLockMap = null;
