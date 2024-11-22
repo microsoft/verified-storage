@@ -30,13 +30,26 @@ def main():
         print("Unknown db", db)
         return -1
 
-    run_experiment(configs, db, output_dir_paths)
+    print("Running workloads", args.workloads)
+
+    run_experiment(configs, db, output_dir_paths, args.workloads)
+
+def list_of_strings(arg):
+    return [s.upper() for s in arg.split(',')]
 
 def arg_parser():
     # Most arguments are obtained from the config file, not command line.
-    # Caller only needs to provide the DB to run experiments on
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=str, help="select database to run workloads on", required=True)
+    parser.add_argument("--workloads", 
+        type=list_of_strings, 
+        help="select workloads to run as a comma separated list. \
+            Options are A, B, C, D, E, F, and X. The script will \
+            automatically run required load operations for the \
+            selected workloads. All workloads are run if this \
+            argument is not provided.", 
+        required=False,
+        default=["A", "B", "C", "D", "E", "F", "X"])
 
     return parser
 
@@ -80,14 +93,33 @@ def create_output_dirs(configs, db):
         Path(results_dir, db, "Runb"),
         Path(results_dir, db, "Runc"),
         Path(results_dir, db, "Loade"),
-        Path(results_dir, db, "Runf")
+        Path(results_dir, db, "Runf"),
+        Path(results_dir, db, "Loadx"),
+        Path(results_dir, db, "Runx")
     ]
 
     for path in paths:
         os.makedirs(path, mode, exist_ok=True)
     return paths
+
+def run_load_a_check(workloads):
+    for w in ["A", "B", "C", "D"]:
+        if w in workloads:
+            return True 
+    return False
+
+def run_load_e_check(workloads):
+    for w in ["E", "F"]:
+        if w in workloads:
+            return True 
+    return False
+
+def run_load_x_check(workloads):
+    if "X" in workloads:
+        return True 
+    return False
     
-def run_experiment(configs, db, output_dir_paths):
+def run_experiment(configs, db, output_dir_paths, workloads):
     iterations = configs["iterations"]
     p = None
 
@@ -100,67 +132,102 @@ def run_experiment(configs, db, output_dir_paths):
         runc_output_path = os.path.join(output_dir_paths[3], "Run" + str(i))
         loade_output_path = os.path.join(output_dir_paths[4], "Run" + str(i))
         runf_output_path = os.path.join(output_dir_paths[5], "Run" + str(i))
+        loadx_output_path = os.path.join(output_dir_paths[6], "Run" + str(i))
+        runx_output_path = os.path.join(output_dir_paths[7], "Run" + str(i))
 
-        setup_pm(configs)
-        if db == "capybarakv":
-            setup_capybarakv(configs)
-        if db == "redis":
-            p = setup_redis(configs)
-
-        with open(loada_output_path, "w") as f:
-            subprocess.run(
-                ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloada"] + options, 
-                cwd="YCSB/",
-                stdout=f,
-                # stderr=f,
-                check=True)
-        with open(runa_output_path, "w") as f:
-            subprocess.run(
-                ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloada"] + options, 
-                cwd="YCSB/",
-                stdout=f,
-                # stderr=f,
-                check=True)
-        with open(runb_output_path, "w") as f:
-            subprocess.run(
-                ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadb"] + options, 
-                cwd="YCSB/",
-                stdout=f,
-                # stderr=f,
-                check=True)
-        with open(runc_output_path, "w") as f:
-            subprocess.run(
-                ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadc"] + options, 
-                cwd="YCSB/",
-                stdout=f,
-                # stderr=f,
-                check=True)
-
-        if db == "capybarakv":
+        if run_load_a_check(workloads):
             setup_pm(configs)
-            setup_capybarakv(configs)
-        elif db == "redis":
-            cleanup(configs, db, redis_process=p)
-            setup_pm(configs)
-            p = setup_redis(configs)
-        else:
-            setup_pm(configs)
+            if db == "capybarakv":
+                setup_capybarakv(configs)
+            if db == "redis":
+                p = setup_redis(configs)
+        
+            with open(loada_output_path, "w") as f:
+                subprocess.run(
+                    ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloada"] + options, 
+                    cwd="YCSB/",
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
 
-        with open(loade_output_path, "w") as f:
-            subprocess.run(
-                ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloade"] + options, 
-                cwd="YCSB/",
-                stdout=f,
-                # stderr=f,
-                check=True)
-        with open(runf_output_path, "w") as f:
-            subprocess.run(
-                ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadf"] + options, 
-                cwd="YCSB/",
-                stdout=f,
-                # stderr=f,
-                check=True)
-            
+            if "A" in workloads:
+                with open(runa_output_path, "w") as f:
+                    subprocess.run(
+                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloada"] + options, 
+                        cwd="YCSB/",
+                        stdout=f,
+                        # stderr=f,
+                        check=True)
+            if "B" in workloads:
+                with open(runb_output_path, "w") as f:
+                    subprocess.run(
+                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadb"] + options, 
+                        cwd="YCSB/",
+                        stdout=f,
+                        # stderr=f,
+                        check=True)
+            if "C" in workloads:
+                with open(runc_output_path, "w") as f:
+                    subprocess.run(
+                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadc"] + options, 
+                        cwd="YCSB/",
+                        stdout=f,
+                        # stderr=f,
+                        check=True)
+
+        if run_load_e_check(workloads):
+            if db == "capybarakv":
+                setup_pm(configs)
+                setup_capybarakv(configs)
+            elif db == "redis":
+                cleanup(configs, db, redis_process=p)
+                setup_pm(configs)
+                p = setup_redis(configs)
+            else:
+                setup_pm(configs)
+
+                with open(loade_output_path, "w") as f:
+                    subprocess.run(
+                        ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloade"] + options, 
+                        cwd="YCSB/",
+                        stdout=f,
+                        # stderr=f,
+                        check=True)
+            if "F" in workloads:
+                with open(runf_output_path, "w") as f:
+                    subprocess.run(
+                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadf"] + options, 
+                        cwd="YCSB/",
+                        stdout=f,
+                        # stderr=f,
+                        check=True)
+
+        if run_load_x_check(workloads):
+            if db == "capybarakv":
+                setup_pm(configs)
+                setup_capybarakv(configs)
+            elif db == "redis":
+                cleanup(configs, db, redis_process=p)
+                setup_pm(configs)
+                p = setup_redis(configs)
+            else:
+                setup_pm(configs)
+
+            with open(loadx_output_path, "w") as f:
+                subprocess.run(
+                    ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloadx"] + options, 
+                    cwd="YCSB/",
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
+            with open(runx_output_path, "w") as f:
+                subprocess.run(
+                    ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadx"] + options, 
+                    cwd="YCSB/",
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
+                
         if db == "redis":
             cleanup(configs, db, redis_process=p)
 

@@ -213,9 +213,15 @@ public class CapybaraKVClient extends DB {
       final String key = new String(values, offset, keyLen);
       offset += keyLen;
 
+      // Stop when there are no more keys to deserialize
+      if (keyLen == 0) {
+        break;
+      }
+
       buf.put(values, offset, 4);
       buf.flip();
       final int valueLen = buf.getInt();
+      
       buf.clear();
       offset += 4;
 
