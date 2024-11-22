@@ -36,9 +36,11 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         let mut options = Options::default();
         options.set_allow_mmap_reads(true);
         options.set_allow_mmap_writes(true);
+        options.create_if_missing(true);
+        options.set_env(&rocksdb::Env::default_dcpmm()?);
         // TODO: this one must only be supported by pmem-rocksdb?
         // options.cache_index_and_filter_blocks_for_mmap_read(true);
-        let db = DB::open_default(crate::MOUNT_POINT)?;
+        let db = DB::open(&options, crate::MOUNT_POINT)?;
         Ok(Self { 
             db,
             options,

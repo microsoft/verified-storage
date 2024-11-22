@@ -3590,6 +3590,13 @@ rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(
   return writer;
 }
 
+rocksdb_env_t* rocksdb_create_default_dcpmm_env() {
+  rocksdb_env_t* result = new rocksdb_env_t;
+  result->rep = rocksdb::NewDCPMMEnv(rocksdb::DCPMMEnvOptions());
+  result->is_default = true;
+  return result;
+}
+
 void rocksdb_sstfilewriter_open(rocksdb_sstfilewriter_t* writer,
                                 const char* name, char** errptr) {
   SaveError(errptr, writer->rep->Open(std::string(name)));

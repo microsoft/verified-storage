@@ -1440,6 +1440,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create();
 extern ROCKSDB_LIBRARY_API void rocksdb_envoptions_destroy(
     rocksdb_envoptions_t* opt);
 
+extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_default_dcpmm_env();
+
 /* SstFile */
 
 extern ROCKSDB_LIBRARY_API rocksdb_sstfilewriter_t*
