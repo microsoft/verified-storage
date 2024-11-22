@@ -182,6 +182,7 @@ def build_options(configs, db):
 
     if db == "capybarakv":
         options += ["-p", "capybarakv.configfile=../capybarakv_config.toml"]
+        options += ["-p", "experiment.configfile=../experiment_config.toml"]
     elif db == "redis":
         options += ["-p", "redis.host=127.0.0.1"]
         options += ["-p", "redis.port=6379"]
