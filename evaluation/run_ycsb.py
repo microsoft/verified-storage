@@ -190,7 +190,7 @@ def build_options(configs, db):
         options += ["-p", "rocksdb.dir=" + mount_point]
         options += ["-p", "rocksdb.allow_mmap_reads=true"]
         options += ["-p", "rocksdb.allow_mmap_writes=true"]
-        options += ["-p", "options.cache_index_and_filter_blocks_for_mmap_read=true"]
+        options += ["-p", "options.env = rocksdb::NewDCPMMEnv(rocksdb::DCPMMEnvOptions());"]
     else:
         assert False, "Not implemented"
     
