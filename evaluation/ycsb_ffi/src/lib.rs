@@ -137,38 +137,48 @@ pub fn main() {
 
         println!("Setting up KV {:?} with {:?} keys, {:?}B nodes, {:?}B regions", i, per_thread_num_keys, capybarakv_config.node_size, per_thread_region_size);
         // Create a file, and a PM region, for each component
-        let mut kv_region = create_pm_region(&current_file_name, capybarakv_config.region_size);
+        let mut kv_region = create_pm_region(&current_file_name, per_thread_region_size);
         KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
             &mut kv_region, KVSTORE_ID, per_thread_num_keys, capybarakv_config.node_size, 1).unwrap();
     }    
     println!("Done setting up! You can now run YCSB workloads");
 }
 
-#[no_mangle]
-pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    config_file: JByteArray<'local>,
-    id: jlong,
-) -> jlong {
-    let mut file = [0i8; MAX_CONFIG_FILE_NAME_LEN];
-    let config_file_name_len: usize = env.get_array_length(&config_file).unwrap().try_into().unwrap();
-    if config_file_name_len > MAX_CONFIG_FILE_NAME_LEN {
-        let err_str = format!("Error: config file path too long (length {:?}, max {:?})", config_file_name_len, MAX_CONFIG_FILE_NAME_LEN);
+fn get_file_name_from_jbytearray<'local>(env: &mut JNIEnv<'local>, jfilename: JByteArray<'local>) -> String {
+    let mut file_array = [0i8; MAX_CONFIG_FILE_NAME_LEN];
+    let file_name_len: usize = env.get_array_length(&jfilename).unwrap().try_into().unwrap();
+    if file_name_len > MAX_CONFIG_FILE_NAME_LEN {
+        let err_str = format!("Error: config file path too long (length {:?}, max {:?})", file_name_len, MAX_CONFIG_FILE_NAME_LEN);
         println!("{}", err_str);
         env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
         unreachable!();
     }
-    let file_name_slice = &mut file[0..config_file_name_len];
-    env.get_byte_array_region(config_file, 0, file_name_slice).unwrap();
-    let config_file = String::from_utf8(file_name_slice.iter().map(|&c| c as u8).collect()).unwrap();
-    let config = parse_capybarakv_configs(config_file);
+    let file_name_slice = &mut file_array[0..file_name_len];
+    env.get_byte_array_region(jfilename, 0, file_name_slice).unwrap();
+    String::from_utf8(file_name_slice.iter().map(|&c| c as u8).collect()).unwrap()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    capybarakv_config_file: JByteArray<'local>,
+    experiment_config_file: JByteArray<'local>,
+    id: jlong,
+) -> jlong {
+    let capybarakv_config_file_name = get_file_name_from_jbytearray(&mut env, capybarakv_config_file);
+    let experiment_config_file_name = get_file_name_from_jbytearray(&mut env, experiment_config_file);
+    
+    let capybarakv_config = parse_capybarakv_configs(capybarakv_config_file_name);
+    let experiment_config = parse_experiment_configs(experiment_config_file_name);
 
     let id: u64 = id.try_into().unwrap();
-    let kv_file = get_kv_file_name(&config.kv_file, id);
+    let kv_file = get_kv_file_name(&capybarakv_config.kv_file, id);
+
+    let per_thread_region_size = capybarakv_config.region_size / experiment_config.threads;
 
     // Create a file, and a PM region, for each component
-    let kv_region = open_pm_region(&kv_file, config.region_size);
+    let kv_region = open_pm_region(&kv_file, per_thread_region_size);
 
     let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
 

@@ -31,8 +31,10 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  */
 public class CapybaraKVClient extends DB {
 
-  static final String PROPERTY_CONFIG_FILE = "capybarakv.configfile";
-  @GuardedBy("CapybaraKVClient.class") private static String configFile = null;
+  static final String PROPERTY_CAPYBARAKV_CONFIG_FILE = "capybarakv.configfile";
+  static final String PROPERTY_EXP_CONFIG_FILE = "experiment.configfile";
+  @GuardedBy("CapybaraKVClient.class") private static String capybarakvConfigFile = null;
+  @GuardedBy("CapybaraKVClient.class") private static String experimentConfigFile = null;
   
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKVClient.class);
 
@@ -50,12 +52,19 @@ public class CapybaraKVClient extends DB {
   public void init() throws DBException {
     System.err.println("Init CapybaraKV");
     synchronized(CapybaraKVClient.class) {
-      if (configFile == null) {
-        configFile = getProperties().getProperty(PROPERTY_CONFIG_FILE);
-        if (configFile == null) {
-          String message = "Please provide a config file.";
+      if (capybarakvConfigFile == null) {
+        capybarakvConfigFile = getProperties().getProperty(PROPERTY_CAPYBARAKV_CONFIG_FILE);
+        if (capybarakvConfigFile == null) {
+          String message = "Please provide a CapybaraKV config file.";
           throw new DBException(message);
         }  
+      }
+      if (experimentConfigFile == null) {
+        experimentConfigFile = getProperties().getProperty(PROPERTY_EXP_CONFIG_FILE);
+        if (experimentConfigFile == null) {
+          String message = "Please provide an experiment config file.";
+          throw new DBException(message);
+        }
       }
     }
     initCapybaraKV();
@@ -64,7 +73,7 @@ public class CapybaraKVClient extends DB {
 
   private void initCapybaraKV() throws DBException {
     long id = Long.valueOf(counter.getAndAdd(1));
-    CapybaraKV kv = new CapybaraKV(configFile, id);
+    CapybaraKV kv = new CapybaraKV(capybarakvConfigFile, experimentConfigFile, id);
     Lock lock = new ReentrantLock();
     kvMap.put(id, kv);
     kvLockMap.put(id, lock);
