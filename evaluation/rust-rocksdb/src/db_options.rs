@@ -108,6 +108,15 @@ impl Env {
         }
     }
 
+    pub fn default_dcpmm() -> Result<Env, Error> {
+        let env = unsafe { ffi::rocksdb_create_default_dcpmm_env() };
+        if env.is_null() {
+            Err(Error::new("Could not create mem env".to_owned()))
+        } else {
+            Ok(Env { inner: env })
+        }
+    }
+
     /// Returns a new environment that stores its data in memory and delegates
     /// all non-file-storage tasks to base_env.
     pub fn mem_env() -> Result<Env, Error> {

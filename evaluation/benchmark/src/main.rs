@@ -170,6 +170,7 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     {
         let mut client = KV::init()?;
         run_rand_put(&mut client, &output_dir, i)?;
+        client.flush();
         run_rand_get(&mut client, &output_dir, i)?;
         run_rand_update(&mut client, &output_dir, i)?;
         run_rand_delete(&mut client, &output_dir, i)?;
