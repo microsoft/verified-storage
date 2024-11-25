@@ -1,0 +1,42 @@
+2024-11-25T17:08:41.959063897+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 5005000, region_size: 53687091200 } }
+2024-11-25T17:08:41.959064250+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+Reading experiment configs from "../experiment_config.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241122/threads_2", threads: 2, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 5005000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241122/threads_2", threads: 2, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Created shard with id 0
+Created shard with id 1
+Cleaning up
+[OVERALL], RunTime(ms), 55275
+[OVERALL], Throughput(ops/sec), 90456.80687471732
+[TOTAL_GCS_G1_Young_Generation], Count, 20
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 66
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.11940298507462686
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 20
+[TOTAL_GC_TIME], Time(ms), 66
+[TOTAL_GC_TIME_%], Time(%), 0.11940298507462686
+[CLEANUP], Operations, 2
+[CLEANUP], AverageLatency(us), 518837.5
+[CLEANUP], LatencyVariance(us), 132.25
+[CLEANUP], MinLatency(us), 518826
+[CLEANUP], MaxLatency(us), 518849
+[CLEANUP], 95thPercentileLatency(us), 518000
+[CLEANUP], 99thPercentileLatency(us), 518000
+[INSERT], Operations, 5000000
+[INSERT], AverageLatency(us), 20.236867
+[INSERT], LatencyVariance(us), 6488465.454669024
+[INSERT], MinLatency(us), 5
+[INSERT], MaxLatency(us), 2511718
+[INSERT], 95thPercentileLatency(us), 0
+[INSERT], 99thPercentileLatency(us), 0
+[INSERT], Return=OK, 5000000

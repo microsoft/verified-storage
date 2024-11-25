@@ -1,0 +1,40 @@
+2024-11-25T16:36:35.765645736+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-25T16:36:35.765643454+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 5005000, region_size: 53687091200 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 5005000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config.toml"
+Reading experiment configs from "../experiment_config.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241122/threads_2", threads: 2, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241122/threads_2", threads: 2, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Created shard with id 1
+Created shard with id 0
+Cleaning up
+[OVERALL], RunTime(ms), 49925
+[OVERALL], Throughput(ops/sec), 100150.225338007
+[TOTAL_GCS_G1_Young_Generation], Count, 33
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 85
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.1702553830746119
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 33
+[TOTAL_GC_TIME], Time(ms), 85
+[TOTAL_GC_TIME_%], Time(%), 0.1702553830746119
+[CLEANUP], Operations, 2
+[CLEANUP], AverageLatency(us), 491392.0
+[CLEANUP], MinLatency(us), 491264
+[CLEANUP], MaxLatency(us), 491519
+[CLEANUP], 95thPercentileLatency(us), 491519
+[CLEANUP], 99thPercentileLatency(us), 491519
+[INSERT], Operations, 5000000
+[INSERT], AverageLatency(us), 17.9605626
+[INSERT], MinLatency(us), 5
+[INSERT], MaxLatency(us), 2267135
+[INSERT], 95thPercentileLatency(us), 32
+[INSERT], 99thPercentileLatency(us), 57
+[INSERT], Return=OK, 5000000
