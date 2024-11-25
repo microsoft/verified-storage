@@ -8,7 +8,7 @@ use pmsafe::PmCopy;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // TODO: read these from config file
 const KVSTORE_ID: u128 = 1234;
@@ -35,11 +35,29 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
 {
     type E = KvError<K>;
 
-    fn init() -> Result<Self, Self::E> {
+    fn setup() -> Result<(), Self::E> {
         init_and_mount_pm_fs();
 
-        // call both setup and start
+        let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
+        KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
+            &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
+        )?;
 
+        Ok(())
+    }
+
+    fn start() -> Result<Self, Self::E> {
+        let mut region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
+        let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
+            region, KVSTORE_ID)?;
+        
+        Ok(Self { kv })
+    }
+
+    fn timed_start() -> Result<(Self, Duration), Self::E> {
+        init_and_mount_pm_fs();
+
+        let t0 = Instant::now();
         let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
         KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
             &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
@@ -48,8 +66,9 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
         let mut region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
         let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
             region, KVSTORE_ID)?;
-        
-        Ok(Self { kv })
+        let dur = t0.elapsed();
+
+        Ok((Self { kv } , dur))
     }
 
     fn db_name() -> String {

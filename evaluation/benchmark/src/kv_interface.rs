@@ -1,4 +1,5 @@
 use storage_node::pmem::pmcopy_t::PmCopy;
+use std::time::Duration;
 
 pub trait KvInterface<K, V> : Sized 
     where 
@@ -7,10 +8,16 @@ pub trait KvInterface<K, V> : Sized
 {
     type E;
 
+    fn setup() -> Result<(), Self::E> { Ok(()) }
+
     // Initialize the KV store and return an instance of itself.
     // We'll always build KVs from scratch in these tests, so we'll 
     // do both setup and start (if they are separate) in this function.
-    fn init() -> Result<Self, Self::E>;
+    fn start() -> Result<Self, Self::E>;
+
+    // Same as init, except records how long it takes to run init excluding
+    // PM FS setup time and returns the duration alongside the KV
+    fn timed_start() -> Result<(Self, Duration), Self::E>;
 
     fn db_name() -> String;
 

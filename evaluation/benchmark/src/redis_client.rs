@@ -2,7 +2,7 @@ use redis::{Client, Connection, RedisResult, RedisError, Commands, FromRedisValu
 use crate::kv_interface::{KvInterface, Key, Value};
 use std::process::*;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use core::marker::PhantomData;
 use storage_node::pmem::pmcopy_t::PmCopy;
 use std::hash::{Hash, DefaultHasher, Hasher};
@@ -46,7 +46,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
 {
     type E = RedisError;
 
-    fn init() -> Result<Self, Self::E> {
+    fn start() -> Result<Self, Self::E> {
         // TODO @hayley don't hardcode paths in this function
 
         crate::init_and_mount_pm_fs();
@@ -74,6 +74,40 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
             _key_type: PhantomData,
             _value_type: PhantomData,
         })
+    }
+
+    fn timed_start() -> Result<(Self, Duration), Self::E> {
+        // TODO @hayley don't hardcode paths in this function
+
+        crate::init_and_mount_pm_fs();
+
+        // Start the redis instance
+        let t0 = Instant::now();
+        let redis_server = Command::new("sudo")
+            .args(["../pmem-redis/src/redis-server"]) // path to server binary
+            .args(["../pmem-redis/redis.conf"]) // config file
+            .spawn()
+            .expect("redis-server failed to start");
+
+        // Loop until we are able to connect to the server
+        let mut cxn = None;
+        while cxn.is_none() {
+            cxn = Self::new_connection().ok();
+        }
+
+        // then establish a connection to it
+        let cxn = Self::new_connection()?;
+
+        let dur = t0.elapsed();
+
+        println!("Connected to redis server");
+
+        Ok((Self {
+            server: redis_server,
+            cxn,
+            _key_type: PhantomData,
+            _value_type: PhantomData,
+        }, dur))
     }
 
     fn db_name() -> String {

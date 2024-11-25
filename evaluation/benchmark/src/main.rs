@@ -32,15 +32,15 @@ pub mod rocksdb_client;
 pub mod capybarakv_client;
 
 // length of key and value in byte
-const KEY_LEN: usize = 8;
-const VALUE_LEN: usize = 8;
+const KEY_LEN: usize = 64;
+const VALUE_LEN: usize = 64;
 
 const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 500000;
-const ITERATIONS: u64 = 10;
+const ITERATIONS: u64 = 1;
 
 
 #[repr(C)]
@@ -146,19 +146,26 @@ fn main() {
     fs::create_dir_all(&capybara_output_dir).unwrap();
 
 
-    for i in 1..ITERATIONS+1 {
-        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
-    }
+    // for i in 1..ITERATIONS+1 {
+    //     run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+    //     run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+    //     run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+    // }
+
+    // full setup works differently so that we don't have to rebuild the full KV every iteration
+    run_full_setup::<RedisClient<TestKey, TestValue>>(&redis_output_dir).unwrap();
+    // run_full_setup::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir).unwrap();
+    // run_full_setup::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir).unwrap();
 }
 
 fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
+    // sequential access operations
     {
-        let mut client = KV::init()?;
+        KV::setup()?;
+        let mut client = KV::start()?;
         run_sequential_put(&mut client, &output_dir, i)?;
         client.flush();
         run_sequential_get(&mut client, &output_dir, i)?;
@@ -167,8 +174,10 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     }
     KV::cleanup();
 
+    // random access operations
     {
-        let mut client = KV::init()?;
+        KV::setup()?;
+        let mut client = KV::start()?;
         run_rand_put(&mut client, &output_dir, i)?;
         client.flush();
         run_rand_get(&mut client, &output_dir, i)?;
@@ -176,6 +185,14 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         run_rand_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
+
+    // startup and cleanup measurements
+    {
+        run_empty_start::<KV>(&output_dir, i)?;
+    }
+    KV::cleanup();
+
+   
 
     Ok(())
 }
@@ -434,6 +451,67 @@ fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::
     out_stream.flush().unwrap();
     println!("RAND DELETE DONE");
 
+    Ok(())
+}
+
+fn run_empty_start<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    let exp_output_dir = output_dir.to_owned() + "/empty_setup/";
+    let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    fs::create_dir_all(&exp_output_dir).unwrap();
+    let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    println!("EMPTY SETUP");
+    KV::setup()?;
+    let (kv, dur) = KV::timed_start()?;
+    let elapsed = format!("{:?}\n", dur.as_micros());
+    out_stream.write(&elapsed.into_bytes()).unwrap();
+    out_stream.flush().unwrap();
+    println!("EMPTY SETUP DONE");
+
+    Ok(())
+}
+
+fn run_full_setup<KV>(output_dir: &str) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+        KV::E: std::fmt::Debug,
+{
+    let exp_output_dir = output_dir.to_owned() + "/full_setup/";
+    
+    println!("FULL SETUP");
+
+    {
+        KV::setup()?;
+        let mut kv = KV::start()?;
+    
+        let value = TestValue { value: [0u8; VALUE_LEN] };
+        let mut i = 0;
+    
+        // insert keys until the KV store runs out of space
+        let mut insert_ok = Ok(());
+        while insert_ok.is_ok() {
+            let key = u64_to_test_key(i);
+            insert_ok = kv.put(&key, &value);
+            i += 1;
+        }
+        println!("Maxed out at {:?} keys", i);
+    }
+    KV::cleanup();
+
+    for i in 0..ITERATIONS {
+        let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+        fs::create_dir_all(&exp_output_dir).unwrap();
+        let mut out_stream = create_file_and_build_output_stream(&output_file);
+        let (kv, dur) = KV::timed_start()?;
+        let elapsed = format!("{:?}\n", dur.as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+        out_stream.flush().unwrap();
+    }
+
+    println!("FULL SETUP DONE");
     Ok(())
 }
 

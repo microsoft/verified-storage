@@ -6,7 +6,7 @@ use storage_node::pmem::pmcopy_t::PmCopy;
 use core::marker::PhantomData;
 use std::path::Path;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // TODO: get this from a config file
 const ROCKSDB_PATH: &str = "/mnt/pmem/";
@@ -30,16 +30,18 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
 {
     type E = rocksdb::Error;
 
-    fn init() -> Result<Self, Self::E> {
+    fn start() -> Result<Self, Self::E> {
         init_and_mount_pm_fs();
 
         let mut options = Options::default();
         options.set_allow_mmap_reads(true);
         options.set_allow_mmap_writes(true);
         options.create_if_missing(true);
+
+        // NOTE: this option doesn't work on the test VM, but it can be disabled
+        // when not measuring performance.
         options.set_env(&rocksdb::Env::default_dcpmm()?);
-        // TODO: this one must only be supported by pmem-rocksdb?
-        // options.cache_index_and_filter_blocks_for_mmap_read(true);
+
         let db = DB::open(&options, crate::MOUNT_POINT)?;
         Ok(Self { 
             db,
@@ -48,6 +50,30 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
             _key_type: PhantomData,
             _value_type: PhantomData,
         })
+    }
+
+    fn timed_start() -> Result<(Self, Duration), Self::E> {
+        init_and_mount_pm_fs();
+
+        let t0 = Instant::now();
+        let mut options = Options::default();
+        options.set_allow_mmap_reads(true);
+        options.set_allow_mmap_writes(true);
+        options.create_if_missing(true);
+
+        // NOTE: this option doesn't work on the test VM, but it can be disabled
+        // when not measuring performance.
+        options.set_env(&rocksdb::Env::default_dcpmm()?);
+
+        let db = DB::open(&options, crate::MOUNT_POINT)?;
+        let dur = t0.elapsed();
+        Ok((Self { 
+            db,
+            options,
+            path: crate::MOUNT_POINT.to_string(),
+            _key_type: PhantomData,
+            _value_type: PhantomData,
+        }, dur))
     }
 
     fn db_name() -> String {
