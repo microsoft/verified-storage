@@ -1,0 +1,8 @@
+[experiment_config]
+results_dir = "win_results"
+threads = 1
+mount_point = "C:\\pmem\\"
+pm_device = "C:\\pmem\\"
+iterations = 10
+op_count = 1000000
+record_count = 500000

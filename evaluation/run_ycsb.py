@@ -10,12 +10,16 @@ from pathlib import Path
 
 DBS = ["capybarakv", "pmemrocksdb", "redis"]
 
+def is_windows():
+    return sys.platform.startswith("win")
+
 def main():
     # Get command line arguments
     parser = arg_parser()
     args = parser.parse_args()
     db = args.db
     experiment_config_file = args.experiment_config
+    capybarakv_config_file = args.capybarakv_config
 
     configs = {}
 
@@ -33,7 +37,7 @@ def main():
 
     print("Running workloads", args.workloads)
 
-    run_experiment(configs, db, output_dir_paths, args.workloads, experiment_config_file)
+    run_experiment(configs, db, output_dir_paths, args.workloads, experiment_config_file, capybarakv_config_file)
 
 def list_of_strings(arg):
     return [s.upper() for s in arg.split(',')]
@@ -53,10 +57,15 @@ def arg_parser():
         default=["A", "B", "C", "D", "E", "F", "X"])
     parser.add_argument("--experiment_config", type=str, 
         help="path to the experiment config file to use", default="experiment_config.toml")
+    parser.add_argument("--capybarakv_config", type=str, 
+        help="path to the capybarakv config file to use", default="capybarakv_config.toml")
 
     return parser
 
 def setup_pm(configs):
+    if is_windows():
+        return
+
     pm_device = configs["pm_device"]
     mount_point = configs["mount_point"]
 
@@ -72,11 +81,30 @@ def remount_pm(configs):
     subprocess.check_call(["sudo", "umount", pm_device]);
     subprocess.check_call(["sudo", "mount", "-o", "dax", pm_device, mount_point]);
 
-def setup_capybarakv(configs, experiment_config_file):
-    subprocess.check_call(
-        ["cargo", "run", "--release", "--", "../capybarakv_config.toml", os.path.join("..", experiment_config_file)], 
-        cwd="ycsb_ffi/"
-    )
+def setup_capybarakv(configs, experiment_config_file, capybarakv_config_file):
+    if is_windows():
+        import glob
+
+        # Get the directory from the config
+        kv_dir = os.path.dirname(configs["mount_point"])
+        # Delete any existing capybarakv files
+        for f in glob.glob(os.path.join(kv_dir, "capybarakv*")):
+            try:
+                os.remove(f)
+            except OSError as e:
+                print(f"Error deleting {f}: {e}")
+
+        subprocess_under_dir(
+            "ycsb_ffi",
+            ["ycsb_ffi.exe", f"{os.path.join('..', capybarakv_config_file)}", f"{os.path.join('..', experiment_config_file)}"],
+            stdout=subprocess.PIPE
+        )
+
+    else:
+        subprocess.check_call(
+            ["cargo", "run", "--release", "--", os.path.join("..", capybarakv_config_file), os.path.join("..", experiment_config_file)], 
+            cwd="ycsb_ffi/"
+        )
 
 def setup_redis(configs):
     # start the redis server in the background
@@ -87,6 +115,9 @@ def setup_redis(configs):
     return p
 
 def cleanup(configs, db, redis_process=None):
+    if is_windows():
+        return
+
     if db == "redis":
         print("terminating redis process")
         subprocess.call(["sudo", "pkill", "redis"])
@@ -95,7 +126,8 @@ def cleanup(configs, db, redis_process=None):
 
 def create_output_dirs(configs, db):
     results_dir = configs["results_dir"]
-    mode = 0o777
+    # On Windows, mode parameter is ignored for os.makedirs
+    mode = 0o777 if not is_windows() else None
 
     paths = [
         Path(results_dir, db, "Loada"),
@@ -110,7 +142,10 @@ def create_output_dirs(configs, db):
     ]
 
     for path in paths:
-        os.makedirs(path, mode, exist_ok=True)
+        if mode is None:
+            os.makedirs(path, exist_ok=True)
+        else:
+            os.makedirs(path, mode, exist_ok=True)
     return paths
 
 def run_load_a_check(workloads):
@@ -129,12 +164,27 @@ def run_load_x_check(workloads):
     if "X" in workloads:
         return True 
     return False
+
+def subprocess_under_dir(dir, cmd, stdout, check=True):
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(dir)
+        print(f"Running command: {' '.join(cmd)} in {dir}")
+        return subprocess.run(cmd, stdout=stdout, check=check)
+    finally:
+        os.chdir(original_cwd)
+
+def get_ycsb_path():
+    if is_windows():
+        return ".\\bin\\ycsb.bat"
+    else:
+        return "./bin/ycsb"
     
-def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_file):
+def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_file, capybarakv_config_file):
     iterations = configs["iterations"]
     p = None
 
-    options = build_options(configs, db, experiment_config_file)
+    options = build_options(configs, db, experiment_config_file, capybarakv_config_file)
 
     for i in range(1, iterations+1):
         loada_output_path = os.path.join(output_dir_paths[0], "Run" + str(i))
@@ -150,50 +200,45 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         if run_load_a_check(workloads):
             setup_pm(configs)
             if db == "capybarakv":
-                setup_capybarakv(configs, experiment_config_file)
+                setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
             if db == "redis":
                 p = setup_redis(configs)
         
             with open(loada_output_path, "w") as f:
-                subprocess.run(
-                    ["./bin/ycsb", "load", db, "-s", "-P", "workloads/workloada"] + options, 
-                    cwd="YCSB/",
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloada"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
 
             if "A" in workloads:
                 with open(runa_output_path, "w") as f:
-                    subprocess.run(
-                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloada"] + options, 
-                        cwd="YCSB/",
+                    subprocess_under_dir("YCSB/",
+                        [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloada"] + options, 
                         stdout=f,
                         # stderr=f,
                         check=True)
 
             if "B" in workloads:
                 with open(runb_output_path, "w") as f:
-                    subprocess.run(
-                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadb"] + options, 
-                        cwd="YCSB/",
+                    subprocess_under_dir("YCSB/",
+                        [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadb"] + options, 
                         stdout=f,
                         # stderr=f,
                         check=True)
 
             if "C" in workloads:
                 with open(runc_output_path, "w") as f:
-                    subprocess.run(
-                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadc"] + options, 
-                        cwd="YCSB/",
+                    subprocess_under_dir("YCSB/",
+                        [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadc"] + options, 
                         stdout=f,
                         # stderr=f,
                         check=True)
         
             if "D" in workloads:
                 with open(rund_output_path, "w") as f:
-                    subprocess.run(
-                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadd"] + options, 
-                        cwd="YCSB/",
+                    subprocess_under_dir("YCSB/",
+                        [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadd"] + options, 
                         stdout=f,
                         # stderr=f,
                         check=True)
@@ -201,7 +246,7 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         if run_load_e_check(workloads):
             if db == "capybarakv":
                 setup_pm(configs)
-                setup_capybarakv(configs, experiment_config_file)
+                setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
             elif db == "redis":
                 cleanup(configs, db, redis_process=p)
                 setup_pm(configs)
@@ -210,17 +255,15 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
                 setup_pm(configs)
 
             with open(loade_output_path, "w") as f:
-                subprocess.run(
-                    ["./bin/ycsb", "load", db, "-s", "-P", "workloads/workloade"] + options, 
-                    cwd="YCSB/",
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloade"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
             if "F" in workloads:
                 with open(runf_output_path, "w") as f:
-                    subprocess.run(
-                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadf"] + options, 
-                        cwd="YCSB/",
+                    subprocess_under_dir("YCSB/",
+                        [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadf"] + options, 
                         stdout=f,
                         # stderr=f,
                         check=True)
@@ -228,7 +271,7 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         if run_load_x_check(workloads):
             if db == "capybarakv":
                 setup_pm(configs)
-                setup_capybarakv(configs, experiment_config_file)
+                setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
             elif db == "redis":
                 cleanup(configs, db, redis_process=p)
                 setup_pm(configs)
@@ -237,16 +280,14 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
                 setup_pm(configs)
 
             with open(loadx_output_path, "w") as f:
-                subprocess.run(
-                    ["./bin/ycsb", "load", db, "-s", "-P", "workloads/workloadx"] + options, 
-                    cwd="YCSB/",
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloadx"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
             with open(runx_output_path, "w") as f:
-                subprocess.run(
-                    ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadx"] + options, 
-                    cwd="YCSB/",
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadx"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
@@ -254,7 +295,7 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         if db == "redis":
             cleanup(configs, db, redis_process=p)
 
-def build_options(configs, db, experiment_config_file):
+def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     iterations = configs["iterations"]
     threads = configs["threads"]
     mount_point = configs["mount_point"]
@@ -271,7 +312,7 @@ def build_options(configs, db, experiment_config_file):
     options += ["-threads", str(threads)]
 
     if db == "capybarakv":
-        options += ["-p", "capybarakv.configfile=../capybarakv_config.toml"]
+        options += ["-p", "capybarakv.configfile=" + os.path.join("..", capybarakv_config_file)]
         options += ["-p", "experiment.configfile=" + os.path.join("..", experiment_config_file)]
     elif db == "redis":
         options += ["-p", "redis.host=127.0.0.1"]

@@ -86,3 +86,44 @@ This starts the redis server running in the background, using `/mnt/pmem/` to st
 ```
 ./bin/ycsb load redis -s -P workloads/workloada -p redis.host=127.0.0.1 -p redis.port=6379
 ```
+
+# Windows
+
+**Note**: Currently, only CapybaraKV is supported on Windows for running YCSB workloads. Other databases like Redis and pmem-RocksDB may not function correctly or may require additional setup that is not covered in this guide.
+
+## Setup
+1. Install Lastest JDK via https://jdk.java.net/
+2. Install Maven via https://maven.apache.org/install.html
+3. Set environment variables in PowerShell
+
+```powershell
+$env:JAVA_HOME="C:\Users\$Env:UserName\jdk-22" # Replace with your JDK path
+$env:PATH="$env:PATH;C:\Users\$Env:UserName\apache-maven-3.9.9\bin"
+```
+
+4. Build YCSB FFI layer
+
+```powershell
+cd evaluation\ycsb_ffi
+cargo build --release
+$env:PATH="$env:PATH;C:\Users\$Env:UserName\verified-storage\evaluation\ycsb_ffi\target\release"
+```
+
+5. Run ycsb_ffi under `evaluation/` to prepare the database
+
+```powershell
+.\ycsb_ffi\target\release\ycsb_ffi.exe .\capybarakv_config_win.toml .\experiment_config_win.toml
+```
+
+6. Build YCSB CapybaraKV binding
+
+```powershell
+cd YCSB; mvn -pl site.ycsb:capybarakv-binding -am clean package
+```
+
+7. Run YCSB workload under `evaluation/`
+
+```powershell
+pip3 install toml
+python run_ycsb.py --db capybarakv
+```
