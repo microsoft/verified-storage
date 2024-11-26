@@ -20,7 +20,6 @@ use super::durable::listlayout_v::*;
 use super::durable::inv_v::*;
 use super::durable::itemtablelayout_v::*;
 use super::durable::maintablelayout_v::*;
-use super::inv_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_v::*;

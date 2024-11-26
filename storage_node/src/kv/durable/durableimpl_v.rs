@@ -492,31 +492,6 @@ verus! {
                 self.tentative_view_inv(),
         {}
 
-        // pub closed spec fn pending_alloc_inv(self) -> bool
-        // {
-        //     let durable_state_bytes = self.wrpm@.durable_state;
-        //     let tentative_state_bytes = apply_physical_log_entries(self.wrpm@.read_state,
-        //         self.log@.physical_op_list);
-        //     if let Some(tentative_state_bytes) = tentative_state_bytes {
-        //         let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-        //         let tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-        //         let durable_main_table_view = parse_main_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
-        //             self.overall_metadata.main_table_entry_size);
-        //         let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
-        //             self.overall_metadata.main_table_entry_size);
-        //         &&& durable_main_table_view matches Some(durable_main_table_view)
-        //         &&& tentative_main_table_view matches Some(tentative_main_table_view)
-        //         &&& self.main_table.pending_alloc_inv(
-        //                 durable_main_table_region,
-        //                 tentative_main_table_region,
-        //                 self.overall_metadata
-        //             )
-        //         &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
-        //     } else {
-        //         false
-        //     } 
-        // }
-
         pub closed spec fn transaction_committed(self) -> bool
         {
             self.log@.op_list_committed
@@ -843,41 +818,6 @@ verus! {
                 &&& !(overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size)
             } implies mem1_with_log[addr] == #[trigger] mem2_with_log[addr] by {
                 lemma_byte_equal_after_recovery_specific_byte(addr, mem1, mem2, version_metadata, overall_metadata, op_log);
-            }
-        }
-
-        pub proof fn lemma_log_area_unchanged_by_applying_log_entries(
-            mem: Seq<u8>,
-            op_log: Seq<AbstractPhysicalOpLogEntry>,
-            version_metadata: VersionMetadata,
-            overall_metadata: OverallMetadata,
-        )
-            requires 
-                mem.len() == overall_metadata.region_size,
-                overall_metadata.log_area_size <= mem.len(),
-                AbstractPhysicalOpLogEntry::log_inv(op_log, version_metadata, overall_metadata),
-                apply_physical_log_entries(mem, op_log) is Some,
-            ensures 
-                ({
-                    let mem_with_log_installed = apply_physical_log_entries(mem, op_log).unwrap();
-                    forall |addr: int| {
-                        &&& 0 <= addr < mem.len() 
-                        &&& overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size
-                    } ==> mem_with_log_installed[addr] == #[trigger] mem[addr] 
-                })
-        {
-            let mem_with_log_installed = apply_physical_log_entries(mem, op_log).unwrap();
-
-            assert(forall |addr: int| {
-                &&& 0 <= addr < mem.len() 
-                &&& overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size
-            } ==> !addr_modified_by_recovery(op_log, addr));
-
-            assert forall |addr: int| {
-                &&& 0 <= addr < mem.len() 
-                &&& !addr_modified_by_recovery(op_log, addr)
-            } implies mem_with_log_installed[addr] == mem[addr] by {
-                lemma_byte_unchanged_by_log_replay(addr, mem, version_metadata, overall_metadata, op_log);
             }
         }
 
@@ -3595,7 +3535,7 @@ version_metadata, overall_metadata,
             }
         }
 
-        #[verifier::rlimit(50)]
+        #[verifier::rlimit(25)]
         proof fn lemma_helper_for_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -4058,7 +3998,7 @@ version_metadata, overall_metadata,
                    } ==> current_tentative_state_bytes[addr] == self.wrpm@.read_state[addr]);
             lemma_valid_entry_index(main_table_index as nat, num_keys as nat, main_table_entry_size as nat);
             
-            broadcast use pmcopy_axioms;
+            // broadcast use pmcopy_axioms;
 
             let e = self.main_table.outstanding_entries[main_table_index].unwrap();
             let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
@@ -4066,15 +4006,15 @@ version_metadata, overall_metadata,
             let crc_bytes2 = spec_crc_bytes(metadata_bytes2 + key_bytes2);
             assert(extract_bytes(current_durable_main_table_view.read_state,
                                  (start + u64::spec_size_of() * 2) as nat, ListEntryMetadata::spec_size_of())
-                   =~= metadata_bytes2);
+                   =~= metadata_bytes2) by { broadcast use pmcopy_axioms; }
 
             assert(extract_bytes(current_durable_main_table_view.read_state,
                                  (start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat,
                                  K::spec_size_of())
-                   =~= key_bytes2);
+                   =~= key_bytes2) by { broadcast use pmcopy_axioms; }
             assert(extract_bytes(current_durable_main_table_view.read_state,
                                  (start + u64::spec_size_of()) as nat, u64::spec_size_of())
-                   =~= crc_bytes2);
+                   =~= crc_bytes2) by { broadcast use pmcopy_axioms; }
             assert(cdb_bytes =~= (CDB_FALSE as u64).spec_to_bytes());
             assert(metadata_bytes =~= entry.spec_to_bytes());
             assert(key_bytes =~= key.spec_to_bytes());
@@ -4113,6 +4053,10 @@ version_metadata, overall_metadata,
                     ));
                 }
             }
+
+            // required to prove postcondition; we only bring it in at the end
+            // to avoid instantiating too many unnecessary triggers
+            broadcast use pmcopy_axioms; 
         }
 
         #[verifier::rlimit(40)]
@@ -6841,208 +6785,6 @@ version_metadata, overall_metadata,
                 get_subregion_view(pm, start, len).durable_state == extract_bytes(pm.durable_state, start, len)
         {
             assert(get_subregion_view(pm, start, len).durable_state =~= extract_bytes(pm.durable_state, start, len));
-        }
-
-        proof fn lemma_tentative_view_after_appending_delete_log_entry_includes_new_log_entry(
-            self,
-            old_self: Self,
-            index: u64, 
-            item_index: u64,
-            log_entry: PhysicalOpLogEntry,
-            tentative_view_bytes: Seq<u8>,
-        )
-            requires 
-                old_self.valid(),
-                old_self@.contains_key(index as int),
-                !old_self.transaction_committed(),
-                !self.transaction_committed(),
-                // old_self.pending_alloc_inv(),
-                Self::physical_recover(old_self.wrpm@.durable_state, old_self.version_metadata, self.overall_metadata) == Some(old_self@),
-                self.version_metadata == old_self.version_metadata,
-                self.overall_metadata == old_self.overall_metadata,
-                self.wrpm@.len() == old_self.wrpm@.len(),
-                ({
-                    let flushed_mem = self.wrpm@.read_state;
-                    let old_flushed_mem = old_self.wrpm@.read_state;
-                    states_differ_only_in_log_region(flushed_mem, old_flushed_mem, self.overall_metadata.log_area_addr as nat,
-                        self.overall_metadata.log_area_size as nat)
-                }),
-                old_self.wrpm@.len() >= VersionMetadata::spec_size_of(),
-                no_outstanding_writes_to_version_metadata(old_self.wrpm@),
-                no_outstanding_writes_to_overall_metadata(old_self.wrpm@, self.version_metadata.overall_metadata_addr as int),
-                no_outstanding_writes_to_version_metadata(self.wrpm@),
-                no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int),
-                AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
-                AbstractPhysicalOpLogEntry::log_inv(old_self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
-                self.overall_metadata.main_table_addr <= log_entry.absolute_addr,
-                log_entry.absolute_addr + log_entry.len <=
-                    self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size,
-                old_self.tentative_view() matches Some(tentative_view) && tentative_view.contains_key(index as int),
-                0 <= index < self.main_table@.durable_main_table.len(),
-                ({
-                    let old_flushed_mem = old_self.wrpm@.read_state;
-                    let old_op_log = old_self.log@.physical_op_list;
-                    let old_mem_with_old_log_installed = apply_physical_log_entries(old_flushed_mem, old_op_log);
-                    let old_mem_old_log_main_table_region = extract_bytes(old_mem_with_old_log_installed.unwrap(), 
-                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let old_main_table_view = parse_main_table::<K>(old_mem_old_log_main_table_region, 
-                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
-                    &&& old_mem_with_old_log_installed matches Some(old_mem_with_old_log_installed)
-                    &&& tentative_view_bytes == old_mem_with_old_log_installed
-                    &&& old_main_table_view matches Some(old_main_table_view)
-                    &&& old_main_table_view.durable_main_table[index as int] matches Some(entry) 
-                    &&& entry.item_index() == item_index
-                }),
-                ({
-                    // This is what we know about the log entry. We have to do some additional work
-                    // to prove that replaying it gets us the result we want
-                    let new_mem = tentative_view_bytes.map(|pos: int, pre_byte: u8|
-                        if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
-                            log_entry.bytes[pos - log_entry.absolute_addr]
-                        } else {
-                            pre_byte
-                        }
-                    );
-                    let current_main_table_region = extract_bytes(tentative_view_bytes, 
-                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let current_main_table_view = parse_main_table::<K>(current_main_table_region,
-                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                    let new_main_table_region = extract_bytes(new_mem, 
-                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
-                    let item_index = self.main_table@.durable_main_table[index as int].unwrap().item_index();
-                    &&& new_main_table_view is Some
-                    &&& new_main_table_view == current_main_table_view.delete(index as int)
-                    &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
-                }),
-                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
-                get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat) == 
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat),
-                get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat) == 
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat),
-                self.log@.physical_op_list == old_self.log@.physical_op_list.push(log_entry@),
-            ensures 
-                ({
-                    let flushed_mem = self.wrpm@.read_state;
-                    let old_flushed_mem = old_self.wrpm@.read_state;
-                    let op_log = self.log@.physical_op_list;
-                    let old_op_log = old_self.log@.physical_op_list;
-
-                    let old_mem_with_old_log_installed = apply_physical_log_entries(old_flushed_mem, old_op_log).unwrap();
-                    let old_mem_with_new_log_installed = apply_physical_log_entries(old_flushed_mem, op_log).unwrap();
-                    let new_mem_with_new_log_installed = apply_physical_log_entries(flushed_mem, op_log).unwrap();
-                
-                    let old_mem_old_log_main_table_region = extract_bytes(old_mem_with_old_log_installed, 
-                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let old_mem_old_log_item_table_region = extract_bytes(old_mem_with_old_log_installed, 
-                        self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let old_mem_old_log_list_area_region = extract_bytes(old_mem_with_old_log_installed, 
-                        self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-                    let old_mem_new_log_item_table_region = extract_bytes(old_mem_with_new_log_installed, 
-                        self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let old_mem_new_log_list_area_region = extract_bytes(old_mem_with_new_log_installed, 
-                        self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                    
-                    let new_mem_new_log_main_table_region = extract_bytes(new_mem_with_new_log_installed, 
-                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let new_mem_new_log_list_area_region = extract_bytes(new_mem_with_new_log_installed, 
-                        self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-                    let old_main_table_view = parse_main_table::<K>(old_mem_old_log_main_table_region, 
-                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                    let main_table_view = parse_main_table::<K>(new_mem_new_log_main_table_region, 
-                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                    
-                    &&& old_mem_old_log_item_table_region == old_mem_new_log_item_table_region
-                    &&& old_mem_old_log_list_area_region == old_mem_new_log_list_area_region
-                    &&& main_table_view == old_main_table_view.delete(index as int).unwrap()
-                    &&& main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index)
-
-                    &&& DurableList::<K, L>::parse_all_lists(main_table_view, new_mem_new_log_list_area_region, 
-                            self.overall_metadata.list_node_size, self.overall_metadata.num_list_entries_per_node) is Some
-
-                    &&& extracted_regions_match(old_mem_with_new_log_installed, new_mem_with_new_log_installed, self.overall_metadata)
-                    &&& deserialize_version_metadata(old_mem_with_new_log_installed) == deserialize_version_metadata(new_mem_with_new_log_installed)
-                    &&& deserialize_overall_metadata(old_mem_with_new_log_installed, self.version_metadata.overall_metadata_addr) == 
-                            deserialize_overall_metadata(new_mem_with_new_log_installed, self.version_metadata.overall_metadata_addr)
-
-                    &&& apply_physical_log_entries(old_flushed_mem, op_log) is Some
-                    &&& apply_physical_log_entries(flushed_mem, op_log) is Some
-                    &&& states_differ_only_in_log_region(new_mem_with_new_log_installed, old_mem_with_new_log_installed, self.overall_metadata.log_area_addr as nat,
-                            self.overall_metadata.log_area_size as nat)
-                })
-        {
-//            assert(self.wrpm@.can_crash_as(self.wrpm@.durable_state));
-//            assert(old_self.wrpm@.can_crash_as(old_self.wrpm@.durable_state));
-            
-            let flushed_mem = self.wrpm@.read_state;
-            let old_flushed_mem = old_self.wrpm@.read_state;
-            let op_log = self.log@.physical_op_list;
-            let old_op_log = old_self.log@.physical_op_list;
-
-            // this assertions helps establish that replaying the old op log is equivalent to 
-            // replaying a prefix of the new op log
-            assert(old_op_log == op_log.subrange(0, old_op_log.len() as int));
-
-            Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(flushed_mem, old_flushed_mem, 
-                op_log, self.version_metadata, self.overall_metadata);
-
-            let old_mem_with_old_log_installed = apply_physical_log_entries(old_flushed_mem, old_op_log).unwrap();
-            let old_mem_with_new_log_installed = apply_physical_log_entries(old_flushed_mem, op_log).unwrap();
-            let new_mem_with_new_log_installed = apply_physical_log_entries(flushed_mem, op_log).unwrap();
-
-            lemma_log_replay_preserves_size(old_flushed_mem, old_op_log);
-            lemma_log_replay_preserves_size(old_flushed_mem, op_log);
-            lemma_log_replay_preserves_size(flushed_mem, op_log);
-
-            let old_mem_old_log_main_table_region = extract_bytes(old_mem_with_old_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-            let old_mem_old_log_item_table_region = extract_bytes(old_mem_with_old_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-            let old_mem_old_log_list_area_region = extract_bytes(old_mem_with_old_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-            let old_mem_new_log_item_table_region = extract_bytes(old_mem_with_new_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-            let old_mem_new_log_list_area_region = extract_bytes(old_mem_with_new_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-            let new_mem_new_log_main_table_region = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-            let new_mem_new_log_list_area_region = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-            lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
-                old_mem_with_new_log_installed, new_mem_with_new_log_installed, self.version_metadata, self.overall_metadata);
-        
-            assert(old_mem_old_log_item_table_region == old_mem_new_log_item_table_region);
-            assert(old_mem_old_log_list_area_region == old_mem_new_log_list_area_region);
-
-            let old_main_table_view = parse_main_table::<K>(old_mem_old_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-            let main_table_view = parse_main_table::<K>(new_mem_new_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-        
-            assert(main_table_view == old_main_table_view.delete(index as int).unwrap());
-            assert(old_main_table_view.durable_main_table[index as int] matches Some(entry) && entry.item_index() == item_index);
-            assert(!main_table_view.valid_item_indices().contains(item_index)) by {
-                if main_table_view.valid_item_indices().contains(item_index) {
-                    let j = choose|j: int| {
-                        &&& 0 <= j < main_table_view.durable_main_table.len()
-                        &&& #[trigger] main_table_view.durable_main_table[j] matches Some(entry)
-                        &&& entry.item_index() == item_index
-                    };
-                    assert(trigger_main_entry(j));
-                    assert(trigger_main_entry(index as int));
-                    assert(j != index);
-                    assert(false); // proof by contradiction
-                }
-            }
-            assert(main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
-
-            DurableList::<K, L>::lemma_parse_all_lists_succeeds_after_record_delete(
-                old_main_table_view,
-                main_table_view,
-                old_mem_old_log_main_table_region,
-                new_mem_new_log_list_area_region,
-                index as int,
-                self.overall_metadata.list_node_size,
-                self.overall_metadata.num_list_entries_per_node
-            );
         }
 
         pub fn tentative_delete(
