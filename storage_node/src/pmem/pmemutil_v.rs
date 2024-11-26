@@ -487,7 +487,7 @@ verus! {
     // in the other, all the written bytes have been updated according
     // to this write.
     pub proof fn lemma_only_two_crash_states_introduced_by_aligned_chunk_write(
-        new_durable_bytes: Seq<u8>,
+        new_durable_state: Seq<u8>,
         durable_state: Seq<u8>,
         write_addr: int,
         bytes_to_write: Seq<u8>,
@@ -497,11 +497,11 @@ verus! {
             write_addr % const_persistence_chunk_size() == 0,
             0 <= write_addr,
             write_addr + const_persistence_chunk_size() <= durable_state.len(),
-            can_result_from_partial_write(new_durable_bytes, durable_state, write_addr, bytes_to_write),
+            can_result_from_partial_write(new_durable_state, durable_state, write_addr, bytes_to_write),
         ensures
             ({
-                ||| new_durable_bytes == durable_state
-                ||| new_durable_bytes == update_bytes(durable_state, write_addr, bytes_to_write)
+                ||| new_durable_state == durable_state
+                ||| new_durable_state == update_bytes(durable_state, write_addr, bytes_to_write)
             })
     {
         let chunk = write_addr / const_persistence_chunk_size();
@@ -510,58 +510,143 @@ verus! {
         // (1) the chunk isn't flushed at all and (2) the chunk is entirely flushed.
 
         assert(chunk_trigger(chunk));
-        if chunk_corresponds(new_durable_bytes, durable_state, chunk) {
-            assert forall|addr: int| 0 <= addr < new_durable_bytes.len()
-                implies #[trigger] new_durable_bytes[addr] == durable_state[addr] by {
+        if chunk_corresponds(new_durable_state, durable_state, chunk) {
+            assert forall|addr: int| 0 <= addr < new_durable_state.len()
+                implies #[trigger] new_durable_state[addr] == durable_state[addr] by {
                 assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            assert(new_durable_bytes =~= durable_state);
+            assert(new_durable_state =~= durable_state);
         }
         else {
-            assert forall|addr: int| 0 <= addr < new_durable_bytes.len()
-                implies #[trigger] new_durable_bytes[addr] ==
+            assert forall|addr: int| 0 <= addr < new_durable_state.len()
+                implies #[trigger] new_durable_state[addr] ==
                         update_bytes(durable_state, write_addr, bytes_to_write)[addr] by {
                 assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            assert(new_durable_bytes =~= update_bytes(durable_state, write_addr, bytes_to_write));
+            assert(new_durable_state =~= update_bytes(durable_state, write_addr, bytes_to_write));
         }
     }
 
+    // This lemma establishes that, if we write a
+    // `const_persistence_chunk_size()`-aligned segment of length
+    // `const_persistence_chunk_size()`, then there are only two
+    // possible crash states that can happen after the write is
+    // initiated. In one of those crash states, nothing has changed;
+    // in the other, all the written bytes have been updated according
+    // to this write.
     pub proof fn lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write()
         ensures
             (forall|durable_state: Seq<u8>,
                write_addr: int,
                bytes_to_write: Seq<u8>,
-               new_durable_bytes: Seq<u8>| {
+               new_durable_state: Seq<u8>| {
                &&& bytes_to_write.len() == const_persistence_chunk_size()
                &&& write_addr % const_persistence_chunk_size() == 0
                &&& 0 <= write_addr
                &&& write_addr + const_persistence_chunk_size() <= durable_state.len()
-               &&& #[trigger] can_result_from_partial_write(new_durable_bytes, durable_state,
+               &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state,
                                                            write_addr, bytes_to_write)
             } ==>
             {
-                ||| new_durable_bytes == durable_state
-                ||| new_durable_bytes == update_bytes(durable_state, write_addr, bytes_to_write)
+                ||| new_durable_state == durable_state
+                ||| new_durable_state == update_bytes(durable_state, write_addr, bytes_to_write)
             })
     {
         assert forall|durable_state: Seq<u8>,
                write_addr: int,
                bytes_to_write: Seq<u8>,
-               new_durable_bytes: Seq<u8>| {
+               new_durable_state: Seq<u8>| {
                &&& bytes_to_write.len() == const_persistence_chunk_size()
                &&& write_addr % const_persistence_chunk_size() == 0
                &&& 0 <= write_addr
                &&& write_addr + const_persistence_chunk_size() <= durable_state.len()
-               &&& #[trigger] can_result_from_partial_write(new_durable_bytes, durable_state,
+               &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state,
                                                            write_addr, bytes_to_write)
             } implies
             {
-                ||| new_durable_bytes == durable_state
-                ||| new_durable_bytes == update_bytes(durable_state, write_addr, bytes_to_write)
+                ||| new_durable_state == durable_state
+                ||| new_durable_state == update_bytes(durable_state, write_addr, bytes_to_write)
             } by {
-            lemma_only_two_crash_states_introduced_by_aligned_chunk_write(new_durable_bytes, durable_state, write_addr,
+            lemma_only_two_crash_states_introduced_by_aligned_chunk_write(new_durable_state, durable_state, write_addr,
                                                                           bytes_to_write);
+        }
+    }
+
+    // This function describes what it means for a certain set of
+    // addresses to be inaccessible (i.e., irrelevant) to recovery
+    // given the current state. It means that no matter what the
+    // bytes at those addresses are set to, the recovery function
+    // gives the same result.
+    pub open spec fn addresses_not_accessed_by_recovery<T>(
+        s: Seq<u8>,
+        addrs: Set<int>,
+        recover_fn: spec_fn(Seq<u8>) -> T,
+    ) -> bool
+    {
+        forall|s2: Seq<u8>| {
+            &&& s2.len() == s.len()
+            &&& forall|i: int| 0 <= i < s.len() && !addrs.contains(i) ==> s[i] == s2[i]
+        } ==> recover_fn(s2) == recover_fn(s)
+    }
+
+    // This lemma establishes that, if we only write to addresses
+    // that aren't accessed by a recovery function, then all additional
+    // crash states introduced have the same recovered-to state as the
+    // current one.
+    pub proof fn lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write<T>(
+        new_durable_state: Seq<u8>,
+        durable_state: Seq<u8>,
+        write_addr: int,
+        bytes_to_write: Seq<u8>,
+        addrs: Set<int>,
+        recover_fn: spec_fn(Seq<u8>) -> T,
+    )
+        requires
+            addresses_not_accessed_by_recovery::<T>(durable_state, addrs, recover_fn),
+            forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr),
+            0 <= write_addr,
+            write_addr + bytes_to_write.len() <= durable_state.len(),
+            can_result_from_partial_write(new_durable_state, durable_state, write_addr, bytes_to_write),
+        ensures
+            recover_fn(new_durable_state) == recover_fn(durable_state)
+    {
+        assert(new_durable_state.len() == durable_state.len());
+        assert forall|i: int| 0 <= i < durable_state.len() && !addrs.contains(i)
+            implies new_durable_state[i] == durable_state[i] by {
+            lemma_auto_can_result_from_partial_write_effect();
+        }
+    }
+
+    // This lemma establishes that, if we only write to addresses
+    // that aren't accessed by a recovery function, then all additional
+    // crash states introduced have the same recovered-to state as the
+    // current one.
+    pub proof fn lemma_auto_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write<T>(
+        durable_state: Seq<u8>,
+        addrs: Set<int>,
+        recover_fn: spec_fn(Seq<u8>) -> T,
+    )
+        requires
+            addresses_not_accessed_by_recovery::<T>(durable_state, addrs, recover_fn),
+        ensures
+            forall|new_durable_state: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>| {
+                &&& forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr)
+                &&& 0 <= write_addr
+                &&& write_addr + bytes_to_write.len() <= durable_state.len()
+                &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state, write_addr,
+                                                           bytes_to_write)
+            } ==> recover_fn(new_durable_state) == recover_fn(durable_state)
+    {
+        assert forall|new_durable_state: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>| {
+                &&& forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr)
+                &&& 0 <= write_addr
+                &&& write_addr + bytes_to_write.len() <= durable_state.len()
+                &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state, write_addr,
+                                                           bytes_to_write)
+            } implies recover_fn(new_durable_state) == recover_fn(durable_state) by {
+            lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
+                new_durable_state, durable_state, write_addr, bytes_to_write, addrs, recover_fn
+            );
         }
     }
 
