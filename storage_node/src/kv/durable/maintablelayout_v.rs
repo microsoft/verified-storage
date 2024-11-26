@@ -20,25 +20,6 @@ use deps_hack::{PmCopy};
 verus! {
     // Metadata region
 
-    // Per-entry relative offsets for list entry metadata
-    // The list metadata region is an array of list entry metadata
-    // structures, each of which contains metadata about the list
-    // associated with a given key of type K. K must be Sized,
-    // but we need to be generic over any K, so the key is the last
-    // field of the structure to avoid layout weirdness.
-    // This means it is easiest to put the CRC *before* the corresponding
-    // ListEntryMetadata structure, so the constants here are a bit weird
-
-    pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_CRC: u64 = 8;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA: u64 = 16; // pos of the ListEntryMetadata structure to its slot's offset
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_HEAD: u64 = 0; // pos of head field relative to ListEntryMetadata structure pos
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_TAIL: u64 = 8;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_LENGTH: u64 = 16;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET: u64 = 24;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_ITEM_INDEX: u64 = 32;
-    pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
-
     #[repr(C)]
     #[derive(PmCopy, Copy, Debug)]
     pub struct ListEntryMetadata
@@ -94,10 +75,7 @@ verus! {
         where 
             K: PmCopy,
         recommends
-            bytes.len() == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-            RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
-            RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
-            RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
+            u64::spec_size_of() + u64::spec_size_of() + ListEntryMetadata::spec_size_of() <= bytes.len(),
     {
         let cdb_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
         let crc_bytes = extract_bytes(bytes, u64::spec_size_of(), u64::spec_size_of());
