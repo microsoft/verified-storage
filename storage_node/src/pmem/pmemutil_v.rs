@@ -479,17 +479,16 @@ verus! {
     /// -aligned, then there are only two possible resulting crash states,
     /// one with the write and one without.
 
-    // This lemma establishes that, if the read state matches the
-    // durable state (e.g., after a flush) and we write a
+    // This lemma establishes that, if we write a
     // `const_persistence_chunk_size()`-aligned segment of length
     // `const_persistence_chunk_size()`, then there are only two
     // possible crash states that can happen after the write is
     // initiated. In one of those crash states, nothing has changed;
     // in the other, all the written bytes have been updated according
     // to this write.
-    pub proof fn lemma_single_write_crash_effect_on_pm_region_view(
+    pub proof fn lemma_only_two_crash_states_introduced_by_aligned_chunk_write(
         new_durable_bytes: Seq<u8>,
-        pm_region_view: PersistentMemoryRegionView,
+        durable_state: Seq<u8>,
         write_addr: int,
         bytes_to_write: Seq<u8>,
     )
@@ -497,13 +496,12 @@ verus! {
             bytes_to_write.len() == const_persistence_chunk_size(),
             write_addr % const_persistence_chunk_size() == 0,
             0 <= write_addr,
-            write_addr + const_persistence_chunk_size() <= pm_region_view.len(),
-            can_result_from_partial_write(new_durable_bytes, pm_region_view.durable_state, write_addr, bytes_to_write),
-            pm_region_view.read_state == pm_region_view.durable_state,
+            write_addr + const_persistence_chunk_size() <= durable_state.len(),
+            can_result_from_partial_write(new_durable_bytes, durable_state, write_addr, bytes_to_write),
         ensures
             ({
-                ||| new_durable_bytes == pm_region_view.durable_state
-                ||| new_durable_bytes == update_bytes(pm_region_view.durable_state, write_addr, bytes_to_write)
+                ||| new_durable_bytes == durable_state
+                ||| new_durable_bytes == update_bytes(durable_state, write_addr, bytes_to_write)
             })
     {
         let chunk = write_addr / const_persistence_chunk_size();
@@ -512,20 +510,58 @@ verus! {
         // (1) the chunk isn't flushed at all and (2) the chunk is entirely flushed.
 
         assert(chunk_trigger(chunk));
-        if chunk_corresponds(new_durable_bytes, pm_region_view.durable_state, chunk) {
+        if chunk_corresponds(new_durable_bytes, durable_state, chunk) {
             assert forall|addr: int| 0 <= addr < new_durable_bytes.len()
-                implies #[trigger] new_durable_bytes[addr] == pm_region_view.durable_state[addr] by {
+                implies #[trigger] new_durable_bytes[addr] == durable_state[addr] by {
                 assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            assert(new_durable_bytes =~= pm_region_view.durable_state);
+            assert(new_durable_bytes =~= durable_state);
         }
         else {
             assert forall|addr: int| 0 <= addr < new_durable_bytes.len()
                 implies #[trigger] new_durable_bytes[addr] ==
-                        update_bytes(pm_region_view.durable_state, write_addr, bytes_to_write)[addr] by {
+                        update_bytes(durable_state, write_addr, bytes_to_write)[addr] by {
                 assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            assert(new_durable_bytes =~= update_bytes(pm_region_view.durable_state, write_addr, bytes_to_write));
+            assert(new_durable_bytes =~= update_bytes(durable_state, write_addr, bytes_to_write));
+        }
+    }
+
+    pub proof fn lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write()
+        ensures
+            (forall|durable_state: Seq<u8>,
+               write_addr: int,
+               bytes_to_write: Seq<u8>,
+               new_durable_bytes: Seq<u8>| {
+               &&& bytes_to_write.len() == const_persistence_chunk_size()
+               &&& write_addr % const_persistence_chunk_size() == 0
+               &&& 0 <= write_addr
+               &&& write_addr + const_persistence_chunk_size() <= durable_state.len()
+               &&& #[trigger] can_result_from_partial_write(new_durable_bytes, durable_state,
+                                                           write_addr, bytes_to_write)
+            } ==>
+            {
+                ||| new_durable_bytes == durable_state
+                ||| new_durable_bytes == update_bytes(durable_state, write_addr, bytes_to_write)
+            })
+    {
+        assert forall|durable_state: Seq<u8>,
+               write_addr: int,
+               bytes_to_write: Seq<u8>,
+               new_durable_bytes: Seq<u8>| {
+               &&& bytes_to_write.len() == const_persistence_chunk_size()
+               &&& write_addr % const_persistence_chunk_size() == 0
+               &&& 0 <= write_addr
+               &&& write_addr + const_persistence_chunk_size() <= durable_state.len()
+               &&& #[trigger] can_result_from_partial_write(new_durable_bytes, durable_state,
+                                                           write_addr, bytes_to_write)
+            } implies
+            {
+                ||| new_durable_bytes == durable_state
+                ||| new_durable_bytes == update_bytes(durable_state, write_addr, bytes_to_write)
+            } by {
+            lemma_only_two_crash_states_introduced_by_aligned_chunk_write(new_durable_bytes, durable_state, write_addr,
+                                                                          bytes_to_write);
         }
     }
 

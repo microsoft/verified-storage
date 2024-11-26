@@ -2376,17 +2376,10 @@ impl UntrustedLogImpl {
         // and in the latter case, as shown above, we'll be in state
         // `self.state@.drop_pending_appends()`.
 
-        assert forall |s| can_result_from_partial_write(s, wrpm_region@.durable_state, log_start_addr as int, new_cdb_bytes)
-                    implies #[trigger] perm.check_permission(s) by {
+        proof {
             lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_start_addr as nat, log_size as nat,
                                                         self.cdb, prev_info, prev_state);
-            lemma_single_write_crash_effect_on_pm_region_view(s, wrpm_region@, log_start_addr as int,
-                                                              new_cdb_bytes);
-            if s == wrpm_region@.durable_state {
-                // This case is trivial -- we already know that this is a legal crash state
-            } else {
-                assert(s == pm_region_after_flush.read_state);
-            }
+            lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write();
         }
 
         // Finally, update the CDB, then flush, then flip `self.cdb`.

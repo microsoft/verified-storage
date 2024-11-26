@@ -922,13 +922,9 @@ verus! {
             // and in the latter case, as shown above, we'll be in state
             // `self.state@.drop_pending_appends()`.
 
-            assert forall |crash_bytes| can_result_from_partial_write(crash_bytes, wrpm_region@.durable_state,
-                                                                 ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes)
-                       implies
-                       #[trigger] perm.check_permission(crash_bytes) by {
+            proof {
                 lemma_invariants_imply_crash_recover(wrpm_region@, log_id, self.cdb, prev_info, prev_state);
-                lemma_single_write_crash_effect_on_pm_region_view(crash_bytes, wrpm_region@,
-                                                                  ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
+                lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write();
             }
 
             // Finally, update the CDB, then flush, then flip `self.cdb`.
