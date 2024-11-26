@@ -69,71 +69,6 @@ pub open spec fn views_differ_only_where_subregion_allows(
                                                   is_writable_absolute_addr_fn)
 }
 
-pub proof fn lemma_memories_differ_only_where_subregion_allows_is_commutative(
-    mem1: Seq<u8>,
-    mem2: Seq<u8>,
-    start: nat,
-    len: nat,
-    is_writable_absolute_addr_fn: spec_fn(int) -> bool
-)
-    ensures
-         memories_differ_only_where_subregion_allows(mem1, mem2, start, len, is_writable_absolute_addr_fn)
-         <==> memories_differ_only_where_subregion_allows(mem2, mem1, start, len, is_writable_absolute_addr_fn)
-{
-}
-
-pub proof fn lemma_memories_differ_only_where_subregion_allows_is_commutative_always()
-    ensures
-        forall|mem1: Seq<u8>, mem2: Seq<u8>, start: nat, len: nat, is_writable_absolute_addr_fn: spec_fn(int) -> bool|
-            memories_differ_only_where_subregion_allows(mem1, mem2, start, len, is_writable_absolute_addr_fn)
-            <==> memories_differ_only_where_subregion_allows(mem2, mem1, start, len, is_writable_absolute_addr_fn)
-{
-    assert forall|mem1: Seq<u8>, mem2: Seq<u8>, start: nat, len: nat, is_writable_absolute_addr_fn: spec_fn(int) -> bool|
-            memories_differ_only_where_subregion_allows(mem1, mem2, start, len, is_writable_absolute_addr_fn)
-            <==> memories_differ_only_where_subregion_allows(mem2, mem1, start, len, is_writable_absolute_addr_fn) by {
-        lemma_memories_differ_only_where_subregion_allows_is_commutative(mem1, mem2, start, len,
-                                                                         is_writable_absolute_addr_fn);
-    }
-}
-
-pub proof fn lemma_memories_differ_only_where_subregion_allows_is_transitive(
-    mem1: Seq<u8>,
-    mem2: Seq<u8>,
-    mem3: Seq<u8>,
-    start: nat,
-    len: nat,
-    is_writable_absolute_addr_fn: spec_fn(int) -> bool
-)
-    ensures
-        ({
-            &&& memories_differ_only_where_subregion_allows(mem2, mem1, start, len, is_writable_absolute_addr_fn)
-            &&& memories_differ_only_where_subregion_allows(mem3, mem2, start, len, is_writable_absolute_addr_fn)
-        } ==> memories_differ_only_where_subregion_allows(mem3, mem1, start, len, is_writable_absolute_addr_fn))
-{
-}
-
-pub proof fn lemma_memories_differ_only_where_subregion_allows_is_transitive_always()
-    ensures
-        forall|mem1: Seq<u8>, mem2: Seq<u8>, mem3: Seq<u8>, start: nat, len: nat,
-          is_writable_absolute_addr_fn: spec_fn(int) -> bool| {
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem2, mem1, start, len,
-                                                                     is_writable_absolute_addr_fn)
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem3, mem2, start, len,
-                                                                     is_writable_absolute_addr_fn)
-        } ==> memories_differ_only_where_subregion_allows(mem3, mem1, start, len, is_writable_absolute_addr_fn)
-{
-    assert forall|mem1: Seq<u8>, mem2: Seq<u8>, mem3: Seq<u8>, start: nat, len: nat,
-             is_writable_absolute_addr_fn: spec_fn(int) -> bool| {
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem2, mem1, start, len,
-                                                                     is_writable_absolute_addr_fn)
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem3, mem2, start, len,
-                                                                     is_writable_absolute_addr_fn)
-        } implies memories_differ_only_where_subregion_allows(mem3, mem1, start, len, is_writable_absolute_addr_fn) by {
-        lemma_memories_differ_only_where_subregion_allows_is_transitive(mem1, mem2, mem3, start, len,
-                                                                        is_writable_absolute_addr_fn);
-    }
-}
-
 pub proof fn lemma_state_resulting_from_partial_write_within_subregion_differs_only_where_subregion_allows(
     new_state: Seq<u8>,
     old_state: Seq<u8>,
@@ -924,34 +859,6 @@ impl WriteRestrictedPersistentMemorySubregion
             forall |addr: int| 0 <= addr < self.len() ==>
                 #[trigger] self.view(wrpm).durable_state[addr] == wrpm@.durable_state[addr + self.start()],
     {
-    }
-
-    pub proof fn lemma_if_committed_subview_unchanged_then_committed_view_unchanged<Perm, PMRegion>(
-        self,
-        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-    )
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
-        requires
-            self.opaque_relation_with_wrpm(wrpm),
-            self.view(wrpm).read_state == self.initial_subregion_view().read_state,
-        ensures
-            wrpm@.read_state == self.initial_region_view().read_state,
-    {
-        let s1 = wrpm@.read_state;
-        let s2 = self.initial_region_view().read_state;
-        assert forall|addr: int| 0 <= addr < wrpm@.len() implies
-                   #[trigger] s1[addr] == s2[addr] by {
-            if self.start() <= addr < self.end() {
-                assert(s1[addr] == self.view(wrpm).read_state[addr - self.start()]);
-                assert(s2[addr] == self.initial_subregion_view().read_state[addr - self.start()]);
-            }
-            else {
-                assert(wrpm@.read_state[addr] == self.initial_region_view().read_state[addr]);
-            }
-        }
-        assert(s1 =~= s2);
     }
 }
 

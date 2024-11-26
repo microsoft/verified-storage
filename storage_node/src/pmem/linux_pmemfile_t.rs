@@ -1,4 +1,4 @@
-// #![verus::trusted]
+#![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use core::ffi::c_void;

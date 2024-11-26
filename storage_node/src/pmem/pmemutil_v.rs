@@ -482,9 +482,9 @@ verus! {
     // This lemma establishes that, if we write a
     // `const_persistence_chunk_size()`-aligned segment of length
     // `const_persistence_chunk_size()`, then there are only two
-    // possible crash states that can happen after the write is
-    // initiated. In one of those crash states, nothing has changed;
-    // in the other, all the written bytes have been updated according
+    // possible crash states that can happen after the write is
+    // initiated. In one of those crash states, nothing has changed;
+    // in the other, all the written bytes have been updated according
     // to this write.
     pub proof fn lemma_only_two_crash_states_introduced_by_aligned_chunk_write(
         new_durable_state: Seq<u8>,
@@ -530,9 +530,9 @@ verus! {
     // This lemma establishes that, if we write a
     // `const_persistence_chunk_size()`-aligned segment of length
     // `const_persistence_chunk_size()`, then there are only two
-    // possible crash states that can happen after the write is
-    // initiated. In one of those crash states, nothing has changed;
-    // in the other, all the written bytes have been updated according
+    // possible crash states that can happen after the write is
+    // initiated. In one of those crash states, nothing has changed;
+    // in the other, all the written bytes have been updated according
     // to this write.
     pub proof fn lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write()
         ensures
@@ -587,86 +587,6 @@ verus! {
             &&& s2.len() == s.len()
             &&& forall|i: int| 0 <= i < s.len() && !addrs.contains(i) ==> s[i] == s2[i]
         } ==> recover_fn(s2) == recover_fn(s)
-    }
-
-    // This lemma establishes that, if we only write to addresses
-    // that aren't accessed by a recovery function, then all additional
-    // crash states introduced have the same recovered-to state as the
-    // current one.
-    pub proof fn lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write<T>(
-        new_durable_state: Seq<u8>,
-        durable_state: Seq<u8>,
-        write_addr: int,
-        bytes_to_write: Seq<u8>,
-        addrs: Set<int>,
-        recover_fn: spec_fn(Seq<u8>) -> T,
-    )
-        requires
-            addresses_not_accessed_by_recovery::<T>(durable_state, addrs, recover_fn),
-            forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr),
-            0 <= write_addr,
-            write_addr + bytes_to_write.len() <= durable_state.len(),
-            can_result_from_partial_write(new_durable_state, durable_state, write_addr, bytes_to_write),
-        ensures
-            recover_fn(new_durable_state) == recover_fn(durable_state)
-    {
-        assert(new_durable_state.len() == durable_state.len());
-        assert forall|i: int| 0 <= i < durable_state.len() && !addrs.contains(i)
-            implies new_durable_state[i] == durable_state[i] by {
-            lemma_auto_can_result_from_partial_write_effect();
-        }
-    }
-
-    // This lemma establishes that, if we only write to addresses
-    // that aren't accessed by a recovery function, then all additional
-    // crash states introduced have the same recovered-to state as the
-    // current one.
-    pub proof fn lemma_auto_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write<T>(
-        durable_state: Seq<u8>,
-        addrs: Set<int>,
-        recover_fn: spec_fn(Seq<u8>) -> T,
-    )
-        requires
-            addresses_not_accessed_by_recovery::<T>(durable_state, addrs, recover_fn),
-        ensures
-            forall|new_durable_state: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>| {
-                &&& forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr)
-                &&& 0 <= write_addr
-                &&& write_addr + bytes_to_write.len() <= durable_state.len()
-                &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state, write_addr,
-                                                           bytes_to_write)
-            } ==> recover_fn(new_durable_state) == recover_fn(durable_state)
-    {
-        assert forall|new_durable_state: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>| {
-                &&& forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr)
-                &&& 0 <= write_addr
-                &&& write_addr + bytes_to_write.len() <= durable_state.len()
-                &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state, write_addr,
-                                                           bytes_to_write)
-            } implies recover_fn(new_durable_state) == recover_fn(durable_state) by {
-            lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
-                new_durable_state, durable_state, write_addr, bytes_to_write, addrs, recover_fn
-            );
-        }
-    }
-
-    // This lemma establishes that if one performs a write and then a
-    // flush, then the committed contents reflect that write.
-    pub proof fn lemma_write_reflected_after_write(
-        pm_region_view: PersistentMemoryRegionView,
-        new_pm_region_view: PersistentMemoryRegionView,
-        addr: int,
-        bytes: Seq<u8>,
-    )
-        requires
-            0 <= addr,
-            addr + bytes.len() <= pm_region_view.len(),
-            new_pm_region_view.can_result_from_write(pm_region_view, addr, bytes),
-        ensures
-            new_pm_region_view.read_state.subrange(addr as int, addr + bytes.len()) == bytes
-    {
-        // All we need is to get Z3 to consider extensional equality.
-         assert(new_pm_region_view.read_state.subrange(addr as int, addr + bytes.len()) =~= bytes);
     }
 
     // Calculates the CRC for a single `PmCopy` object.
@@ -748,18 +668,6 @@ verus! {
     {
         assert(mem.subrange(pos2 as int, pos3 as int) =~=
                mem.subrange(pos1 as int, pos4 as int).subrange(pos2 - pos1, pos3 - pos1));
-    }
-
-    // This lemma proves that an extract_bytes of an extract_bytes is equal to the result of a single call to
-    // extract_bytes.
-    pub proof fn lemma_extract_bytes_of_extract_bytes_equal(mem: Seq<u8>, start1: nat, start2: nat, len1: nat, len2: nat)
-        requires 
-            start1 <= start2 <= start2 + len2 <= start1 + len1 <= mem.len()
-        ensures 
-            extract_bytes(mem, start2, len2) ==
-            extract_bytes(extract_bytes(mem, start1, len1), (start2 - start1) as nat, len2)
-    {
-        lemma_subrange_of_subrange_equal(mem, start1, start2, start2 + len2, start1 + len1);
     }
 
     // This lemma proves that a subrange of a subrange is equal to the result of a single call to
@@ -914,4 +822,5 @@ verus! {
             start <= addr < end ==> views_match_at_addr(v1, v2, addr)
     }
     
-}
+
+}
