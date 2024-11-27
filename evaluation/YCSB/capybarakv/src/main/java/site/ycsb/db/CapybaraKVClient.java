@@ -94,13 +94,16 @@ public class CapybaraKVClient extends DB {
       byte[] serializedValues = serializeValues(values);
       long id = getShardId(key);
       CapybaraKV kv = null;
+      ReentrantReadWriteLock lock = null;
       // Shard setup may race with operations, so keep trying to 
       // access the KV we want until it exists.
       // TODO: there should a timeout/maximum number of iterations
       while (kv == null) {
         kv = kvMap.get(id);
       }
-      ReentrantReadWriteLock lock = kvLockMap.get(id);
+      while (lock == null) {
+        lock = kvLockMap.get(id);
+      }
       lock.writeLock().lock();
       kv.insert(table, key, serializedValues);
       kv.commit();
@@ -119,13 +122,16 @@ public class CapybaraKVClient extends DB {
     try {
       long id = getShardId(key);
       CapybaraKV kv = null;
+      ReentrantReadWriteLock lock = null;
       // Shard setup may race with operations, so keep trying to 
       // access the KV we want until it exists.
       // TODO: there should a timeout/maximum number of iterations
       while (kv == null) {
         kv = kvMap.get(id);
       }
-      ReentrantReadWriteLock lock = kvLockMap.get(id);
+      while (lock == null) {
+        lock = kvLockMap.get(id);
+      }
 
       lock.writeLock().lock();
       // read the current value at this key
@@ -159,13 +165,16 @@ public class CapybaraKVClient extends DB {
     try {
       long id = getShardId(key);
       CapybaraKV kv = null;
+      ReentrantReadWriteLock lock = null;
       // Shard setup may race with operations, so keep trying to 
       // access the KV we want until it exists.
       // TODO: there should a timeout/maximum number of iterations
       while (kv == null) {
         kv = kvMap.get(id);
       }
-      ReentrantReadWriteLock lock = kvLockMap.get(id);
+      while (lock == null) {
+        lock = kvLockMap.get(id);
+      }
       lock.readLock().lock();
       byte[] values = kv.read(table, key);
       deserializeValues(values, fields, result);

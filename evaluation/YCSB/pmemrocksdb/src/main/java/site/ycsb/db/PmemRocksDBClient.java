@@ -104,7 +104,8 @@ public class PmemRocksDBClient extends DB {
     final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
 
     RocksDB.loadLibrary();
-    OptionsUtil.loadOptionsFromFile(optionsFile.toAbsolutePath().toString(), Env.getDefault(), options, cfDescriptors);
+    OptionsUtil.loadOptionsFromFile(optionsFile.toAbsolutePath().toString(), 
+        Env.getPmemDefault(), options, cfDescriptors);
     dbOptions = options;
 
     final RocksDB db = RocksDB.open(options, rocksDbDir.toAbsolutePath().toString(), cfDescriptors, cfHandles);

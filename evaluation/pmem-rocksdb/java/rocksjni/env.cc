@@ -28,6 +28,17 @@ jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
 }
 
 /*
+ * Class:     org_rocksdb_Env
+ * Method:    getDefaultPmemEnvInternal
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_Env_getDefaultPmemEnvInternal(
+  JNIEnv*, jclass
+) {
+  return reinterpret_cast<jlong>(rocksdb::NewDCPMMEnvDefault());
+}
+
+/*
  * Class:     org_rocksdb_RocksEnv
  * Method:    disposeInternal
  * Signature: (J)V

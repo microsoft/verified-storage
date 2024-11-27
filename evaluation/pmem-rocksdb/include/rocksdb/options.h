@@ -1169,7 +1169,7 @@ struct DBOptions {
   // Indicates if compress the value
   bool dcpmm_compress_value = true;
 
-  bool recycle_dcpmm_sst = false;
+  bool recycle_dcpmm_sst = true;
 #endif
 };
 

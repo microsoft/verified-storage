@@ -1648,6 +1648,8 @@ struct DCPMMEnvOptions {
   size_t wal_size_addition = 64 << 20;
 };
 
+Env* NewDCPMMEnvDefault(Env* base_env = nullptr);
+
 // Returns a new environment that uses Intel DCPMM
 Env* NewDCPMMEnv(const DCPMMEnvOptions& options, Env* base_env = nullptr);
 

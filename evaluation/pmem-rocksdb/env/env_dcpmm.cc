@@ -569,6 +569,12 @@ Status DCPMMEnv::NewSequentialFile(const std::string& fname,
   return status;
 }
 
+Env* NewDCPMMEnvDefault(Env* base_env) {
+  std::cerr << "new dcpmm env!" << std::endl;
+  return new DCPMMEnv(rocksdb::DCPMMEnvOptions(), base_env ? base_env : rocksdb::Env::Default());
+}
+
+
 Env* NewDCPMMEnv(const DCPMMEnvOptions& options, Env* base_env) {
   std::cerr << "new dcpmm env!" << std::endl;
   return new DCPMMEnv(options, base_env ? base_env : rocksdb::Env::Default());
@@ -579,6 +585,14 @@ Env* NewDCPMMEnv(const DCPMMEnvOptions& options, Env* base_env) {
 #else
 
 namespace rocksdb {
+
+Env* NewDCPMMEnvDefault(Env* base_env) {
+  UNUSED(base_env);
+  fprintf(stderr, "You have not build rocksdb with DCPMM support\n");
+  fprintf(stderr, "Please see dcpmm/README for details\n");
+  abort();
+  return nullptr;
+}
 
 Env* NewDCPMMEnv(const DCPMMEnvOptions& options, Env* base_env) {
   UNUSED(options);

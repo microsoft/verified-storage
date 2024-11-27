@@ -1308,7 +1308,7 @@ TEST_F(DBIteratorTest, DBIteratorSkipInternalKeys) {
       internal_iter->AddPut("c", "val_c");
       internal_iter->Finish();
 
-      options.max_sequential_skip_in_iterations = 1000;
+      options.max_sequential_skip_in_iterations = 500;
       ro.max_skippable_internal_keys = i;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
           env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),

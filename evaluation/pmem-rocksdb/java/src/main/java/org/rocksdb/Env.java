@@ -18,6 +18,7 @@ public abstract class Env extends RocksObject {
   }
 
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
+  private static final Env DEFAULT_DCPMM_ENV = new RocksEnv(getDefaultPmemEnvInternal());
   static {
     /**
      * The Ownership of the Default Env belongs to C++
@@ -25,6 +26,7 @@ public abstract class Env extends RocksObject {
      * we cannot accidentally free it from Java.
      */
     DEFAULT_ENV.disOwnNativeHandle();
+    DEFAULT_DCPMM_ENV.disOwnNativeHandle();
   }
 
   /**
@@ -40,6 +42,10 @@ public abstract class Env extends RocksObject {
    */
   public static Env getDefault() {
     return DEFAULT_ENV;
+  }
+
+  public static Env getPmemDefault() {
+    return DEFAULT_DCPMM_ENV;
   }
 
   /**
@@ -150,6 +156,7 @@ public abstract class Env extends RocksObject {
   }
 
   private static native long getDefaultEnvInternal();
+  private static native long getDefaultPmemEnvInternal();
   private native void setBackgroundThreads(
       final long handle, final int number, final byte priority);
   private native int getBackgroundThreads(final long handle,

@@ -15,11 +15,12 @@ def main():
     parser = arg_parser()
     args = parser.parse_args()
     db = args.db
+    experiment_config_file = args.experiment_config
 
     configs = {}
 
     # Read the experiment config file to get other configurable info
-    with open("experiment_config.toml") as f:
+    with open(experiment_config_file) as f:
         contents = f.read()
         configs = toml.loads(contents)
     configs = configs["experiment_config"]
@@ -32,7 +33,7 @@ def main():
 
     print("Running workloads", args.workloads)
 
-    run_experiment(configs, db, output_dir_paths, args.workloads)
+    run_experiment(configs, db, output_dir_paths, args.workloads, experiment_config_file)
 
 def list_of_strings(arg):
     return [s.upper() for s in arg.split(',')]
@@ -50,6 +51,8 @@ def arg_parser():
             argument is not provided.", 
         required=False,
         default=["A", "B", "C", "D", "E", "F", "X"])
+    parser.add_argument("--experiment_config", type=str, 
+        help="path to the experiment config file to use", default="experiment_config.toml")
 
     return parser
 
@@ -62,9 +65,9 @@ def setup_pm(configs):
     subprocess.check_call(["sudo", "mount", "-o", "dax", pm_device, mount_point]);
     subprocess.check_call(["sudo", "chmod", "777", mount_point])
 
-def setup_capybarakv(configs):
+def setup_capybarakv(configs, experiment_config_file):
     subprocess.check_call(
-        ["cargo", "run", "--release", "--", "../capybarakv_config.toml", "../experiment_config.toml"], 
+        ["cargo", "run", "--release", "--", "../capybarakv_config.toml", os.path.join("..", experiment_config_file)], 
         cwd="ycsb_ffi/"
     )
 
@@ -92,6 +95,7 @@ def create_output_dirs(configs, db):
         Path(results_dir, db, "Runa"),
         Path(results_dir, db, "Runb"),
         Path(results_dir, db, "Runc"),
+        Path(results_dir, db, "Rund"),
         Path(results_dir, db, "Loade"),
         Path(results_dir, db, "Runf"),
         Path(results_dir, db, "Loadx"),
@@ -119,26 +123,27 @@ def run_load_x_check(workloads):
         return True 
     return False
     
-def run_experiment(configs, db, output_dir_paths, workloads):
+def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_file):
     iterations = configs["iterations"]
     p = None
 
-    options = build_options(configs, db)
+    options = build_options(configs, db, experiment_config_file)
 
     for i in range(1, iterations+1):
         loada_output_path = os.path.join(output_dir_paths[0], "Run" + str(i))
         runa_output_path = os.path.join(output_dir_paths[1], "Run" + str(i))
         runb_output_path = os.path.join(output_dir_paths[2], "Run" + str(i))
         runc_output_path = os.path.join(output_dir_paths[3], "Run" + str(i))
-        loade_output_path = os.path.join(output_dir_paths[4], "Run" + str(i))
-        runf_output_path = os.path.join(output_dir_paths[5], "Run" + str(i))
-        loadx_output_path = os.path.join(output_dir_paths[6], "Run" + str(i))
-        runx_output_path = os.path.join(output_dir_paths[7], "Run" + str(i))
+        rund_output_path = os.path.join(output_dir_paths[4], "Run" + str(i))
+        loade_output_path = os.path.join(output_dir_paths[5], "Run" + str(i))
+        runf_output_path = os.path.join(output_dir_paths[6], "Run" + str(i))
+        loadx_output_path = os.path.join(output_dir_paths[7], "Run" + str(i))
+        runx_output_path = os.path.join(output_dir_paths[8], "Run" + str(i))
 
         if run_load_a_check(workloads):
             setup_pm(configs)
             if db == "capybarakv":
-                setup_capybarakv(configs)
+                setup_capybarakv(configs, experiment_config_file)
             if db == "redis":
                 p = setup_redis(configs)
         
@@ -174,11 +179,19 @@ def run_experiment(configs, db, output_dir_paths, workloads):
                         stdout=f,
                         # stderr=f,
                         check=True)
+            if "D" in workloads:
+                with open(rund_output_path, "w") as f:
+                    subprocess.run(
+                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadd"] + options, 
+                        cwd="YCSB/",
+                        stdout=f,
+                        # stderr=f,
+                        check=True)
 
         if run_load_e_check(workloads):
             if db == "capybarakv":
                 setup_pm(configs)
-                setup_capybarakv(configs)
+                setup_capybarakv(configs, experiment_config_file)
             elif db == "redis":
                 cleanup(configs, db, redis_process=p)
                 setup_pm(configs)
@@ -205,7 +218,7 @@ def run_experiment(configs, db, output_dir_paths, workloads):
         if run_load_x_check(workloads):
             if db == "capybarakv":
                 setup_pm(configs)
-                setup_capybarakv(configs)
+                setup_capybarakv(configs, experiment_config_file)
             elif db == "redis":
                 cleanup(configs, db, redis_process=p)
                 setup_pm(configs)
@@ -231,7 +244,7 @@ def run_experiment(configs, db, output_dir_paths, workloads):
         if db == "redis":
             cleanup(configs, db, redis_process=p)
 
-def build_options(configs, db):
+def build_options(configs, db, experiment_config_file):
     iterations = configs["iterations"]
     threads = configs["threads"]
     mount_point = configs["mount_point"]
@@ -249,7 +262,7 @@ def build_options(configs, db):
 
     if db == "capybarakv":
         options += ["-p", "capybarakv.configfile=../capybarakv_config.toml"]
-        options += ["-p", "experiment.configfile=../experiment_config.toml"]
+        options += ["-p", "experiment.configfile=" + os.path.join("..", experiment_config_file)]
     elif db == "redis":
         options += ["-p", "redis.host=127.0.0.1"]
         options += ["-p", "redis.port=6379"]
@@ -257,7 +270,7 @@ def build_options(configs, db):
         options += ["-p", "rocksdb.dir=" + mount_point]
         options += ["-p", "rocksdb.allow_mmap_reads=true"]
         options += ["-p", "rocksdb.allow_mmap_writes=true"]
-        options += ["-p", "options.env = rocksdb::NewDCPMMEnv(rocksdb::DCPMMEnvOptions());"]
+        options += ["-p", "max_background_compaction=4"]
     else:
         assert False, "Not implemented"
     
