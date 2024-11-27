@@ -1,0 +1,220 @@
+2024-11-26T04:03:56.910977444+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910981947+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910966027+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910978508+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910989002+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910982146+00:00
+2024-11-26T04:03:56.911210036+00:00
+2024-11-26T04:03:56.910977727+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+2024-11-26T04:03:56.910990683+00:00
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+2024-11-26T04:03:56.910980746+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910979838+00:00
+2024-11-26T04:03:56.911674588+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910980229+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+2024-11-26T04:03:56.910964707+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+2024-11-26T04:03:56.911028884+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+2024-11-26T04:03:56.911087544+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911074829+00:00
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911086027+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911017896+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911080728+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+2024-11-26T04:03:56.911147960+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910977962+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+2024-11-26T04:03:56.910968159+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911022980+00:00
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+2024-11-26T04:03:56.911011179+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+2024-11-26T04:03:56.911071304+00:00
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading experiment configs from "../experiment_config32.toml"
+2024-11-26T04:03:56.910990503+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911658157+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+2024-11-26T04:03:56.910986896+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.910989046+00:00
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T04:03:56.911783369+00:00
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+2024-11-26T04:03:56.911101770+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+Reading experiment configs from "../experiment_config32.toml"
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading experiment configs from "../experiment_config32.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config32.toml"
+Reading experiment configs from "../experiment_config32.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_32", threads: 32, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Created shard with id 13
+Created shard with id 1
+Created shard with id 9
+Created shard with id 10
+Created shard with id 20
+Created shard with id 7
+Created shard with id 26
+Created shard with id 14
+Created shard with id 5
+Created shard with id 22
+Created shard with id 28
+Created shard with id 3
+Created shard with id 27
+Created shard with id 31
+Created shard with id 8
+Created shard with id 24
+Created shard with id 17
+Created shard with id 16
+Created shard with id 21
+Created shard with id 25
+Created shard with id 15
+Created shard with id 18
+Created shard with id 2
+Created shard with id 4
+Created shard with id 19
+Created shard with id 11
+Created shard with id 23
+Created shard with id 6
+Created shard with id 29
+Created shard with id 12
+Created shard with id 30
+Created shard with id 0
+Cleaning up
+[OVERALL], RunTime(ms), 32882
+[OVERALL], Throughput(ops/sec), 152058.87719725078
+[TOTAL_GCS_G1_Young_Generation], Count, 34
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 89
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.2706648014111064
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 34
+[TOTAL_GC_TIME], Time(ms), 89
+[TOTAL_GC_TIME_%], Time(%), 0.2706648014111064
+[CLEANUP], Operations, 32
+[CLEANUP], AverageLatency(us), 621712.0
+[CLEANUP], MinLatency(us), 620544
+[CLEANUP], MaxLatency(us), 623103
+[CLEANUP], 95thPercentileLatency(us), 623103
+[CLEANUP], 99thPercentileLatency(us), 623103
+[INSERT], Operations, 5000000
+[INSERT], AverageLatency(us), 195.2047474
+[INSERT], MinLatency(us), 7
+[INSERT], MaxLatency(us), 423167
+[INSERT], 95thPercentileLatency(us), 338
+[INSERT], 99thPercentileLatency(us), 1014
+[INSERT], Return=OK, 5000000

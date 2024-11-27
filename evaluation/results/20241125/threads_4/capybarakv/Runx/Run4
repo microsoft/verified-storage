@@ -1,0 +1,67 @@
+2024-11-26T00:28:59.759207360+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T00:28:59.759214869+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T00:28:59.759209020+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config4.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config4.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading experiment configs from "../experiment_config4.toml"
+2024-11-26T00:28:59.759202809+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config4.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Created shard with id 3
+Created shard with id 0
+Created shard with id 2
+Created shard with id 1
+Cleaning up
+[OVERALL], RunTime(ms), 98492
+[OVERALL], Throughput(ops/sec), 101531.0888193965
+[TOTAL_GCS_G1_Young_Generation], Count, 46
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 107
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.10863826503675425
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 46
+[TOTAL_GC_TIME], Time(ms), 107
+[TOTAL_GC_TIME_%], Time(%), 0.10863826503675425
+[READ], Operations, 2499597
+[READ], AverageLatency(us), 28.00561770557414
+[READ], LatencyVariance(us), 3377.4391844430033
+[READ], MinLatency(us), 2
+[READ], MaxLatency(us), 8967
+[READ], 95thPercentileLatency(us), 0
+[READ], 99thPercentileLatency(us), 0
+[READ], Return=OK, 2499597
+[READ-MODIFY-WRITE], Operations, 499348
+[READ-MODIFY-WRITE], AverageLatency(us), 51.003390421109124
+[READ-MODIFY-WRITE], LatencyVariance(us), 5393.01460156047
+[READ-MODIFY-WRITE], MinLatency(us), 9
+[READ-MODIFY-WRITE], MaxLatency(us), 8995
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 0
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 0
+[CLEANUP], Operations, 4
+[CLEANUP], AverageLatency(us), 2186942.25
+[CLEANUP], LatencyVariance(us), 529.6875
+[CLEANUP], MinLatency(us), 2186915
+[CLEANUP], MaxLatency(us), 2186967
+[UPDATE], Operations, 7999751
+[UPDATE], AverageLatency(us), 33.924608278432665
+[UPDATE], LatencyVariance(us), 6114.00707561046
+[UPDATE], MinLatency(us), 5
+[UPDATE], MaxLatency(us), 125521
+[UPDATE], 95thPercentileLatency(us), 0
+[UPDATE], 99thPercentileLatency(us), 0
+[UPDATE], Return=OK, 7999751

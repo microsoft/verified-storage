@@ -1,0 +1,41 @@
+2024-11-27T00:04:51.322807855+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config1.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_1", threads: 1, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Created shard with id 0
+Cleaning up
+[OVERALL], RunTime(ms), 82829
+[OVERALL], Throughput(ops/sec), 120730.66196621956
+[TOTAL_GCS_G1_Young_Generation], Count, 51
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 101
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.12193796858588175
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 51
+[TOTAL_GC_TIME], Time(ms), 101
+[TOTAL_GC_TIME_%], Time(%), 0.12193796858588175
+[READ], Operations, 4999991
+[READ], AverageLatency(us), 3.3785588814059864
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 4463
+[READ], 95thPercentileLatency(us), 5
+[READ], 99thPercentileLatency(us), 6
+[READ], Return=OK, 4999991
+[CLEANUP], Operations, 1
+[CLEANUP], AverageLatency(us), 1007360.0
+[CLEANUP], MinLatency(us), 1007104
+[CLEANUP], MaxLatency(us), 1007615
+[CLEANUP], 95thPercentileLatency(us), 1007615
+[CLEANUP], 99thPercentileLatency(us), 1007615
+[UPDATE], Operations, 5000009
+[UPDATE], AverageLatency(us), 7.532101242217764
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 8067
+[UPDATE], 95thPercentileLatency(us), 10
+[UPDATE], 99thPercentileLatency(us), 13
+[UPDATE], Return=OK, 5000009

@@ -1,0 +1,65 @@
+2024-11-26T00:17:41.189049531+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T00:17:41.189043600+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T00:17:41.189058396+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-26T00:17:41.189041073+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config4.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config4.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Reading experiment configs from "../experiment_config4.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config4.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241125/threads_4", threads: 4, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 10, op_count: 10000000, record_count: 5000000 } }
+Created shard with id 1
+Created shard with id 3
+Created shard with id 2
+Created shard with id 0
+Cleaning up
+[OVERALL], RunTime(ms), 58152
+[OVERALL], Throughput(ops/sec), 171963.13110469116
+[TOTAL_GCS_G1_Young_Generation], Count, 62
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 120
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.20635575732562939
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 62
+[TOTAL_GC_TIME], Time(ms), 120
+[TOTAL_GC_TIME_%], Time(%), 0.20635575732562939
+[READ], Operations, 10000000
+[READ], AverageLatency(us), 9.6121604
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 90047
+[READ], 95thPercentileLatency(us), 30
+[READ], 99thPercentileLatency(us), 41
+[READ], Return=OK, 10000000
+[READ-MODIFY-WRITE], Operations, 4997117
+[READ-MODIFY-WRITE], AverageLatency(us), 24.472972716068085
+[READ-MODIFY-WRITE], MinLatency(us), 6
+[READ-MODIFY-WRITE], MaxLatency(us), 47007
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 54
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 74
+[CLEANUP], Operations, 4
+[CLEANUP], AverageLatency(us), 3044352.0
+[CLEANUP], MinLatency(us), 3043328
+[CLEANUP], MaxLatency(us), 3045375
+[CLEANUP], 95thPercentileLatency(us), 3045375
+[CLEANUP], 99thPercentileLatency(us), 3045375
+[UPDATE], Operations, 4997117
+[UPDATE], AverageLatency(us), 13.404335339756903
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 6435
+[UPDATE], 95thPercentileLatency(us), 33
+[UPDATE], 99thPercentileLatency(us), 44
+[UPDATE], Return=OK, 4997117
