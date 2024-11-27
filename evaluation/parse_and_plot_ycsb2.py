@@ -3,11 +3,12 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+import pprint
 
-thread_counts = [1, 2, 4, 8]
-# TODO: add run d
+thread_counts = [1, 2, 4, 8, 16]
 workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Loade', 'Runf', 'Loadx', 'Runx']
 workload_titles = ['LoadA', 'RunA', 'RunB', 'RunC', 'RunD', 'LoadE', 'RunF', 'LoadX', 'RunX']
+nice_names = {"redis": "pmem-Redis", "pmemrocksdb": "pmem-RocksDB", "capybarakv": "CapybaraKV"}
 
 def parse_data(fs, runs, result_dir):
     raw_results = {w: {} for w in workloads}
@@ -17,17 +18,13 @@ def parse_data(fs, runs, result_dir):
     for w in workloads:
         for t in thread_counts:
             raw_results[w][t] = {}
-            if t > 2:
-                # TODO: remove
-                raw_results[w][t] = {f: [0] for f in fs}
-                continue
             for f in fs:
+                if f == "redis":
+                    # TODO: remove
+                    raw_results[w][t] = {f: [0] for f in fs}
+                    continue
                 run_dir = os.path.join(result_dir, "threads_" + str(t), f, w)
                 raw_results[w][t][f] = []
-
-                if w == "Rund":
-                    # TODO REMOVE
-                    continue
 
                 for i in runs:
                    run_file = os.path.join(run_dir, "Run" + str(i))
@@ -44,19 +41,14 @@ def parse_data(fs, runs, result_dir):
         for t in thread_counts:
             avg_results[w][t] = []
             for f in fs:
-                if w == "Rund":
-                    # TODO REMOVE
-                    avg_results[w][t].append(0)
-                else:
-                    avg_results[w][t].append(sum(raw_results[w][t][f]) / len(raw_results[w][t][f]))
+                avg_results[w][t].append(sum(raw_results[w][t][f]) / len(raw_results[w][t][f]))
+    pprint.pprint(avg_results)
 
     return avg_results
 
 def plot_data(fs, avg_results, output_file):
     vert = 3
     horiz = 3
-
-    print(avg_results)
 
     fig, ax = plt.subplots(vert, horiz)
     w_index = 0
@@ -72,17 +64,24 @@ def plot_data(fs, avg_results, output_file):
             ax[i][j].set_prop_cycle(color=["blue", "orange", "black"], marker=['o', 'x', '+'])
             ax[i][j].plot(thread_counts, values)
             ax[i][j].set_xticks(thread_counts)
-            ax[i][j].sharey(ax[0][0])
-            ax[i][j].set_ylim(top=300)
+            # ax[i][j].sharey(ax[0][0])
+            # ax[i][j].set_ylim(top=300)
             ax[i][j].set_title(workload_titles[w_index])
             ax[i][j].set_axisbelow(True)
+            ax[i][j].tick_params(axis="both", labelsize="10")
             
             w_index += 1
 
     fig.tight_layout()
-    fig.subplots_adjust(top=0.85)
-    fig.legend(fs, loc="upper center", bbox_to_anchor=(0.5, 1), ncols=3)
-    plt.savefig(output_file, format="pdf")
+    # fig.subplots_adjust(top=0.85)
+    fig.supxlabel("Thread count", y=-0.01)
+    fig.supylabel("Throughput (Kops/s)")
+    fig.legend(fs, loc="upper center",  ncols=3)
+    fig.set_figwidth(9.4)
+    fig.set_figheight(4)
+    plt.subplots_adjust(left=0.08, top=0.85, bottom=0.1)
+
+    plt.savefig(output_file, format="pdf", bbox_inches="tight")
 
 
 def main():
@@ -96,6 +95,7 @@ def main():
     fs = []
     for i in range(0, num_fs):
         fs.append(args[i+1])
+    fs_nice = [nice_names[f] for f in fs]
 
     num_runs = int(args[num_fs+1])
     start_run_id = int(args[num_fs+2])
@@ -107,6 +107,6 @@ def main():
         runs.append(i)
 
     avg_results = parse_data(fs, runs, result_dir)
-    plot_data(fs, avg_results, output_file)
+    plot_data(fs_nice, avg_results, output_file)
 
 main()
