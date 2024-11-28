@@ -1,0 +1,53 @@
+2024-11-27T21:31:26.920824887+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+2024-11-27T21:31:26.920824749+00:00
+Reading CapybaraKV configs from "../capybarakv_config.toml"
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config2.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241127/threads_2", threads: 2, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 5, op_count: 5000000, record_count: 5000000 } }
+capybarakv_config: CapybaraKvConfig { capybarakv_config: DbOptions { kv_file: "/mnt/pmem/capybarakv", node_size: 16, num_keys: 7000000, region_size: 53687091200 } }
+Reading experiment configs from "../experiment_config2.toml"
+experiment_config: ExperimentConfig { experiment_config: ExperimentOptions { results_dir: "results/20241127/threads_2", threads: 2, mount_point: "/mnt/pmem", pm_device: "/dev/pmem0", iterations: 5, op_count: 5000000, record_count: 5000000 } }
+Created shard with id 1
+Created shard with id 0
+Cleaning up
+[OVERALL], RunTime(ms), 38918
+[OVERALL], Throughput(ops/sec), 128475.25566575877
+[TOTAL_GCS_G1_Young_Generation], Count, 32
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 46
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.11819723521249807
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 32
+[TOTAL_GC_TIME], Time(ms), 46
+[TOTAL_GC_TIME_%], Time(%), 0.11819723521249807
+[READ], Operations, 5000000
+[READ], AverageLatency(us), 5.5000392
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 5275
+[READ], 95thPercentileLatency(us), 16
+[READ], 99thPercentileLatency(us), 18
+[READ], Return=OK, 5000000
+[READ-MODIFY-WRITE], Operations, 2499593
+[READ-MODIFY-WRITE], AverageLatency(us), 15.601200675469967
+[READ-MODIFY-WRITE], MinLatency(us), 6
+[READ-MODIFY-WRITE], MaxLatency(us), 14079
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 27
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 36
+[CLEANUP], Operations, 2
+[CLEANUP], AverageLatency(us), 424832.0
+[CLEANUP], MinLatency(us), 424704
+[CLEANUP], MaxLatency(us), 424959
+[CLEANUP], 95thPercentileLatency(us), 424959
+[CLEANUP], 99thPercentileLatency(us), 424959
+[UPDATE], Operations, 2499593
+[UPDATE], AverageLatency(us), 9.047007652845883
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 3581
+[UPDATE], 95thPercentileLatency(us), 20
+[UPDATE], 99thPercentileLatency(us), 23
+[UPDATE], Return=OK, 2499593

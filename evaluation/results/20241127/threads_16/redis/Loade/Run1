@@ -1,0 +1,43 @@
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+[OVERALL], RunTime(ms), 118455
+[OVERALL], Throughput(ops/sec), 42210.12198725254
+[TOTAL_GCS_G1_Young_Generation], Count, 44
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 74
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.062470980541133765
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 44
+[TOTAL_GC_TIME], Time(ms), 74
+[TOTAL_GC_TIME_%], Time(%), 0.062470980541133765
+[CLEANUP], Operations, 16
+[CLEANUP], AverageLatency(us), 1042.75
+[CLEANUP], MinLatency(us), 759
+[CLEANUP], MaxLatency(us), 1378
+[CLEANUP], 95thPercentileLatency(us), 1316
+[CLEANUP], 99thPercentileLatency(us), 1378
+[INSERT], Operations, 5000000
+[INSERT], AverageLatency(us), 375.1927644
+[INSERT], MinLatency(us), 53
+[INSERT], MaxLatency(us), 16783
+[INSERT], 95thPercentileLatency(us), 492
+[INSERT], 99thPercentileLatency(us), 1418
+[INSERT], Return=OK, 5000000
