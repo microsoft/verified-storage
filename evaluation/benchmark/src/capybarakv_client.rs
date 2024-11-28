@@ -1,6 +1,6 @@
 use storage_node::kv::kvimpl_t::*;
 use storage_node::pmem::linux_pmemfile_t::*;
-use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, unmount_pm_fs};
+use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmsafe::PmCopy;
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 // TODO: read these from config file
 const KVSTORE_ID: u128 = 1234;
 const KVSTORE_FILE: &str = "/mnt/pmem/capybarakv";
-const REGION_SIZE: u64 = 1024*1024*1024;
+const REGION_SIZE: u64 = 1024*1024*1024*115;
 
 // TODO: should make a capybarakv util crate so that you
 // can share some of these functions with ycsb_ffi?
@@ -35,12 +35,12 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
 {
     type E = KvError<K>;
 
-    fn setup() -> Result<(), Self::E> {
+    fn setup(num_keys: u64) -> Result<(), Self::E> {
         init_and_mount_pm_fs();
 
         let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
         KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
-            &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
+            &mut kv_region, KVSTORE_ID, num_keys + 1, 1, 1
         )?;
 
         Ok(())
@@ -55,13 +55,14 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
     }
 
     fn timed_start() -> Result<(Self, Duration), Self::E> {
-        init_and_mount_pm_fs();
+        // init_and_mount_pm_fs();
+        remount_pm_fs();
 
         let t0 = Instant::now();
-        let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
-        KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
-            &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
-        )?;
+        // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
+        // KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
+        //     &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
+        // )?;
 
         let mut region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
         let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(

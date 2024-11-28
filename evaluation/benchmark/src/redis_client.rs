@@ -52,6 +52,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
         crate::init_and_mount_pm_fs();
 
         // Start the redis instance
+        println!("Starting redis server");
         
         let redis_server = Command::new("sudo")
             .args(["../pmem-redis/src/redis-server"]) // path to server binary
@@ -59,7 +60,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
             .spawn()
             .expect("redis-server failed to start");
             
-        println!("Started redis server");
+        println!("Started redis server, connecting...");
         
         sleep(Duration::from_secs(2));
 

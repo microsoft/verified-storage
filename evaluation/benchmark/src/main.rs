@@ -31,16 +31,26 @@ pub mod redis_client;
 pub mod rocksdb_client;
 pub mod capybarakv_client;
 
-// length of key and value in byte
+// length of key and value in byte for most tests
 const KEY_LEN: usize = 64;
 const VALUE_LEN: usize = 64;
+
+// large enough to fill up a KV store reasonably quickly, small enough
+// to not overflow the stack when statically allocating keys and values.
+const BIG_KEY_LEN: usize = 1024;
+const BIG_VALUE_LEN: usize = 1024 * 512;
 
 const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 500000;
-const ITERATIONS: u64 = 1;
+const ITERATIONS: u64 = 10;
+// for use in the full startup experiment
+// 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
+// 115GB CapybaraKV instances uses 100% of PM device
+// the extra 128 bytes accounts for metadata and CRCs 
+const CAPYBARAKV_MAX_KEYS: u64 = 235000; 
 
 
 #[repr(C)]
@@ -49,7 +59,19 @@ struct TestKey {
     key: [u8; KEY_LEN]
 }
 
+#[repr(C)]
+#[derive(PmCopy, Copy, Hash, Debug)]
+struct BigTestKey {
+    key: [u8; BIG_KEY_LEN]
+}
+
 impl Key for TestKey {
+    fn key_str(&self) -> &str {
+        std::str::from_utf8(&self.key).unwrap()
+    }
+}
+
+impl Key for BigTestKey {
     fn key_str(&self) -> &str {
         std::str::from_utf8(&self.key).unwrap()
     }
@@ -61,13 +83,32 @@ impl AsRef<[u8]> for TestKey {
     }
 }
 
+impl AsRef<[u8]> for BigTestKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.key
+    }
+}
+
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct TestValue {
     value: [u8; VALUE_LEN]
 }
 
+#[repr(C)]
+#[derive(PmCopy, Copy, Hash, Debug)]
+struct BigTestValue {
+    value: [u8; BIG_VALUE_LEN]
+}
+
+
 impl AsRef<[u8]> for TestValue {
+    fn as_ref(&self) -> &[u8] {
+        &self.value
+    }
+}
+
+impl AsRef<[u8]> for BigTestValue {
     fn as_ref(&self) -> &[u8] {
         &self.value
     }
@@ -87,6 +128,25 @@ impl Value for TestValue {
             panic!("value is too long");
         }
         let mut value = TestValue { value: [0u8; VALUE_LEN] };
+        value.value[0..v.len()].copy_from_slice(&v);
+        value
+    }
+}
+
+impl Value for BigTestValue {
+    fn field_str(&self) -> &str {
+        "value"
+    }
+
+    fn value_str(&self) -> &str {
+        std::str::from_utf8(&self.value).unwrap()
+    }
+
+    fn from_byte_vec(v: Vec<u8>) -> Self {
+        if v.len() > BIG_VALUE_LEN {
+            panic!("value is too long");
+        }
+        let mut value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
         value.value[0..v.len()].copy_from_slice(&v);
         value
     }
@@ -124,6 +184,32 @@ impl FromRedisValue for TestValue {
             }
         }
         Ok(out_value)
+    }   
+}
+
+impl FromRedisValue for BigTestValue {
+    fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
+        use redis::Value::*;
+
+        // TODO: better error handling for unexpected value types
+        let mut out_value = Self { value: [0u8; BIG_VALUE_LEN] };
+        if let Array(array) = v {
+            if array.len() > 2 {
+                panic!("Invalid value structure");
+            }
+            // NOTE: The structure of the values here is hardcoded
+            // if you change it, this will also have to change!
+            let value = &array[1];
+            if let BulkString(s) = value {
+                if s.len() > BIG_VALUE_LEN {
+                    panic!("Value too long");
+                }
+                out_value.value[..s.len()].copy_from_slice(s);
+            } else {
+                panic!("Invalid redis value");
+            }
+        }
+        Ok(out_value)
     }
     
 }
@@ -153,9 +239,9 @@ fn main() {
     // }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
-    run_full_setup::<RedisClient<TestKey, TestValue>>(&redis_output_dir).unwrap();
-    // run_full_setup::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir).unwrap();
-    // run_full_setup::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir).unwrap();
+    run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
+    run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
+    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
 }
 
 fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
@@ -164,7 +250,7 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
 {
     // sequential access operations
     {
-        KV::setup()?;
+        KV::setup(NUM_KEYS)?;
         let mut client = KV::start()?;
         run_sequential_put(&mut client, &output_dir, i)?;
         client.flush();
@@ -176,7 +262,7 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
 
     // random access operations
     {
-        KV::setup()?;
+        KV::setup(NUM_KEYS)?;
         let mut client = KV::start()?;
         run_rand_put(&mut client, &output_dir, i)?;
         client.flush();
@@ -186,13 +272,11 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     }
     KV::cleanup();
 
-    // startup and cleanup measurements
+    // startup measurements
     {
-        run_empty_start::<KV>(&output_dir, i)?;
+        run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
     }
     KV::cleanup();
-
-   
 
     Ok(())
 }
@@ -216,6 +300,19 @@ fn u64_to_test_key(i: u64) -> TestKey {
 
     key
 }
+
+fn u64_to_big_test_key(i: u64) -> BigTestKey {
+    let mut key = BigTestKey { key: [0u8; BIG_KEY_LEN] };
+    let i_str = i.to_string();
+    if i_str.len() > BIG_KEY_LEN {
+        panic!("key len {:?} is greater than maximum len {:?}", i_str.len(), BIG_KEY_LEN);
+    }
+    let byte_vec: Vec<u8> = i_str.into_bytes();
+    key.key[..byte_vec.len()].copy_from_slice(&byte_vec);
+
+    key
+}
+
 
 // TODO: actually take generics key and value here?
 // TODO: more useful error code
@@ -454,7 +551,7 @@ fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::
     Ok(())
 }
 
-fn run_empty_start<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
+fn run_empty_start<KV>(output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
@@ -464,7 +561,7 @@ fn run_empty_start<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("EMPTY SETUP");
-    KV::setup()?;
+    KV::setup(num_keys)?;
     let (kv, dur) = KV::timed_start()?;
     let elapsed = format!("{:?}\n", dur.as_micros());
     out_stream.write(&elapsed.into_bytes()).unwrap();
@@ -474,9 +571,9 @@ fn run_empty_start<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     Ok(())
 }
 
-fn run_full_setup<KV>(output_dir: &str) -> Result<(), KV::E>
+fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
     where 
-        KV: KvInterface<TestKey, TestValue>,
+        KV: KvInterface<BigTestKey, BigTestValue>,
         KV::E: std::fmt::Debug,
 {
     let exp_output_dir = output_dir.to_owned() + "/full_setup/";
@@ -484,18 +581,23 @@ fn run_full_setup<KV>(output_dir: &str) -> Result<(), KV::E>
     println!("FULL SETUP");
 
     {
-        KV::setup()?;
+        KV::setup(num_keys)?;
         let mut kv = KV::start()?;
     
-        let value = TestValue { value: [0u8; VALUE_LEN] };
+        let value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
         let mut i = 0;
+
+        println!("Inserting keys until failure");
     
         // insert keys until the KV store runs out of space
         let mut insert_ok = Ok(());
         while insert_ok.is_ok() {
-            let key = u64_to_test_key(i);
+            let key = u64_to_big_test_key(i);
             insert_ok = kv.put(&key, &value);
             i += 1;
+            if i % 10000 == 0 {
+                println!("Inserted {:?} keys", i);
+            }
         }
         println!("Maxed out at {:?} keys", i);
     }
@@ -520,6 +622,8 @@ pub fn init_and_mount_pm_fs() {
 
     unmount_pm_fs();
 
+    println!("Unmounted");
+
     // Set up PM with a fresh file system instance
     let status = Command::new("sudo")
         .args(["mkfs.ext4", PM_DEV, "-F"])
@@ -535,6 +639,21 @@ pub fn init_and_mount_pm_fs() {
         .args(["chmod", "777", MOUNT_POINT])
         .status()
         .expect("chmod failed");
+    println!("Mounted");
+}
+
+pub fn remount_pm_fs() {
+    println!("Remounting existing FS...");
+
+    unmount_pm_fs();
+
+    println!("Unmounted");
+
+    let status = Command::new("sudo")
+        .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
+        .status()
+        .expect("mount failed");
+
     println!("Mounted");
 }
 
