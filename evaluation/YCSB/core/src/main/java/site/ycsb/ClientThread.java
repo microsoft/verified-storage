@@ -105,6 +105,14 @@ public class ClientThread implements Runnable {
       return;
     }
 
+    // wait for all other client threads to finish initializing
+    try {
+      initLatch.await();
+    } catch (InterruptedException ie) {
+      // If we are interrupted the thread is being asked to shutdown.
+      Thread.currentThread().interrupt();
+    }
+
     try {
       workloadstate = workload.initThread(props, threadid, threadcount);
     } catch (WorkloadException e) {

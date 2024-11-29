@@ -6,9 +6,10 @@ import csv
 import numpy as np
 import sys
 
-ycsb_run_names = ["Load A", "Run A", "Run B", "Run C", "Load E", "Run F"]
-ycsb_runs = {"Loada": [], "Runa": [], "Runb": [], "Runc": [], "Loade": [], "Runf": []}
+ycsb_run_names = ["Load A", "Run A", "Run B", "Run C", "Run D", "Load E", "Run F", "Loadx", "Runx"]
+ycsb_runs = {"Loada": [], "Runa": [], "Runb": [], "Runc": [], "Rund": [], "Loade": [], "Runf": [], "Loadx": [], "Runx": []}
 kv_stores = ["redis", "RocksDB", "CapybaraKV"]
+legend_names = ["pmem-Redis", "pmem-RocksDB", "CapybaraKV"]
 
 def plot_ycsb(ycsb_results_file, output_file):
     with open(ycsb_results_file, "r") as f:
@@ -74,7 +75,7 @@ def plot_ycsb(ycsb_results_file, output_file):
     plt.xticks(x, ycsb_run_names)
     plt.ylabel("Kops/sec")
     plt.xlabel("YCSB workloads")
-    plt.legend(kv_stores)
+    plt.legend(legend_names)
     # plt.ylim(0.5,3.5)
     plt.savefig(output_file, format="pdf")
 

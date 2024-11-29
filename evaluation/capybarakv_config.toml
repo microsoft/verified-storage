@@ -1,5 +1,5 @@
 [capybarakv_config]
 kv_file = "/mnt/pmem/capybarakv"
 node_size = 16
-num_keys = 5000010
+num_keys = 7000000
 region_size = 53687091200

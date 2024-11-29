@@ -19,10 +19,6 @@ def parse_data(fs, runs, result_dir):
         for t in thread_counts:
             raw_results[w][t] = {}
             for f in fs:
-                if f == "redis":
-                    # TODO: remove
-                    raw_results[w][t] = {f: [0] for f in fs}
-                    continue
                 run_dir = os.path.join(result_dir, "threads_" + str(t), f, w)
                 raw_results[w][t][f] = []
 
@@ -83,10 +79,33 @@ def plot_data(fs, avg_results, output_file):
 
     plt.savefig(output_file, format="pdf", bbox_inches="tight")
 
+def plot_data_single_fig(fs, avg_results, output_file):
+    plt.plot()
+
+    values = []
+    for t in thread_counts:
+        thread_vals = []
+        for w in workloads:
+            thread_vals.append(avg_results[w][t][0] / 1000)
+        values.append(thread_vals)
+
+    fig, ax = plt.subplots()
+
+    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    ax.set_prop_cycle(color=color_cycle[0:9], marker=["o", "x", "s", "d", "+", "v", "^", "p", "."])
+    ax.plot(thread_counts, values)
+    ax.set_xticks(thread_counts)
+    ax.legend(workload_titles)
+    fig.tight_layout()
+    ax.set_xlabel("Thread count")
+    ax.set_ylabel("Througput (Kops/s)")
+
+    plt.savefig(output_file, format="pdf", bbox_inches="tight")
+
 
 def main():
     if len(sys.argv) < 6:
-        print("Usage: python3 parse_ycsb2.py <num_fs> <fs1> <fs2> .. <num_runs> <start_run_id> <result_dir> <output_file>")
+        print("Usage: python3 parse_and_plot_ycsb2.py <num_fs> <fs1> <fs2> .. <num_runs> <start_run_id> <result_dir> <output_file>")
         return
 
     args = sys.argv[1:]
@@ -107,6 +126,6 @@ def main():
         runs.append(i)
 
     avg_results = parse_data(fs, runs, result_dir)
-    plot_data(fs_nice, avg_results, output_file)
+    plot_data_single_fig(fs_nice, avg_results, output_file)
 
 main()

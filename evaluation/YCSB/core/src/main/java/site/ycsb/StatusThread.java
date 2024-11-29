@@ -124,14 +124,14 @@ public class StatusThread extends Thread {
 
     boolean alldone;
 
-    // System.err.println("Waiting for client threads to finish initialization");
-    // // wait for all client threads to finish initializing
-    // try {
-    //   initLatch.await();
-    // } catch (InterruptedException ie) {
-    //   // If we are interrupted the thread is being asked to shutdown.
-    //   Thread.currentThread().interrupt();
-    // }
+    System.err.println("Waiting for client threads to finish initialization");
+    // wait for all client threads to finish initializing
+    try {
+      initLatch.await();
+    } catch (InterruptedException ie) {
+      // If we are interrupted the thread is being asked to shutdown.
+      Thread.currentThread().interrupt();
+    }
     
 
     do {

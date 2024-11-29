@@ -44,8 +44,8 @@ def main():
     # print('number of runs = ' + str(num_runs) + ', start run id = ' + str(start_run_id))
     # print('result directory = ' + result_dir)
 
-    workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Loade', 'Runf']
-    dirs = ['Loada', 'Runa', 'Runb', 'Runc', 'Loade', 'Runf']
+    workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Loade', 'Runf', 'Loadx', 'Runx']
+    dirs = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Loade', 'Runf', 'Loadx', 'Runx']
 
     csv_out_file = open(output_csv_file, mode='w')
     csv_writer = csv.writer(csv_out_file, delimiter=',')

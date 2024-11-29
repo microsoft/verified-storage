@@ -453,8 +453,6 @@ public final class Client {
           ++threadopcount;
         }
 
-        System.err.println("init new client thread");
-
         ClientThread t = new ClientThread(db, dotransactions, workload, props, threadopcount, targetperthreadperms,
             completeLatch, initLatch, cleanupLatch);
         t.setThreadId(threadid);
