@@ -65,6 +65,13 @@ def setup_pm(configs):
     subprocess.check_call(["sudo", "mount", "-o", "dax", pm_device, mount_point]);
     subprocess.check_call(["sudo", "chmod", "777", mount_point])
 
+def remount_pm(configs):
+    pm_device = configs["pm_device"]
+    mount_point = configs["mount_point"]
+
+    subprocess.check_call(["sudo", "umount", pm_device]);
+    subprocess.check_call(["sudo", "mount", "-o", "dax", pm_device, mount_point]);
+
 def setup_capybarakv(configs, experiment_config_file):
     subprocess.check_call(
         ["cargo", "run", "--release", "--", "../capybarakv_config.toml", os.path.join("..", experiment_config_file)], 
@@ -149,7 +156,7 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         
             with open(loada_output_path, "w") as f:
                 subprocess.run(
-                    ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloada"] + options, 
+                    ["./bin/ycsb", "load", db, "-s", "-P", "workloads/workloada"] + options, 
                     cwd="YCSB/",
                     stdout=f,
                     # stderr=f,
@@ -158,31 +165,34 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
             if "A" in workloads:
                 with open(runa_output_path, "w") as f:
                     subprocess.run(
-                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloada"] + options, 
+                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloada"] + options, 
                         cwd="YCSB/",
                         stdout=f,
                         # stderr=f,
                         check=True)
+
             if "B" in workloads:
                 with open(runb_output_path, "w") as f:
                     subprocess.run(
-                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadb"] + options, 
+                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadb"] + options, 
                         cwd="YCSB/",
                         stdout=f,
                         # stderr=f,
                         check=True)
+
             if "C" in workloads:
                 with open(runc_output_path, "w") as f:
                     subprocess.run(
-                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadc"] + options, 
+                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadc"] + options, 
                         cwd="YCSB/",
                         stdout=f,
                         # stderr=f,
                         check=True)
+        
             if "D" in workloads:
                 with open(rund_output_path, "w") as f:
                     subprocess.run(
-                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadd"] + options, 
+                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadd"] + options, 
                         cwd="YCSB/",
                         stdout=f,
                         # stderr=f,
@@ -201,7 +211,7 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
 
             with open(loade_output_path, "w") as f:
                 subprocess.run(
-                    ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloade"] + options, 
+                    ["./bin/ycsb", "load", db, "-s", "-P", "workloads/workloade"] + options, 
                     cwd="YCSB/",
                     stdout=f,
                     # stderr=f,
@@ -209,7 +219,7 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
             if "F" in workloads:
                 with open(runf_output_path, "w") as f:
                     subprocess.run(
-                        ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadf"] + options, 
+                        ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadf"] + options, 
                         cwd="YCSB/",
                         stdout=f,
                         # stderr=f,
@@ -228,14 +238,14 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
 
             with open(loadx_output_path, "w") as f:
                 subprocess.run(
-                    ["./bin/ycsb", "--", "load", db, "-s", "-P", "workloads/workloadx"] + options, 
+                    ["./bin/ycsb", "load", db, "-s", "-P", "workloads/workloadx"] + options, 
                     cwd="YCSB/",
                     stdout=f,
                     # stderr=f,
                     check=True)
             with open(runx_output_path, "w") as f:
                 subprocess.run(
-                    ["./bin/ycsb", "--", "run", db, "-s", "-P", "workloads/workloadx"] + options, 
+                    ["./bin/ycsb", "run", db, "-s", "-P", "workloads/workloadx"] + options, 
                     cwd="YCSB/",
                     stdout=f,
                     # stderr=f,
@@ -268,9 +278,10 @@ def build_options(configs, db, experiment_config_file):
         options += ["-p", "redis.port=6379"]
     elif db == "pmemrocksdb":
         options += ["-p", "rocksdb.dir=" + mount_point]
-        options += ["-p", "rocksdb.allow_mmap_reads=true"]
-        options += ["-p", "rocksdb.allow_mmap_writes=true"]
-        options += ["-p", "max_background_compaction=4"]
+        # the rest of these options are hardcoded in the YCSB client
+        # options += ["-p", "rocksdb.allow_mmap_reads=true"]
+        # options += ["-p", "rocksdb.allow_mmap_writes=true"]
+        # options += ["-p", "max_background_compaction=4"]
     else:
         assert False, "Not implemented"
     

@@ -17,7 +17,7 @@ use std::fs;
 use std::env;
 use chrono;
 
-const MAX_KEY_LEN: usize = 1024;
+const MAX_KEY_LEN: usize = 64;
 const MAX_ITEM_LEN: usize = 1140; 
 const MAX_CONFIG_FILE_NAME_LEN: usize = 1024;
 
@@ -63,8 +63,8 @@ struct ExperimentOptions {
 }
 
 fn parse_capybarakv_configs(capybarakv_config_file: String) -> DbOptions {
-    println!("{:?}", chrono::offset::Local::now());
-    println!("Reading CapybaraKV configs from {:?}", capybarakv_config_file);
+    // println!("{:?}", chrono::offset::Local::now());
+    // println!("Reading CapybaraKV configs from {:?}", capybarakv_config_file);
     let capybarakv_config_contents = match fs::read_to_string(&capybarakv_config_file) {
         Ok(c) => c,
         Err(e) => {
@@ -75,12 +75,12 @@ fn parse_capybarakv_configs(capybarakv_config_file: String) -> DbOptions {
 
     // TODO: Proper error handling of invalid config files
     let capybarakv_config: CapybaraKvConfig = toml::from_str(&capybarakv_config_contents).unwrap();
-    println!("capybarakv_config: {:?}", capybarakv_config);
+    // println!("capybarakv_config: {:?}", capybarakv_config);
     capybarakv_config.capybarakv_config
 }
 
 fn parse_experiment_configs(experiment_config_file: String) -> ExperimentOptions {
-    println!("Reading experiment configs from {:?}", experiment_config_file);
+    // println!("Reading experiment configs from {:?}", experiment_config_file);
     let experiment_config_contents = match fs::read_to_string(&experiment_config_file) {
         Ok(c) => c,
         Err(e) => {
@@ -90,7 +90,7 @@ fn parse_experiment_configs(experiment_config_file: String) -> ExperimentOptions
     };
 
     let experiment_config: ExperimentConfig = toml::from_str(&experiment_config_contents).unwrap();
-    println!("experiment_config: {:?}", experiment_config);
+    // println!("experiment_config: {:?}", experiment_config);
     experiment_config.experiment_config
 }
 
