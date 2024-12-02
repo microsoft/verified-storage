@@ -3,7 +3,10 @@ use jni::objects::{JClass, JByteArray};
 use jni::sys::jlong;
 
 use storage_node::kv::kvimpl_t::*;
+#[cfg(target_os = "linux")]
 use storage_node::pmem::linux_pmemfile_t::*;
+#[cfg(target_os = "windows")]
+use storage_node::pmem::windows_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmsafe::{PmCopy};
@@ -140,6 +143,23 @@ pub fn main() {
         let mut kv_region = create_pm_region(&current_file_name, per_thread_region_size);
         KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
             &mut kv_region, KVSTORE_ID, per_thread_num_keys, capybarakv_config.node_size, 1).unwrap();
+
+        let mut kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
+
+        // Simple read/write/delete test
+        let test_key = "test_key";
+        let test_value = "test_value";
+
+        let ycsb_key = YcsbKey::new_from_slice(&test_key.as_bytes().iter().map(|&b| b as i8).collect::<Vec<i8>>());
+        let ycsb_item = YcsbItem::new_from_slice(&test_value.as_bytes().iter().map(|&b| b as i8).collect::<Vec<i8>>());
+
+        kv.create(&ycsb_key, &ycsb_item).unwrap();
+
+        // Read operation
+        kv.read_item(&ycsb_key).unwrap();
+
+        // Delete operation
+        kv.delete(&ycsb_key).unwrap();
     }    
     println!("Done setting up! You can now run YCSB workloads");
 }
@@ -352,9 +372,10 @@ fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMe
 {
     #[cfg(target_os = "windows")]
     let pm_region = FileBackedPersistentMemoryRegion::new(
-        &file_name, MemoryMappedFileMediaType::SSD,
+        &file_name, 
+        MemoryMappedFileMediaType::BatteryBackedDRAM,
         region_size,
-        FileCloseBehavior::TestingSoDeleteOnClose
+        FileCloseBehavior::Persistent
     ).unwrap();
     #[cfg(target_os = "linux")]
     let pm_region = FileBackedPersistentMemoryRegion::new(
@@ -371,7 +392,7 @@ fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemo
     #[cfg(target_os = "windows")]
     let pm_region = FileBackedPersistentMemoryRegion::restore(
         &file_name, 
-        MemoryMappedFileMediaType::SSD,
+        MemoryMappedFileMediaType::BatteryBackedDRAM,
         region_size,
     ).unwrap();
     #[cfg(target_os = "linux")]
@@ -398,6 +419,12 @@ impl YcsbKey {
         env.get_byte_array_region(bytes, 0, key_slice).unwrap();
         Self { key }
     }
+
+    fn new_from_slice(slice: &[i8]) -> Self {
+        let mut key = [0i8; MAX_KEY_LEN];
+        key[0..slice.len()].copy_from_slice(slice);
+        Self { key }
+    }
 }
 
 #[repr(C)]
@@ -413,6 +440,12 @@ impl YcsbItem {
         let item_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
         let item_slice = &mut item[0..item_length];
         env.get_byte_array_region(bytes, 0, item_slice).unwrap();
+        Self { item }
+    }
+
+    fn new_from_slice(slice: &[i8]) -> Self {
+        let mut item = [0i8; MAX_ITEM_LEN];
+        item[0..slice.len()].copy_from_slice(slice);
         Self { item }
     }
 }

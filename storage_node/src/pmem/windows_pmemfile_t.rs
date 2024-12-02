@@ -168,6 +168,9 @@ impl Drop for MemoryMappedFile {
     }
 }
 
+
+verus! {
+
 // The `MemoryMappedFileSection` struct represents a section of a memory-mapped file.
 // It contains a reference to the `MemoryMappedFile` it's a section of so that the
 // `MemoryMappedFile` isn't dropped until this `MemoryMappedFileSection1 is dropped.
@@ -241,8 +244,6 @@ impl MemoryMappedFileSection {
         }
     }
 }
-
-verus! {
 
 // The `MemoryMappedFileMediaType` enum represents a type of media
 // from which a file can be memory-mapped.
