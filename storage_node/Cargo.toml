@@ -13,7 +13,7 @@ deps_hack = { path = "../deps_hack" }
 pmsafe = { path = "../pmsafe" }
 
 [lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(verus_keep_ghost)'] }
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
 
 [package.metadata.verus.ide]
 extra_args = "--crate-type=lib --expand-errors -L dependency=../deps_hack/target/release/deps --extern=deps_hack=../deps_hack/target/release/libdeps_hack.rlib"
