@@ -14,7 +14,9 @@ vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc
 toml = { version = "0.8.19", features = ["parse"] }
 serde = { version = "1.0.215", features = ["derive"] }
 chrono = "0.4.38"
-redis = "0.27.5"
 rand = "0.8.5"
-rocksdb = { path = "../rust-rocksdb/" }
 num_cpus = "1.16.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+redis = "0.27.5"
+rocksdb = { path = "../rust-rocksdb/" }

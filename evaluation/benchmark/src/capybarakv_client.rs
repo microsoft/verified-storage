@@ -1,19 +1,18 @@
 use storage_node::kv::kvimpl_t::*;
+#[cfg(target_os = "linux")]
 use storage_node::pmem::linux_pmemfile_t::*;
+#[cfg(target_os = "windows")]
+use storage_node::pmem::windows_pmemfile_t::*;
 use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmsafe::PmCopy;
+use crate::config::*;
 
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-// TODO: read these from config file
-const KVSTORE_ID: u128 = 1234;
-const KVSTORE_FILE: &str = "/mnt/pmem/capybarakv";
-const REGION_SIZE: u64 = 1024*1024*1024*115;
 
 // TODO: should make a capybarakv util crate so that you
 // can share some of these functions with ycsb_ffi?
@@ -109,7 +108,7 @@ fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemo
     #[cfg(target_os = "windows")]
     let pm_region = FileBackedPersistentMemoryRegion::restore(
         &file_name, 
-        MemoryMappedFileMediaType::SSD,
+        MemoryMappedFileMediaType::BatteryBackedDRAM,
         region_size,
     ).unwrap();
     #[cfg(target_os = "linux")]
@@ -126,9 +125,9 @@ fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMe
 {
     #[cfg(target_os = "windows")]
     let pm_region = FileBackedPersistentMemoryRegion::new(
-        &file_name, MemoryMappedFileMediaType::SSD,
+        &file_name, MemoryMappedFileMediaType::BatteryBackedDRAM,
         region_size,
-        FileCloseBehavior::TestingSoDeleteOnClose
+        FileCloseBehavior::Persistent
     ).unwrap();
     #[cfg(target_os = "linux")]
     let pm_region = FileBackedPersistentMemoryRegion::new(
