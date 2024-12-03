@@ -144,7 +144,7 @@ public class RedisClient extends DB {
   public Status insert(String table, String key,
       Map<String, ByteIterator> values) {
     if (jedis.hmset(key, StringByteIterator.getStringMap(values)).equals("OK")) {
-      jedis.zadd(INDEX_KEY, hash(key), key);
+      // jedis.zadd(INDEX_KEY, hash(key), key);
       return Status.OK;
     }
     return Status.ERROR;

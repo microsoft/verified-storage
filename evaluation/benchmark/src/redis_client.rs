@@ -127,8 +127,8 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
         let value_str = value.value_str();
         self.cxn.hset(key_str, field_str, value_str)?;
 
-        // 2. add the key to the set of keys
-        self.cxn.zadd(INDEX_KEY, key_str, Self::hash(key_str))?;
+        // // 2. add the key to the set of keys
+        // self.cxn.zadd(INDEX_KEY, key_str, Self::hash(key_str))?;
 
         Ok(())
     }

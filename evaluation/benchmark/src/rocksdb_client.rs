@@ -33,10 +33,18 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
     fn start() -> Result<Self, Self::E> {
         init_and_mount_pm_fs();
 
+        let cpus = num_cpus::get();
+
         let mut options = Options::default();
         options.set_allow_mmap_reads(true);
         options.set_allow_mmap_writes(true);
         options.create_if_missing(true);
+        options.set_max_background_compactions(cpus * 2);
+        options.set_increase_parallelism(cpus * 2);
+        // https://github.com/facebook/rocksdb/blob/b96432aadd2635f3a9643cb7f4497e109fa9d122/java/src/main/java/org/rocksdb/ColumnFamilyOptionsInterface.java#L545
+        options.optimize_level_style_compaction(512 * 1024 * 1024);
+        // options.set_max_background_jobs(4);
+        // options.set_enable_pipelined_write(true);
 
         // NOTE: this option doesn't work on the test VM, but it can be disabled
         // when not measuring performance.
@@ -60,6 +68,10 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         options.set_allow_mmap_reads(true);
         options.set_allow_mmap_writes(true);
         options.create_if_missing(true);
+        // options.increase_parallelism(num_cpus::get().try_into().unwrap());
+        options.set_max_background_compactions(4);
+        options.set_max_background_jobs(4);
+        options.set_enable_pipelined_write(true);
 
         // NOTE: this option doesn't work on the test VM, but it can be disabled
         // when not measuring performance.

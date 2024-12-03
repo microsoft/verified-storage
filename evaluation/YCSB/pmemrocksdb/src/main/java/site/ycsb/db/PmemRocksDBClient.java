@@ -158,14 +158,15 @@ public class PmemRocksDBClient extends DB {
           .optimizeLevelStyleCompaction()
           .setCreateIfMissing(true)
           .setCreateMissingColumnFamilies(true)
-          // .setIncreaseParallelism(rocksThreads)
-          // .setMaxBackgroundCompactions(rocksThreads)
-          .setMaxBackgroundJobs(4)
-          .setMaxBackgroundCompactions(4)
+          .setIncreaseParallelism(rocksThreads)
+          .setMaxBackgroundCompactions(rocksThreads)
+          // .setMaxBackgroundJobs(4)
+          // .setMaxBackgroundCompactions(4)
           .setAllowMmapReads(true)
           .setAllowMmapWrites(true)
-          .setAllowConcurrentMemtableWrite(true)
-          .setEnablePipelinedWrite(true)
+          .setEnv(Env.getPmemDefault())
+          // .setAllowConcurrentMemtableWrite(true)
+          // .setEnablePipelinedWrite(true)
           .setInfoLogLevel(InfoLogLevel.INFO_LEVEL);
       dbOptions = options;
       return RocksDB.open(options, rocksDbDir.toAbsolutePath().toString());
@@ -173,14 +174,15 @@ public class PmemRocksDBClient extends DB {
       final DBOptions options = new DBOptions()
           .setCreateIfMissing(true)
           .setCreateMissingColumnFamilies(true)
-          // .setIncreaseParallelism(rocksThreads)
-          // .setMaxBackgroundCompactions(rocksThreads)
-          .setMaxBackgroundJobs(4)
-          .setMaxBackgroundCompactions(4)
+          .setIncreaseParallelism(rocksThreads)
+          .setMaxBackgroundCompactions(rocksThreads)
+          // .setMaxBackgroundJobs(4)
+          // .setMaxBackgroundCompactions(4)
           .setAllowMmapReads(true)
           .setAllowMmapWrites(true)
-          .setAllowConcurrentMemtableWrite(true)
-          .setEnablePipelinedWrite(true)
+          .setEnv(Env.getPmemDefault())
+          // .setAllowConcurrentMemtableWrite(true)
+          // .setEnablePipelinedWrite(true)
           .setInfoLogLevel(InfoLogLevel.INFO_LEVEL);
       dbOptions = options;
 

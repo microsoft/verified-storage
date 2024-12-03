@@ -33,7 +33,7 @@ pub mod capybarakv_client;
 
 // length of key and value in byte for most tests
 const KEY_LEN: usize = 64;
-const VALUE_LEN: usize = 64;
+const VALUE_LEN: usize = 1024;
 
 // large enough to fill up a KV store reasonably quickly, small enough
 // to not overflow the stack when statically allocating keys and values.
@@ -44,8 +44,8 @@ const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
-const NUM_KEYS: u64 = 500000;
-const ITERATIONS: u64 = 10;
+const NUM_KEYS: u64 = 25000000;
+const ITERATIONS: u64 = 5;
 // for use in the full startup experiment
 // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
 // 115GB CapybaraKV instances uses 100% of PM device
@@ -232,11 +232,11 @@ fn main() {
     fs::create_dir_all(&capybara_output_dir).unwrap();
 
 
-    // for i in 1..ITERATIONS+1 {
-    //     run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-    //     run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-    //     run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
-    // }
+    for i in 1..ITERATIONS+1 {
+        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+    }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
     run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
@@ -271,6 +271,14 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         run_rand_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
+
+    // // mimic run d from YCSB
+    // {
+    //     KV::setup(NUM_KEYS)?;
+    //     let mut client = KV::start()?;
+    //     run_rand_latest_access_pattern(&mut client, &output_dir, i)?;
+    // }
+    // KV::cleanup();
 
     // startup measurements
     {
@@ -550,6 +558,38 @@ fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::
 
     Ok(())
 }
+
+// this one is currently just for tracing and doesn't record latencies
+fn run_rand_latest_access_pattern<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), KV::E>
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    // let exp_output_dir = output_dir.to_owned() + "/access_latest/";
+    // let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
+    // fs::create_dir_all(&exp_output_dir).unwrap();
+    // let mut out_stream = create_file_and_build_output_stream(&output_file);
+
+    let value = TestValue { value: [1u8; VALUE_LEN] };
+
+    // randomize key order
+    let mut key_vec = Vec::from_iter(0..NUM_KEYS);
+    key_vec.shuffle(&mut thread_rng());
+
+    println!("ACCESS LATEST");
+    for i in &key_vec {
+        let key = u64_to_test_key(*i);
+
+        kv.put(&key, &value)?;
+        kv.get(&key)?;
+        kv.get(&key)?;
+        kv.get(&key)?;
+    }
+    println!("ACCESS LATEST DONE");
+
+    Ok(())
+
+}
+
 
 fn run_empty_start<KV>(output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV::E>
     where 
