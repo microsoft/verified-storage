@@ -1,10 +1,17 @@
 #!/bin/bash
 
+export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release
+
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config32.toml 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config16.toml 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config8.toml 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config4.toml 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config2.toml 
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config1.toml 
-# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config2.toml --workloads y
-# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config4.toml --workloads y
-# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config8.toml --workloads y
-# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config16.toml --workloads y
+# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config2.toml 
+# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config4.toml
+# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config8.toml 
+# numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config experiment_config16.toml 
 
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db rocksdb --experiment_config experiment_config1.toml
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db rocksdb --experiment_config experiment_config2.toml 
@@ -12,12 +19,16 @@ numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experi
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db rocksdb --experiment_config experiment_config8.toml 
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db rocksdb --experiment_config experiment_config16.toml 
 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config16.toml
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config8.toml
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config1.toml
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config2.toml 
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config4.toml 
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config8.toml 
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config16.toml 
 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db redis --experiment_config experiment_config16.toml
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db redis --experiment_config experiment_config8.toml
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db redis --experiment_config experiment_config1.toml
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db redis --experiment_config experiment_config2.toml
 # numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db redis --experiment_config experiment_config4.toml
