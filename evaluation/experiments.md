@@ -42,12 +42,12 @@ If pmem-rocksdb builds but the YCSB bindings give an error that looks something 
 ## Running experiments
 
 To run all YCSB experiments on a given DB:
-1. Set the desired configurations in `experiment_config.toml` and `capybarakv_config.toml`. The value of `num_keys` in `capybarakv_config.toml` should be **slightly greater than** the the value of `record_count` in `experiment_config.toml`; a good rule of thumb is usually `num_keys` + `threads`. 
+1. Set the desired configurations in `experiment_config.toml` and `capybarakv_config.toml`. The value of `num_keys` in `capybarakv_config.toml` should be **greater than** the the value of `record_count` in `experiment_config.toml`, as several YCSB experiments insert additional records, updates in CapybaraKV require there to be at least one free value table entry, and multi-threaded experiments on CapybaraKV will not perfectly evenly distribute keys across shards.
     - `experiment_config.toml` sets experiment-related options like the number of threads, the PM device and mount point, and the number of iterations to run.
     - `capybarakv_config.toml` specifies CapybaraKV-specific options such as the name and size of backing file and the number of keys to allocate space for. 
 2. `cd` to `evaluation/` and run:
 ```
-python3 run_ycsb.py --db <db name>
+python3 run_ycsb.py --db <db name> --experiment_config <path to experiment config file>
 ```
 
 ### Troubleshooting
@@ -60,8 +60,8 @@ Check the files in the result directory to get error information if an experimen
 
 These instructions assume that a PM device is already mounted with ext4-DAX at `/mnt/pmem/`. 
 They all specify how to run the `LoadA` workload; to run others, replace `load` with `run` to run a `RunX` workload and change the `workloads/workloadx` path to reflect the desired workload.
-**Note**: Running RunA, RunB, and RunC must be preceded by running LoadA; RunF must be preceded by running LoadE.
-**Note**: RunD and RunE are currently not supported by CapybaraKV.
+**Note**: Running RunA, RunB, RunC, RunD must be preceded by running LoadA; RunF must be preceded by running LoadE.
+**Note**: RunE is currently not supported by CapybaraKV.
 
 #### CapybaraKV
 1. To initialize the KV before running any workloads, `cd` to `ycsb_ffi/src` and run `cargo_run`. This should be repeated before each `load` workload.
@@ -86,6 +86,12 @@ This starts the redis server running in the background, using `/mnt/pmem/` to st
 ```
 ./bin/ycsb load redis -s -P workloads/workloada -p redis.host=127.0.0.1 -p redis.port=6379
 ```
+
+## Latency experiments
+
+To run latency and setup microbenchmarks, `cd` to `evaluation/benchmark` and run `cargo run --release -- <output dir path>`.
+
+To obtain the average startup time across all iterations in `empty_setup` or `full_setup`, `cd` to the target directory (e.g. `<output dir path>/capybarakv/empty_setup`) and run `awk '{sum+=$1} END {print sum/NR}' *`
 
 # Windows
 
@@ -127,3 +133,4 @@ cd YCSB; mvn -pl site.ycsb:capybarakv-binding -am clean package
 pip3 install toml
 python run_ycsb.py --db capybarakv
 ```
+
