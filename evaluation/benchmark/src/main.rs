@@ -45,7 +45,7 @@ const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 25000000;
-const ITERATIONS: u64 = 5;
+const ITERATIONS: u64 = 1;
 // for use in the full startup experiment
 // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
 // 115GB CapybaraKV instances uses 100% of PM device
