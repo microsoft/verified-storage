@@ -184,6 +184,7 @@ pub struct MemoryMappedFileSection {
 }
 
 impl MemoryMappedFileSection {
+    #[verifier::external]
     fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
     {
         let mut mmf_borrowed = mmf.borrow_mut();
@@ -220,6 +221,7 @@ impl MemoryMappedFileSection {
     // The function `flush` flushes updated parts of the
     // memory-mapped file back to the media.
 
+    #[verifier::external]
     fn flush(&mut self) {
         unsafe {
             match self.media_type {
