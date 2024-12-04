@@ -222,8 +222,9 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
+                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
                         old(self)@.tentative.create(*key, *item)
+                    &&& self@.durable == old(self)@.durable
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
@@ -256,8 +257,9 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
+                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
                         old(self)@.tentative.update_item(*key, *item)
+                    &&& self@.durable == old(self)@.durable
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
@@ -288,8 +290,9 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
+                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
                         old(self)@.tentative.delete(*key)
+                    &&& self@.durable == old(self)@.durable
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()

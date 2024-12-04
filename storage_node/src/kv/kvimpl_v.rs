@@ -560,7 +560,8 @@ where
             old(self)@.id == self@.id,
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == old(self).tentative_view().update_item(*key, *new_item)
+                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == old(self).tentative_view().update_item(*key, *new_item)
+                    &&& self@ == old(self)@
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
@@ -794,9 +795,11 @@ where
             self.valid(),
             self@.id == old(self)@.id,
             match result {
-                Ok(()) => 
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
-                        old(self).tentative_view().create(*key, *item),
+                Ok(()) => {
+                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().create(*key, *item)
+                    &&& self@ == old(self)@
+                },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
                     &&& self.tentative_view() == self@
@@ -997,9 +1000,11 @@ where
             self.valid(),
             self@.id == old(self)@.id,
             match result {
-                Ok(()) => 
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
-                        old(self).tentative_view().delete(*key),
+                Ok(()) => {
+                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().delete(*key)
+                    &&& self@ == old(self)@
+                },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
                     &&& self.tentative_view() == self@
