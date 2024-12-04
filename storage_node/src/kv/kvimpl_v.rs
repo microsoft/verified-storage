@@ -564,14 +564,17 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == self@
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == old(self).tentative_view()
                     &&& !self.tentative_view().contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == self@
                     // TODO
                 }
                 Err(_) => false,
@@ -688,14 +691,17 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
+                    &&& self@ == self.tentative_view()
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
+                    &&& self@ == self.tentative_view()
                     // TODO
                 }
                 Err(KvError::LogErr { log_err }) => {
                     &&& self@ == old(self)@
+                    &&& self@ == self.tentative_view()
                     // TODO
                 }
                 Err(_) => false,
@@ -793,14 +799,17 @@ where
                         old(self).tentative_view().create(*key, *item),
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == self@
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyAlreadyExists) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == old(self).tentative_view()
                     &&& old(self).tentative_view().contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == self@
                     // TODO
                 }
                 Err(_) => false,
@@ -993,14 +1002,17 @@ where
                         old(self).tentative_view().delete(*key),
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == self@
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == old(self).tentative_view()
                     &&& !old(self).tentative_view().contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
+                    &&& self.tentative_view() == self@
                     // TODO
                 }
                 Err(_) => false,

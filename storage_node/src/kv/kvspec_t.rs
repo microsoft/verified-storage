@@ -363,4 +363,25 @@ verus! {
         pub tentative: AbstractKvStoreState<K, I, L>,
     }
 
+    impl <K, I, L> AbstractKvState<K, I, L>
+    where
+        K: Hash + Eq,
+    {
+        pub open spec fn abort(self) -> Self
+        {
+            Self{
+                durable: self.durable,
+                tentative: self.durable,
+            }
+        }
+
+        pub open spec fn commit(self) -> Self
+        {
+            Self{
+                durable: self.tentative,
+                tentative: self.tentative
+            }
+        }
+    }
+
 }

@@ -226,15 +226,15 @@ where
                         old(self)@.tentative.create(*key, *item)
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyAlreadyExists) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     // TODO
                 }
                 Err(_) => false,
@@ -260,15 +260,15 @@ where
                         old(self)@.tentative.update_item(*key, *item)
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@
                     &&& !self@.tentative.contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     // TODO
                 }
                 Err(_) => false,
@@ -292,15 +292,15 @@ where
                         old(self)@.tentative.delete(*key)
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@
                     &&& !old(self)@.tentative.contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     // TODO
                 }
                 Err(_) => false,
@@ -317,23 +317,22 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@.durable == old(self)@.tentative
-                    &&& self@.durable == self@.tentative
+                    &&& self@ == old(self)@.commit()
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     // TODO
                 }
                 Err(KvError::LogErr { log_err }) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@.abort()
                     // TODO
                 }
                 Err(KvError::NoCurrentTransaction) => {
-                    &&& self@.durable == old(self)@.durable
+                    &&& self@ == old(self)@
                     &&& self.spec_num_log_entries_in_current_transaction() == 0
                 }
                 Err(_) => false,
