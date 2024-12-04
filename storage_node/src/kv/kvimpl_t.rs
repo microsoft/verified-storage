@@ -139,8 +139,8 @@ where
             match result {
                 Ok(()) => {
                     &&& pm_region@.flush_predicted()
-                    &&& AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.durable_state, kvstore_id) matches Some(recovered_view)
-                    &&& recovered_view == AbstractKvStoreState::<K, I, L>::init(kvstore_id)
+                    &&& AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(
+                        pm_region@.durable_state, kvstore_id) == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id))
                 }
                 Err(_) => true
             }
