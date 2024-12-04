@@ -1,0 +1,60 @@
+Cleaning up
+Shard 0 was hit 410951 times.
+Shard 1 was hit 425031 times.
+Shard 2 was hit 476709 times.
+Shard 3 was hit 426072 times.
+Shard 4 was hit 453326 times.
+Shard 5 was hit 416438 times.
+Shard 6 was hit 403712 times.
+Shard 7 was hit 382918 times.
+Shard 8 was hit 406675 times.
+Shard 9 was hit 489378 times.
+Shard 10 was hit 1033683 times.
+Shard 11 was hit 390984 times.
+Shard 12 was hit 467396 times.
+Shard 13 was hit 410887 times.
+Shard 14 was hit 478565 times.
+Shard 15 was hit 624583 times.
+Shard 16 was hit 405098 times.
+Shard 17 was hit 662858 times.
+Shard 18 was hit 516718 times.
+Shard 19 was hit 421598 times.
+Shard 20 was hit 446049 times.
+Shard 21 was hit 386732 times.
+Shard 22 was hit 436682 times.
+Shard 23 was hit 397088 times.
+Shard 24 was hit 571845 times.
+Shard 25 was hit 441464 times.
+Shard 26 was hit 395064 times.
+Shard 27 was hit 361144 times.
+Shard 28 was hit 364060 times.
+Shard 29 was hit 458290 times.
+Shard 30 was hit 665093 times.
+Shard 31 was hit 372909 times.
+[OVERALL], RunTime(ms), 6023
+[OVERALL], Throughput(ops/sec), 2490453.262493774
+[TOTAL_GCS_G1_Young_Generation], Count, 36
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 30
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.4980906524987548
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 36
+[TOTAL_GC_TIME], Time(ms), 30
+[TOTAL_GC_TIME_%], Time(%), 0.4980906524987548
+[READ], Operations, 15000000
+[READ], AverageLatency(us), 7.398074533333333
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 39551
+[READ], 95thPercentileLatency(us), 12
+[READ], 99thPercentileLatency(us), 15
+[READ], Return=OK, 15000000
+[CLEANUP], Operations, 32
+[CLEANUP], AverageLatency(us), 263280.0
+[CLEANUP], MinLatency(us), 262656
+[CLEANUP], MaxLatency(us), 263935
+[CLEANUP], 95thPercentileLatency(us), 263935
+[CLEANUP], 99thPercentileLatency(us), 263935
