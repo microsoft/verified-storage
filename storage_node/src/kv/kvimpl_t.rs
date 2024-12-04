@@ -105,14 +105,12 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
+    pub closed spec fn view(&self) -> AbstractKvState<K, I, L>
     {
-        self.untrusted_kv_impl@
-    }
-
-    pub closed spec fn tentative_view(&self) -> AbstractKvStoreState<K, I, L>
-    {
-        self.untrusted_kv_impl.tentative_view()
+        AbstractKvState::<K, I, L>{
+            durable: self.untrusted_kv_impl@,
+            tentative: self.untrusted_kv_impl.tentative_view(),
+        }
     }
 
     pub closed spec fn valid(self) -> bool
@@ -200,13 +198,13 @@ where
         ensures 
             match result {
                 Ok(item) => {
-                    match self.tentative_view()[*key] {
+                    match self@.tentative[*key] {
                         Some(i) => i.0 == item,
                         None => false,
                     }
                 }
                 Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption(),
-                Err(KvError::KeyNotFound) => !self.tentative_view().contains_key(*key),
+                Err(KvError::KeyNotFound) => !self@.tentative.contains_key(*key),
                 Err(_) => false,
             }
     {
@@ -224,25 +222,25 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
-                        old(self).tentative_view().create(*key, *item)
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
+                        old(self)@.tentative.create(*key, *item)
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyAlreadyExists) => {
-                    &&& self@ == old(self)@
-                    &&& old(self).tentative_view().contains_key(*key)
+                    &&& self@.durable == old(self)@.durable
+                    &&& old(self)@.tentative.contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     // TODO
                 }
                 Err(_) => false,
             }
     {
-        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@.durable);
         let result = self.untrusted_kv_impl.untrusted_create(key, item, self.id, Tracked(&perm));
         result
     }
@@ -258,25 +256,25 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
-                        old(self).tentative_view().update_item(*key, *item)
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
+                        old(self)@.tentative.update_item(*key, *item)
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
-                    &&& self@ == old(self)@
-                    &&& !self.tentative_view().contains_key(*key)
+                    &&& self@.durable == old(self)@.durable
+                    &&& !self@.tentative.contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     // TODO
                 }
                 Err(_) => false,
             }
     {
-        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@.durable);
         self.untrusted_kv_impl.untrusted_update_item(key, item, self.id, Tracked(&perm))
     }
 
@@ -290,25 +288,25 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
-                        old(self).tentative_view().delete(*key)
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@.tentative) == 
+                        old(self)@.tentative.delete(*key)
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::KeyNotFound) => {
-                    &&& self@ == old(self)@
-                    &&& !old(self).tentative_view().contains_key(*key)
+                    &&& self@.durable == old(self)@.durable
+                    &&& !old(self)@.tentative.contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     // TODO
                 }
                 Err(_) => false,
             }
     {
-        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@.durable);
         self.untrusted_kv_impl.untrusted_delete(key, self.id, Tracked(&perm))
     }
 
@@ -319,23 +317,23 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == old(self).tentative_view()
-                    &&& self@ == self.tentative_view()
+                    &&& self@.durable == old(self)@.tentative
+                    &&& self@.durable == self@.tentative
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     &&& !self.constants().impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     // TODO
                 }
                 Err(KvError::LogErr { log_err }) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     // TODO
                 }
                 Err(KvError::NoCurrentTransaction) => {
-                    &&& self@ == old(self)@
+                    &&& self@.durable == old(self)@.durable
                     &&& self.spec_num_log_entries_in_current_transaction() == 0
                 }
                 Err(_) => false,
@@ -344,7 +342,7 @@ where
         if self.untrusted_kv_impl.num_log_entries_in_current_transaction() == 0 {
             return Err(KvError::NoCurrentTransaction)
         }
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self.tentative_view());
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@.durable, self@.tentative);
         self.untrusted_kv_impl.untrusted_commit(self.id, Tracked(&perm))
     }
 

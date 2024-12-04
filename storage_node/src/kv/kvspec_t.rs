@@ -354,4 +354,13 @@ verus! {
         }
     }
 
+    #[verifier::reject_recursive_types(K)]
+    pub struct AbstractKvState<K, I, L>
+    where
+        K: Hash + Eq,
+    {
+        pub durable: AbstractKvStoreState<K, I, L>,
+        pub tentative: AbstractKvStoreState<K, I, L>,
+    }
+
 }
