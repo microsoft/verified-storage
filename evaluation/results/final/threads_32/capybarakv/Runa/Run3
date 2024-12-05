@@ -1,0 +1,67 @@
+Cleaning up
+Shard 0 was hit 411821 times.
+Shard 1 was hit 424878 times.
+Shard 2 was hit 478588 times.
+Shard 3 was hit 425685 times.
+Shard 4 was hit 453176 times.
+Shard 5 was hit 414344 times.
+Shard 6 was hit 405097 times.
+Shard 7 was hit 382923 times.
+Shard 8 was hit 407744 times.
+Shard 9 was hit 489076 times.
+Shard 10 was hit 1033516 times.
+Shard 11 was hit 391317 times.
+Shard 12 was hit 465612 times.
+Shard 13 was hit 410950 times.
+Shard 14 was hit 477988 times.
+Shard 15 was hit 626944 times.
+Shard 16 was hit 406733 times.
+Shard 17 was hit 660860 times.
+Shard 18 was hit 516540 times.
+Shard 19 was hit 421132 times.
+Shard 20 was hit 445957 times.
+Shard 21 was hit 385476 times.
+Shard 22 was hit 438184 times.
+Shard 23 was hit 398287 times.
+Shard 24 was hit 571819 times.
+Shard 25 was hit 440532 times.
+Shard 26 was hit 395972 times.
+Shard 27 was hit 360598 times.
+Shard 28 was hit 362489 times.
+Shard 29 was hit 457379 times.
+Shard 30 was hit 665075 times.
+Shard 31 was hit 373308 times.
+[OVERALL], RunTime(ms), 26999
+[OVERALL], Throughput(ops/sec), 555576.13244935
+[TOTAL_GCS_G1_Young_Generation], Count, 76
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 101
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.3740879291825623
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 76
+[TOTAL_GC_TIME], Time(ms), 101
+[TOTAL_GC_TIME_%], Time(%), 0.3740879291825623
+[READ], Operations, 7498184
+[READ], AverageLatency(us), 46.57033609738038
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 27375
+[READ], 95thPercentileLatency(us), 201
+[READ], 99thPercentileLatency(us), 639
+[READ], Return=OK, 7498184
+[CLEANUP], Operations, 32
+[CLEANUP], AverageLatency(us), 263824.0
+[CLEANUP], MinLatency(us), 262912
+[CLEANUP], MaxLatency(us), 264703
+[CLEANUP], 95thPercentileLatency(us), 264447
+[CLEANUP], 99thPercentileLatency(us), 264703
+[UPDATE], Operations, 7501816
+[UPDATE], AverageLatency(us), 56.846524228266865
+[UPDATE], MinLatency(us), 5
+[UPDATE], MaxLatency(us), 44991
+[UPDATE], 95thPercentileLatency(us), 171
+[UPDATE], 99thPercentileLatency(us), 635
+[UPDATE], Return=OK, 7501816

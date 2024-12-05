@@ -1,0 +1,70 @@
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   126625892 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+MemAvailable:   120481320 kB
+[OVERALL], RunTime(ms), 179220
+[OVERALL], Throughput(ops/sec), 83696.01606963508
+[TOTAL_GCS_G1_Young_Generation], Count, 82
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 110
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.06137707845106573
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 82
+[TOTAL_GC_TIME], Time(ms), 110
+[TOTAL_GC_TIME_%], Time(%), 0.06137707845106573
+[INSERT], Operations, 15000000
+[INSERT], AverageLatency(us), 188.71704613333333
+[INSERT], LatencyVariance(us), 20322.267365376007
+[INSERT], MinLatency(us), 36
+[INSERT], MaxLatency(us), 38947
+[INSERT], 95thPercentileLatency(us), 0
+[INSERT], 99thPercentileLatency(us), 1000
+[INSERT], Return=OK, 15000000

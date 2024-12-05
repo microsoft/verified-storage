@@ -1,0 +1,43 @@
+Cleaning up
+Shard 0 was hit 1795673 times.
+Shard 1 was hit 2017407 times.
+Shard 2 was hit 2423289 times.
+Shard 3 was hit 1600115 times.
+Shard 4 was hit 1726689 times.
+Shard 5 was hit 1669429 times.
+Shard 6 was hit 1986824 times.
+Shard 7 was hit 1780574 times.
+[OVERALL], RunTime(ms), 51877
+[OVERALL], Throughput(ops/sec), 289145.4787285309
+[TOTAL_GCS_G1_Young_Generation], Count, 76
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 94
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.18119783333654604
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 76
+[TOTAL_GC_TIME], Time(ms), 94
+[TOTAL_GC_TIME_%], Time(%), 0.18119783333654604
+[READ], Operations, 7496695
+[READ], AverageLatency(us), 20.130005955957927
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 37535
+[READ], 95thPercentileLatency(us), 74
+[READ], 99thPercentileLatency(us), 119
+[READ], Return=OK, 7496695
+[CLEANUP], Operations, 8
+[CLEANUP], AverageLatency(us), 282912.0
+[CLEANUP], MinLatency(us), 282624
+[CLEANUP], MaxLatency(us), 283135
+[CLEANUP], 95thPercentileLatency(us), 283135
+[CLEANUP], 99thPercentileLatency(us), 283135
+[UPDATE], Operations, 7503305
+[UPDATE], AverageLatency(us), 28.709710454259824
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 71103
+[UPDATE], 95thPercentileLatency(us), 81
+[UPDATE], 99thPercentileLatency(us), 127
+[UPDATE], Return=OK, 7503305

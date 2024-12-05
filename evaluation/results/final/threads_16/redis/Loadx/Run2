@@ -1,0 +1,70 @@
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   126337460 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+MemAvailable:   120479256 kB
+[OVERALL], RunTime(ms), 177778
+[OVERALL], Throughput(ops/sec), 84374.89453138184
+[TOTAL_GCS_G1_Young_Generation], Count, 82
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 111
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.062437421953222556
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 82
+[TOTAL_GC_TIME], Time(ms), 111
+[TOTAL_GC_TIME_%], Time(%), 0.062437421953222556
+[INSERT], Operations, 15000000
+[INSERT], AverageLatency(us), 187.3283556
+[INSERT], LatencyVariance(us), 21706.453451666617
+[INSERT], MinLatency(us), 25
+[INSERT], MaxLatency(us), 47523
+[INSERT], 95thPercentileLatency(us), 0
+[INSERT], 99thPercentileLatency(us), 1000
+[INSERT], Return=OK, 15000000
