@@ -1,0 +1,76 @@
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   115536956 kB
+MemAvailable:   105443908 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443908 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+MemAvailable:   105443404 kB
+[OVERALL], RunTime(ms), 162009
+[OVERALL], Throughput(ops/sec), 92587.44884543451
+[TOTAL_GCS_G1_Young_Generation], Count, 42
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 69
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.04259022646889988
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 42
+[TOTAL_GC_TIME], Time(ms), 69
+[TOTAL_GC_TIME_%], Time(%), 0.04259022646889988
+[READ], Operations, 7500798
+[READ], AverageLatency(us), 170.68807798850202
+[READ], MinLatency(us), 26
+[READ], MaxLatency(us), 34623
+[READ], 95thPercentileLatency(us), 216
+[READ], 99thPercentileLatency(us), 237
+[READ], Return=OK, 7500798
+[UPDATE], Operations, 7499202
+[UPDATE], AverageLatency(us), 168.70569388582945
+[UPDATE], MinLatency(us), 31
+[UPDATE], MaxLatency(us), 34335
+[UPDATE], 95thPercentileLatency(us), 211
+[UPDATE], 99thPercentileLatency(us), 233
+[UPDATE], Return=OK, 7499202

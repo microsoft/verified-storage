@@ -1,0 +1,34 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/pmem0      122G  2.1M  116G   1% /mnt/pmem
+127.0.0.1
+MemAvailable:   126356332 kB
+MemAvailable:   114265164 kB
+[OVERALL], RunTime(ms), 1242348
+[OVERALL], Throughput(ops/sec), 12073.911657603183
+[TOTAL_GCS_G1_Young_Generation], Count, 120
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 151
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.012154404401987205
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 120
+[TOTAL_GC_TIME], Time(ms), 151
+[TOTAL_GC_TIME_%], Time(%), 0.012154404401987205
+[CLEANUP], Operations, 1
+[CLEANUP], AverageLatency(us), 130208.0
+[CLEANUP], MinLatency(us), 130176
+[CLEANUP], MaxLatency(us), 130239
+[CLEANUP], 95thPercentileLatency(us), 130239
+[CLEANUP], 99thPercentileLatency(us), 130239
+[INSERT], Operations, 15000000
+[INSERT], AverageLatency(us), 80.57205833333333
+[INSERT], MinLatency(us), 26
+[INSERT], MaxLatency(us), 122495
+[INSERT], 95thPercentileLatency(us), 94
+[INSERT], 99thPercentileLatency(us), 101
+[INSERT], Return=OK, 15000000
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/pmem0      122G   22G   94G  19% /mnt/pmem
