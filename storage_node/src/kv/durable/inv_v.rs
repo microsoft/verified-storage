@@ -379,7 +379,7 @@ verus! {
                 overall_metadata.log_area_size as nat),
             s1.len() == s2.len(),
             overall_metadata.list_area_addr + overall_metadata.list_area_size <= s1.len(),
-            overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+            overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
         ensures 
             extracted_regions_match(s1, s2, overall_metadata),
             deserialize_version_metadata(s1) == deserialize_version_metadata(s2),

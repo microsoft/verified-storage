@@ -383,8 +383,7 @@ verus! {
         {
             let pm_view = self.wrpm@;
             &&& self.wrpm.inv()
-            &&& overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
-                                                self.overall_metadata.kvstore_id)
+            &&& overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr)
             &&& self.wrpm@.len() == self.overall_metadata.region_size
             &&& self.log.inv(pm_view, self.version_metadata, self.overall_metadata)
             &&& no_outstanding_writes_to_version_metadata(self.wrpm@)
@@ -542,6 +541,8 @@ verus! {
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
             if mem.len() != overall_metadata.region_size {
+                None
+            } else if !overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr) {
                 None
             } else {
                 match UntrustedOpLog::<K, L>::recover(mem, version_metadata, overall_metadata) {
@@ -925,7 +926,7 @@ verus! {
                 overall_metadata.list_area_addr + overall_metadata.list_area_size <= wrpm_region@.len(),
                 wrpm_region@.len() == overall_metadata.region_size,
                 AbstractPhysicalOpLogEntry::log_inv(op_log@.physical_op_list, version_metadata, overall_metadata),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                 Self::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) == 
                     Self::physical_recover_given_log(wrpm_region@.durable_state, overall_metadata, AbstractOpLogState::initialize()),
                 deserialize_version_metadata(wrpm_region@.durable_state) == version_metadata,
@@ -1033,7 +1034,7 @@ verus! {
                 overall_metadata.list_area_addr + overall_metadata.list_area_size <= wrpm_region@.len(),
                 wrpm_region@.len() == overall_metadata.region_size,
                 AbstractPhysicalOpLogEntry::log_inv(op_log@.physical_op_list, version_metadata, overall_metadata),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                 Self::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) == 
                     Self::physical_recover_given_log(wrpm_region@.durable_state, overall_metadata, AbstractOpLogState::initialize()),
                 deserialize_version_metadata(wrpm_region@.durable_state) == version_metadata,
@@ -1349,7 +1350,8 @@ verus! {
                 old(pm_region)@.flush_predicted(),
                 overall_metadata.region_size == old(pm_region)@.len(),
                 memory_correctly_set_up_on_region::<K, I, L>(old(pm_region)@.durable_state, kvstore_id),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
+                overall_metadata.kvstore_id == kvstore_id,
                 deserialize_version_metadata(old(pm_region)@.durable_state) == version_metadata,
                 deserialize_version_crc(old(pm_region)@.durable_state) == version_metadata.spec_crc(),
                 deserialize_overall_metadata(old(pm_region)@.durable_state, version_metadata.overall_metadata_addr) == overall_metadata,
@@ -1535,7 +1537,7 @@ verus! {
                 overall_metadata == deserialize_overall_metadata(wrpm_region@.durable_state,
                                                                  version_metadata.overall_metadata_addr),
                 Self::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) == Some(state),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= wrpm_region@.len() <= u64::MAX,
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
                 forall |s| {
@@ -1605,11 +1607,6 @@ verus! {
                         }
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption(),
-                    // TODO: proper handling of other error types
-                    Err(KvError::LogErr { log_err }) => true,
-                    Err(KvError::InternalError) => true, 
-                    Err(KvError::IndexOutOfRange) => true,
-                    Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false 
                 }
         {
@@ -1769,7 +1766,7 @@ verus! {
                 overall_metadata == deserialize_overall_metadata(old(wrpm_region)@.durable_state,
                                                                 version_metadata.overall_metadata_addr),
                 Self::physical_recover(old(wrpm_region)@.durable_state, version_metadata, overall_metadata) == Some(state),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= old(wrpm_region)@.len() <= u64::MAX,
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
                 forall |s| {
@@ -3535,7 +3532,7 @@ version_metadata, overall_metadata,
             }
         }
 
-        #[verifier::rlimit(25)]
+        #[verifier::rlimit(100)]
         proof fn lemma_helper_for_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -6981,8 +6978,7 @@ version_metadata, overall_metadata,
         proof fn lemma_if_every_component_recovers_to_its_current_state_then_self_does(self)
             requires
                 !self.transaction_committed(),
-                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
-                                                  self.overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr),
                 self.wrpm.inv(),
                 self.wrpm@.len() == self.overall_metadata.region_size,
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
@@ -7172,7 +7168,7 @@ version_metadata, overall_metadata,
                 self.wrpm@.len() == self.overall_metadata.region_size,
                 self.wrpm@.len() == pre_log_install_wrpm@.len(),
                 self.transaction_committed(),
-                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr, self.overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr),
                 UntrustedOpLog::<K, L>::recover(self.wrpm@.durable_state, self.version_metadata, self.overall_metadata) == Some(self.log@),
                 AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
                 extract_bytes(pre_log_install_wrpm@.durable_state, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat) ==
@@ -7517,8 +7513,7 @@ version_metadata, overall_metadata,
                 }),
                 self.wrpm@.flush_predicted(),
                 pre_state.flush_predicted(),
-                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
-                    self.overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr),
                 pre_state.len() == self.wrpm@.len(),
                 self.wrpm@.len() == self.overall_metadata.region_size,
             ensures 

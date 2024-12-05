@@ -570,7 +570,7 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 pm_region@.flush_predicted(),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
         /* REMOVED UNTIL WE IMPLEMENT LISTS
                 Self::parse_all_lists(
                     main_table@, 
@@ -593,9 +593,6 @@ verus! {
                         &&& list.inv(subregion.view(pm_region), main_table@, overall_metadata)
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
-                    Err(KvError::PmemErr { pmem_err }) => true,
-                    Err(KvError::InternalError) => true,
                     Err(_) => false // TODO
                 }
         

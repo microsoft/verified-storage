@@ -1181,7 +1181,7 @@ impl UntrustedLogImpl {
                         &&& Self::can_only_crash_as_state(pm_region@, log_start_addr as nat, log_size as nat, state)
                     }
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                    Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
+                    Err(_) => false,
                 }
             })   
     {

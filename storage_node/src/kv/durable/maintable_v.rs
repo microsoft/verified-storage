@@ -1095,8 +1095,7 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 pm_region@.flush_predicted(),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr,
-                                                  overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                 parse_main_table::<K>(
                     subregion.view(pm_region).durable_state,
                     overall_metadata.num_keys, 
@@ -1148,12 +1147,7 @@ verus! {
                         &&& main_table@ == main_table.tentative_view()
                         &&& main_table@.valid_item_indices() == item_index_view.to_set()
                     }
-                    Err(KvError::IndexOutOfRange) => {
-                        let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-                        overall_metadata.num_keys > overall_metadata.main_table_size / entry_slot_size
-                    }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                    Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false
                 }
         {
@@ -1165,7 +1159,6 @@ verus! {
 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
             let mut key_index_pairs: Vec<(Box<K>, u64, u64)> = Vec::new();
-            let max_index = overall_metadata.main_table_size / (main_table_entry_size as u64);
             let ghost mem = subregion.view(pm_region).durable_state;
             let mut index = 0;
             let ghost table = parse_main_table::<K>(
@@ -1176,13 +1169,6 @@ verus! {
             let ghost old_pm_constants = pm_region.constants();
 
             proof {
-                // proves that max_index * main_table_entry_size <= overall_metadata.main_table_size
-                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(overall_metadata.main_table_size as int, main_table_entry_size as int);
-                // This helps Verus prove that we don't go out of bounds when reading the entry at index * main_table_entry_size
-                assert(main_table_entry_size * max_index == max_index * main_table_entry_size) by {
-                    vstd::arithmetic::mul::lemma_mul_is_commutative(main_table_entry_size as int, max_index as int);
-                }
-
                 // Proves that there is currently only one crash state, and it recovers to the current ghost table state.
 //                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(subregion.view(pm_region));
                 assert(mem == subregion.view(pm_region).durable_state);
@@ -1197,11 +1183,8 @@ verus! {
                 invariant
                     subregion.inv(pm_region),
                     index <= num_keys,
+                    overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                     index * main_table_entry_size <= overall_metadata.main_table_size <= u64::MAX,
-                    max_index == overall_metadata.main_table_size / (main_table_entry_size as u64),
-                    max_index * main_table_entry_size <= overall_metadata.main_table_size,
-                    main_table_entry_size * max_index == max_index * main_table_entry_size, 
-                    index <= max_index,
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == main_table_entry_size,
                     num_keys == overall_metadata.num_keys,
                     subregion.len() == overall_metadata.main_table_size,
@@ -1266,27 +1249,12 @@ verus! {
                         &&& table.durable_main_table[i as int] is Some
                         &&& table.durable_main_table[j as int] is Some
                     } ==> table.durable_main_table[i as int].unwrap().item_index() != 
-                            table.durable_main_table[j as int].unwrap().item_index()
+                            table.durable_main_table[j as int].unwrap().item_index(),
             {
                 let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
-                if index < max_index {
-                    // This case proves that index * main_table_entry_size will not overflow or go out of bounds (here or at the end
-                    // of the loop) if index < max_index
-                    proof {
-                        lemma_mul_strict_inequality(index as int, max_index as int, main_table_entry_size as int);
-                        if index + 1 < max_index {
-                            lemma_mul_strict_inequality(index + 1, max_index as int, main_table_entry_size as int);
-                        }
-                        // also prove that we can read the next entry at this index without going out of bounds
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(main_table_entry_size as int, index as int, 1int);
-                        // asserting these here seems to help stabilize some arithmetic assertions later
-                        assert(main_table_entry_size * (index + 1) == main_table_entry_size * index + main_table_entry_size);
-                        assert(main_table_entry_size * (index + 1) <= main_table_entry_size * max_index);
-                    }
-                } else {
-                    proof { lemma_fundamental_div_mod(overall_metadata.main_table_size as int, main_table_entry_size as int); }
-                    return Err(KvError::IndexOutOfRange);
+                proof {
+                    lemma_valid_entry_index(index as nat, num_keys as nat, main_table_entry_size as nat);
                 }
 
                 let entry_offset = index * (main_table_entry_size as u64);

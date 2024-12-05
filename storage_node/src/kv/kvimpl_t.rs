@@ -164,12 +164,7 @@ where
             match result {
                 Ok(kvstore) => kvstore.valid(),
                 Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                // TODO: proper handling of other error types
-                Err(KvError::LogErr { log_err }) => true,
-                Err(KvError::InternalError) => true,
-                Err(KvError::IndexOutOfRange) => true,
-                Err(KvError::PmemErr{ pmem_err }) => true,
-                Err(_) => false
+                Err(_) => false,
             }
     {
         let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);

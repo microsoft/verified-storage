@@ -221,7 +221,8 @@ where
             &&& read_version_crc == version_metadata.spec_crc()
             &&& read_overall_crc == overall_metadata.spec_crc()
             &&& version_metadata_valid(read_version_metadata)
-            &&& overall_metadata_valid::<K, I, L>(read_overall_metadata, read_version_metadata.overall_metadata_addr, read_overall_metadata.kvstore_id)
+            &&& overall_metadata_valid::<K, I, L>(read_overall_metadata, read_version_metadata.overall_metadata_addr)
+            &&& overall_metadata.kvstore_id == read_overall_metadata.kvstore_id
             &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
         });
         let recovered_durable_store = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata).unwrap();
@@ -252,11 +253,6 @@ where
                     &&& Some(kv@) == Self::recover(kv.wrpm_view().durable_state, kvstore_id)
                 }
                 Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption(),
-                // TODO: proper handling of other error types
-                Err(KvError::LogErr { log_err }) => true,
-                Err(KvError::InternalError) => true, 
-                Err(KvError::IndexOutOfRange) => true,
-                Err(KvError::PmemErr{ pmem_err }) => true,
                 Err(_) => false 
             }
     {        
@@ -273,7 +269,7 @@ where
         proof {
             assert(DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
                 wrpm_region@.durable_state, version_metadata, overall_metadata) is Some);
-            assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.durable_state, version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr, kvstore_id));
+            assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.durable_state, version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr));
             assert forall |s| {
                 &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.durable_state)
                 &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)

@@ -40,7 +40,7 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
             // it's obligated to prove that it won't generate such an error when
             // the persistent memory is impervious to corruption.
             Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-            Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
+            Err(_) => false,
         }
 {
     let ghost mem = pm_region@.durable_state;

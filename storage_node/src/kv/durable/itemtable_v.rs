@@ -1095,7 +1095,7 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 pm_region@.flush_predicted(),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr),
                 subregion.len() == overall_metadata.item_table_size,
                 subregion.view(pm_region).flush_predicted(),
                 ({
@@ -1134,7 +1134,6 @@ verus! {
                         }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                    Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false
                 }
         {

@@ -926,11 +926,7 @@ verus! {
                         }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                    Err(KvError::LogErr{log_err}) => {
-                        &&& log_err matches LogErr::PmemErr{err}
-                        &&& err matches PmemError::AccessOutOfRange
-                    }
-                    Err(_) => false
+                    Err(_) => false,
                 }
     {
         let log_start_addr = overall_metadata.log_area_addr;
@@ -1138,19 +1134,6 @@ verus! {
                     }
                 }
                 Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption(),
-                Err(KvError::LogErr{log_err}) => {
-                    &&& log_err matches LogErr::PmemErr{err}
-                    &&& err matches PmemError::AccessOutOfRange
-                }
-                Err(KvError::InternalError) => {
-                    let log = UntrustedLogImpl::recover(pm_region@.durable_state,
-                                                        overall_metadata.log_area_addr as nat,
-                                                        overall_metadata.log_area_size as nat).unwrap();
-                    let tail = log.head + log.log.len();
-                    ||| tail - log.head < u64::spec_size_of() as u128
-                    ||| UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata,
-                                                      overall_metadata) is None
-                }
                 Err(_) => false
             }
     {
@@ -1167,9 +1150,7 @@ verus! {
         let log = match UntrustedLogImpl::start(pm_region, log_start_addr, log_size, Ghost(base_log_state)) {
             Ok(log) => log,
             Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
-            Err(e) => {
-                return Err(KvError::LogErr { log_err: e });
-            }
+            Err(e) => { assert(false); return Err(KvError::LogErr{ log_err: e }) },
         };
         let ghost op_log_state = Self::recover(pm_region@.durable_state, version_metadata, overall_metadata);
 

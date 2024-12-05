@@ -28,14 +28,12 @@ verus! {
 pub open spec fn overall_metadata_valid<K, I, L>(
     overall_metadata: OverallMetadata,
     overall_metadata_addr: u64,
-    kvstore_id: u128,
 ) -> bool
 where
     K: PmCopy,
     I: PmCopy,
     L: PmCopy,
 {
-    &&& overall_metadata.kvstore_id == kvstore_id
     &&& overall_metadata.list_element_size == L::spec_size_of()
     &&& overall_metadata.item_size == I::spec_size_of()
     &&& overall_metadata.key_size == K::spec_size_of()
@@ -65,7 +63,8 @@ where
     &&& overall_metadata.list_area_size as int % const_persistence_chunk_size() == 0
     &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
     &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
-    
+    &&& overall_metadata.main_table_size >= overall_metadata.num_keys * 
+        (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of())
 }
 
 // This function evaluates whether memory was correctly set up.
@@ -97,7 +96,7 @@ where
     &&& version_crc == version_metadata.spec_crc()
     &&& overall_crc == overall_metadata.spec_crc()
     &&& version_metadata_valid(version_metadata)
-    &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id)
+    &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr)
     &&& overall_metadata.region_size <= mem.len()
 
     &&& VersionMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as nat, VersionMetadata::spec_size_of()))
@@ -163,7 +162,7 @@ pub fn initialize_overall_metadata<K, I, L> (
             Ok(overall_metadata) => {
                 &&& overall_metadata.region_size == region_size
                 &&& overall_metadata.kvstore_id == kvstore_id
-                &&& overall_metadata_valid::<K, I, L>(overall_metadata, overall_metadata_addr, kvstore_id)
+                &&& overall_metadata_valid::<K, I, L>(overall_metadata, overall_metadata_addr)
             },
             Err(_) => true,
         },
@@ -393,6 +392,7 @@ pub fn setup<PM, K, I, L> (
                 &&& deserialize_overall_metadata(pm@.durable_state, version_metadata.overall_metadata_addr) == overall_metadata
                 &&& deserialize_overall_crc(pm@.durable_state, version_metadata.overall_metadata_addr) == overall_metadata.spec_crc()
                 &&& overall_metadata.region_size == pm@.len()
+                &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr)
             },
             Err(_) => true,
         },
