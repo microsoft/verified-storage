@@ -2283,7 +2283,6 @@ version_metadata, overall_metadata,
             );
         }
 
-        #[verifier::rlimit(20)]
         proof fn lemma_installing_single_log_entry_preserves_crash_perm_and_metadata(
             phys_log_view: Seq<AbstractPhysicalOpLogEntry>,
             index: int,
@@ -2313,8 +2312,7 @@ version_metadata, overall_metadata,
                     overall_metadata,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 recovery_write_region_invariant::<Perm, PM, K, I, L>(current_wrpm, version_metadata,
-                                                                     overall_metadata, phys_log_view)
-,
+                                                                     overall_metadata, phys_log_view),
                 ({
                     let op = phys_log_view[index];
                     forall |s| can_result_from_partial_write(s, current_wrpm@.durable_state, op.absolute_addr as int,
@@ -2503,6 +2501,8 @@ version_metadata, overall_metadata,
                     self.condition_preserved_by_subregion_masks(),
                 )
         {
+            hide(reverse_item_mapping_exists);
+
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -3532,7 +3532,7 @@ version_metadata, overall_metadata,
             }
         }
 
-        #[verifier::rlimit(100)]
+        #[verifier::rlimit(30)]
         proof fn lemma_helper_for_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -3824,7 +3824,12 @@ version_metadata, overall_metadata,
                                    self.overall_metadata.item_table_size as nat) ==
                     get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                        self.overall_metadata.item_table_size as nat),
+                self_before_main_table_create.main_table.free_indices().contains(main_table_index),
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
+            hide(reverse_item_mapping_exists);
+         
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -3950,10 +3955,6 @@ version_metadata, overall_metadata,
                        current_durable_main_table_view.read_state[relative_addr]);
                 assert(old_self.wrpm@.read_state[addr] ==
                        old_current_main_table_view.read_state[relative_addr]);
-//                assert(self.wrpm@.read_state[addr] ==
-//                       self.wrpm@.flush().state[addr].state_at_last_flush);
-//                assert(old_self.wrpm@.read_state[addr] ==
-//                       old_self.wrpm@.flush().state[addr].state_at_last_flush);
                 lemma_auto_addr_in_entry_divided_by_entry_size(main_table_index as nat,
                                                                self.overall_metadata.num_keys as nat,
                                                                main_table_entry_size as nat);
@@ -3961,7 +3962,10 @@ version_metadata, overall_metadata,
                 let i = relative_addr / main_table_entry_size as int;
                 assert(i != main_table_index);
             }
-                       
+
+            assert(old_self.main_table.free_indices().contains(main_table_index)) by {
+                reveal(MainTable::opaquable_inv);
+            }
             lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
                 old_self.wrpm@.read_state,
                 self.wrpm@.read_state,
@@ -4056,8 +4060,7 @@ version_metadata, overall_metadata,
             broadcast use pmcopy_axioms; 
         }
 
-        #[verifier::rlimit(40)]
- // TODO @jay
+        #[verifier::rlimit(20)]
         proof fn lemma_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -4263,6 +4266,9 @@ version_metadata, overall_metadata,
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                 }),
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
+         
             assert({
                 &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.durable_state)
                 &&& self.version_metadata == deserialize_version_metadata(self.wrpm@.read_state)
@@ -4340,12 +4346,6 @@ version_metadata, overall_metadata,
             let old_tentative_main_table_parsed = old_tentative_main_table_parsed.unwrap();
             assert(old_current_main_table_parsed == Some(old_self.main_table@)) by {
                 let s = extract_bytes(old_self.wrpm@.durable_state, main_table_addr as nat, main_table_size as nat);
-//                assert(get_subregion_view(old_self.wrpm@, main_table_addr as nat,
-//                                          main_table_size as nat).can_crash_as(s)) by {
-//                    lemma_persistent_memory_view_can_crash_as_committed(old_self.wrpm@);
-//                    lemma_subregion_view_can_crash_as_subrange(old_self.wrpm@, old_self.wrpm@.durable_state,
-//                                                               main_table_addr as nat, main_table_size as nat);
-//                }
             }
             let old_current_main_table_parsed = old_current_main_table_parsed.unwrap();
 
@@ -5015,7 +5015,7 @@ version_metadata, overall_metadata,
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
-        #[verifier::rlimit(30)]
+        #[verifier::rlimit(10)]
         pub fn tentative_create(
             &mut self,
             key: &K,
@@ -5061,6 +5061,10 @@ version_metadata, overall_metadata,
                     }
                 })
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
+            hide(reverse_item_mapping_exists);
+
             let ghost num_keys = self.overall_metadata.num_keys;
             let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
             let ghost main_table_addr = self.overall_metadata.main_table_addr;
@@ -5101,6 +5105,9 @@ version_metadata, overall_metadata,
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
 
             let ghost self_before_tentative_item_write = *self;
+            assert(self.item_table.free_list().disjoint(self.item_table.tentative_valid_indices())) by {
+                reveal(DurableItemTable::opaquable_inv);
+            }
             let item_index = match self.item_table.tentatively_write_item(
                 &item_table_subregion,
                 &mut self.wrpm,
@@ -5178,7 +5185,9 @@ version_metadata, overall_metadata,
             };
 
             proof {
-                assert(self_before_main_table_create.main_table@.durable_main_table[main_table_index as int] is None);
+                assert(self_before_main_table_create.main_table@.durable_main_table[main_table_index as int] is None)
+                by { reveal(MainTable::opaquable_inv); }
+
                 assert(old(self).tentative_main_table().durable_main_table[main_table_index as int] is None) by
                 {
                     let durable_state_bytes = old(self).wrpm@.durable_state;
@@ -5198,7 +5207,9 @@ version_metadata, overall_metadata,
                     let tentative_main_table_view =
                         parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
                                               self.overall_metadata.main_table_entry_size).unwrap();
-                    assert(tentative_main_table_view.durable_main_table[main_table_index as int] is None);
+                    assert(tentative_main_table_view.durable_main_table[main_table_index as int] is None) by {
+                        reveal(MainTable::opaquable_inv);
+                    }
                     assert(old(self).tentative_main_table().durable_main_table[main_table_index as int] is None);
                 }
                 let t = self_before_main_table_create.tentative_main_table().durable_main_table;
@@ -7019,7 +7030,6 @@ version_metadata, overall_metadata,
             }
         }
 
-        #[verifier::rlimit(20)]
         proof fn lemma_commit_log_precondition(
             self,
             crash_pred: spec_fn(Seq<u8>) -> bool,
@@ -7077,6 +7087,9 @@ version_metadata, overall_metadata,
                            Some(self.log@.commit_op_log())
                 } ==> perm.check_permission(s2),
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
+         
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
             lemma_log_replay_preserves_size(self.wrpm@.read_state, self.log@.physical_op_list);
 
@@ -7241,7 +7254,7 @@ version_metadata, overall_metadata,
 
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
-        #[verifier::rlimit(50)] // TODO @hayley
+        #[verifier::rlimit(30)] // TODO @hayley
         pub fn commit(
             &mut self,
             Tracked(perm): Tracked<&Perm>
@@ -7303,6 +7316,9 @@ version_metadata, overall_metadata,
                     }
                 }
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
+         
             let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.read_state,
                     self.log@.physical_op_list).unwrap();
 
@@ -7367,6 +7383,8 @@ version_metadata, overall_metadata,
                 // Prove that the logged updates tracked in volatile memory constitute a valid log (which implies
                 // replaying the log will succeed and result in a valid KV store state)
                 assert(PhysicalOpLogEntry::log_inv(self.pending_updates, self.version_metadata, self.overall_metadata)) by {
+                    reveal(MainTable::opaquable_inv);
+                    reveal(DurableItemTable::opaquable_inv);
                     PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(self.pending_updates,
                         self.version_metadata, self.overall_metadata);
                 }
@@ -7423,6 +7441,9 @@ version_metadata, overall_metadata,
             // 4. Update ghost state and finalize pending (de)allocations.
             self.main_table.finalize_main_table(Ghost(old(self).main_table), Ghost(old(self).wrpm@),
                 Ghost(self.wrpm@), Ghost(self.overall_metadata));
+            assert(self.item_table.opaquable_inv(self.overall_metadata, self.item_table.durable_valid_indices())) by {
+                reveal(DurableItemTable::opaquable_inv);
+            }
             self.item_table.finalize_item_table(Ghost(old(self).item_table), Ghost(self.wrpm@), 
                 Ghost(self.overall_metadata));
 
@@ -7489,8 +7510,12 @@ version_metadata, overall_metadata,
 //                assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s));
 
                 // these all require extensional equality
-                assert(self.tentative_main_table() =~= self.main_table.tentative_view());
-                assert(self.tentative_item_table() =~= self.item_table.tentative_view());
+                assert(self.tentative_main_table() =~= self.main_table.tentative_view()) by {
+                    reveal(MainTable::opaquable_inv);
+                }
+                assert(self.tentative_item_table() =~= self.item_table.tentative_view()) by {
+                    reveal(DurableItemTable::opaquable_inv);
+                }
                 assert(self.main_table.tentative_view().valid_item_indices() =~= self.item_table.tentative_valid_indices());
                 assert(self.main_table@.valid_item_indices() =~= self.item_table.durable_valid_indices());
             }

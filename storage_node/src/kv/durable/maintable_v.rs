@@ -785,6 +785,10 @@ verus! {
             &&& self.outstanding_entries.inv()
             &&& vstd::std_specs::hash::obeys_key_model::<K>()
             &&& self.modified_indices@.len() <= self@.durable_main_table.len()
+            &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |idx: u64| self.free_list().contains(idx) ==> self.free_indices().contains(idx)
+            &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==>
+                   #[trigger] self.modified_indices@.contains(idx)
         }
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -800,16 +804,12 @@ verus! {
             &&& parse_main_table::<K>(pm.durable_state, overall_metadata.num_keys,
                                     overall_metadata.main_table_entry_size) == Some(self@)
             &&& self@.durable_main_table.len() == overall_metadata.num_keys
-            &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
-            &&& forall |idx: u64| self.free_list().contains(idx) ==> self.free_indices().contains(idx)
-            &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
-                   (#[trigger] self@.durable_main_table[i] matches Some(entry) ==>
-                    entry.entry.item_index < overall_metadata.num_keys)
-            &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==>
-                   #[trigger] self.modified_indices@.contains(idx)
             &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() &&
                  !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
                     self.no_outstanding_writes_to_entry(pm, idx, overall_metadata.main_table_entry_size)
+            &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
+                   (#[trigger] self@.durable_main_table[i] matches Some(entry) ==>
+                    entry.entry.item_index < overall_metadata.num_keys)
         }
 
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -2328,7 +2328,6 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(20)]
         pub exec fn create_validify_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
@@ -2417,6 +2416,8 @@ verus! {
                         current_main_table_view.valid_item_indices().insert(entry.entry.item_index)
                 }),
         {
+            hide(MainTable::opaquable_inv);
+
             let entry_slot_size = overall_metadata.main_table_entry_size;
             let ghost current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
             let ghost entry = self.outstanding_entries[index].unwrap();
@@ -2850,7 +2851,6 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(25)] // TODO @hayley
         proof fn lemma_update_item_log_entry<PM>(
             self,
             subregion: &PersistentMemorySubregion,
@@ -2972,6 +2972,8 @@ verus! {
                             current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
                 })
         {
+            hide(MainTable::opaquable_inv);
+         
             let item_index = new_metadata_entry.item_index;
 
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
