@@ -1151,6 +1151,8 @@ verus! {
                     Err(_) => false
                 }
         {
+            hide(MainTable::opaquable_inv);
+
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
 
@@ -1553,6 +1555,8 @@ verus! {
                 assert(main_table@ == main_table.tentative_view());
 
                 lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(main_table@.durable_main_table);
+
+                reveal(MainTable::opaquable_inv);
             }
 
             Ok((main_table, key_index_pairs))

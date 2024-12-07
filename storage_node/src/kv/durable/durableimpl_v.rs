@@ -1610,6 +1610,9 @@ verus! {
                     Err(_) => false 
                 }
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
+
             let ghost old_wrpm = wrpm_region;
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
@@ -1740,11 +1743,16 @@ verus! {
 
                 let tentative_item_table_bytes = extract_bytes(tentative_state_bytes.unwrap(), 
                     overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+
+                reveal(MainTable::opaquable_inv);
+                reveal(DurableItemTable::opaquable_inv);
+
                 assert(tentative_item_table_bytes == item_table_subregion.view(pm_region).durable_state);
                 assert(durable_kv_store.tentative_item_table() == durable_kv_store.item_table.tentative_view());
 
                 durable_kv_store.lemma_tentative_view_matches_durable_when_log_is_empty();
             }
+
             Ok((durable_kv_store, entry_list))
         }
 
@@ -2501,6 +2509,8 @@ version_metadata, overall_metadata,
                     self.condition_preserved_by_subregion_masks(),
                 )
         {
+            hide(MainTable::opaquable_inv);
+            hide(DurableItemTable::opaquable_inv);
             hide(reverse_item_mapping_exists);
 
             let overall_metadata = self.overall_metadata;
@@ -2532,7 +2542,9 @@ version_metadata, overall_metadata,
                     let which_entry = addr / main_table_entry_size as int;
                     lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
                     assert(self.main_table.free_list().contains(which_entry as u64));
-                    assert(self.main_table.free_indices().contains(which_entry as u64));
+                    assert(self.main_table.free_indices().contains(which_entry as u64)) by {
+                        reveal(MainTable::opaquable_inv);
+                    }
                     assert(self.main_table@.durable_main_table[which_entry as int] is None);
                     let entry_bytes = extract_bytes(ss1,
                                                     index_to_offset(which_entry as nat, main_table_entry_size as nat),
