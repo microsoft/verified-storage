@@ -6,12 +6,12 @@ import csv
 import numpy as np
 import sys
 
-ycsb_run_names = ["Load A", "Run A", "Run B", "Run C", "Run D", "Load E", "Run F", "Loadx", "Runx"]
+ycsb_run_names = ["LoadA", "RunA", "RunB", "RunC", "RunD", "LoadE", "RunF", "LoadX", "RunX"]
 ycsb_runs = {"Loada": [], "Runa": [], "Runb": [], "Runc": [], "Rund": [], "Loade": [], "Runf": [], "Loadx": [], "Runx": []}
 kv_stores = ["redis", "RocksDB", "CapybaraKV"]
 legend_names = ["pmem-Redis", "pmem-RocksDB", "CapybaraKV"]
 
-def plot_ycsb(ycsb_results_file, output_file):
+def plot_ycsb(ax, ycsb_results_file):
     with open(ycsb_results_file, "r") as f:
         reader = csv.reader(f)
         current_run = ""
@@ -59,31 +59,43 @@ def plot_ycsb(ycsb_results_file, output_file):
     #     'ytick.labelsize':'large'}
     # pylab.rcParams.update(params)
 
+    print(filesys_grouped_data["redis"])
+
+    normalized_data_redis = [ 1 for i in range(0, len(filesys_grouped_data["redis"]))]
+    normalized_data_rocksdb = [ filesys_grouped_data["RocksDB"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["RocksDB"]))]
+    normalized_data_capybarakv = [ filesys_grouped_data["CapybaraKV"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["CapybaraKV"]))]
+    
+
     x = np.arange(len(ycsb_run_names))
 
-    width = 0.2
+    width = 0.25
 
-    fig, ax = plt.subplots()
+    # fig, ax = plt.subplots()
 
-    r1 = ax.bar(x-width*1, filesys_grouped_data["redis"], width, hatch="//")
-    # autolabel(ax, r1, filesys_raw_grouped_data["Ext4-DAX"])
-    r2 = ax.bar(x-width*0, filesys_grouped_data["RocksDB"], width, hatch="..")
-    r4 = ax.bar(x+width*1, filesys_grouped_data["CapybaraKV"], width, color="black")
-    ax.grid(True, zorder=0)
+    r1 = ax.bar(x-width*1, normalized_data_redis, width, hatch="//", color="cornflowerblue")
+    autolabel(ax, r1, filesys_grouped_data["redis"])
+    r2 = ax.bar(x-width*0, normalized_data_rocksdb, width, hatch="..", color="orange")
+    # autolabel(ax, r2, filesys_grouped_data["RocksDB"])
+    r3 = ax.bar(x+width*1, normalized_data_capybarakv, width, color="black")
+    # autolabel(ax, r3, filesys_grouped_data["CapybaraKV"])
+    # ax.grid(True, zorder=0)
+    # fig.set_figwidth(6.9)
+    # fig.set_figheight(2.25)
     ax.set_axisbelow(True)
+    ax.grid(True, zorder=0, axis="y")
 
-    plt.xticks(x, ycsb_run_names)
-    plt.ylabel("Kops/sec")
-    plt.xlabel("YCSB workloads")
-    plt.legend(legend_names)
-    # plt.ylim(0.5,3.5)
-    plt.savefig(output_file, format="pdf")
+    ax.set_xticks(x, ycsb_run_names)
+    # ax.set_ylabel("kops/s (relative)")
+    # ax.set_xlabel("YCSB workloads")
+    
+    # plt.ylim(0,26)
+    
 
 def autolabel(ax, rects, data):
     i = 0
     for rect in rects:
         throughput = data[i]
-        ax.annotate("{}".format(int(round(throughput / 1000, 0))),
+        ax.annotate("{}".format(int(round(throughput, 0))),
             xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()),
             rotation=90,
             ha="center", va="bottom",
@@ -91,14 +103,37 @@ def autolabel(ax, rects, data):
             )
         i += 1
 
+def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_file):
+    fig, axs = plt.subplots(1, 2)
+
+    plot_ycsb(axs[0], ycsb_results_file_1thread)
+    plot_ycsb(axs[1], ycsb_results_file_16thread)
+
+    axs[0].set_ylim(0,22)
+    axs[0].set_xlabel("(a) 1 thread")
+    # axs[1].set_ylim(0,26)
+    axs[1].set_xlabel("(b) 16 threads")
+    axs[1].sharey(axs[0])
+    axs[0].set_yticks([1, 5, 10, 15, 20])
+
+    axs[0].set_ylabel("throughput relative to pmem-Redis")
+
+    fig.set_figwidth(10)
+    fig.set_figheight(2.5)
+    # fig.legend(legend_names, ncol=3, loc="upper center", bbox_to_anchor=(0.5,1.2))
+    fig.legend(legend_names, ncol=3, loc="upper center", bbox_to_anchor=(0.5,1.1))
+    fig.tight_layout(pad=0.75)
+    plt.savefig(output_file, format="pdf", bbox_inches="tight")
+
 def main():
     if len(sys.argv) < 3:
         print("Too few arguments")
         exit(1)
-    ycsb_results_file = sys.argv[1]
-    output_file = sys.argv[2]
+    ycsb_results_file_1thread = sys.argv[1]
+    ycsb_results_file_16thread = sys.argv[2]
+    output_file = sys.argv[3]
 
-    plot_ycsb(ycsb_results_file, output_file)
+    plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_file)
 
 
 main()

@@ -16,8 +16,8 @@ kvstores = ["redis", "pmemrocksdb", "capybarakv"]
 nice_kvstore_names = ["pmem-Redis", "pmem-RocksDB", "CapybaraKV"]
 workloads = ["sequential_put", "sequential_get", "sequential_update", "sequential_delete", 
     "rand_put", "rand_get", "rand_update", "rand_delete"]
-nice_workload_names = ["Seq put", "Seq get", "Seq update", "Seq delete",
-    "Rand put", "Rand get", "Rand update", "Rand delete"]
+nice_workload_names = ["Seq\nput", "Seq\nget", "Seq\nupdate", "Seq\ndelete",
+    "Rand\nput", "Rand\nget", "Rand\nupdate", "Rand\ndelete"]
 
 def process_workload_file(file_path):
     """Process a single workload file and return the values."""
@@ -100,9 +100,10 @@ def plot_results(results, output_file='results.pdf'):
     mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "orange", "black"]) 
     
     # Set up the plot
-    plt.figure(figsize=(6.4, 3.5))
+    plt.figure(figsize=(4.6, 1.8))
     x = np.arange(len(workloads))
     width = 0.8 / len(kvstores)
+    # plt.set_axisbelow(True)
     
     # Plot bars for each KV store
     for i, kvstore in enumerate(kvstores):
@@ -124,18 +125,22 @@ def plot_results(results, output_file='results.pdf'):
                 label=kvstore,
                 yerr=err,
                 hatch=hatch,
-                error_kw=dict(ecolor="red", capsize=1))
+                error_kw=dict(ecolor="red", capsize=1), 
+                zorder=4)
         
+    plt.grid(True, zorder=3, axis="y")
+    # plt.xlabel('Workload')
+    plt.ylabel('Latency (us)')
+    plt.yscale("log")
     
-    plt.xlabel('Workload')
-    plt.ylabel('Average Latency (usec)')
-    plt.xticks(x, nice_workload_names, rotation=30)
-    plt.legend(nice_kvstore_names, loc="upper center", 
-        ncol=3, bbox_to_anchor=(0.5, 1.15))
+    plt.xticks(x, nice_workload_names, fontsize="8")
+    plt.legend(nice_kvstore_names, loc="upper center", fontsize="8", 
+        ncol=3, bbox_to_anchor=(0.5, 1.25))
     plt.tight_layout(pad=0)
     
+    
     # Save the plot
-    plt.savefig(output_file)
+    plt.savefig(output_file, bbox_inches="tight")
     print(f"Plot saved as '{output_file}'")
     plt.close()
 

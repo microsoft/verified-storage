@@ -1,6 +1,7 @@
 import csv
 import sys
 import os
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pprint
@@ -95,10 +96,22 @@ def plot_data_single_fig(fs, avg_results, output_file):
     ax.set_prop_cycle(color=color_cycle[0:9], marker=["o", "x", "s", "d", "+", "v", "^", "p", "."])
     ax.plot(thread_counts, values)
     ax.set_xticks(thread_counts)
-    ax.legend(workload_titles)
-    fig.tight_layout()
+    ax.legend(workload_titles, loc="center right", bbox_to_anchor=(1.35, 0.5))
     ax.set_xlabel("Thread count")
-    ax.set_ylabel("Througput (Kops/s)")
+    ax.set_ylabel("Througput (kops/s)")
+    
+
+    fig.set_figwidth(5)
+    fig.set_figheight(2)
+    fig.tight_layout(pad=0)
+    ax.grid(True, zorder=0, axis="y")
+    # plt.gca().yscale("log")
+    # plt.yscale("log")
+    plt.yticks([500,1000,1500,2000])
+    # formatter = matplotlib.ticker.ScalarFormatter()
+    # formatter.set_powerlimits((0,3))
+    # plt.gca().yaxis.set_major_formatter(formatter)
+    
 
     plt.savefig(output_file, format="pdf", bbox_inches="tight")
 
