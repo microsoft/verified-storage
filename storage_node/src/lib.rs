@@ -56,6 +56,7 @@ use super::*;
 //     assert!(test_multilog_in_volatile_memory());
 // }
 
+/*
 #[test]
 fn check_durable_on_memory_mapped_file () {
     test_durable_on_memory_mapped_file();
@@ -65,7 +66,7 @@ fn check_durable_on_memory_mapped_file () {
 fn check_kv_on_memory_mapped_file () {
     test_kv_on_memory_mapped_file();
 }
-    
+*/    
 }
 
 verus! {

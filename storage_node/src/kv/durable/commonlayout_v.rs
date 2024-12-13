@@ -1,7 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmemspec_t::*;
-use deps_hack::{PmCopy};
+use deps_hack::PmCopy;
 use vstd::prelude::*;
 
 verus! {
