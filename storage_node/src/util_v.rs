@@ -3,8 +3,60 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set_lib::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::{pmcopy_t::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 
 verus! {
+
+#[verifier::opaque]
+pub open spec fn opaque_subrange<T>(s: Seq<T>, i: int, j: int) -> Seq<T>
+{
+    s.subrange(i, j)
+}
+
+pub open spec fn opaque_section<T>(s: Seq<T>, i: int, len: nat) -> Seq<T>
+{
+    opaque_subrange(s, i, i + len)
+}
+
+#[verifier::opaque]
+pub open spec fn opaque_aligned(addr: int, alignment: int) -> bool
+{
+    addr % alignment == 0
+}
+
+#[verifier::opaque]
+pub open spec fn opaque_update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> Seq<u8>
+{
+    update_bytes(s, addr, bytes)
+}
+
+pub open spec fn recover_object<T>(s: Seq<u8>, start: int) -> Option<T>
+    where
+        T: PmCopy
+{
+    if 0 <= start && start + T::spec_size_of() + u64::spec_size_of() <= s.len() {
+        let object_bytes = opaque_section(s, start, T::spec_size_of());
+        let crc_bytes = opaque_section(s, T::spec_size_of() as int, u64::spec_size_of());
+        if crc_bytes == spec_crc_bytes(object_bytes) && T::bytes_parseable(object_bytes) {
+            Some(T::spec_from_bytes(object_bytes))
+        }
+        else {
+            None
+        }
+    }
+    else {
+        None
+    }
+}
+
+pub open spec fn recover_cdb(bytes: Seq<u8>, addr: int) -> Option<bool>
+{
+    match recover_object::<u64>(bytes, addr) {
+        Some(cdb) => if cdb == CDB_FALSE { Some(false) } else if cdb == CDB_TRUE { Some(true) } else { None },
+        None => None,
+    }
+}
+
 // vstd does not implement max for Seq<nat>
 pub open spec fn nat_seq_max(seq: Seq<nat>) -> nat 
     recommends 

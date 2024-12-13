@@ -19,17 +19,18 @@ use pmem::wrpm_t::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
-pub mod kv;
+pub mod journal;
+//pub mod kv;
 // pub mod log;
 // pub mod multilog;
 pub mod pmem;
 pub mod util_v;
-pub mod log2;
+//pub mod log2;
 
-use kv::durable::durableimpl_v::*;
-use kv::kvspec_t::*;
-use kv::kvimpl_v::*;
-use kv::volatile::volatileimpl_v::*;
+//use kv::durable::durableimpl_v::*;
+//use kv::kvspec_t::*;
+//use kv::kvimpl_v::*;
+//use kv::volatile::volatileimpl_v::*;
 use crate::util_v::*;
 // use crate::log::logimpl_t::*;
 // use crate::multilog::layout_v::*;
@@ -56,15 +57,15 @@ use super::*;
 //     assert!(test_multilog_in_volatile_memory());
 // }
 
-#[test]
-fn check_durable_on_memory_mapped_file () {
-    test_durable_on_memory_mapped_file();
-}
+//#[test]
+//fn check_durable_on_memory_mapped_file () {
+//    test_durable_on_memory_mapped_file();
+//}
 
-#[test]
-fn check_kv_on_memory_mapped_file () {
-    test_kv_on_memory_mapped_file();
-}
+//#[test]
+//fn check_kv_on_memory_mapped_file () {
+//    test_kv_on_memory_mapped_file();
+//}
     
 }
 
