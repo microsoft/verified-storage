@@ -37,10 +37,10 @@ use crate::util_v::*;
 // use crate::multilog::multilogimpl_t::*;
 // use crate::multilog::multilogimpl_v::*;
 // use crate::multilog::multilogspec_t::*;
-#[cfg(target_os = "linux")]
-use crate::pmem::linux_pmemfile_t::*;
-#[cfg(target_os = "windows")]
-use crate::pmem::windows_pmemfile_t::*;
+//#[cfg(target_os = "linux")]
+//use crate::pmem::linux_pmemfile_t::*;
+//#[cfg(target_os = "windows")]
+//use crate::pmem::windows_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -539,8 +539,6 @@ fn test_kv_on_memory_mapped_file() {
 
 }
 
-*/
-
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
 {
     assume(false);
@@ -559,6 +557,8 @@ fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMe
 
     pm_region
 }
+
+*/
 
 #[allow(dead_code)]
 fn main()
