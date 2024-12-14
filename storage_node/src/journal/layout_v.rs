@@ -270,7 +270,7 @@ verus! {
                 Some(addr) => addr,
             };
         let committed_cdb_addr: u64 =
-            match increment_and_align_addr(static_crc_addr, size_of::<u64>() as u64, size_of::<u64>() as u64, size) {
+            match increment_and_align_addr(static_crc_addr, size_of::<u64>() as u64, persistence_chunk_size(), size) {
                 None => { return Err(JournalError::NotEnoughSpace); },
                 Some(addr) => addr,
             };
@@ -326,6 +326,7 @@ verus! {
         pm.flush();
 
         proof {
+            lemma_auto_can_result_from_partial_write_effect_on_opaque();
             assume(false);
             lemma_setup_works(pm@.read_state, vm, sm);
         }

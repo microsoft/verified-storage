@@ -3,7 +3,9 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set_lib::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::{pmcopy_t::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
+use crate::pmem::pmemutil_v::*;
 
 verus! {
 
@@ -28,6 +30,14 @@ pub open spec fn opaque_aligned(addr: int, alignment: int) -> bool
 pub open spec fn opaque_update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> Seq<u8>
 {
     update_bytes(s, addr, bytes)
+}
+
+pub open spec fn opaque_match_except_in_range(s1: Seq<u8>, s2: Seq<u8>, start: int, end: int) -> bool
+{
+    &&& s1.len() == s2.len()
+    &&& 0 <= start <= end <= s1.len()
+    &&& opaque_subrange(s1, 0, start) == opaque_subrange(s2, 0, start)
+    &&& opaque_subrange(s1, end, s1.len() as int) == opaque_subrange(s2, end, s2.len() as int)
 }
 
 pub open spec fn recover_object<T>(s: Seq<u8>, start: int) -> Option<T>
@@ -263,6 +273,7 @@ pub exec fn align_addr(current_addr: u64, alignment: u64, size: u64) -> (result:
                     &&& current_addr <= new_addr
                     &&& new_addr <= size
                     &&& v == new_addr
+                    &&& opaque_aligned(new_addr as int, alignment as int)
                 },
                 None => new_addr > size,
             }
@@ -294,6 +305,7 @@ pub exec fn increment_and_align_addr(current_addr: u64, increment_amount: u64, a
                     &&& current_addr + increment_amount <= new_addr
                     &&& new_addr <= size
                     &&& v == new_addr
+                    &&& opaque_aligned(new_addr as int, alignment as int)
                 },
                 None => new_addr > size,
             }
@@ -303,4 +315,41 @@ pub exec fn increment_and_align_addr(current_addr: u64, increment_amount: u64, a
     align_addr(new_addr, alignment, size)
 }
 
+pub proof fn lemma_can_result_from_partial_write_effect_on_opaque(
+    s2: Seq<u8>,
+    s1: Seq<u8>,
+    write_addr: int,
+    bytes: Seq<u8>
+)
+    requires
+        can_result_from_partial_write(s2, s1, write_addr, bytes),
+        0 <= write_addr,
+        write_addr + bytes.len() <= s1.len(),
+    ensures
+        opaque_match_except_in_range(s1, s2, write_addr, write_addr + bytes.len()),
+{
+    lemma_can_result_from_partial_write_effect(s2, s1, write_addr, bytes);
+    reveal(opaque_subrange);
+    assert(opaque_subrange(s1, 0, write_addr) =~= opaque_subrange(s2, 0, write_addr));
+    assert(opaque_subrange(s1, write_addr + bytes.len(), s1.len() as int) =~=
+           opaque_subrange(s2, write_addr + bytes.len(), s2.len() as int));
+}
+
+pub proof fn lemma_auto_can_result_from_partial_write_effect_on_opaque()
+    ensures
+        forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>| {
+            &&& #[trigger] can_result_from_partial_write(s2, s1, write_addr, bytes)
+            &&& 0 <= write_addr
+            &&& write_addr + bytes.len() <= s1.len()
+        } ==> opaque_match_except_in_range(s1, s2, write_addr, write_addr + bytes.len())
+{
+    assert forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>| {
+               &&& #[trigger] can_result_from_partial_write(s2, s1, write_addr, bytes)
+               &&& 0 <= write_addr
+               &&& write_addr + bytes.len() <= s1.len()
+    } implies opaque_match_except_in_range(s1, s2, write_addr, write_addr + bytes.len()) by {
+        lemma_can_result_from_partial_write_effect_on_opaque(s2, s1, write_addr, bytes);
+    }
+}
+
 }
