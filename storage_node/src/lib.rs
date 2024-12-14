@@ -24,14 +24,14 @@ pub mod journal;
 // pub mod log;
 // pub mod multilog;
 pub mod pmem;
-pub mod util_v;
+pub mod common;
 //pub mod log2;
 
 //use kv::durable::durableimpl_v::*;
 //use kv::kvspec_t::*;
 //use kv::kvimpl_v::*;
 //use kv::volatile::volatileimpl_v::*;
-use crate::util_v::*;
+use crate::common::util_v::*;
 // use crate::log::logimpl_t::*;
 // use crate::multilog::layout_v::*;
 // use crate::multilog::multilogimpl_t::*;
@@ -46,7 +46,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
-use deps_hack::{PmCopy};
+use deps_hack::PmCopy;
 
 mod tests {
 

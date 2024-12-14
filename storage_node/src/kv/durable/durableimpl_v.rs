@@ -39,7 +39,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::util_v::*;
+use crate::common::util_v::*;
 use std::borrow::Borrow;
 use std::hash::Hash;
 
