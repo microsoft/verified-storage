@@ -1,132 +1,13 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::common::subrange_v::opaque_aligned;
+use crate::common::align_v::{get_space_needed_for_alignment, lemma_space_needed_for_alignment_works,
+                             opaque_aligned, round_up_to_alignment};
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
-                                lemma_mod_division_less_than_divisor, lemma_mod_multiples_vanish};
-use vstd::arithmetic::mul::{lemma_mul_inequality, lemma_mul_is_commutative};
+                                lemma_mod_division_less_than_divisor};
+use vstd::arithmetic::mul::lemma_mul_inequality;
 
 verus! {
-
-pub closed spec fn space_needed_for_alignment(addr: int, alignment: int) -> int
-    recommends
-        0 < alignment
-{
-    let remainder = addr % alignment;
-    if remainder == 0 {
-        0
-    }
-    else {
-        alignment - remainder
-    }
-}
-
-pub open spec fn round_up_to_alignment(addr: int, alignment: int) -> int
-    recommends
-        0 < alignment
-{
-    addr + space_needed_for_alignment(addr, alignment)
-}
-
-pub proof fn lemma_space_needed_for_alignment_works(addr: int, alignment: int)
-    requires
-        0 < alignment,
-    ensures
-        space_needed_for_alignment(addr, alignment) >= 0,
-        opaque_aligned(addr + space_needed_for_alignment(addr, alignment), alignment)
-{
-    reveal(opaque_aligned);
-    let remainder = addr % alignment;
-    if remainder != 0 {
-        assert(addr == alignment * (addr / alignment) + (addr % alignment)) by {
-            lemma_fundamental_div_mod(addr, alignment);
-        }
-        assert(addr + alignment - remainder == alignment * (addr / alignment) + alignment);
-        assert((addr + alignment - remainder) % alignment == alignment % alignment) by {
-            lemma_mod_multiples_vanish(addr / alignment, alignment, alignment);
-        }
-    }
-}
-
-pub exec fn increment_addr(current_addr: u64, increment_amount: u64, size: u64) -> (result: Option<u64>)
-    requires
-        0 <= current_addr <= size,
-    ensures
-        ({
-            let new_addr = current_addr + increment_amount;
-            match result {
-                Some(v) => new_addr <= size && v == new_addr,
-                None => new_addr > size,
-            }
-        })
-{
-    if current_addr > u64::MAX - increment_amount {
-        None
-    }
-    else {
-        let new_addr = current_addr + increment_amount;
-        if new_addr <= size {
-            Some(new_addr)
-        }
-        else {
-            None
-        }
-    }
-}
-
-pub exec fn align_addr(current_addr: u64, alignment: u64, size: u64) -> (result: Option<u64>)
-    requires
-        0 <= current_addr <= size,
-        0 < alignment,
-    ensures
-        ({
-            let new_addr = round_up_to_alignment(current_addr as int, alignment as int);
-            match result {
-                Some(v) => {
-                    &&& current_addr <= new_addr
-                    &&& new_addr <= size
-                    &&& v == new_addr
-                    &&& opaque_aligned(new_addr as int, alignment as int)
-                },
-                None => new_addr > size,
-            }
-        })
-{
-    let remainder = current_addr % alignment;
-    let increment_amount = if remainder == 0 {
-        0
-    }
-    else {
-        alignment - remainder
-    };
-    proof {
-        lemma_space_needed_for_alignment_works(current_addr as int, alignment as int);
-    }
-    increment_addr(current_addr, increment_amount, size)
-}
-
-pub exec fn increment_and_align_addr(current_addr: u64, increment_amount: u64, alignment: u64, size: u64)
-                                     -> (result: Option<u64>)
-    requires
-        0 <= current_addr <= size,
-        0 < alignment,
-    ensures
-        ({
-            let new_addr = round_up_to_alignment(current_addr + increment_amount, alignment as int);
-            match result {
-                Some(v) => {
-                    &&& current_addr + increment_amount <= new_addr
-                    &&& new_addr <= size
-                    &&& v == new_addr
-                    &&& opaque_aligned(new_addr as int, alignment as int)
-                },
-                None => new_addr > size,
-            }
-        })
-{
-    let new_addr = increment_addr(current_addr, increment_amount, size)?;
-    align_addr(new_addr, alignment, size)
-}
 
 pub struct SaturatingU64 {
     i: Ghost<int>,
@@ -248,7 +129,8 @@ impl SaturatingU64 {
         requires
             0 < alignment,
         ensures
-            self@ <= result@ < self@ + alignment,
+            self@ <= result@,
+            result@ < self@ + alignment,
             result@ == round_up_to_alignment(self@, alignment as int),
             opaque_aligned(result@, alignment as int),
     {
@@ -258,21 +140,15 @@ impl SaturatingU64 {
         }
 
         if self.v == u64::MAX {
-            return Self{
+            Self{
                 i: Ghost(round_up_to_alignment(self.i@, alignment as int)),
                 v: self.v,
-            };
-        }
-
-        let alignment = alignment as u64;
-        let remainder = self.v % alignment;
-        let increment_amount = if remainder == 0 {
-            0
+            }
         }
         else {
-            alignment - remainder
-        };
-        self.add(increment_amount)
+            let increment_amount = get_space_needed_for_alignment(self.v, alignment);
+            self.add_usize(increment_amount)
+        }
     }
 
     #[inline]

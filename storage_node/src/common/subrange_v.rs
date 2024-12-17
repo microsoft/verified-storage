@@ -21,14 +21,6 @@ pub open spec fn opaque_section<T>(s: Seq<T>, i: int, len: nat) -> Seq<T>
 }
 
 #[verifier::opaque]
-pub open spec fn opaque_aligned(addr: int, alignment: int) -> bool
-    recommends
-        0 < alignment
-{
-    addr % alignment == 0
-}
-
-#[verifier::opaque]
 pub open spec fn opaque_update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> Seq<u8>
 {
     update_bytes(s, addr, bytes)
