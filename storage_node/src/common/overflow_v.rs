@@ -6,6 +6,8 @@ use crate::common::subrange_v::opaque_aligned;
 verus! {
 
 pub closed spec fn space_needed_for_alignment(addr: int, alignment: int) -> int
+    recommends
+        0 < alignment
 {
     let remainder = addr % alignment;
     if remainder == 0 {
@@ -17,6 +19,8 @@ pub closed spec fn space_needed_for_alignment(addr: int, alignment: int) -> int
 }
 
 pub open spec fn round_up_to_alignment(addr: int, alignment: int) -> int
+    recommends
+        0 < alignment
 {
     addr + space_needed_for_alignment(addr, alignment)
 }
@@ -153,6 +157,19 @@ impl SaturatingU64 {
         if self.i@ > u64::MAX { self.v == u64::MAX } else { self.v == self.i }
     }
 
+    pub closed spec fn spec_new(v: u64) -> SaturatingU64
+    {
+        SaturatingU64{ i: Ghost(v as int), v }
+    }
+
+    #[verifier::when_used_as_spec(spec_new)]
+    pub exec fn new(v: u64) -> (result: Self)
+        ensures
+            result@ == v
+    {
+        Self{ i: Ghost(v as int), v }
+    }
+
     pub open spec fn spec_is_saturated(&self) -> bool
     {
         self@ >= u64::MAX
@@ -248,6 +265,26 @@ impl SaturatingU64 {
             opaque_aligned(result@, alignment as int),
     {
         self.add(v2).align(alignment)
+    }
+
+    #[inline]
+    pub exec fn mul(&self, v2: u64) -> (result: Self)
+        ensures
+            result@ == self@ * v2,
+    {
+        proof {
+            use_type_invariant(self);
+        }
+        let i: Ghost<int> = Ghost(&self@ * v2);
+        if v2 == 0 || self.v == 0 {
+            Self{ i, v: 0 }
+        }
+        else if self.v > u64::MAX / v2 {
+            Self{ i, v: u64::MAX }
+        }
+        else {
+            Self{ i, v: self.v * v2 }
+        }
     }
 }
 

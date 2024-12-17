@@ -59,16 +59,21 @@ impl Journal {
         &&& recover_static_metadata(pmv.durable_state, self.vm@.static_metadata_addr as int) == Some(self.sm)
         &&& recover_cdb(pmv.durable_state, self.sm.committed_cdb_addr as int) == Some(self.committed)
         &&& self.committed ==> recover_journal_case_committed(pmv.durable_state, self.sm) == Some(self@.commit)
-        &&& self@.abort == opaque_subrange(pmv.durable_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
-        &&& self@.read == opaque_subrange(pmv.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
+        &&& self@.abort == opaque_subrange(pmv.durable_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
+        &&& self@.read == opaque_subrange(pmv.read_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
         &&& Some(self@.commit) == apply_journal_entries(self@.abort, self.entries@, 0, self.sm)
         &&& self.inv_journaled_addrs_complete()
     }
 
-    pub closed spec fn valid(self, pmv: PersistentMemoryRegionView) -> bool
+    pub closed spec fn valid_closed(self, pmv: PersistentMemoryRegionView) -> bool
     {
         &&& self.inv(pmv)
         &&& self.status is Quiescent
+    }
+
+    pub open spec fn valid(self, pmv: PersistentMemoryRegionView) -> bool
+    {
+        &&& self.valid_closed(pmv)
     }
 }
 

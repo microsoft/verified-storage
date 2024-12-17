@@ -22,6 +22,8 @@ pub open spec fn opaque_section<T>(s: Seq<T>, i: int, len: nat) -> Seq<T>
 
 #[verifier::opaque]
 pub open spec fn opaque_aligned(addr: int, alignment: int) -> bool
+    recommends
+        0 < alignment
 {
     addr % alignment == 0
 }
@@ -67,41 +69,62 @@ pub open spec fn recover_cdb(bytes: Seq<u8>, addr: int) -> Option<bool>
     }
 }
 
-pub proof fn lemma_can_result_from_partial_write_effect_on_opaque(
-    s2: Seq<u8>,
-    s1: Seq<u8>,
-    write_addr: int,
-    bytes: Seq<u8>
-)
-    requires
-        can_result_from_partial_write(s2, s1, write_addr, bytes),
+pub proof fn lemma_can_result_from_partial_write_effect_on_opaque(
+
+    s2: Seq<u8>,
+
+    s1: Seq<u8>,
+
+    write_addr: int,
+
+    bytes: Seq<u8>
+
+)
+
+    requires
+
+        can_result_from_partial_write(s2, s1, write_addr, bytes),
+
         0 <= write_addr,
         write_addr + bytes.len() <= s1.len(),
-    ensures
+    ensures
+
         opaque_match_except_in_range(s1, s2, write_addr, write_addr + bytes.len()),
-{
+{
+
     lemma_can_result_from_partial_write_effect(s2, s1, write_addr, bytes);
     reveal(opaque_subrange);
     assert(opaque_subrange(s1, 0, write_addr) =~= opaque_subrange(s2, 0, write_addr));
     assert(opaque_subrange(s1, write_addr + bytes.len(), s1.len() as int) =~=
            opaque_subrange(s2, write_addr + bytes.len(), s2.len() as int));
-}
-
-pub proof fn lemma_auto_can_result_from_partial_write_effect_on_opaque()
-    ensures
-        forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>| {
+}
+
+
+
+pub proof fn lemma_auto_can_result_from_partial_write_effect_on_opaque()
+
+    ensures
+
+        forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>|
+ {
             &&& #[trigger] can_result_from_partial_write(s2, s1, write_addr, bytes)
             &&& 0 <= write_addr
             &&& write_addr + bytes.len() <= s1.len()
         } ==> opaque_match_except_in_range(s1, s2, write_addr, write_addr + bytes.len())
-{
-    assert forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>| {
+{
+
+    assert forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>|
+ {
                &&& #[trigger] can_result_from_partial_write(s2, s1, write_addr, bytes)
                &&& 0 <= write_addr
                &&& write_addr + bytes.len() <= s1.len()
     } implies opaque_match_except_in_range(s1, s2, write_addr, write_addr + bytes.len()) by {
-        lemma_can_result_from_partial_write_effect_on_opaque(s2, s1, write_addr, bytes);
-    }
-}
-
+        lemma_can_result_from_partial_write_effect_on_opaque(s2, s1, write_addr, bytes);
+
+    }
+
+}
+
+
+
 }
