@@ -2,6 +2,9 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::common::subrange_v::opaque_aligned;
+use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
+                                lemma_mod_division_less_than_divisor, lemma_mod_multiples_vanish};
+use vstd::arithmetic::mul::{lemma_mul_inequality, lemma_mul_is_commutative};
 
 verus! {
 
@@ -36,11 +39,11 @@ pub proof fn lemma_space_needed_for_alignment_works(addr: int, alignment: int)
     let remainder = addr % alignment;
     if remainder != 0 {
         assert(addr == alignment * (addr / alignment) + (addr % alignment)) by {
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(addr, alignment);
+            lemma_fundamental_div_mod(addr, alignment);
         }
         assert(addr + alignment - remainder == alignment * (addr / alignment) + alignment);
         assert((addr + alignment - remainder) % alignment == alignment % alignment) by {
-            vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(addr / alignment, alignment, alignment);
+            lemma_mod_multiples_vanish(addr / alignment, alignment, alignment);
         }
     }
 }
@@ -275,14 +278,51 @@ impl SaturatingU64 {
         proof {
             use_type_invariant(self);
         }
-        let i: Ghost<int> = Ghost(&self@ * v2);
+        let i: Ghost<int> = Ghost(self@ * v2);
         if v2 == 0 || self.v == 0 {
             Self{ i, v: 0 }
         }
         else if self.v > u64::MAX / v2 {
+            proof {
+                assert(self@ >= self.v >= u64::MAX / v2 + 1);
+                assert(self@ >= (u64::MAX + v2) / v2 as int) by {
+                    lemma_div_plus_one(u64::MAX as int, v2 as int);
+                }
+                assert(v2 * ((u64::MAX + v2) / (v2 as int)) == u64::MAX + v2 - ((u64::MAX + v2) % (v2 as int))) by {
+                    lemma_fundamental_div_mod(u64::MAX + v2, v2 as int);
+                }
+                assert(v2 * ((u64::MAX + v2) / (v2 as int)) > u64::MAX) by {
+                    assert(0 <= (u64::MAX + v2) % (v2 as int) < v2) by {
+                        lemma_mod_division_less_than_divisor(u64::MAX + v2, v2 as int);
+                    }
+                }
+                assert(self@ * v2 >= ((u64::MAX + v2) / (v2 as int)) * v2) by {
+                    lemma_mul_inequality((u64::MAX + v2) / (v2 as int), self@, v2 as int);
+                }
+                assert(self@ * v2 > u64::MAX);
+            }
             Self{ i, v: u64::MAX }
         }
         else {
+            proof {
+                assert(self.v * v2 <= (u64::MAX / v2) * v2) by {
+                    lemma_mul_inequality(self.v as int, u64::MAX as int / v2 as int, v2 as int);
+                }
+                assert((u64::MAX / v2) * v2 == u64::MAX - u64::MAX % v2) by {
+                    lemma_fundamental_div_mod(u64::MAX as int, v2 as int);
+                }
+                assert((u64::MAX / v2) * v2 <= u64::MAX) by {
+                    lemma_mod_division_less_than_divisor(u64::MAX as int, v2 as int);
+                }
+
+                // A special case is when we're already saturated at `u64::MAX`.
+                // We have to prove that `v2 == 1`. We do this by contradiction.
+                if self.v == u64::MAX && v2 != 1 {
+                    assert(u64::MAX / 2 < u64::MAX) by (compute_only);
+                    lemma_div_is_ordered_by_denominator(u64::MAX as int, 2, v2 as int);
+                    assert(false);
+                }
+            }
             Self{ i, v: self.v * v2 }
         }
     }
