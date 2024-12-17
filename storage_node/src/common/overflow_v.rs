@@ -195,10 +195,27 @@ impl SaturatingU64 {
     #[verifier::when_used_as_spec(spec_unwrap)]
     pub exec fn unwrap(&self) -> (result: u64)
         ensures
-            if result < u64::MAX { self@ == result } else { self.is_saturated() }
+            if result < u64::MAX { self@ == result } else { self.is_saturated() },
+            result == self.spec_unwrap(),
     {
         proof { use_type_invariant(self) }
         self.v
+    }
+
+    pub exec fn to_option(&self) -> (result: Option<u64>)
+        ensures
+            match result {
+                Some(v) => self@ == v && v < u64::MAX,
+                None => self@ >= u64::MAX,
+            }
+    {
+        proof { use_type_invariant(self); }
+        if self.v == u64::MAX {
+            None
+        }
+        else {
+            Some(self.v)
+        }
     }
 
     #[inline]
@@ -259,15 +276,21 @@ impl SaturatingU64 {
     }
 
     #[inline]
-    pub exec fn add_and_align(&self, v2: u64, alignment: usize) -> (result: Self)
-        requires
-            0 < alignment,
+    pub exec fn add_saturating_u64(&self, v2: &SaturatingU64) -> (result: Self)
         ensures
-            self@ + v2 <= result@ < self@ + v2 + alignment,
-            result@ == round_up_to_alignment(self@ + v2, alignment as int),
-            opaque_aligned(result@, alignment as int),
+            result@ == self@ + v2@,
     {
-        self.add(v2).align(alignment)
+        proof {
+            use_type_invariant(self);
+            use_type_invariant(v2);
+        }
+        let i: Ghost<int> = Ghost(self@ + v2@);
+        if v2.is_saturated() || self.v > u64::MAX - v2.v {
+            Self{ i, v: u64::MAX }
+        }
+        else {
+            Self{ i, v: self.v + v2.v }
+        }
     }
 
     #[inline]

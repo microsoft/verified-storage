@@ -199,7 +199,7 @@ verus! {
 
     pub open spec fn const_persistence_chunk_size() -> int { 8 }
 
-    pub exec fn persistence_chunk_size() -> (out: u64) 
+    pub exec fn persistence_chunk_size() -> (out: usize)
         ensures 
             out == const_persistence_chunk_size()
     {

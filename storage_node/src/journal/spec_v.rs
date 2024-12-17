@@ -26,8 +26,9 @@ verus! {
     }
 
     pub enum JournalError {
-        NotEnoughSpace,
         CRCError,
+        InvalidAlignment,
+        NotEnoughSpace,
     }
     
 }

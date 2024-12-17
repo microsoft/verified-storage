@@ -2,6 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
+use crate::pmem::traits_t::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
@@ -54,7 +55,7 @@ verus! {
     pub closed spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
     {
         &&& m.version_number == JOURNAL_PROGRAM_VERSION_NUMBER
-        &&& JournalVersionMetadata::spec_size_of() <= m.static_metadata_addr
+        &&& JournalVersionMetadata::spec_size_of() + u64::spec_size_of() <= m.static_metadata_addr
         &&& m.program_guid == JOURNAL_PROGRAM_GUID
     }
 
@@ -248,15 +249,19 @@ verus! {
         app_dynamic_area_size: usize,
         app_dynamic_area_alignment: usize,
     ) -> int
+        recommends
+            0 < app_static_area_alignment,
+            0 < app_dynamic_area_alignment,
     {
         let journal_size = max_journaled_bytes as int + // journal data
-                           max_journal_entries * (u64::spec_size_of() as int + u64::spec_size_of() as int) + // entry headers
+                           max_journal_entries * (u64::spec_size_of() as int +
+                                                  u64::spec_size_of() as int) + // entry headers
                            u64::spec_size_of() as int; // journal CRC
         let version_addr: int = 0;
         let version_crc_addr = version_addr + JournalVersionMetadata::spec_size_of();
         let static_metadata_addr = round_up_to_alignment(version_crc_addr + u64::spec_size_of(),
                                                          JournalStaticMetadata::spec_align_of() as int);
-        let static_crc_addr = static_metadata_addr + u64::spec_size_of();
+        let static_crc_addr = static_metadata_addr + JournalStaticMetadata::spec_size_of();
         let committed_cdb_addr = round_up_to_alignment(static_crc_addr + u64::spec_size_of(),
                                                        const_persistence_chunk_size() as int);
         let journal_length_addr = committed_cdb_addr + u64::spec_size_of();
@@ -266,8 +271,7 @@ verus! {
                                                      app_static_area_alignment as int);
         let app_static_area_start = journal_data_end;
         let app_static_area_end = app_static_area_start + app_static_area_size;
-        let app_dynamic_area_start = round_up_to_alignment(app_static_area_end,
-                                                           app_dynamic_area_alignment as int);
+        let app_dynamic_area_start = round_up_to_alignment(app_static_area_end, app_dynamic_area_alignment as int);
         let app_dynamic_area_end = app_dynamic_area_start + app_dynamic_area_size;
         app_dynamic_area_end
     }
@@ -280,6 +284,9 @@ verus! {
         app_dynamic_area_size: usize,
         app_dynamic_area_alignment: usize,
     ) -> (result: Option<u64>)
+        requires
+            0 < app_static_area_alignment,
+            0 < app_dynamic_area_alignment,
         ensures
             ({
                 let space_needed = spec_space_needed_for_setup(
@@ -293,7 +300,28 @@ verus! {
                 }
             })
     {
-        None
+        let max_journal_header_bytes = SaturatingU64::new(max_journal_entries as u64).mul(16);
+        let journal_size = max_journal_header_bytes.add_usize(max_journaled_bytes).add(8);
+        let version_addr = SaturatingU64::new(0);
+        let version_crc_addr = version_addr.add_usize(size_of::<JournalVersionMetadata>());
+        let static_metadata_addr = version_crc_addr.add_usize(size_of::<u64>())
+                                                   .align(align_of::<JournalStaticMetadata>());
+        let static_crc_addr = static_metadata_addr.add_usize(size_of::<JournalStaticMetadata>());
+        let committed_cdb_addr = static_crc_addr.add_usize(size_of::<u64>()).align(persistence_chunk_size());
+        let journal_length_addr = committed_cdb_addr.add_usize(size_of::<u64>());
+        let journal_length_crc_addr = journal_length_addr.add_usize(size_of::<u64>());
+        let journal_data_start = journal_length_crc_addr.add_usize(size_of::<u64>());
+        let journal_data_end = journal_data_start.add_saturating_u64(&journal_size).align(app_static_area_alignment);
+        let app_static_area_start = journal_data_end;
+        let app_static_area_end = app_static_area_start.add_usize(app_static_area_size);
+        let app_dynamic_area_start = app_static_area_end.align(app_dynamic_area_alignment);
+        let app_dynamic_area_end = app_dynamic_area_start.add_usize(app_dynamic_area_size);
+
+        assert(u64::spec_size_of() == 8) by {
+            broadcast use pmcopy_axioms;
+        }
+
+        app_dynamic_area_end.to_option()
     }
 
     proof fn lemma_setup_works(bytes: Seq<u8>, vm: JournalVersionMetadata, sm: JournalStaticMetadata)
@@ -307,7 +335,6 @@ verus! {
         assume(false);
     }
 
-    /*
     pub exec fn setup<PM>(
         pm: &mut PM,
         app_version_number: u64,
@@ -326,71 +353,76 @@ verus! {
         ensures
             match result {
                 Ok(app_dynamic_area_size) => {
+                    &&& 0 < app_static_area_alignment
+                    &&& 0 < app_dynamic_area_alignment
                     &&& pm@.flush_predicted()
                     &&& recover_journal(pm@.read_state) matches Some(app_dynamic_area)
                     &&& app_dynamic_area.len() == app_dynamic_area_size
                 },
-                Err(JournalError::NotEnoughSpace) => true,
+                Err(JournalError::InvalidAlignment) => {
+                    ||| app_static_area_alignment == 0
+                    ||| app_dynamic_area_alignment == 0
+                },
+                Err(JournalError::NotEnoughSpace) => {
+                    let space_needed = spec_space_needed_for_setup(max_journal_entries, max_journaled_bytes,
+                                                                   app_static_area_size, app_static_area_alignment,
+                                                                   app_dynamic_area_size, app_dynamic_area_alignment);
+                    &&& 0 < app_static_area_alignment
+                    &&& 0 < app_dynamic_area_alignment
+                    &&& pm@.len() < space_needed || space_needed >= u64::MAX
+                },
                 Err(_) => false,
             }
     {
+        if app_static_area_alignment == 0 || app_dynamic_area_alignment == 0 {
+            return Err(JournalError::InvalidAlignment);
+        }
+
         broadcast use pmcopy_axioms;
 
-        let size: u64 = pm.get_region_size();
-        let journal_size: usize = max_journaled_bytes + max_journal_entries * (size_of::<u64>() + size_of::<u64>());
-    
-        let version_addr: u64 = 0;
-        let version_crc_addr: u64 =
-            match increment_addr(version_addr, size_of::<JournalVersionMetadata>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let static_metadata_addr: u64 =
-            match increment_addr(version_crc_addr, size_of::<u64>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let static_crc_addr: u64 =
-            match increment_addr(version_crc_addr, size_of::<JournalStaticMetadata>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let committed_cdb_addr: u64 =
-            match increment_and_align_addr(static_crc_addr, size_of::<u64>() as u64, persistence_chunk_size(), size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let journal_length_addr: u64 =
-            match increment_addr(committed_cdb_addr, size_of::<u64>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let journal_length_crc_addr: u64 =
-            match increment_addr(journal_length_addr, size_of::<u64>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let journal_data_start: u64 =
-            match increment_addr(journal_length_crc_addr, size_of::<u64>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let journal_data_near_end: u64 =
-            match increment_addr(journal_data_start, journal_size, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let journal_data_end: u64 =
-            match increment_addr(journal_data_near_end, size_of::<u64>() as u64, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let app_dynamic_area_start: u64 =
-            match align_addr(journal_data_end, app_static_area_alignment, size) {
-                None => { return Err(JournalError::NotEnoughSpace); },
-                Some(addr) => addr,
-            };
-        let app_dynamic_area_end: u64 = size;
+        let max_journal_header_bytes = SaturatingU64::new(max_journal_entries as u64).mul(16);
+        let journal_size = max_journal_header_bytes.add_usize(max_journaled_bytes).add(8);
+        let version_addr = SaturatingU64::new(0);
+        let version_crc_addr = version_addr.add_usize(size_of::<JournalVersionMetadata>());
+        let static_metadata_addr = version_crc_addr.add_usize(size_of::<u64>())
+                                                   .align(align_of::<JournalStaticMetadata>());
+        let static_crc_addr = static_metadata_addr.add_usize(size_of::<JournalStaticMetadata>());
+        let committed_cdb_addr = static_crc_addr.add_usize(size_of::<u64>()).align(persistence_chunk_size());
+        let journal_length_addr = committed_cdb_addr.add_usize(size_of::<u64>());
+        let journal_length_crc_addr = journal_length_addr.add_usize(size_of::<u64>());
+        let journal_data_start = journal_length_crc_addr.add_usize(size_of::<u64>());
+        let journal_data_end = journal_data_start.add_saturating_u64(&journal_size).align(app_static_area_alignment);
+        let app_static_area_start = journal_data_end.clone();
+        let app_static_area_end = app_static_area_start.add_usize(app_static_area_size);
+        let app_dynamic_area_start = app_static_area_end.align(app_dynamic_area_alignment);
+        let app_dynamic_area_end = app_dynamic_area_start.add_usize(app_dynamic_area_size);
+
+        assert(u64::spec_size_of() == 8) by {
+            broadcast use pmcopy_axioms;
+        }
+        
+        if app_dynamic_area_end.is_saturated() {
+            return Err(JournalError::NotEnoughSpace);
+        }
+        if app_dynamic_area_end.unwrap() > pm.get_region_size() {
+            return Err(JournalError::NotEnoughSpace);
+        }
+        assert(app_dynamic_area_end.unwrap() <= pm@.len());
+
+        let version_addr = version_addr.unwrap();
+        let version_crc_addr = version_crc_addr.unwrap();
+        let static_metadata_addr = static_metadata_addr.unwrap();
+        let static_crc_addr = static_crc_addr.unwrap();
+        let committed_cdb_addr = committed_cdb_addr.unwrap();
+        let journal_length_addr = journal_length_addr.unwrap();
+        let journal_length_crc_addr = journal_length_crc_addr.unwrap();
+        let journal_data_start = journal_data_start.unwrap();
+        let journal_data_end = journal_data_end.unwrap();
+        let app_static_area_start = app_static_area_start.unwrap();
+        let app_static_area_end = app_static_area_end.unwrap();
+        let app_dynamic_area_start = app_dynamic_area_start.unwrap();
+        let app_dynamic_area_end = app_dynamic_area_end.unwrap();
+
         let vm = JournalVersionMetadata{
             version_number: JOURNAL_PROGRAM_VERSION_NUMBER,
             static_metadata_addr,
@@ -398,10 +430,14 @@ verus! {
         };
         pm.serialize_and_write(version_addr, &vm);
         let sm = JournalStaticMetadata{
+            app_version_number,
+            app_program_guid,
             committed_cdb_addr,
             journal_length_addr,
             journal_data_start,
             journal_data_end,
+            app_static_area_start,
+            app_static_area_end,
             app_dynamic_area_start,
             app_dynamic_area_end,
         };
@@ -418,5 +454,4 @@ verus! {
         }
         Ok(app_dynamic_area_end - app_dynamic_area_start)
     }
-    */
 }
