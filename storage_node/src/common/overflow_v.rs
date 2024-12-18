@@ -13,8 +13,7 @@ verus! {
 
 pub struct OverflowingU64 {
     i: Ghost<int>,
-    v: u64,
-    overflowed: bool,
+    v: Option<u64>,
 }
 
 impl View for OverflowingU64
@@ -33,7 +32,7 @@ impl Clone for OverflowingU64 {
             result@ == self@
     {
         proof { use_type_invariant(self); }
-        Self{ i: self.i, v: self.v, overflowed: self.overflowed }
+        Self{ i: self.i, v: self.v }
     }
 }
 
@@ -41,18 +40,15 @@ impl OverflowingU64 {
     #[verifier::type_invariant]
     spec fn well_formed(self) -> bool
     {
-        if self.i@ > u64::MAX {
-            &&& self.v == u64::MAX
-            &&& self.overflowed
-        } else {
-            &&& self.v == self.i
-            &&& !self.overflowed
+        match self.v {
+            Some(v) => self.i@ == v,
+            None => self.i@ > u64::MAX,
         }
     }
 
     pub closed spec fn spec_new(v: u64) -> OverflowingU64
     {
-        OverflowingU64{ i: Ghost(v as int), v, overflowed: false }
+        OverflowingU64{ i: Ghost(v as int), v: Some(v) }
     }
 
     #[verifier::when_used_as_spec(spec_new)]
@@ -60,7 +56,7 @@ impl OverflowingU64 {
         ensures
             result@ == v
     {
-        Self{ i: Ghost(v as int), v, overflowed: false }
+        Self{ i: Ghost(v as int), v: Some(v) }
     }
 
     pub open spec fn spec_is_overflowed(&self) -> bool
@@ -74,7 +70,7 @@ impl OverflowingU64 {
             result == self.spec_is_overflowed()
     {
         proof { use_type_invariant(self) }
-        self.overflowed
+        self.v.is_none()
     }
 
     pub exec fn unwrap(&self) -> (result: u64)
@@ -84,7 +80,7 @@ impl OverflowingU64 {
             result == self@,
     {
         proof { use_type_invariant(self) }
-        self.v
+        self.v.unwrap()
     }
 
     pub exec fn to_option(&self) -> (result: Option<u64>)
@@ -95,12 +91,7 @@ impl OverflowingU64 {
             }
     {
         proof { use_type_invariant(self); }
-        if self.overflowed {
-            None
-        }
-        else {
-            Some(self.v)
-        }
+        self.v
     }
 
     #[inline]
@@ -112,12 +103,12 @@ impl OverflowingU64 {
             use_type_invariant(&self);
         }
         let i: Ghost<int> = Ghost(&self@ + v2);
-        if self.overflowed || v2 > u64::MAX - self.v {
+        if self.v.is_none() || v2 > u64::MAX - self.v.unwrap() {
             assert(i@ > u64::MAX);
-            Self{ i, v: u64::MAX, overflowed: true }
+            Self{ i, v: None }
         }
         else {
-            Self{ i, v: self.v + v2, overflowed: false }
+            Self{ i, v: Some(self.v.unwrap() + v2) }
         }
     }
 
@@ -144,16 +135,15 @@ impl OverflowingU64 {
             lemma_space_needed_for_alignment_works(self@, alignment as int);
         }
 
-        if self.overflowed {
-            Self{
+        match self.v {
+            None => Self{
                 i: Ghost(round_up_to_alignment(self.i@, alignment as int)),
-                v: self.v,
-                overflowed: true,
-            }
-        }
-        else {
-            let increment_amount = get_space_needed_for_alignment(self.v, alignment);
-            self.add(increment_amount)
+                v: None,
+            },
+            Some(v) => {
+                let increment_amount = get_space_needed_for_alignment(v, alignment);
+                self.add(increment_amount)
+            },
         }
     }
 
@@ -172,16 +162,15 @@ impl OverflowingU64 {
             lemma_space_needed_for_alignment_works(self@, alignment as int);
         }
 
-        if self.overflowed {
-            Self{
+        match self.v {
+            None => Self{
                 i: Ghost(round_up_to_alignment(self.i@, alignment as int)),
-                v: self.v,
-                overflowed: true,
-            }
-        }
-        else {
-            let increment_amount = get_space_needed_for_alignment(self.v, alignment as u64);
-            self.add(increment_amount)
+                v: None,
+            },
+            Some(v) => {
+                let increment_amount = get_space_needed_for_alignment(v, alignment as u64);
+                self.add(increment_amount)
+            },
         }
     }
 
@@ -195,12 +184,12 @@ impl OverflowingU64 {
             use_type_invariant(v2);
         }
         let i: Ghost<int> = Ghost(self@ + v2@);
-        if self.is_overflowed() || v2.is_overflowed() || self.v > u64::MAX - v2.v {
+        if self.is_overflowed() || v2.is_overflowed() || self.v.unwrap() > u64::MAX - v2.v.unwrap() {
             assert(i@ > u64::MAX);
-            Self{ i, v: u64::MAX, overflowed: true }
+            Self{ i, v: None }
         }
         else {
-            Self{ i, v: self.v + v2.v, overflowed: false }
+            Self{ i, v: Some(self.v.unwrap() + v2.v.unwrap()) }
         }
     }
 
@@ -217,18 +206,18 @@ impl OverflowingU64 {
             assert(i@ == 0) by {
                 lemma_mul_by_zero_is_zero(self@);
             }
-            Self{ i, v: 0, overflowed: false }
+            Self{ i, v: Some(0) }
         }
-        else if self.overflowed {
+        else if self.is_overflowed() {
             assert(self@ * v2 >= self@ * 1 == self@) by {
                 lemma_mul_inequality(1, v2 as int, self@);
                 lemma_mul_is_commutative(self@, v2 as int);
             }
-            Self{ i, v: self.v, overflowed: true }
+            Self{ i, v: None }
         }
-        else if self.v > u64::MAX / v2 {
+        else if self.v.unwrap() > u64::MAX / v2 {
             proof {
-                assert(self@ >= self.v >= u64::MAX / v2 + 1);
+                assert(self@ >= self.v.unwrap() >= u64::MAX / v2 + 1);
                 assert(self@ >= (u64::MAX + v2) / v2 as int) by {
                     lemma_div_plus_one(u64::MAX as int, v2 as int);
                 }
@@ -245,12 +234,12 @@ impl OverflowingU64 {
                 }
                 assert(self@ * v2 > u64::MAX);
             }
-            Self{ i, v: u64::MAX, overflowed: true }
+            Self{ i, v: None }
         }
         else {
             proof {
-                assert(self.v * v2 <= (u64::MAX / v2) * v2) by {
-                    lemma_mul_inequality(self.v as int, u64::MAX as int / v2 as int, v2 as int);
+                assert(self.v.unwrap() * v2 <= (u64::MAX / v2) * v2) by {
+                    lemma_mul_inequality(self.v.unwrap() as int, u64::MAX as int / v2 as int, v2 as int);
                 }
                 assert((u64::MAX / v2) * v2 == u64::MAX - u64::MAX % v2) by {
                     lemma_fundamental_div_mod(u64::MAX as int, v2 as int);
@@ -259,7 +248,7 @@ impl OverflowingU64 {
                     lemma_mod_division_less_than_divisor(u64::MAX as int, v2 as int);
                 }
             }
-            Self{ i, v: self.v * v2, overflowed: false }
+            Self{ i, v: Some(self.v.unwrap() * v2) }
         }
     }
 
@@ -273,22 +262,22 @@ impl OverflowingU64 {
             use_type_invariant(v2);
         }
         let i: Ghost<int> = Ghost(self@ * v2@);
-        if v2.overflowed {
-            if self.v == 0 {
+        if v2.is_overflowed() {
+            if self.v.is_some() && self.v.unwrap() == 0 {
                 assert(i@ == 0) by {
                     lemma_mul_by_zero_is_zero(v2@);
                 }
-                Self{ i, v: 0, overflowed: false }
+                Self{ i, v: Some(0) }
             }
             else {
                 assert(i@ > u64::MAX) by {
                     lemma_mul_inequality(1, self@, v2@);
                 }
-                Self{ i, v: u64::MAX, overflowed: true }
+                Self{ i, v: None }
             }
         }
         else {
-            self.mul(v2.v)
+            self.mul(v2.v.unwrap())
         }
     }
 }
