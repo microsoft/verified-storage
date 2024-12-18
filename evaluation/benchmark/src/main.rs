@@ -9,6 +9,7 @@ use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
 
+#[cfg(target_os = "linux")]
 use redis::{FromRedisValue, RedisResult};
 
 use std::fs;
@@ -22,14 +23,21 @@ use rand::thread_rng;
 use rand::seq::SliceRandom;
 
 use crate::kv_interface::*;
+#[cfg(target_os = "linux")]
 use crate::redis_client::*;
+#[cfg(target_os = "linux")]
 use crate::rocksdb_client::*;
 use crate::capybarakv_client::*;
 
 pub mod kv_interface;
+#[cfg(target_os = "linux")]
 pub mod redis_client;
+#[cfg(target_os = "linux")]
 pub mod rocksdb_client;
 pub mod capybarakv_client;
+
+use crate::config::*;
+pub mod config;
 
 // length of key and value in byte for most tests
 const KEY_LEN: usize = 64;
@@ -40,18 +48,7 @@ const VALUE_LEN: usize = 1024;
 const BIG_KEY_LEN: usize = 1024;
 const BIG_VALUE_LEN: usize = 1024 * 512;
 
-const PM_DEV: &str = "/dev/pmem0";
-const MOUNT_POINT: &str = "/mnt/pmem";
-
-// TODO: read these from a config file?
-const NUM_KEYS: u64 = 25000000;
 const ITERATIONS: u64 = 1;
-// for use in the full startup experiment
-// 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
-// 115GB CapybaraKV instances uses 100% of PM device
-// the extra 128 bytes accounts for metadata and CRCs 
-const CAPYBARAKV_MAX_KEYS: u64 = 235000; 
-
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
@@ -161,6 +158,7 @@ pub struct PlaceholderListElem {
     _val: u64,
 }
 
+#[cfg(target_os = "linux")]
 impl FromRedisValue for TestValue {
     fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
         use redis::Value::*;
@@ -187,6 +185,7 @@ impl FromRedisValue for TestValue {
     }   
 }
 
+#[cfg(target_os = "linux")]
 impl FromRedisValue for BigTestValue {
     fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
         use redis::Value::*;
@@ -223,24 +222,36 @@ fn main() {
     };
 
     // create per-KV output directories
+    #[cfg(target_os = "linux")]
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
+    #[cfg(target_os = "linux")]
     let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
+
     let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
 
+    #[cfg(target_os = "linux")]
     fs::create_dir_all(&redis_output_dir).unwrap();
+    #[cfg(target_os = "linux")]
     fs::create_dir_all(&rocksdb_output_dir).unwrap();
+
     fs::create_dir_all(&capybara_output_dir).unwrap();
 
 
     for i in 1..ITERATIONS+1 {
+        #[cfg(target_os = "linux")]
         run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        #[cfg(target_os = "linux")]
         run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+
         run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
     }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
+    #[cfg(target_os = "linux")]
     run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
+    #[cfg(target_os = "linux")]
     run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
+
     run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
 }
 
@@ -657,6 +668,7 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub fn init_and_mount_pm_fs() {
     println!("Mounting PM FS...");
 
@@ -682,6 +694,19 @@ pub fn init_and_mount_pm_fs() {
     println!("Mounted");
 }
 
+#[cfg(target_os = "windows")]
+pub fn init_and_mount_pm_fs() {
+
+    let output = Command::new("cmd")
+        .args(["/C", "del", "/Q", format!("{}\\capybarakv*", MOUNT_POINT).as_str()])
+        .status()
+        .expect("Failed to delete files under the mount point");
+    println!("[Windows] Deleted files under the mount point");
+
+    println!("[Windows] Mounting PM FS...");
+}
+
+#[cfg(target_os = "linux")]
 pub fn remount_pm_fs() {
     println!("Remounting existing FS...");
 
@@ -697,6 +722,17 @@ pub fn remount_pm_fs() {
     println!("Mounted");
 }
 
+#[cfg(target_os = "windows")]
+pub fn remount_pm_fs() {
+    println!("[Windows] Remounting existing FS...");
+}
+
+#[cfg(target_os = "windows")]
+pub fn unmount_pm_fs() {
+    println!("[Windows] Unmounting PM FS...");
+}
+
+#[cfg(target_os = "linux")]
 pub fn unmount_pm_fs() {
     let status = Command::new("sudo")
         .args(["umount", PM_DEV])
@@ -705,7 +741,6 @@ pub fn unmount_pm_fs() {
         println!("{:?}", e);
     }
 }
-
 
 fn remove_file(name: &str) {
     let _ = std::fs::remove_file(name);
