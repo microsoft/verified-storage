@@ -73,14 +73,15 @@ pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
 
 pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
 {
-    match recover_object::<JournalVersionMetadata>(bytes, 0, JournalVersionMetadata::spec_size_of() as int) {
+    let crc_start = round_up_to_alignment(JournalVersionMetadata::spec_size_of() as int, u64::spec_align_of() as int);
+    match recover_object::<JournalVersionMetadata>(bytes, 0, crc_start) {
         Some(m) => if validate_version_metadata(m) { Some(m) } else { None },
         None => None,
     }
 }
 
 pub open spec fn validate_static_metadata(m: JournalStaticMetadata, journal_dynamic_area_start: int,
-                                                 len: nat) -> bool
+                                          len: nat) -> bool
 {
     &&& journal_dynamic_area_start <= m.committed_cdb_start
     &&& m.committed_cdb_start + u64::spec_size_of() <= m.journal_length_start
