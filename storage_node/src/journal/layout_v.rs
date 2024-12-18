@@ -285,7 +285,8 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<Seq<u8>>
                                 recover_journal_case_committed(bytes, sm)
                             }
                             else {
-                                Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int))
+                                Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int,
+                                                     sm.app_dynamic_area_end as int))
                             }
                         },
                     }
