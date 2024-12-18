@@ -59,7 +59,7 @@ pub struct JournalEntry
     pub bytes: Seq<u8>,
 }
 
-pub closed spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
+pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
 {
     &&& m.version_number == JOURNAL_PROGRAM_VERSION_NUMBER
     &&& m.program_guid == JOURNAL_PROGRAM_GUID
@@ -71,7 +71,7 @@ pub closed spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
     &&& m.journal_static_metadata_crc_start <= m.journal_dynamic_area_start
 }
 
-pub closed spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
+pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
 {
     match recover_object::<JournalVersionMetadata>(bytes, 0, JournalVersionMetadata::spec_size_of() as int) {
         Some(m) => if validate_version_metadata(m) { Some(m) } else { None },
@@ -79,7 +79,8 @@ pub closed spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVer
     }
 }
 
-pub closed spec fn validate_static_metadata(m: JournalStaticMetadata, journal_dynamic_area_start: int, len: nat) -> bool
+pub open spec fn validate_static_metadata(m: JournalStaticMetadata, journal_dynamic_area_start: int,
+                                                 len: nat) -> bool
 {
     &&& journal_dynamic_area_start <= m.committed_cdb_start
     &&& m.committed_cdb_start + u64::spec_size_of() <= m.journal_length_start
@@ -94,8 +95,8 @@ pub closed spec fn validate_static_metadata(m: JournalStaticMetadata, journal_dy
     &&& m.app_dynamic_area_end <= len
 }
 
-pub closed spec fn recover_static_metadata(bytes: Seq<u8>, start: int, crc_start: int, dynamic_area_start: int)
-                                           -> Option<JournalStaticMetadata>
+pub open spec fn recover_static_metadata(bytes: Seq<u8>, start: int, crc_start: int, dynamic_area_start: int)
+                                         -> Option<JournalStaticMetadata>
 {
     match recover_object::<JournalStaticMetadata>(bytes, start, crc_start) {
         Some(m) => if validate_static_metadata(m, dynamic_area_start, bytes.len()) { Some(m) } else { None },
@@ -103,7 +104,7 @@ pub closed spec fn recover_static_metadata(bytes: Seq<u8>, start: int, crc_start
     }
 }
 
-pub closed spec fn recover_app_static_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub open spec fn recover_app_static_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     if sm.app_static_area_start <= sm.app_static_area_end && sm.app_static_area_end <= bytes.len() {
         Some(opaque_subrange(bytes, sm.app_static_area_start as int, sm.app_static_area_end as int))
@@ -207,7 +208,7 @@ pub open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry
     }
 }
 
-pub closed spec fn recover_journal_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub open spec fn recover_journal_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     match recover_journal_data(bytes, sm) {
         None => None,

@@ -111,4 +111,112 @@ pub proof fn lemma_auto_can_result_from_partial_write_effect_on_opaque()
     }
 }
 
+pub proof fn lemma_can_result_from_write_effect_on_read_state(
+    v2: PersistentMemoryRegionView,
+    v1: PersistentMemoryRegionView,
+    write_addr: int,
+    bytes: Seq<u8>
+)
+    requires
+        v1.valid(),
+        v2.can_result_from_write(v1, write_addr, bytes),
+        0 <= write_addr,
+        write_addr + bytes.len() <= v1.len(),
+    ensures
+        v2.valid(),
+        opaque_match_except_in_range(v1.read_state, v2.read_state, write_addr, write_addr + bytes.len()),
+        opaque_subrange(v2.read_state, write_addr, write_addr + bytes.len()) == bytes,
+{
+    let s1 = v1.read_state;
+    let s2 = v2.read_state;
+    let start = write_addr;
+    let end = write_addr + bytes.len();
+
+    reveal(opaque_subrange);
+    assert(opaque_subrange(s1, 0, start) =~= opaque_subrange(s2, 0, start));
+    assert(opaque_subrange(s1, end, s1.len() as int) =~= opaque_subrange(s2, end, s2.len() as int));
+    assert(opaque_subrange(v2.read_state, start, end) =~= bytes);
+}
+
+pub proof fn lemma_can_result_from_write_lack_of_effect_on_read_state(
+    v2: PersistentMemoryRegionView,
+    v1: PersistentMemoryRegionView,
+    write_addr: int,
+    bytes: Seq<u8>,
+    start: int,
+    end: int,
+)
+    requires
+        v1.valid(),
+        v2.can_result_from_write(v1, write_addr, bytes),
+        0 <= write_addr,
+        write_addr + bytes.len() <= v1.len(),
+        0 <= start <= end <= v1.len(),
+        end <= write_addr || write_addr + bytes.len() <= start,
+    ensures
+        v2.valid(),
+        opaque_subrange(v2.read_state, start, end) == opaque_subrange(v1.read_state, start, end),
+{
+    reveal(opaque_subrange);
+    assert(opaque_subrange(v2.read_state, start, end) =~= opaque_subrange(v1.read_state, start, end));
+}
+
+pub proof fn lemma_auto_can_result_from_write_effect_on_read_state()
+    ensures
+        forall|v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>|
+        {
+            &&& v1.valid()
+            &&& #[trigger] v2.can_result_from_write(v1, write_addr, bytes)
+            &&& 0 <= write_addr
+            &&& write_addr + bytes.len() <= v1.len()
+        } ==> {
+            &&& v2.valid()
+            &&& opaque_match_except_in_range(v1.read_state, v2.read_state, write_addr, write_addr + bytes.len())
+            &&& opaque_subrange(v2.read_state, write_addr, write_addr + bytes.len()) == bytes
+        },
+        forall|v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>,
+          start: int, end: int|
+        {
+            &&& v1.valid()
+            &&& #[trigger] v2.can_result_from_write(v1, write_addr, bytes)
+            &&& 0 <= write_addr
+            &&& write_addr + bytes.len() <= v1.len()
+            &&& 0 <= start <= end <= v1.len()
+            &&& end <= write_addr || write_addr + bytes.len() <= start
+        } ==> {
+            &&& v2.valid()
+            &&& #[trigger] opaque_subrange(v2.read_state, start, end) == opaque_subrange(v1.read_state, start, end)
+        },
+{
+    assert forall|v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>|
+        {
+            &&& #[trigger] v2.can_result_from_write(v1, write_addr, bytes)
+            &&& 0 <= write_addr
+            &&& write_addr + bytes.len() <= v1.len()
+            &&& v1.valid()
+        } implies {
+            &&& v2.valid()
+            &&& opaque_match_except_in_range(v1.read_state, v2.read_state, write_addr, write_addr + bytes.len())
+            &&& opaque_subrange(v2.read_state, write_addr, write_addr + bytes.len()) == bytes
+        } by {
+        lemma_can_result_from_write_effect_on_read_state(v2, v1, write_addr, bytes);
+    }
+
+    assert forall|v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>,
+             start: int, end: int|
+        {
+            &&& #[trigger] v2.can_result_from_write(v1, write_addr, bytes)
+            &&& 0 <= write_addr
+            &&& write_addr + bytes.len() <= v1.len()
+            &&& v1.valid()
+            &&& 0 <= start <= end <= v1.len()
+            &&& end <= write_addr || write_addr + bytes.len() <= start
+        } implies {
+            &&& v2.valid()
+            &&& #[trigger] opaque_subrange(v2.read_state, start, end) == opaque_subrange(v1.read_state, start, end)
+        } by {
+        lemma_can_result_from_write_lack_of_effect_on_read_state(v2, v1, write_addr, bytes, start, end);
+    }
+}
+
 }

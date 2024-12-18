@@ -306,6 +306,12 @@ pub exec fn setup<PM>(
         return Err(JournalError::NotEnoughSpace);
     }
 
+    proof {
+        assert(pm@.valid()) by { pm.lemma_inv_implies_view_valid(); }
+        lemma_auto_can_result_from_write_effect_on_read_state();
+        broadcast use pmcopy_axioms;
+    }
+
     // We now know we have enough space, and we know the addresses to store things.
 
     let vm = JournalVersionMetadata{
@@ -344,10 +350,10 @@ pub exec fn setup<PM>(
     pm.flush();
 
     proof {
-        lemma_auto_can_result_from_partial_write_effect_on_opaque();
-        assume(false);
+        lemma_auto_can_result_from_write_effect_on_read_state();
         lemma_setup_works(pm@.read_state, vm, sm);
     }
+    assume(false);
     Ok(true)
 }
 
