@@ -30,10 +30,6 @@ pub const JOURNAL_PROGRAM_VERSION_NUMBER: u64 = 1;
 #[derive(PmCopy, Copy, Default)]
 pub struct JournalVersionMetadata {
     pub version_number: u64,
-    pub journal_static_metadata_start: u64,
-    pub journal_static_metadata_end: u64,
-    pub journal_static_metadata_crc_start: u64,
-    pub journal_dynamic_area_start: u64,
     pub program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
@@ -59,50 +55,92 @@ pub struct JournalEntry
     pub bytes: Seq<u8>,
 }
 
+pub open spec fn spec_journal_version_metadata_start() -> int
+{
+    0
+}
+
+pub open spec fn spec_journal_version_metadata_end() -> int
+{
+    JournalVersionMetadata::spec_size_of() as int
+}
+
+pub open spec fn spec_journal_version_metadata_crc_start() -> int
+{
+    round_up_to_alignment(spec_journal_version_metadata_end(), u64::spec_align_of() as int)
+}
+
+pub open spec fn spec_journal_version_metadata_crc_end() -> int
+{
+    spec_journal_version_metadata_crc_start() + u64::spec_size_of() as int
+}
+
+pub open spec fn spec_journal_static_metadata_start() -> int
+{
+    round_up_to_alignment(spec_journal_version_metadata_crc_end(), JournalStaticMetadata::spec_align_of() as int)
+}
+
+pub open spec fn spec_journal_static_metadata_end() -> int
+{
+    spec_journal_static_metadata_start() + JournalStaticMetadata::spec_size_of()
+}
+
+pub open spec fn spec_journal_static_metadata_crc_start() -> int
+{
+    round_up_to_alignment(spec_journal_static_metadata_end(), u64::spec_align_of() as int)
+}
+
+pub open spec fn spec_journal_static_metadata_crc_end() -> int
+{
+    spec_journal_static_metadata_crc_start() + u64::spec_size_of() as int
+}
+
 pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
 {
-    &&& m.version_number == JOURNAL_PROGRAM_VERSION_NUMBER
     &&& m.program_guid == JOURNAL_PROGRAM_GUID
-    &&& JournalVersionMetadata::spec_size_of() + u64::spec_size_of() <= m.journal_static_metadata_start
-    &&& opaque_aligned(m.journal_static_metadata_start as int, JournalStaticMetadata::spec_align_of() as int)
-    &&& m.journal_static_metadata_start + JournalStaticMetadata::spec_size_of() <= m.journal_static_metadata_end
-    &&& m.journal_static_metadata_end <= m.journal_static_metadata_crc_start
-    &&& opaque_aligned(m.journal_static_metadata_crc_start as int, u64::spec_size_of() as int)
-    &&& m.journal_static_metadata_crc_start <= m.journal_dynamic_area_start
 }
 
 pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
 {
-    let crc_start = round_up_to_alignment(JournalVersionMetadata::spec_size_of() as int, u64::spec_align_of() as int);
-    match recover_object::<JournalVersionMetadata>(bytes, 0, crc_start) {
+    match recover_object::<JournalVersionMetadata>(bytes, spec_journal_version_metadata_start(),
+                                                   spec_journal_version_metadata_crc_start()) {
         Some(m) => if validate_version_metadata(m) { Some(m) } else { None },
         None => None,
     }
 }
 
-pub open spec fn validate_static_metadata(m: JournalStaticMetadata, journal_dynamic_area_start: int,
-                                          len: nat) -> bool
+pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: JournalVersionMetadata) -> bool
 {
-    &&& journal_dynamic_area_start <= m.committed_cdb_start
-    &&& m.committed_cdb_start + u64::spec_size_of() <= m.journal_length_start
-    &&& opaque_aligned(m.committed_cdb_start as int, const_persistence_chunk_size() as int)
-    &&& m.journal_length_start + u64::spec_size_of() <= m.journal_length_crc_start
-    &&& m.journal_length_crc_start + u64::spec_size_of() <= m.journal_data_start
-    &&& m.journal_data_start <= m.journal_data_end
-    &&& m.journal_data_end <= m.app_static_area_start
-    &&& m.app_static_area_start <= m.app_static_area_end
-    &&& m.app_static_area_end <= m.app_dynamic_area_start
-    &&& m.app_dynamic_area_start <= m.app_dynamic_area_end
-    &&& m.app_dynamic_area_end <= len
+    if vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER {
+        &&& spec_journal_static_metadata_crc_end() <= sm.committed_cdb_start
+        &&& sm.committed_cdb_start + u64::spec_size_of() <= sm.journal_length_start
+        &&& opaque_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
+        &&& sm.journal_length_start + u64::spec_size_of() <= sm.journal_length_crc_start
+        &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_data_start
+        &&& sm.journal_data_start <= sm.journal_data_end
+        &&& sm.journal_data_end <= sm.app_static_area_start
+        &&& sm.app_static_area_start <= sm.app_static_area_end
+        &&& sm.app_static_area_end <= sm.app_dynamic_area_start
+        &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end
+    }
+    else {
+        false
+    }
 }
 
-pub open spec fn recover_static_metadata(bytes: Seq<u8>, start: int, crc_start: int, dynamic_area_start: int)
+pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetadata)
                                          -> Option<JournalStaticMetadata>
 {
-    match recover_object::<JournalStaticMetadata>(bytes, start, crc_start) {
-        Some(m) => if validate_static_metadata(m, dynamic_area_start, bytes.len()) { Some(m) } else { None },
-        None => None,
+    if vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER {
+        match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
+                                                      spec_journal_static_metadata_crc_start()) {
+            Some(m) => if validate_static_metadata(m, vm) { Some(m) } else { None },
+            None => None,
+       }
     }
+    else {
+        None
+    }   
 }
 
 pub open spec fn recover_app_static_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
@@ -236,10 +274,8 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<Seq<u8>>
 {
     match recover_version_metadata(bytes) {
         None => None,
-        Some(version_metadata) => {
-            match recover_static_metadata(bytes, version_metadata.journal_static_metadata_start as int,
-                                          version_metadata.journal_static_metadata_crc_start as int,
-                                          version_metadata.journal_dynamic_area_start as int) {
+        Some(vm) => {
+            match recover_static_metadata(bytes, vm) {
                 None => None,
                 Some(sm) => {
                     match recover_cdb(bytes, sm.committed_cdb_start as int) {

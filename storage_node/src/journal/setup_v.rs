@@ -109,18 +109,21 @@ impl AddressesForSetup
             max_journal_entries, max_journaled_bytes, app_static_area_size, app_static_area_alignment,
             app_dynamic_area_size, app_dynamic_area_alignment
         );
-        &&& self.journal_version_metadata_start == 0
+        &&& self.journal_version_metadata_start == spec_journal_version_metadata_start()
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()
-            <= self.journal_version_metadata_crc_start
+                <= self.journal_version_metadata_crc_start
+        &&& self.journal_version_metadata_crc_start == spec_journal_version_metadata_crc_start()
         &&& opaque_aligned(self.journal_version_metadata_crc_start as int, u64::spec_size_of() as int)
         &&& self.journal_version_metadata_crc_start ==
             round_up_to_alignment(self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of(),
                                   u64::spec_align_of() as int)
         &&& self.journal_version_metadata_crc_start + u64::spec_size_of() <= self.journal_static_metadata_start
+        &&& self.journal_static_metadata_start == spec_journal_static_metadata_start()
         &&& opaque_aligned(self.journal_static_metadata_start as int, JournalStaticMetadata::spec_align_of() as int)
         &&& self.journal_static_metadata_start + JournalStaticMetadata::spec_size_of() ==
                self.journal_static_metadata_end
         &&& self.journal_static_metadata_end <= self.journal_static_metadata_crc_start
+        &&& self.journal_static_metadata_crc_start == spec_journal_static_metadata_crc_start()
         &&& opaque_aligned(self.journal_static_metadata_crc_start as int, u64::spec_size_of() as int)
         &&& self.journal_static_metadata_crc_start + u64::spec_size_of() <= self.journal_dynamic_area_start
         &&& self.journal_dynamic_area_start <= self.committed_cdb_start
@@ -240,16 +243,18 @@ pub exec fn get_space_needed_for_setup(
 proof fn lemma_setup_works(bytes: Seq<u8>, vm: JournalVersionMetadata, sm: JournalStaticMetadata)
     requires
         validate_version_metadata(vm),
-        validate_static_metadata(sm, vm.journal_static_metadata_start as int, bytes.len()),
-        opaque_section(bytes, 0, JournalVersionMetadata::spec_size_of()) == vm.spec_to_bytes(),
-        opaque_section(bytes, round_up_to_alignment(JournalVersionMetadata::spec_size_of() as int,
-                                                    u64::spec_align_of() as int),
-                       u64::spec_size_of()) == spec_crc_bytes(vm.spec_to_bytes()),
-        opaque_subrange(bytes, vm.journal_static_metadata_start as int, vm.journal_static_metadata_end as int) ==
-            sm.spec_to_bytes(),
-        opaque_section(bytes, vm.journal_static_metadata_crc_start as int, u64::spec_size_of()) ==
-            spec_crc_bytes(sm.spec_to_bytes()),
-        opaque_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE),
+        validate_static_metadata(sm, vm),
+        sm.app_dynamic_area_end <= bytes.len(),
+        ({
+            &&& opaque_subrange(bytes, spec_journal_version_metadata_start(), spec_journal_version_metadata_end()) == vm.spec_to_bytes()
+            &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start(), spec_journal_version_metadata_crc_end())
+                    == spec_crc_bytes(vm.spec_to_bytes())
+            &&& opaque_subrange(bytes, spec_journal_static_metadata_start(), spec_journal_static_metadata_end())
+                    == sm.spec_to_bytes()
+            &&& opaque_subrange(bytes, spec_journal_static_metadata_crc_start(), spec_journal_static_metadata_crc_end())
+                    == spec_crc_bytes(sm.spec_to_bytes())
+            &&& opaque_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
+        }),
     ensures
         recover_journal(bytes) matches Some(app_dynamic_area) &&
            app_dynamic_area.len() == sm.app_dynamic_area_end - sm.app_dynamic_area_start,
@@ -328,10 +333,6 @@ pub exec fn setup<PM>(
 
     let vm = JournalVersionMetadata{
         version_number: JOURNAL_PROGRAM_VERSION_NUMBER,
-        journal_static_metadata_start: addrs.journal_static_metadata_start,
-        journal_static_metadata_end: addrs.journal_static_metadata_end,
-        journal_static_metadata_crc_start: addrs.journal_static_metadata_crc_start,
-        journal_dynamic_area_start: addrs.journal_dynamic_area_start,
         program_guid: JOURNAL_PROGRAM_GUID,
     };
     pm.serialize_and_write(addrs.journal_version_metadata_start, &vm);
