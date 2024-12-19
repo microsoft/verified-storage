@@ -255,7 +255,7 @@ pub open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry
     }
 }
 
-pub open spec fn recover_journal_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub open spec fn recover_app_dynamic_area_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     match recover_journal_length(bytes, sm) {
         None => None,
@@ -284,7 +284,7 @@ pub open spec fn recover_app_dynamic_area(bytes: Seq<u8>, sm: JournalStaticMetad
         None => None,
         Some(committed) =>
             if committed {
-                recover_journal_case_committed(bytes, sm)
+                recover_app_dynamic_area_case_committed(bytes, sm)
             }
             else {
                 Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int,

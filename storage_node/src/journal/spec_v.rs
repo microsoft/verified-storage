@@ -17,12 +17,13 @@ verus! {
         pub app_dynamic_area_end: u64,
     }
 
-    pub struct JournalState {
+    pub struct JournalView {
         pub constants: JournalConstants,
-        pub abort: Seq<u8>,
-        pub read: Seq<u8>,
-        pub commit: Seq<u8>,
-        pub journal_empty: bool,
+        pub static_area: Seq<u8>,
+        pub dynamic_area_on_crash: Seq<u8>,
+        pub dynamic_area_on_read: Seq<u8>,
+        pub dynamic_area_on_commit: Seq<u8>,
+        pub remaining_capacity: int,
         pub journaled_addrs: Set<int>,
     }
 
