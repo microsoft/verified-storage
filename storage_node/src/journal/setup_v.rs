@@ -478,12 +478,12 @@ pub exec fn end_setup<PM>(
         pm.inv(),
         pm@.flush_predicted(),
         ({
-            &&& recover_journal(pm@.read_state) matches Some(j)
+            &&& recover_journal(pm@.durable_state) matches Some(j)
             &&& j.constants == *journal_constants
-            &&& j.app_static_area == opaque_subrange(pm@.read_state,
+            &&& j.app_static_area == opaque_subrange(old(pm)@.read_state,
                                                    journal_constants.app_static_area_start as int,
                                                    journal_constants.app_static_area_end as int)
-            &&& j.app_dynamic_area == opaque_subrange(pm@.read_state,
+            &&& j.app_dynamic_area == opaque_subrange(old(pm)@.read_state,
                                                     journal_constants.app_dynamic_area_start as int,
                                                     journal_constants.app_dynamic_area_end as int)
         }),
