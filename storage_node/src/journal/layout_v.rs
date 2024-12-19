@@ -40,6 +40,7 @@ pub struct JournalStaticMetadata {
     pub committed_cdb_start: u64,
     pub journal_length_start: u64,
     pub journal_length_crc_start: u64,
+    pub journal_data_crc_start: u64,
     pub journal_data_start: u64,
     pub journal_data_end: u64,
     pub app_static_area_start: u64,
@@ -126,7 +127,8 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
         &&& sm.committed_cdb_start + u64::spec_size_of() <= sm.journal_length_start
         &&& opaque_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
         &&& sm.journal_length_start + u64::spec_size_of() <= sm.journal_length_crc_start
-        &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_data_start
+        &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_data_crc_start
+        &&& sm.journal_data_crc_start + u64::spec_size_of() <= sm.journal_data_start
         &&& sm.journal_data_start <= sm.journal_data_end
         &&& sm.journal_data_end <= sm.app_static_area_start
         &&& sm.app_static_area_start <= sm.app_static_area_end
@@ -169,8 +171,7 @@ pub open spec fn recover_journal_data(bytes: Seq<u8>, sm: JournalStaticMetadata)
                 &&& sm.journal_data_end <= bytes.len()
             } {
                 let journal_data = opaque_section(bytes, sm.journal_data_start as int, journal_length as nat);
-                let journal_data_crc = opaque_section(bytes, sm.journal_data_start + journal_length,
-                                                      u64::spec_size_of());
+                let journal_data_crc = opaque_section(bytes, sm.journal_data_crc_start as int, u64::spec_size_of());
                 if journal_data_crc == spec_crc_bytes(journal_data) {
                     Some(journal_data)
                 }
