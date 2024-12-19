@@ -40,9 +40,9 @@ pub struct JournalStaticMetadata {
     pub committed_cdb_start: u64,
     pub journal_length_start: u64,
     pub journal_length_crc_start: u64,
-    pub journal_data_crc_start: u64,
-    pub journal_data_start: u64,
-    pub journal_data_end: u64,
+    pub journal_entries_crc_start: u64,
+    pub journal_entries_start: u64,
+    pub journal_entries_end: u64,
     pub app_static_area_start: u64,
     pub app_static_area_end: u64,
     pub app_dynamic_area_start: u64,
@@ -127,10 +127,10 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
         &&& sm.committed_cdb_start + u64::spec_size_of() <= sm.journal_length_start
         &&& opaque_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
         &&& sm.journal_length_start + u64::spec_size_of() <= sm.journal_length_crc_start
-        &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_data_crc_start
-        &&& sm.journal_data_crc_start + u64::spec_size_of() <= sm.journal_data_start
-        &&& sm.journal_data_start <= sm.journal_data_end
-        &&& sm.journal_data_end <= sm.app_static_area_start
+        &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_entries_crc_start
+        &&& sm.journal_entries_crc_start + u64::spec_size_of() <= sm.journal_entries_start
+        &&& sm.journal_entries_start <= sm.journal_entries_end
+        &&& sm.journal_entries_end <= sm.app_static_area_start
         &&& sm.app_static_area_start <= sm.app_static_area_end
         &&& sm.app_static_area_end <= sm.app_dynamic_area_start
         &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end
@@ -160,20 +160,20 @@ pub open spec fn recover_app_static_area(bytes: Seq<u8>, sm: JournalStaticMetada
     }
 }
 
-pub open spec fn recover_journal_data(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
     match recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int) {
         None => None,
         Some(journal_length) => {
             if {
-                &&& 0 <= sm.journal_data_start
-                &&& sm.journal_data_start + journal_length + u64::spec_size_of() <= sm.journal_data_end
-                &&& sm.journal_data_end <= bytes.len()
+                &&& 0 <= sm.journal_entries_start
+                &&& sm.journal_entries_start + journal_length + u64::spec_size_of() <= sm.journal_entries_end
+                &&& sm.journal_entries_end <= bytes.len()
             } {
-                let journal_data = opaque_section(bytes, sm.journal_data_start as int, journal_length as nat);
-                let journal_data_crc = opaque_section(bytes, sm.journal_data_crc_start as int, u64::spec_size_of());
-                if journal_data_crc == spec_crc_bytes(journal_data) {
-                    Some(journal_data)
+                let journal_entries = opaque_section(bytes, sm.journal_entries_start as int, journal_length as nat);
+                let journal_entries_crc = opaque_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
+                if journal_entries_crc == spec_crc_bytes(journal_entries) {
+                    Some(journal_length)
                 }
                 else {
                     None
@@ -186,33 +186,35 @@ pub open spec fn recover_journal_data(bytes: Seq<u8>, sm: JournalStaticMetadata)
     }
 }
 
-pub open spec fn parse_journal_data(journal_data: Seq<u8>, start: int) -> Option<Seq<JournalEntry>>
+pub open spec fn recover_journal_entries(bytes: Seq<u8>, start: int, end: int) -> Option<Seq<JournalEntry>>
+    recommends
+        0 <= start <= end <= bytes.len(),
     decreases
-        journal_data.len() - start
+        end - start
 {
-    if !(0 <= start <= journal_data.len()) {
+    if !(0 <= start <= end <= bytes.len()) {
         None
     }
-    else if journal_data.len() == start {
+    else if end == start {
         Some(Seq::<JournalEntry>::empty())
     }
-    else if start + u64::spec_size_of() + u64::spec_size_of() > journal_data.len() {
+    else if start + u64::spec_size_of() + u64::spec_size_of() > end {
         None
     }
     else {
-        let addr_bytes = opaque_section(journal_data, start, u64::spec_size_of());
+        let addr_bytes = opaque_section(bytes, start, u64::spec_size_of());
         let addr = u64::spec_from_bytes(addr_bytes);
         let length_offset = start + u64::spec_size_of();
-        let length_bytes = opaque_section(journal_data, length_offset, u64::spec_size_of());
+        let length_bytes = opaque_section(bytes, length_offset, u64::spec_size_of());
         let length = u64::spec_from_bytes(length_bytes);
         let data_offset = length_offset + u64::spec_size_of();
-        if data_offset + length > journal_data.len() {
+        if data_offset + length > end {
             None
         }
         else {
-            let data = opaque_section(journal_data, data_offset, length as nat);
+            let data = opaque_section(bytes, data_offset, length as nat);
             let entry = JournalEntry { addr: addr as int, bytes: data };
-            match parse_journal_data(journal_data, data_offset + length) {
+            match recover_journal_entries(bytes, data_offset + length, end) {
                 None => None,
                 Some(remaining_journal) => Some(seq![entry] + remaining_journal),
             }
@@ -255,10 +257,11 @@ pub open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry
 
 pub open spec fn recover_journal_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
-    match recover_journal_data(bytes, sm) {
+    match recover_journal_length(bytes, sm) {
         None => None,
-        Some(journal_data) => {
-            match parse_journal_data(journal_data, 0) {
+        Some(journal_length) => {
+            match recover_journal_entries(bytes, sm.journal_entries_start as int,
+                                          sm.journal_entries_start + journal_length) {
                 None => None,
                 Some(journal_entries) => {
                     match apply_journal_entries(bytes, journal_entries, 0, sm) {
@@ -285,7 +288,7 @@ pub open spec fn recover_app_dynamic_area(bytes: Seq<u8>, sm: JournalStaticMetad
             }
             else {
                 Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int,
-                                        sm.app_dynamic_area_end as int))
+                                     sm.app_dynamic_area_end as int))
             },
     }
 }
@@ -304,7 +307,7 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
                                 constants: JournalConstants {
                                     app_version_number: sm.app_version_number,
                                     app_program_guid: sm.app_program_guid,
-                                    journal_capacity: (sm.journal_data_end - sm.journal_data_start) as u64,
+                                    journal_capacity: (sm.journal_entries_end - sm.journal_entries_start) as u64,
                                     app_static_area_start: sm.app_static_area_start,
                                     app_static_area_end: sm.app_static_area_end,
                                     app_dynamic_area_start: sm.app_dynamic_area_start,

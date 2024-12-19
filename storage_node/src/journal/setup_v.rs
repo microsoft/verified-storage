@@ -15,7 +15,7 @@ use deps_hack::PmCopy;
 
 verus! {
 
-pub closed spec fn spec_space_needed_for_journal(
+pub closed spec fn spec_space_needed_for_journal_entries(
     max_journal_entries: u64,
     max_journaled_bytes: u64,
 ) -> int
@@ -24,13 +24,13 @@ pub closed spec fn spec_space_needed_for_journal(
     max_journal_entries * (u64::spec_size_of() as int + u64::spec_size_of() as int) // entry headers
 }
 
-exec fn get_space_needed_for_journal(
+exec fn get_space_needed_for_journal_entries(
     max_journal_entries: u64,
     max_journaled_bytes: u64,
 ) -> (result: OverflowingU64)
     ensures
         0 <= result@,
-        result@ == spec_space_needed_for_journal(max_journal_entries, max_journaled_bytes),
+        result@ == spec_space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes),
 {
     let num_journaled_bytes = OverflowingU64::new(max_journaled_bytes);
     let journal_entry_size = OverflowingU64::new(size_of::<u64>() as u64).add(size_of::<u64>() as u64);
@@ -42,7 +42,7 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     recommends
         ps.valid(),
 {
-    let journal_size = spec_space_needed_for_journal(ps.max_journal_entries, ps.max_journaled_bytes);
+    let journal_size = spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
     let journal_version_metadata_start: int = 0;
     let journal_version_metadata_end = JournalVersionMetadata::spec_size_of() as int;
     let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
@@ -54,11 +54,11 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     let (committed_cdb_start, committed_cdb_end) = spec_allocate_space::<u64>(journal_static_metadata_crc_end);
     let (journal_length_start, journal_length_end) = spec_allocate_space::<u64>(committed_cdb_end);
     let (journal_length_crc_start, journal_length_crc_end) = spec_allocate_space::<u64>(journal_length_end);
-    let (journal_data_crc_start, journal_data_crc_end) = spec_allocate_space::<u64>(journal_length_crc_end);
-    let (journal_data_start, journal_data_end) =
-        spec_allocate_specified_space(journal_data_crc_end, journal_size, u64::spec_size_of() as int);
+    let (journal_entries_crc_start, journal_entries_crc_end) = spec_allocate_space::<u64>(journal_length_crc_end);
+    let (journal_entries_start, journal_entries_end) =
+        spec_allocate_specified_space(journal_entries_crc_end, journal_size, u64::spec_size_of() as int);
     let (app_static_area_start, app_static_area_end) =
-        spec_allocate_specified_space(journal_data_end, ps.app_static_area_size as int,
+        spec_allocate_specified_space(journal_entries_end, ps.app_static_area_size as int,
                                       ps.app_static_area_alignment as int);
     let (app_dynamic_area_start, app_dynamic_area_end) =
         spec_allocate_specified_space(app_static_area_end, ps.app_dynamic_area_size as int,
@@ -77,9 +77,9 @@ struct AddressesForSetup
     committed_cdb_start: u64,
     journal_length_start: u64,
     journal_length_crc_start: u64,
-    journal_data_crc_start: u64,
-    journal_data_start: u64,
-    journal_data_end: u64,
+    journal_entries_crc_start: u64,
+    journal_entries_start: u64,
+    journal_entries_end: u64,
     app_static_area_start: u64,
     app_static_area_end: u64,
     app_dynamic_area_start: u64,
@@ -90,7 +90,7 @@ impl AddressesForSetup
 {
     spec fn valid(&self, ps: JournalSetupParameters) -> bool
     {
-        let journal_size = spec_space_needed_for_journal(ps.max_journal_entries, ps.max_journaled_bytes);
+        let journal_size = spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
         let space_needed_for_setup = spec_space_needed_for_setup(ps);
         &&& self.journal_version_metadata_start == spec_journal_version_metadata_start()
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()
@@ -113,11 +113,11 @@ impl AddressesForSetup
         &&& opaque_aligned(self.committed_cdb_start as int, const_persistence_chunk_size() as int)
         &&& self.committed_cdb_start + u64::spec_size_of() <= self.journal_length_start
         &&& self.journal_length_start + u64::spec_size_of() <= self.journal_length_crc_start
-        &&& self.journal_length_crc_start + u64::spec_size_of() <= self.journal_data_crc_start
-        &&& self.journal_data_crc_start + u64::spec_size_of() <= self.journal_data_start
+        &&& self.journal_length_crc_start + u64::spec_size_of() <= self.journal_entries_crc_start
+        &&& self.journal_entries_crc_start + u64::spec_size_of() <= self.journal_entries_start
         &&& 0 <= journal_size
-        &&& self.journal_data_start + journal_size <= self.journal_data_end
-        &&& self.journal_data_end <= self.app_static_area_start
+        &&& self.journal_entries_start + journal_size <= self.journal_entries_end
+        &&& self.journal_entries_end <= self.app_static_area_start
         &&& opaque_aligned(self.app_static_area_start as int, ps.app_static_area_alignment as int)
         &&& self.app_static_area_start + ps.app_static_area_size == self.app_static_area_end
         &&& self.app_static_area_end <= self.app_dynamic_area_start
@@ -136,7 +136,7 @@ exec fn get_addresses_for_setup(ps: &JournalSetupParameters) -> (result: Option<
             None => u64::MAX < spec_space_needed_for_setup(*ps),
         }
 {
-    let journal_size = get_space_needed_for_journal(ps.max_journal_entries, ps.max_journaled_bytes);
+    let journal_size = get_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
 
     let journal_version_metadata_end = OverflowingU64::new(size_of::<JournalVersionMetadata>() as u64);
     let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
@@ -148,11 +148,11 @@ exec fn get_addresses_for_setup(ps: &JournalSetupParameters) -> (result: Option<
     let (committed_cdb_start, committed_cdb_end) = allocate_space::<u64>(&journal_static_metadata_crc_end);
     let (journal_length_start, journal_length_end) = allocate_space::<u64>(&committed_cdb_end);
     let (journal_length_crc_start, journal_length_crc_end) = allocate_space::<u64>(&journal_length_end);
-    let (journal_data_crc_start, journal_data_crc_end) = allocate_space::<u64>(&journal_length_crc_end);
-    let (journal_data_start, journal_data_end) =
-        allocate_specified_space_overflowing_u64(&journal_data_crc_end, &journal_size, size_of::<u64>() as u64);
+    let (journal_entries_crc_start, journal_entries_crc_end) = allocate_space::<u64>(&journal_length_crc_end);
+    let (journal_entries_start, journal_entries_end) =
+        allocate_specified_space_overflowing_u64(&journal_entries_crc_end, &journal_size, size_of::<u64>() as u64);
     let (app_static_area_start, app_static_area_end) =
-        allocate_specified_space(&journal_data_end, ps.app_static_area_size, ps.app_static_area_alignment);
+        allocate_specified_space(&journal_entries_end, ps.app_static_area_size, ps.app_static_area_alignment);
     let (app_dynamic_area_start, app_dynamic_area_end) =
         allocate_specified_space(&app_static_area_end, ps.app_dynamic_area_size, ps.app_dynamic_area_alignment);
 
@@ -170,9 +170,9 @@ exec fn get_addresses_for_setup(ps: &JournalSetupParameters) -> (result: Option<
             committed_cdb_start: committed_cdb_start.unwrap(),
             journal_length_start: journal_length_start.unwrap(),
             journal_length_crc_start: journal_length_crc_start.unwrap(),
-            journal_data_crc_start: journal_data_crc_start.unwrap(),
-            journal_data_start: journal_data_start.unwrap(),
-            journal_data_end: journal_data_end.unwrap(),
+            journal_entries_crc_start: journal_entries_crc_start.unwrap(),
+            journal_entries_start: journal_entries_start.unwrap(),
+            journal_entries_end: journal_entries_end.unwrap(),
             app_static_area_start: app_static_area_start.unwrap(),
             app_static_area_end: app_static_area_end.unwrap(),
             app_dynamic_area_start: app_dynamic_area_start.unwrap(),
@@ -219,8 +219,8 @@ proof fn lemma_setup_works(
         sm.committed_cdb_start == addrs.committed_cdb_start,
         sm.journal_length_start == addrs.journal_length_start,
         sm.journal_length_crc_start == addrs.journal_length_crc_start,
-        sm.journal_data_start == addrs.journal_data_start,
-        sm.journal_data_end == addrs.journal_data_end,
+        sm.journal_entries_start == addrs.journal_entries_start,
+        sm.journal_entries_end == addrs.journal_entries_end,
         sm.app_static_area_start == addrs.app_static_area_start,
         sm.app_static_area_end == addrs.app_static_area_end,
         sm.app_dynamic_area_start == addrs.app_dynamic_area_start,
@@ -239,7 +239,7 @@ proof fn lemma_setup_works(
         &&& recover_journal(bytes) matches Some(j)
         &&& j.constants.app_version_number == ps.app_version_number
         &&& j.constants.app_program_guid == ps.app_program_guid
-        &&& j.constants.journal_capacity == addrs.journal_data_end - addrs.journal_data_start
+        &&& j.constants.journal_capacity == addrs.journal_entries_end - addrs.journal_entries_start
         &&& j.constants.app_static_area_start == sm.app_static_area_start
         &&& j.constants.app_static_area_end == sm.app_static_area_end
         &&& j.constants.app_dynamic_area_start == sm.app_dynamic_area_start
@@ -294,7 +294,7 @@ pub exec fn begin_setup<PM>(
                 &&& j.constants == constants
                 &&& constants.app_version_number == ps.app_version_number
                 &&& constants.app_program_guid == ps.app_program_guid
-                &&& constants.journal_capacity >= spec_space_needed_for_journal(ps.max_journal_entries, ps.max_journaled_bytes)
+                &&& constants.journal_capacity >= spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
                 &&& opaque_aligned(constants.app_static_area_start as int, ps.app_static_area_alignment as int)
                 &&& constants.app_static_area_end == constants.app_static_area_start + ps.app_static_area_size
                 &&& j.app_static_area == opaque_subrange(pm@.read_state, constants.app_static_area_start as int,
@@ -359,9 +359,9 @@ pub exec fn begin_setup<PM>(
         committed_cdb_start: addrs.committed_cdb_start,
         journal_length_start: addrs.journal_length_start,
         journal_length_crc_start: addrs.journal_length_crc_start,
-        journal_data_crc_start: addrs.journal_data_crc_start,
-        journal_data_start: addrs.journal_data_start,
-        journal_data_end: addrs.journal_data_end,
+        journal_entries_crc_start: addrs.journal_entries_crc_start,
+        journal_entries_start: addrs.journal_entries_start,
+        journal_entries_end: addrs.journal_entries_end,
         app_static_area_start: addrs.app_static_area_start,
         app_static_area_end: addrs.app_static_area_end,
         app_dynamic_area_start: addrs.app_dynamic_area_start,
@@ -382,7 +382,7 @@ pub exec fn begin_setup<PM>(
     let journal_constants = JournalConstants {
         app_version_number: ps.app_version_number,
         app_program_guid: ps.app_program_guid,
-        journal_capacity: addrs.journal_data_end - addrs.journal_data_start,
+        journal_capacity: addrs.journal_entries_end - addrs.journal_entries_start,
         app_static_area_start: addrs.app_static_area_start,
         app_static_area_end: addrs.app_static_area_end,
         app_dynamic_area_start: addrs.app_dynamic_area_start,
