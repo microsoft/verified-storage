@@ -32,12 +32,7 @@ verus! {
     }
 
     pub struct RecoveredJournal {
-        pub app_version_number: u64,
-        pub app_program_guid: u128,
-        pub app_static_area_start: u64,
-        pub app_static_area_end: u64,
-        pub app_dynamic_area_start: u64,
-        pub app_dynamic_area_end: u64,
+        pub constants: JournalConstants,
         pub app_static_area: Seq<u8>,
         pub app_dynamic_area: Seq<u8>,
     }

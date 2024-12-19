@@ -97,6 +97,11 @@ pub open spec fn spec_journal_static_metadata_crc_end() -> int
 
 pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
 {
+    &&& 0 <= spec_journal_version_metadata_start()
+    &&& spec_journal_version_metadata_start() + JournalVersionMetadata::spec_size_of()
+           == spec_journal_version_metadata_end()
+    &&& spec_journal_version_metadata_end() <= spec_journal_version_metadata_crc_start()
+    &&& spec_journal_version_metadata_crc_start() + u64::spec_size_of() == spec_journal_version_metadata_crc_end()
     &&& m.program_guid == JOURNAL_PROGRAM_GUID
 }
 
@@ -112,6 +117,11 @@ pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersi
 pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: JournalVersionMetadata) -> bool
 {
     if vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER {
+        &&& spec_journal_version_metadata_crc_end() <= spec_journal_static_metadata_start()
+        &&& spec_journal_static_metadata_start() + JournalStaticMetadata::spec_size_of()
+               <= spec_journal_static_metadata_end()
+        &&& spec_journal_static_metadata_end() <= spec_journal_static_metadata_crc_start()
+        &&& spec_journal_static_metadata_crc_start() + u64::spec_size_of() == spec_journal_static_metadata_crc_end()
         &&& spec_journal_static_metadata_crc_end() <= sm.committed_cdb_start
         &&& sm.committed_cdb_start + u64::spec_size_of() <= sm.journal_length_start
         &&& opaque_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
@@ -131,16 +141,11 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
 pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetadata)
                                          -> Option<JournalStaticMetadata>
 {
-    if vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER {
-        match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
-                                                      spec_journal_static_metadata_crc_start()) {
-            Some(m) => if validate_static_metadata(m, vm) { Some(m) } else { None },
-            None => None,
-       }
+    match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
+                                                  spec_journal_static_metadata_crc_start()) {
+        Some(m) => if validate_static_metadata(m, vm) { Some(m) } else { None },
+        None => None,
     }
-    else {
-        None
-    }   
 }
 
 pub open spec fn recover_app_static_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
@@ -295,12 +300,14 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
                 Some(sm) =>
                     match (recover_app_static_area(bytes, sm), recover_app_dynamic_area(bytes, sm)) {
                         (Some(app_static_area), Some(app_dynamic_area)) => Some(RecoveredJournal {
-                                app_version_number: sm.app_version_number,
-                                app_program_guid: sm.app_program_guid,
-                                app_static_area_start: sm.app_static_area_start,
-                                app_static_area_end: sm.app_static_area_end,
-                                app_dynamic_area_start: sm.app_dynamic_area_start,
-                                app_dynamic_area_end: sm.app_dynamic_area_end,
+                                constants: JournalConstants {
+                                    app_version_number: sm.app_version_number,
+                                    app_program_guid: sm.app_program_guid,
+                                    app_static_area_start: sm.app_static_area_start,
+                                    app_static_area_end: sm.app_static_area_end,
+                                    app_dynamic_area_start: sm.app_dynamic_area_start,
+                                    app_dynamic_area_end: sm.app_dynamic_area_end,
+                                },
                                 app_static_area: app_static_area,
                                 app_dynamic_area: app_dynamic_area,
                             }),

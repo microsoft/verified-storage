@@ -238,4 +238,40 @@ pub proof fn lemma_auto_length_of_opaque_subrange<T>()
     }
 }
 
+pub proof fn lemma_opaque_subrange_subrange<T>(s: Seq<T>, outer_start: int, outer_end: int,
+                                            inner_start: int, inner_end: int)
+    requires
+        0 <= outer_start <= inner_start <= inner_end <= outer_end <= s.len(),
+    ensures
+        opaque_subrange(s, inner_start, inner_end) ==
+            opaque_subrange(opaque_subrange(s, outer_start, outer_end),
+                            inner_start - outer_start, inner_end - outer_start),
+           
+{
+    reveal(opaque_subrange);
+    assert(opaque_subrange(s, inner_start, inner_end) =~=
+           opaque_subrange(opaque_subrange(s, outer_start, outer_end),
+                           inner_start - outer_start, inner_end - outer_start));
+}
+
+pub proof fn lemma_auto_opaque_subrange_subrange<T>(s: Seq<T>, outer_start: int, outer_end: int)
+    requires
+        0 <= outer_start <= outer_end <= s.len(),
+    ensures
+        forall|inner_start: int, inner_end: int|
+            outer_start <= inner_start <= inner_end <= outer_end ==>
+                #[trigger] opaque_subrange(s, inner_start, inner_end) ==
+                opaque_subrange(opaque_subrange(s, outer_start, outer_end),
+                                inner_start - outer_start, inner_end - outer_start),
+{
+    assert forall|inner_start: int, inner_end: int|
+            outer_start <= inner_start <= inner_end <= outer_end implies
+                #[trigger] opaque_subrange(s, inner_start, inner_end) ==
+                opaque_subrange(opaque_subrange(s, outer_start, outer_end),
+                                inner_start - outer_start, inner_end - outer_start) by {
+        lemma_opaque_subrange_subrange(s, outer_start, outer_end, inner_start, inner_end);
+    }
+}
+
+
 }
