@@ -148,8 +148,7 @@ verus! {
         digest.write_bytes(data1_c);
         digest.write_bytes(data2_c);
         proof {
-            reveal_with_fuel(Seq::flatten, 3);
-            assert(digest.bytes_in_digest().flatten() =~= data1_c@ + data2_c@);
+            assert(digest.bytes_in_digest() =~= data1_c@ + data2_c@);
         }
         let computed_crc = digest.sum64();
 
@@ -262,8 +261,7 @@ verus! {
         digest.write_bytes(data1_c);
         digest.write_bytes(data2_c);
         proof {
-            reveal_with_fuel(Seq::flatten, 3);
-            assert(digest.bytes_in_digest().flatten() =~= data1_c@ + data2_c@);
+            assert(digest.bytes_in_digest() =~= data1_c@ + data2_c@);
         }
         let computed_crc = digest.sum64();
 
@@ -604,9 +602,6 @@ verus! {
     {
         let mut digest = CrcDigest::new();
         digest.write(val);
-        proof {
-            digest.bytes_in_digest().lemma_flatten_one_element();
-        }
         digest.sum64()
     }
 
@@ -619,7 +614,6 @@ verus! {
         digest.write_bytes(val);
         proof {
             lemma_auto_spec_u64_to_from_le_bytes();
-            digest.bytes_in_digest().lemma_flatten_one_element();
         }
         digest.sum64()
     }

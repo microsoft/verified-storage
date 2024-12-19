@@ -23,12 +23,12 @@ verus! {
     pub struct CrcDigest
     {
         digest: ExternalDigest,
-        bytes_in_digest: Ghost<Seq<Seq<u8>>>,
+        bytes_in_digest: Ghost<Seq<u8>>,
     }
 
     impl CrcDigest
     {
-        pub closed spec fn bytes_in_digest(self) -> Seq<Seq<u8>>
+        pub closed spec fn bytes_in_digest(self) -> Seq<u8>
         {
             self.bytes_in_digest@
         }
@@ -36,11 +36,11 @@ verus! {
         #[verifier::external_body]
         pub fn new() -> (output: Self)
             ensures
-                output.bytes_in_digest() == Seq::<Seq<u8>>::empty()
+                output.bytes_in_digest() == Seq::<u8>::empty(),
         {
             Self {
                 digest: ExternalDigest{ digest: Digest::new() },
-                bytes_in_digest: Ghost(Seq::<Seq<u8>>::empty())
+                bytes_in_digest: Ghost(Seq::<u8>::empty())
             }
         }
 
@@ -49,7 +49,7 @@ verus! {
             where
                 S: PmCopy,
             ensures
-                self.bytes_in_digest() == old(self).bytes_in_digest().push(val.spec_to_bytes())
+                self.bytes_in_digest() == old(self).bytes_in_digest() + val.spec_to_bytes(),
         {
             // Cast `val` to bytes, then add them to the digest.
             // The crc64fast crate that we use computes the CRC iteratively and does
@@ -71,7 +71,7 @@ verus! {
         #[verifier::external_body]
         pub fn write_bytes(&mut self, val: &[u8])
             ensures 
-                self.bytes_in_digest() == old(self).bytes_in_digest().push(val@)
+                self.bytes_in_digest() == old(self).bytes_in_digest() + val@,
         {
             self.digest.digest.write(val);
         }
@@ -79,14 +79,9 @@ verus! {
         // Compute and return the CRC for all bytes in the digest.
         #[verifier::external_body]
         pub fn sum64(&self) -> (output: u64)
-            requires
-                self.bytes_in_digest().len() != 0
             ensures
-                ({
-                    let all_bytes_seq = self.bytes_in_digest().flatten();
-                    &&& output == spec_crc_u64(all_bytes_seq)
-                    &&& output.spec_to_bytes() == spec_crc_bytes(all_bytes_seq)
-                })
+                output == spec_crc_u64(self.bytes_in_digest()),
+                output.spec_to_bytes() == spec_crc_bytes(self.bytes_in_digest()),
 
         {
             self.digest.digest.sum64()
