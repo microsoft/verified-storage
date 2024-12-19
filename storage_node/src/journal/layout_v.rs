@@ -304,6 +304,7 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
                                 constants: JournalConstants {
                                     app_version_number: sm.app_version_number,
                                     app_program_guid: sm.app_program_guid,
+                                    journal_capacity: (sm.journal_data_end - sm.journal_data_start) as u64,
                                     app_static_area_start: sm.app_static_area_start,
                                     app_static_area_end: sm.app_static_area_end,
                                     app_dynamic_area_start: sm.app_dynamic_area_start,

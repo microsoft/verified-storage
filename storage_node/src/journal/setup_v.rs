@@ -15,7 +15,7 @@ use deps_hack::PmCopy;
 
 verus! {
 
-spec fn spec_space_needed_for_journal(
+pub closed spec fn spec_space_needed_for_journal(
     max_journal_entries: u64,
     max_journaled_bytes: u64,
 ) -> int
@@ -239,6 +239,7 @@ proof fn lemma_setup_works(
         &&& recover_journal(bytes) matches Some(j)
         &&& j.constants.app_version_number == ps.app_version_number
         &&& j.constants.app_program_guid == ps.app_program_guid
+        &&& j.constants.journal_capacity == addrs.journal_data_end - addrs.journal_data_start
         &&& j.constants.app_static_area_start == sm.app_static_area_start
         &&& j.constants.app_static_area_end == sm.app_static_area_end
         &&& j.constants.app_dynamic_area_start == sm.app_dynamic_area_start
@@ -293,6 +294,7 @@ pub exec fn begin_setup<PM>(
                 &&& j.constants == constants
                 &&& constants.app_version_number == ps.app_version_number
                 &&& constants.app_program_guid == ps.app_program_guid
+                &&& constants.journal_capacity >= spec_space_needed_for_journal(ps.max_journal_entries, ps.max_journaled_bytes)
                 &&& opaque_aligned(constants.app_static_area_start as int, ps.app_static_area_alignment as int)
                 &&& constants.app_static_area_end == constants.app_static_area_start + ps.app_static_area_size
                 &&& j.app_static_area == opaque_subrange(pm@.read_state, constants.app_static_area_start as int,
@@ -380,6 +382,7 @@ pub exec fn begin_setup<PM>(
     let journal_constants = JournalConstants {
         app_version_number: ps.app_version_number,
         app_program_guid: ps.app_program_guid,
+        journal_capacity: addrs.journal_data_end - addrs.journal_data_start,
         app_static_area_start: addrs.app_static_area_start,
         app_static_area_end: addrs.app_static_area_end,
         app_dynamic_area_start: addrs.app_dynamic_area_start,

@@ -10,6 +10,7 @@ verus! {
     pub struct JournalConstants {
         pub app_version_number: u64,
         pub app_program_guid: u128,
+        pub journal_capacity: u64,
         pub app_static_area_start: u64,
         pub app_static_area_end: u64,
         pub app_dynamic_area_start: u64,
