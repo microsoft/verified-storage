@@ -460,31 +460,40 @@ pub exec fn begin_setup<PM>(
     Ok(journal_constants)
 }
 
-pub proof fn end_setup(
-    journal_constants: JournalConstants,
-    state_before_app_setup: Seq<u8>,
-    state_after_app_setup: Seq<u8>,
+pub exec fn end_setup<PM>(
+    pm: &mut PM,
+    journal_constants: &JournalConstants,
+    Ghost(state_after_begin_setup): Ghost<Seq<u8>>, // the state after calling `begin_setup` and
+                                                    // before initializing the application state
 )
+    where
+        PM: PersistentMemoryRegion
     requires
-        ready_for_app_setup(state_before_app_setup, journal_constants),
-        state_after_app_setup.len() == state_before_app_setup.len(),
-        opaque_subrange(state_before_app_setup, 0, journal_constants.app_static_area_start as int)
-            == opaque_subrange(state_after_app_setup, 0, journal_constants.app_static_area_start as int),
+        old(pm).inv(),
+        ready_for_app_setup(state_after_begin_setup, *journal_constants),
+        old(pm)@.len() == state_after_begin_setup.len(),
+        opaque_subrange(state_after_begin_setup, 0, journal_constants.app_static_area_start as int)
+            == opaque_subrange(old(pm)@.read_state, 0, journal_constants.app_static_area_start as int),
     ensures
+        pm.inv(),
+        pm@.flush_predicted(),
         ({
-            &&& recover_journal(state_after_app_setup) matches Some(j)
-            &&& j.constants == journal_constants
-            &&& j.app_static_area == opaque_subrange(state_after_app_setup,
+            &&& recover_journal(pm@.read_state) matches Some(j)
+            &&& j.constants == *journal_constants
+            &&& j.app_static_area == opaque_subrange(pm@.read_state,
                                                    journal_constants.app_static_area_start as int,
                                                    journal_constants.app_static_area_end as int)
-            &&& j.app_dynamic_area == opaque_subrange(state_after_app_setup,
+            &&& j.app_dynamic_area == opaque_subrange(pm@.read_state,
                                                     journal_constants.app_dynamic_area_start as int,
                                                     journal_constants.app_dynamic_area_end as int)
         }),
 {
-    lemma_auto_opaque_subrange_subrange(state_before_app_setup, 0, journal_constants.app_static_area_start as int);
-    lemma_auto_opaque_subrange_subrange(state_after_app_setup, 0, journal_constants.app_static_area_start as int);
-    reveal(recover_journal);
+    pm.flush();
+    proof {
+        lemma_auto_opaque_subrange_subrange(state_after_begin_setup, 0, journal_constants.app_static_area_start as int);
+        lemma_auto_opaque_subrange_subrange(pm@.read_state, 0, journal_constants.app_static_area_start as int);
+        reveal(recover_journal);
+    }
 }
 
 }
