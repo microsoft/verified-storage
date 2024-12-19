@@ -135,10 +135,10 @@ impl AddressesForSetup
         &&& self.journal_data_start + journal_size <= self.journal_data_end
         &&& self.journal_data_end <= self.app_static_area_start
         &&& opaque_aligned(self.app_static_area_start as int, app_static_area_alignment as int)
-        &&& self.app_static_area_start + app_static_area_size <= self.app_static_area_end
+        &&& self.app_static_area_start + app_static_area_size == self.app_static_area_end
         &&& self.app_static_area_end <= self.app_dynamic_area_start
         &&& opaque_aligned(self.app_dynamic_area_start as int, app_dynamic_area_alignment as int)
-        &&& self.app_dynamic_area_start + app_dynamic_area_size <= self.app_dynamic_area_end
+        &&& self.app_dynamic_area_start + app_dynamic_area_size == self.app_dynamic_area_end
         &&& self.app_dynamic_area_end == space_needed_for_setup
     }
 }
@@ -285,8 +285,17 @@ proof fn lemma_setup_works(
                     == spec_crc_bytes(sm.spec_to_bytes())
             &&& opaque_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
         }),
-    ensures
-        recover_journal(bytes) == Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int)),
+    ensures ({
+        &&& recover_journal(bytes) matches Some(j)
+        &&& j.app_version_number == app_version_number
+        &&& j.app_program_guid == app_program_guid
+        &&& j.app_static_area_start == sm.app_static_area_start
+        &&& j.app_static_area_end == sm.app_static_area_end
+        &&& j.app_dynamic_area_start == sm.app_dynamic_area_start
+        &&& j.app_dynamic_area_end == sm.app_dynamic_area_end
+        &&& opaque_subrange(bytes, sm.app_static_area_start as int, sm.app_static_area_end as int) == j.app_static_area
+        &&& opaque_subrange(bytes, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int) == j.app_dynamic_area
+    }),
 {
     broadcast use pmcopy_axioms;
     reveal(recover_journal);
@@ -312,9 +321,19 @@ pub exec fn setup<PM>(
             Ok(_) => {
                 &&& 0 < app_static_area_alignment
                 &&& 0 < app_dynamic_area_alignment
-                &&& pm@.flush_predicted()
-                &&& recover_journal(pm@.read_state) matches Some(app_dynamic_area)
-                &&& app_dynamic_area.len() == app_dynamic_area_size
+                &&& recover_journal(pm@.read_state) matches Some(j)
+                &&& j.app_version_number == app_version_number
+                &&& j.app_program_guid == app_program_guid
+                &&& opaque_aligned(j.app_static_area_start as int, app_static_area_alignment as int)
+                &&& j.app_static_area_end == j.app_static_area_start + app_static_area_size
+                &&& j.app_static_area == opaque_subrange(pm@.read_state, j.app_static_area_start as int,
+                                                         j.app_static_area_end as int)
+                &&& j.app_static_area_end <= j.app_dynamic_area_start
+                &&& opaque_aligned(j.app_dynamic_area_start as int, app_dynamic_area_alignment as int)
+                &&& j.app_dynamic_area_end == j.app_dynamic_area_start + app_dynamic_area_size
+                &&& j.app_dynamic_area_end <= pm@.len()
+                &&& j.app_dynamic_area == opaque_subrange(pm@.read_state, j.app_dynamic_area_start as int,
+                                                          j.app_dynamic_area_end as int)
             },
             Err(JournalError::InvalidAlignment) => {
                 ||| app_static_area_alignment == 0
@@ -357,6 +376,8 @@ pub exec fn setup<PM>(
         assert(pm@.valid()) by { pm.lemma_inv_implies_view_valid(); }
         lemma_auto_can_result_from_write_effect_on_read_state();
         broadcast use pmcopy_axioms;
+        assert(addrs.valid(max_journal_entries, max_journaled_bytes, app_static_area_size, app_static_area_alignment,
+                           app_dynamic_area_size, app_dynamic_area_alignment));
     }
 
     // We now know we have enough space, and we know the addresses to store things.
@@ -390,8 +411,6 @@ pub exec fn setup<PM>(
     let committed_cdb = CDB_FALSE;
     pm.serialize_and_write(addrs.committed_cdb_start, &committed_cdb);
 
-    pm.flush();
-
     proof {
         lemma_auto_can_result_from_write_effect_on_read_state();
         lemma_setup_works(pm@.read_state,
@@ -400,7 +419,7 @@ pub exec fn setup<PM>(
                           app_dynamic_area_size, app_dynamic_area_alignment,
                           addrs, vm, sm);
     }
-    assume(false);
+
     Ok(true)
 }
 

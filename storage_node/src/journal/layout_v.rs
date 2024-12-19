@@ -269,30 +269,44 @@ pub open spec fn recover_journal_case_committed(bytes: Seq<u8>, sm: JournalStati
     }
 }
 
+pub open spec fn recover_app_dynamic_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+{
+    match recover_cdb(bytes, sm.committed_cdb_start as int) {
+        None => None,
+        Some(committed) =>
+            if committed {
+                recover_journal_case_committed(bytes, sm)
+            }
+            else {
+                Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int,
+                                        sm.app_dynamic_area_end as int))
+            },
+    }
+}
+
 #[verifier::opaque]
-pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<Seq<u8>>
+pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
 {
     match recover_version_metadata(bytes) {
         None => None,
-        Some(vm) => {
+        Some(vm) =>
             match recover_static_metadata(bytes, vm) {
                 None => None,
-                Some(sm) => {
-                    match recover_cdb(bytes, sm.committed_cdb_start as int) {
-                        None => None,
-                        Some(committed) => {
-                            if committed {
-                                recover_journal_case_committed(bytes, sm)
-                            }
-                            else {
-                                Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int,
-                                                     sm.app_dynamic_area_end as int))
-                            }
-                        },
-                    }
-                },
-            }
-        },
+                Some(sm) =>
+                    match (recover_app_static_area(bytes, sm), recover_app_dynamic_area(bytes, sm)) {
+                        (Some(app_static_area), Some(app_dynamic_area)) => Some(RecoveredJournal {
+                                app_version_number: sm.app_version_number,
+                                app_program_guid: sm.app_program_guid,
+                                app_static_area_start: sm.app_static_area_start,
+                                app_static_area_end: sm.app_static_area_end,
+                                app_dynamic_area_start: sm.app_dynamic_area_start,
+                                app_dynamic_area_end: sm.app_dynamic_area_end,
+                                app_static_area: app_static_area,
+                                app_dynamic_area: app_dynamic_area,
+                            }),
+                        (_, _) => None,
+                    },
+            },
     }
 }
 
