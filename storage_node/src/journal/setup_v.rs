@@ -240,11 +240,41 @@ pub exec fn get_space_needed_for_setup(
     }
 }
 
-proof fn lemma_setup_works(bytes: Seq<u8>, vm: JournalVersionMetadata, sm: JournalStaticMetadata)
+proof fn lemma_setup_works(
+    bytes: Seq<u8>,
+    app_version_number: u64,
+    app_program_guid: u128,
+    max_journal_entries: u64,
+    max_journaled_bytes: u64,
+    app_static_area_size: u64,
+    app_static_area_alignment: u64,
+    app_dynamic_area_size: u64,
+    app_dynamic_area_alignment: u64,
+    addrs: AddressesForSetup,
+    vm: JournalVersionMetadata,
+    sm: JournalStaticMetadata
+)
     requires
+        0 < app_static_area_alignment,
+        0 < app_dynamic_area_alignment,
+        addrs.valid(max_journal_entries, max_journaled_bytes, app_static_area_size, app_static_area_alignment,
+                    app_dynamic_area_size, app_dynamic_area_alignment),
         validate_version_metadata(vm),
         validate_static_metadata(sm, vm),
+        vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER,
+        vm.program_guid == JOURNAL_PROGRAM_GUID,
         sm.app_dynamic_area_end <= bytes.len(),
+        sm.app_version_number == app_version_number,
+        sm.app_program_guid == app_program_guid,
+        sm.committed_cdb_start == addrs.committed_cdb_start,
+        sm.journal_length_start == addrs.journal_length_start,
+        sm.journal_length_crc_start == addrs.journal_length_crc_start,
+        sm.journal_data_start == addrs.journal_data_start,
+        sm.journal_data_end == addrs.journal_data_end,
+        sm.app_static_area_start == addrs.app_static_area_start,
+        sm.app_static_area_end == addrs.app_static_area_end,
+        sm.app_dynamic_area_start == addrs.app_dynamic_area_start,
+        sm.app_dynamic_area_end == addrs.app_dynamic_area_end,
         ({
             &&& opaque_subrange(bytes, spec_journal_version_metadata_start(), spec_journal_version_metadata_end()) == vm.spec_to_bytes()
             &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start(), spec_journal_version_metadata_crc_end())
@@ -256,10 +286,10 @@ proof fn lemma_setup_works(bytes: Seq<u8>, vm: JournalVersionMetadata, sm: Journ
             &&& opaque_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
         }),
     ensures
-        recover_journal(bytes) matches Some(app_dynamic_area) &&
-           app_dynamic_area.len() == sm.app_dynamic_area_end - sm.app_dynamic_area_start,
+        recover_journal(bytes) == Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int)),
 {
-    assume(false);
+    broadcast use pmcopy_axioms;
+    reveal(recover_journal);
 }
 
 pub exec fn setup<PM>(
@@ -364,7 +394,11 @@ pub exec fn setup<PM>(
 
     proof {
         lemma_auto_can_result_from_write_effect_on_read_state();
-        lemma_setup_works(pm@.read_state, vm, sm);
+        lemma_setup_works(pm@.read_state,
+                          app_version_number, app_program_guid, max_journal_entries,
+                          max_journaled_bytes, app_static_area_size, app_static_area_alignment,
+                          app_dynamic_area_size, app_dynamic_area_alignment,
+                          addrs, vm, sm);
     }
     assume(false);
     Ok(true)

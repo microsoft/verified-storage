@@ -219,4 +219,23 @@ pub proof fn lemma_auto_can_result_from_write_effect_on_read_state()
     }
 }
 
+pub proof fn lemma_length_of_opaque_subrange<T>(s: Seq<T>, i: int, j: int)
+    requires
+        0 <= i <= j <= s.len(),
+    ensures
+        opaque_subrange(s, i, j).len() == j - i,
+{
+    reveal(opaque_subrange);
+}
+
+pub proof fn lemma_auto_length_of_opaque_subrange<T>()
+    ensures forall|s: Seq<T>, i: int, j: int| #![trigger opaque_subrange(s, i, j)]
+        0 <= i <= j <= s.len() ==> opaque_subrange(s, i, j).len() == j - i,
+{
+    assert forall|s: Seq<T>, i: int, j: int| #![trigger opaque_subrange(s, i, j)]
+        0 <= i <= j <= s.len() implies opaque_subrange(s, i, j).len() == j - i by {
+        lemma_length_of_opaque_subrange(s, i, j);
+    }
+}
+
 }
