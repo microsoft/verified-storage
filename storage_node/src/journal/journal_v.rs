@@ -66,7 +66,7 @@ impl <Perm, PM> Journal<Perm, PM>
     {
         &&& 0 <= self.sm.journal_entries_start
         &&& self.sm.journal_entries_start + self.constants.journal_capacity <= self.sm.journal_entries_end
-        &&& recover_journal_entries(read_state, self.sm.journal_entries_start as int, self.sm.journal_entries_end as int) == Some(self.entries@)
+        &&& recover_journal_entries(read_state, self.sm, self.journal_length) == Some(self.entries@)
     }
 
     spec fn inv_journaled_addrs_complete(self) -> bool
@@ -98,8 +98,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& recover_app_static_area(pmv.durable_state, self.sm) == Some(self.static_area@)
         &&& if self.committed {
             &&& recover_journal_length(pmv.durable_state, self.sm) == Some(self.journal_length)
-            &&& recover_journal_entries(pmv.durable_state, self.sm.journal_entries_start as int,
-                                        self.sm.journal_entries_start + self.journal_length) == Some(self.entries@)
+            &&& recover_journal_entries(pmv.durable_state, self.sm, self.journal_length) == Some(self.entries@)
             &&& apply_journal_entries(pmv.durable_state, self.entries@, 0, self.sm) matches Some(updated_bytes)
             &&& self@.dynamic_area_on_commit == opaque_subrange(updated_bytes, self.sm.app_dynamic_area_start as int,
                                                               self.sm.app_dynamic_area_end as int)

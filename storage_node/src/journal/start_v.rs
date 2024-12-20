@@ -157,7 +157,7 @@ impl <Perm, PM> Journal<Perm, PM>
         )
     }
 
-    pub(super) exec fn install_log(
+    pub(super) exec fn install_journal_entries(
         wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>,
         vm: Ghost<JournalVersionMetadata>,
@@ -182,7 +182,7 @@ impl <Perm, PM> Journal<Perm, PM>
             end == sm.journal_entries_start + journal_length,
             sm.app_dynamic_area_end <= old(wrpm)@.len(),
             sm.journal_entries_start <= start <= end <= sm.journal_entries_end,
-            recover_journal_entries(old(wrpm)@.read_state, sm.journal_entries_start as int, sm.journal_entries_start + journal_length) == Some(entries@),
+            recover_journal_entries(old(wrpm)@.read_state, sm, journal_length) == Some(entries@),
             apply_journal_entries(old(wrpm)@.read_state, entries@, 0, sm) is Some,
             recover_journal(old(wrpm)@.durable_state) is Some,
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
@@ -202,7 +202,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& recover_cdb(wrpm@.read_state, sm.committed_cdb_start as int) == Some(true)
                     &&& recover_journal_length(wrpm@.durable_state, sm) == Some(journal_length)
                     &&& recover_journal_length(wrpm@.read_state, sm) == Some(journal_length)
-                    &&& recover_journal_entries(wrpm@.read_state, sm.journal_entries_start as int, sm.journal_entries_start + journal_length) == Some(entries@)
+                    &&& recover_journal_entries(wrpm@.read_state, sm, journal_length) == Some(entries@)
                     &&& apply_journal_entries(wrpm@.read_state, entries@, 0, sm) is Some
                     &&& opaque_subrange(wrpm@.read_state, sm.app_dynamic_area_start as int,
                                         sm.app_dynamic_area_end as int) ==
