@@ -587,6 +587,67 @@ verus! {
         } ==> recover_fn(s2) == recover_fn(s)
     }
 
+    // This lemma establishes that, if we only write to addresses
+    // that aren't accessed by a recovery function, then all additional
+    // crash states introduced have the same recovered-to state as the
+    // current one.
+    pub proof fn lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write<T>(
+        new_durable_state: Seq<u8>,
+        durable_state: Seq<u8>,
+        write_addr: int,
+        bytes_to_write: Seq<u8>,
+        addrs: Set<int>,
+        recover_fn: spec_fn(Seq<u8>) -> T,
+    )
+        requires
+            addresses_not_accessed_by_recovery::<T>(durable_state, addrs, recover_fn),
+            forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr),
+            0 <= write_addr,
+            write_addr + bytes_to_write.len() <= durable_state.len(),
+            can_result_from_partial_write(new_durable_state, durable_state, write_addr, bytes_to_write),
+        ensures
+            recover_fn(new_durable_state) == recover_fn(durable_state)
+    {
+        assert(new_durable_state.len() == durable_state.len());
+        assert forall|i: int| 0 <= i < durable_state.len() && !addrs.contains(i)
+            implies new_durable_state[i] == durable_state[i] by {
+            lemma_auto_can_result_from_partial_write_effect();
+        }
+    }
+
+    // This lemma establishes that, if we only write to addresses
+    // that aren't accessed by a recovery function, then all additional
+    // crash states introduced have the same recovered-to state as the
+    // current one.
+    pub proof fn lemma_auto_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write<T>(
+        durable_state: Seq<u8>,
+        addrs: Set<int>,
+        recover_fn: spec_fn(Seq<u8>) -> T,
+    )
+        requires
+            addresses_not_accessed_by_recovery::<T>(durable_state, addrs, recover_fn),
+        ensures
+            forall|new_durable_state: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>| {
+                &&& forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr)
+                &&& 0 <= write_addr
+                &&& write_addr + bytes_to_write.len() <= durable_state.len()
+                &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state, write_addr,
+                                                           bytes_to_write)
+            } ==> recover_fn(new_durable_state) == recover_fn(durable_state)
+    {
+        assert forall|new_durable_state: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>| {
+                &&& forall|addr: int| write_addr <= addr < write_addr + bytes_to_write.len() ==> addrs.contains(addr)
+                &&& 0 <= write_addr
+                &&& write_addr + bytes_to_write.len() <= durable_state.len()
+                &&& #[trigger] can_result_from_partial_write(new_durable_state, durable_state, write_addr,
+                                                           bytes_to_write)
+            } implies recover_fn(new_durable_state) == recover_fn(durable_state) by {
+            lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
+                new_durable_state, durable_state, write_addr, bytes_to_write, addrs, recover_fn
+            );
+        }
+    }
+
     // Calculates the CRC for a single `PmCopy` object.
     pub fn calculate_crc<S>(val: &S) -> (out: u64)
         where
