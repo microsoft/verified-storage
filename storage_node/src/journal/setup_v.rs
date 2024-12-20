@@ -209,7 +209,9 @@ proof fn lemma_setup_works(
     requires
         ps.valid(),
         addrs.valid(ps),
+        spec_journal_version_metadata_crc_end() <= bytes.len(),
         validate_version_metadata(vm),
+        spec_journal_static_metadata_crc_end() <= bytes.len(),
         validate_static_metadata(sm, vm),
         vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER,
         vm.program_guid == JOURNAL_PROGRAM_GUID,

@@ -66,8 +66,19 @@ pub open spec fn recover_cdb(s: Seq<u8>, addr: int) -> Option<bool>
 {
     if 0 <= addr && addr + u64::spec_size_of() <= s.len() {
         let cdb_bytes = opaque_section(s, addr, u64::spec_size_of());
-        let cdb = u64::spec_from_bytes(cdb_bytes);
-        if cdb == CDB_FALSE { Some(false) } else if cdb == CDB_TRUE { Some(true) } else { None }
+        if u64::bytes_parseable(cdb_bytes) {
+            let cdb = u64::spec_from_bytes(cdb_bytes);
+            if cdb == CDB_FALSE {
+                Some(false)
+            } else if cdb == CDB_TRUE {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        else {
+            None
+        }
     }
     else {
         None

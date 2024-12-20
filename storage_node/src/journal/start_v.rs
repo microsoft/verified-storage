@@ -26,6 +26,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             pm.inv(),
             recover_version_metadata(pm@.read_state).is_some(),
+            pm@.len() <= u64::MAX,
         ensures
             match result {
                 None => !pm.constants().impervious_to_corruption(),
@@ -68,6 +69,7 @@ impl <Perm, PM> Journal<Perm, PM>
             pm.inv(),
             recover_static_metadata(pm@.read_state, *vm).is_some(),
             validate_version_metadata(*vm),
+            pm@.len() <= u64::MAX,
         ensures
             match result {
                 None => !pm.constants().impervious_to_corruption(),
@@ -124,6 +126,37 @@ impl <Perm, PM> Journal<Perm, PM>
         Some(*maybe_corrupted_sm.extract_init_val(Ghost(true_sm)))
     }
 
+    exec fn read_committed_cdb(pm: &PM, vm: &JournalVersionMetadata, sm: &JournalStaticMetadata) -> (result: Option<bool>)
+        requires
+            pm.inv(),
+            pm@.len() <= u64::MAX,
+            recover_cdb(pm@.read_state, sm.committed_cdb_start as int).is_some(),
+            validate_version_metadata(*vm),
+            validate_static_metadata(*sm, *vm),
+            sm.app_dynamic_area_end <= pm@.len(),
+        ensures
+            match result {
+                None => !pm.constants().impervious_to_corruption(),
+                Some(b) => recover_cdb(pm@.read_state, sm.committed_cdb_start as int) == Some(b),
+            }
+    {
+        reveal(opaque_subrange);
+
+        let ghost true_cdb_bytes = opaque_subrange(pm@.read_state, sm.committed_cdb_start as int,
+                                                   sm.committed_cdb_start as int + u64::spec_size_of() as int);
+        let cdb_bytes = match pm.read_aligned::<u64>(sm.committed_cdb_start) {
+            Ok(bytes) => bytes,
+            Err(_) => { assert(false); return None; }
+        };
+
+        check_cdb(
+            cdb_bytes,
+            Ghost(true_cdb_bytes),
+            Ghost(pm.constants()),
+            Ghost(sm.committed_cdb_start as int)
+        )
+    }
+
     pub exec fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>
@@ -140,9 +173,12 @@ impl <Perm, PM> Journal<Perm, PM>
             }
     {
         let pm = wrpm.get_pm_region_ref();
+        let pm_size = pm.get_region_size(); // This establishes that `pm@.len() <= u64::MAX`
+    
         reveal(recover_journal);
         let vm = Self::read_version_metadata(pm).ok_or(JournalError::CRCError)?;
         let sm = Self::read_static_metadata(pm, &vm).ok_or(JournalError::CRCError)?;
+        let cdb = Self::read_committed_cdb(pm, &vm, &sm).ok_or(JournalError::CRCError)?;
         Err(JournalError::NotEnoughSpace)
     }
 }

@@ -98,21 +98,21 @@ pub open spec fn spec_journal_static_metadata_crc_end() -> int
 
 pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
 {
-    &&& 0 <= spec_journal_version_metadata_start()
-    &&& spec_journal_version_metadata_start() + JournalVersionMetadata::spec_size_of()
-           == spec_journal_version_metadata_end()
     &&& spec_journal_version_metadata_end() <= spec_journal_version_metadata_crc_start()
-    &&& spec_journal_version_metadata_crc_start() + u64::spec_size_of() == spec_journal_version_metadata_crc_end()
-    &&& spec_journal_version_metadata_crc_end() <= u64::MAX as int
     &&& m.program_guid == JOURNAL_PROGRAM_GUID
 }
 
 pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
 {
-    match recover_object::<JournalVersionMetadata>(bytes, spec_journal_version_metadata_start(),
-                                                   spec_journal_version_metadata_crc_start()) {
-        Some(m) => if validate_version_metadata(m) { Some(m) } else { None },
-        None => None,
+    if spec_journal_version_metadata_crc_end() > bytes.len() {
+        None
+    }
+    else {
+        match recover_object::<JournalVersionMetadata>(bytes, spec_journal_version_metadata_start(),
+                                                       spec_journal_version_metadata_crc_start()) {
+            Some(vm) => if validate_version_metadata(vm) { Some(vm) } else { None },
+            None => None,
+        }
     }
 }
 
@@ -144,10 +144,19 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
 pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetadata)
                                          -> Option<JournalStaticMetadata>
 {
-    match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
-                                                  spec_journal_static_metadata_crc_start()) {
-        Some(m) => if validate_static_metadata(m, vm) { Some(m) } else { None },
-        None => None,
+    if spec_journal_static_metadata_crc_end() > bytes.len() {
+        None
+    }
+    else {
+        match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
+                                                    spec_journal_static_metadata_crc_start()) {
+            Some(sm) => if validate_static_metadata(sm, vm) && sm.app_dynamic_area_end <= bytes.len() {
+                Some(sm)
+            } else {
+                None
+            },
+            None => None,
+        }
     }
 }
 
