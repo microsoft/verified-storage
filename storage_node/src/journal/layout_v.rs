@@ -103,6 +103,7 @@ pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
            == spec_journal_version_metadata_end()
     &&& spec_journal_version_metadata_end() <= spec_journal_version_metadata_crc_start()
     &&& spec_journal_version_metadata_crc_start() + u64::spec_size_of() == spec_journal_version_metadata_crc_end()
+    &&& spec_journal_version_metadata_crc_end() <= u64::MAX as int
     &&& m.program_guid == JOURNAL_PROGRAM_GUID
 }
 
@@ -133,7 +134,7 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
         &&& sm.journal_entries_end <= sm.app_static_area_start
         &&& sm.app_static_area_start <= sm.app_static_area_end
         &&& sm.app_static_area_end <= sm.app_dynamic_area_start
-        &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end
+        &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end        
     }
     else {
         false

@@ -4,6 +4,7 @@ use vstd::prelude::*;
 use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
+use crate::pmem::wrpm_t::*;
 use super::layout_v::*;
 use super::spec_v::*;
 use deps_hack::PmCopy;
@@ -14,7 +15,12 @@ enum JournalStatus {
     Quiescent
 }
 
-struct Journal {
+pub struct Journal<Perm, PM>
+    where
+        PM: PersistentMemoryRegion,
+        Perm: CheckPermission<Seq<u8>>,
+{
+    wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
     vm: Ghost<JournalVersionMetadata>,
     sm: JournalStaticMetadata,
     status: JournalStatus,
@@ -29,7 +35,11 @@ struct Journal {
     entries: Ghost<Seq<JournalEntry>>,
 }
 
-impl View for Journal {
+impl<Perm, PM> View for Journal<Perm, PM>
+    where
+        PM: PersistentMemoryRegion,
+        Perm: CheckPermission<Seq<u8>>,
+{
     type V = JournalView;
     
     closed spec fn view(&self) -> JournalView
@@ -46,8 +56,11 @@ impl View for Journal {
     }
 }
 
-impl Journal {
-    
+impl <Perm, PM> Journal<Perm, PM>
+    where
+        PM: PersistentMemoryRegion,
+        Perm: CheckPermission<Seq<u8>>,
+{
     pub closed spec fn journal_entries_matches(self, read_state: Seq<u8>) -> bool
     {
         &&& 0 <= self.sm.journal_entries_start
@@ -62,8 +75,9 @@ impl Journal {
             self.journaled_addrs@.contains(addr)
     }
 
-    pub closed spec fn inv(self, pmv: PersistentMemoryRegionView) -> bool
+    pub closed spec fn inv(self) -> bool
     {
+        let pmv = self.wrpm.view();
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
         &&& recover_cdb(pmv.durable_state, self.sm.committed_cdb_start as int) == Some(self.committed)
@@ -74,15 +88,15 @@ impl Journal {
         &&& self.inv_journaled_addrs_complete()
     }
 
-    pub closed spec fn valid_closed(self, pmv: PersistentMemoryRegionView) -> bool
+    pub closed spec fn valid_closed(self) -> bool
     {
-        &&& self.inv(pmv)
+        &&& self.inv()
         &&& self.status is Quiescent
     }
 
-    pub open spec fn valid(self, pmv: PersistentMemoryRegionView) -> bool
+    pub open spec fn valid(self) -> bool
     {
-        &&& self.valid_closed(pmv)
+        &&& self.valid_closed()
     }
 }
 

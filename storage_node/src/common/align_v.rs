@@ -1,6 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
-use crate::pmem::pmcopy_t::PmCopy;
+use crate::pmem::pmcopy_t::{PmCopy, pmcopy_axioms};
+use crate::pmem::traits_t::align_of;
 use vstd::prelude::*;
 use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish};
 
@@ -34,6 +35,13 @@ pub open spec fn round_up_to_alignment(addr: int, alignment: int) -> int
     addr + space_needed_for_alignment(addr, alignment)
 }
 
+pub proof fn lemma_auto_space_needed_for_alignment_bounded()
+    ensures
+        forall|addr: int, alignment: int| 0 < alignment ==>
+            0 <= #[trigger] space_needed_for_alignment(addr, alignment) < alignment,
+{
+}
+
 pub exec fn get_space_needed_for_alignment_usize(addr: u64, alignment: usize) -> (result: usize)
     requires
         0 < alignment,
@@ -47,6 +55,20 @@ pub exec fn get_space_needed_for_alignment_usize(addr: u64, alignment: usize) ->
     else {
         alignment - remainder
     }
+}
+
+pub exec fn exec_round_up_to_alignment<T>(addr: u64) -> (result: u64)
+    where
+        T: PmCopy,
+    requires
+        0 < T::spec_align_of(),
+        round_up_to_alignment(addr as int, T::spec_align_of() as int) <= u64::MAX,
+    ensures
+        result == round_up_to_alignment(addr as int, T::spec_align_of() as int),
+{
+    broadcast use pmcopy_axioms;
+    let alignment_needed = get_space_needed_for_alignment_usize(addr, align_of::<T>());
+    addr + (alignment_needed as u64)
 }
 
 pub exec fn get_space_needed_for_alignment(addr: u64, alignment: u64) -> (result: u64)
@@ -86,7 +108,7 @@ pub proof fn lemma_space_needed_for_alignment_works(addr: int, alignment: int)
 
 pub open spec fn spec_allocate_space<T>(offset: int) -> (bounds: (int, int))
     where
-        T: PmCopy
+        T: PmCopy,
     recommends
         0 < T::spec_align_of(),
 {

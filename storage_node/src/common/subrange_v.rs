@@ -46,7 +46,11 @@ pub open spec fn recover_object<T>(s: Seq<u8>, start: int, crc_addr: int) -> Opt
     } {
         let object_bytes = opaque_section(s, start, T::spec_size_of());
         let crc_bytes = opaque_section(s, crc_addr, u64::spec_size_of());
-        if crc_bytes == spec_crc_bytes(object_bytes) && T::bytes_parseable(object_bytes) {
+        if {
+            &&& T::bytes_parseable(object_bytes)
+            &&& u64::bytes_parseable(crc_bytes)
+            &&& crc_bytes == spec_crc_bytes(object_bytes)
+        } {
             Some(T::spec_from_bytes(object_bytes))
         }
         else {
