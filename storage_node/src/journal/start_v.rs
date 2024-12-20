@@ -156,6 +156,65 @@ impl <Perm, PM> Journal<Perm, PM>
             Ghost(sm.committed_cdb_start as int)
         )
     }
+
+    pub(super) exec fn install_log(
+        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
+        vm: Ghost<JournalVersionMetadata>,
+        sm: JournalStaticMetadata,
+        start: u64,
+        end: u64,
+        entries: Ghost<Seq<JournalEntry>>,
+        journal_length: u64,
+    ) -> (result: Result<(), JournalError>)
+        requires
+            old(wrpm).inv(),
+            recover_version_metadata(old(wrpm)@.durable_state) == Some(vm@),
+            recover_version_metadata(old(wrpm)@.read_state) == Some(vm@),
+            recover_static_metadata(old(wrpm)@.durable_state, vm@) == Some(sm),
+            recover_static_metadata(old(wrpm)@.read_state, vm@) == Some(sm),
+            recover_app_static_area(old(wrpm)@.durable_state, sm) is Some,
+            recover_app_static_area(old(wrpm)@.read_state, sm) == recover_app_static_area(old(wrpm)@.durable_state, sm),
+            recover_cdb(old(wrpm)@.durable_state, sm.committed_cdb_start as int) == Some(true),
+            recover_cdb(old(wrpm)@.read_state, sm.committed_cdb_start as int) == Some(true),
+            recover_journal_length(old(wrpm)@.durable_state, sm) == Some(journal_length),
+            recover_journal_length(old(wrpm)@.read_state, sm) == Some(journal_length),
+            end == sm.journal_entries_start + journal_length,
+            sm.app_dynamic_area_end <= old(wrpm)@.len(),
+            sm.journal_entries_start <= start <= end <= sm.journal_entries_end,
+            recover_journal_entries(old(wrpm)@.read_state, sm.journal_entries_start as int, sm.journal_entries_start + journal_length) == Some(entries@),
+            apply_journal_entries(old(wrpm)@.read_state, entries@, 0, sm) is Some,
+            recover_journal(old(wrpm)@.durable_state) is Some,
+            forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            wrpm.inv(),
+            match result {
+                Ok(_) => {
+                    &&& recover_version_metadata(wrpm@.durable_state) == Some(vm@)
+                    &&& recover_version_metadata(wrpm@.read_state) == Some(vm@)
+                    &&& recover_static_metadata(wrpm@.durable_state, vm@) == Some(sm)
+                    &&& recover_static_metadata(wrpm@.read_state, vm@) == Some(sm)
+                    &&& recover_app_static_area(wrpm@.durable_state, sm) ==
+                            recover_app_static_area(old(wrpm)@.durable_state, sm)
+                    &&& recover_app_static_area(wrpm@.read_state, sm) == recover_app_static_area(wrpm@.durable_state, sm)
+                    &&& recover_cdb(wrpm@.durable_state, sm.committed_cdb_start as int) == Some(true)
+                    &&& recover_cdb(wrpm@.read_state, sm.committed_cdb_start as int) == Some(true)
+                    &&& recover_journal_length(wrpm@.durable_state, sm) == Some(journal_length)
+                    &&& recover_journal_length(wrpm@.read_state, sm) == Some(journal_length)
+                    &&& recover_journal_entries(wrpm@.read_state, sm.journal_entries_start as int, sm.journal_entries_start + journal_length) == Some(entries@)
+                    &&& apply_journal_entries(wrpm@.read_state, entries@, 0, sm) is Some
+                    &&& opaque_subrange(wrpm@.read_state, sm.app_dynamic_area_start as int,
+                                        sm.app_dynamic_area_end as int) ==
+                            apply_journal_entries(old(wrpm)@.read_state, entries@, 0, sm).unwrap()
+                },
+                Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
+                Err(_) => false,
+            },
+    {
+        assume(false);
+        Err(JournalError::NotEnoughSpace)
+    }
 }
 
 }
