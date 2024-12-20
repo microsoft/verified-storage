@@ -22,7 +22,7 @@ impl <Perm, PM> Journal<Perm, PM>
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
-    exec fn read_version_metadata(pm: &PM) -> (result: Option<JournalVersionMetadata>)
+    pub(super) exec fn read_version_metadata(pm: &PM) -> (result: Option<JournalVersionMetadata>)
         requires
             pm.inv(),
             recover_version_metadata(pm@.read_state).is_some(),
@@ -64,7 +64,7 @@ impl <Perm, PM> Journal<Perm, PM>
         Some(*maybe_corrupted_vm.extract_init_val(Ghost(true_vm)))
     }
 
-    exec fn read_static_metadata(pm: &PM, vm: &JournalVersionMetadata) -> (result: Option<JournalStaticMetadata>)
+    pub(super) exec fn read_static_metadata(pm: &PM, vm: &JournalVersionMetadata) -> (result: Option<JournalStaticMetadata>)
         requires
             pm.inv(),
             recover_static_metadata(pm@.read_state, *vm).is_some(),
@@ -126,7 +126,7 @@ impl <Perm, PM> Journal<Perm, PM>
         Some(*maybe_corrupted_sm.extract_init_val(Ghost(true_sm)))
     }
 
-    exec fn read_committed_cdb(pm: &PM, vm: &JournalVersionMetadata, sm: &JournalStaticMetadata) -> (result: Option<bool>)
+    pub(super) exec fn read_committed_cdb(pm: &PM, vm: &JournalVersionMetadata, sm: &JournalStaticMetadata) -> (result: Option<bool>)
         requires
             pm.inv(),
             pm@.len() <= u64::MAX,
@@ -155,31 +155,6 @@ impl <Perm, PM> Journal<Perm, PM>
             Ghost(pm.constants()),
             Ghost(sm.committed_cdb_start as int)
         )
-    }
-
-    pub exec fn start(
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-        Tracked(perm): Tracked<&Perm>
-    ) -> (result: Result<Self, JournalError>)
-        requires
-            wrpm.inv(),
-            recover_journal(wrpm.view().read_state).is_some(),
-            forall|s: Seq<u8>| recover_journal(s) == recover_journal(wrpm.view().durable_state)
-                ==> #[trigger] perm.check_permission(s),
-        ensures
-            match result {
-                Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
-                _ => true,
-            }
-    {
-        let pm = wrpm.get_pm_region_ref();
-        let pm_size = pm.get_region_size(); // This establishes that `pm@.len() <= u64::MAX`
-    
-        reveal(recover_journal);
-        let vm = Self::read_version_metadata(pm).ok_or(JournalError::CRCError)?;
-        let sm = Self::read_static_metadata(pm, &vm).ok_or(JournalError::CRCError)?;
-        let cdb = Self::read_committed_cdb(pm, &vm, &sm).ok_or(JournalError::CRCError)?;
-        Err(JournalError::NotEnoughSpace)
     }
 }
 
