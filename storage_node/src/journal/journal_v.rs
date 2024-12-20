@@ -158,6 +158,11 @@ impl <Perm, PM> Journal<Perm, PM>
         let ghost app_dynamic_area =
             opaque_subrange(pm@.read_state, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int);
         if cdb {
+            let journal_length = Self::read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
+            let entries_bytes =
+                Self::read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
+            let ghost entries = parse_journal_entries(entries_bytes@, 0).unwrap();
+            Self::install_journal_entries(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes, Ghost(entries));
             assume(false);
             Err(JournalError::NotEnoughSpace)
         }

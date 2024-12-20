@@ -134,7 +134,7 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
         &&& sm.journal_entries_end <= sm.app_static_area_start
         &&& sm.app_static_area_start <= sm.app_static_area_end
         &&& sm.app_static_area_end <= sm.app_dynamic_area_start
-        &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end        
+        &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end
     }
     else {
         false
@@ -149,7 +149,7 @@ pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetad
     }
     else {
         match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
-                                                    spec_journal_static_metadata_crc_start()) {
+                                                      spec_journal_static_metadata_crc_start()) {
             Some(sm) => if validate_static_metadata(sm, vm) && sm.app_dynamic_area_end <= bytes.len() {
                 Some(sm)
             } else {
@@ -162,38 +162,33 @@ pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetad
 
 pub open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
-    match recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int) {
-        None => None,
-        Some(journal_length) => {
-            if {
-                &&& 0 <= sm.journal_entries_start
-                &&& sm.journal_entries_start + journal_length + u64::spec_size_of() <= sm.journal_entries_end
-                &&& sm.journal_entries_end <= bytes.len()
-            } {
-                let journal_entries = opaque_section(bytes, sm.journal_entries_start as int, journal_length as nat);
-                let journal_entries_crc = opaque_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
-                if journal_entries_crc == spec_crc_bytes(journal_entries) {
-                    Some(journal_length)
-                }
-                else {
-                    None
-                }
-            }
-            else {
-                None
-            }
-        },
-    }
+    recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int)
 }
 
 pub open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
     -> Option<Seq<u8>>
 {
-    if journal_length > sm.journal_entries_end - sm.journal_entries_start {
-        None
+    if {
+        &&& 0 <= sm.journal_entries_start
+        &&& sm.journal_entries_start + journal_length <= sm.journal_entries_end
+        &&& sm.journal_entries_end <= bytes.len()
+        &&& 0 <= sm.journal_entries_crc_start
+        &&& sm.journal_entries_crc_start + u64::spec_size_of() <= bytes.len()
+    } {
+        let journal_entries = opaque_section(bytes, sm.journal_entries_start as int, journal_length as nat);
+        let journal_entries_crc_bytes = opaque_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
+        if {
+            &&& u64::bytes_parseable(journal_entries_crc_bytes)
+            &&& journal_entries_crc_bytes == spec_crc_bytes(journal_entries)
+        } {
+            Some(journal_entries)
+        }
+        else {
+            None
+        }
     }
     else {
-        Some(opaque_section(bytes, sm.journal_entries_start as int, journal_length as nat))
+        None
     }
 }
 
@@ -247,7 +242,7 @@ pub open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: Jo
 {
     if {
         &&& 0 <= sm.app_dynamic_area_start <= entry.addr
-        &&& entry.addr + bytes.len() <= sm.app_dynamic_area_end
+        &&& entry.addr + entry.bytes.len() <= sm.app_dynamic_area_end
     } {
         Some(opaque_update_bytes(bytes, entry.addr, entry.bytes))
     }
