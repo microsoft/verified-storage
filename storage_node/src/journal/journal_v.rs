@@ -25,10 +25,7 @@ pub struct Journal<Perm, PM>
     pub(super) sm: JournalStaticMetadata,
     pub(super) status: JournalStatus,
     pub(super) constants: JournalConstants,
-    pub(super) static_area: Ghost<Seq<u8>>,
-    pub(super) dynamic_area_on_crash: Ghost<Seq<u8>>,
-    pub(super) dynamic_area_on_read: Ghost<Seq<u8>>,
-    pub(super) dynamic_area_on_commit: Ghost<Seq<u8>>,
+    pub(super) commit_state: Ghost<Seq<u8>>,
     pub(super) committed: bool,
     pub(super) journal_length: u64,
     pub(super) journaled_addrs: Ghost<Set<int>>,
@@ -47,10 +44,7 @@ impl<Perm, PM> View for Journal<Perm, PM>
         JournalView{
             constants: self.constants,
             pmv: self.wrpm@,
-            static_area: self.static_area@,
-            dynamic_area_on_crash: self.dynamic_area_on_crash@,
-            dynamic_area_on_read: self.dynamic_area_on_read@,
-            dynamic_area_on_commit: self.dynamic_area_on_commit@,
+            commit_state: self.commit_state@,
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
         }
@@ -95,22 +89,8 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
         &&& recover_cdb(pmv.durable_state, self.sm.committed_cdb_start as int) == Some(self.committed)
-        &&& recover_app_static_area(pmv.durable_state, self.sm) == Some(self.static_area@)
-        &&& if self.committed {
-            &&& recover_journal_length(pmv.durable_state, self.sm) == Some(self.journal_length)
-            &&& recover_journal_entries(pmv.durable_state, self.sm, self.journal_length) == Some(self.entries@)
-            &&& apply_journal_entries(pmv.durable_state, self.entries@, 0, self.sm) matches Some(updated_bytes)
-            &&& self@.dynamic_area_on_commit == opaque_subrange(updated_bytes, self.sm.app_dynamic_area_start as int,
-                                                              self.sm.app_dynamic_area_end as int)
-        }
-        else {
-            self@.dynamic_area_on_commit == opaque_subrange(pmv.durable_state, self.sm.app_dynamic_area_start as int,
-                                                           self.sm.app_dynamic_area_end as int)
-        }
-        &&& self@.dynamic_area_on_crash ==
-            opaque_subrange(pmv.durable_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
-        &&& self@.dynamic_area_on_read ==
-            opaque_subrange(pmv.read_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
+        &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
+        &&& self.status is Quiescent ==> !self.committed
         &&& self.inv_journaled_addrs_complete()
     }
 
@@ -129,14 +109,11 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             self.valid(),
         ensures
-            match recover_journal(self@.pmv.durable_state) {
-                None => false,
-                Some(j) => {
-                    &&& j.constants == self@.constants
-                    &&& j.app_static_area == self@.static_area
-                    &&& j.app_dynamic_area == self@.dynamic_area_on_crash
-                },
-            },
+            ({
+                &&& recover_journal(self@.pmv.durable_state) matches Some(j)
+                &&& j.constants == self@.constants
+                &&& j.state == self@.pmv.durable_state
+            }),
     {
         reveal(recover_journal);
     }
@@ -178,8 +155,10 @@ impl <Perm, PM> Journal<Perm, PM>
             app_dynamic_area_start: sm.app_dynamic_area_start,
             app_dynamic_area_end: sm.app_dynamic_area_end,
         };
-        let ghost app_static_area = opaque_subrange(pm@.read_state, sm.app_static_area_start as int, sm.app_static_area_end as int);
-        let ghost app_dynamic_area = opaque_subrange(pm@.read_state, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int);
+        let ghost app_static_area =
+            opaque_subrange(pm@.read_state, sm.app_static_area_start as int, sm.app_static_area_end as int);
+        let ghost app_dynamic_area =
+            opaque_subrange(pm@.read_state, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int);
         if cdb {
             assume(false);
             Err(JournalError::NotEnoughSpace)
@@ -191,10 +170,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 sm,
                 status: JournalStatus::Quiescent,
                 constants,
-                static_area: Ghost(app_static_area),
-                dynamic_area_on_crash: Ghost(app_dynamic_area),
-                dynamic_area_on_read: Ghost(app_dynamic_area),
-                dynamic_area_on_commit: Ghost(app_dynamic_area),
+                commit_state: Ghost(pm@.read_state),
                 committed: false,
                 journal_length: 0,
                 journaled_addrs: Ghost(Set::<int>::empty()),

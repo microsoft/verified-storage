@@ -228,8 +228,10 @@ proof fn lemma_setup_works(
         sm.app_dynamic_area_start == addrs.app_dynamic_area_start,
         sm.app_dynamic_area_end == addrs.app_dynamic_area_end,
         ({
-            &&& opaque_subrange(bytes, spec_journal_version_metadata_start(), spec_journal_version_metadata_end()) == vm.spec_to_bytes()
-            &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start(), spec_journal_version_metadata_crc_end())
+            &&& opaque_subrange(bytes, spec_journal_version_metadata_start(),
+                              spec_journal_version_metadata_end()) == vm.spec_to_bytes()
+            &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start(),
+                              spec_journal_version_metadata_crc_end())
                     == spec_crc_bytes(vm.spec_to_bytes())
             &&& opaque_subrange(bytes, spec_journal_static_metadata_start(), spec_journal_static_metadata_end())
                     == sm.spec_to_bytes()
@@ -246,8 +248,7 @@ proof fn lemma_setup_works(
         &&& j.constants.app_static_area_end == sm.app_static_area_end
         &&& j.constants.app_dynamic_area_start == sm.app_dynamic_area_start
         &&& j.constants.app_dynamic_area_end == sm.app_dynamic_area_end
-        &&& opaque_subrange(bytes, sm.app_static_area_start as int, sm.app_static_area_end as int) == j.app_static_area
-        &&& opaque_subrange(bytes, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int) == j.app_dynamic_area
+        &&& bytes == j.state
     }),
 {
     broadcast use pmcopy_axioms;
@@ -262,8 +263,7 @@ pub closed spec fn ready_for_app_setup(
     &&& recover_version_metadata(bytes) matches Some(vm)
     &&& recover_static_metadata(bytes, vm) matches Some(sm)
     &&& recover_cdb(bytes, sm.committed_cdb_start as int) == Some(false)
-    &&& recover_journal(bytes) matches Some(j)
-    &&& j.constants == constants
+    &&& recover_journal(bytes) == Some(RecoveredJournal{ constants, state: bytes })
     &&& constants.app_static_area_start == sm.app_static_area_start
     &&& constants.app_static_area_end == sm.app_static_area_end
     &&& constants.app_dynamic_area_start == sm.app_dynamic_area_start
@@ -273,10 +273,6 @@ pub closed spec fn ready_for_app_setup(
     &&& constants.app_dynamic_area_start <= constants.app_dynamic_area_end
     &&& constants.app_dynamic_area_start <= constants.app_dynamic_area_end
     &&& constants.app_dynamic_area_end <= bytes.len()
-    &&& j.app_static_area == opaque_subrange(bytes, constants.app_static_area_start as int,
-                                             constants.app_static_area_end as int)
-    &&& j.app_dynamic_area == opaque_subrange(bytes, constants.app_dynamic_area_start as int,
-                                              constants.app_dynamic_area_end as int)
 }
 
 pub exec fn begin_setup<PM>(
@@ -292,21 +288,17 @@ pub exec fn begin_setup<PM>(
         match result {
             Ok(constants) => {
                 &&& ps.valid()
-                &&& recover_journal(pm@.read_state) matches Some(j)
-                &&& j.constants == constants
+                &&& recover_journal(pm@.read_state) == Some(RecoveredJournal{ constants, state: pm@.read_state })
                 &&& constants.app_version_number == ps.app_version_number
                 &&& constants.app_program_guid == ps.app_program_guid
-                &&& constants.journal_capacity >= spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
+                &&& constants.journal_capacity
+                       >= spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
                 &&& opaque_aligned(constants.app_static_area_start as int, ps.app_static_area_alignment as int)
                 &&& constants.app_static_area_end == constants.app_static_area_start + ps.app_static_area_size
-                &&& j.app_static_area == opaque_subrange(pm@.read_state, constants.app_static_area_start as int,
-                                                         constants.app_static_area_end as int)
                 &&& constants.app_static_area_end <= constants.app_dynamic_area_start
                 &&& opaque_aligned(constants.app_dynamic_area_start as int, ps.app_dynamic_area_alignment as int)
                 &&& constants.app_dynamic_area_end == constants.app_dynamic_area_start + ps.app_dynamic_area_size
                 &&& constants.app_dynamic_area_end <= pm@.len()
-                &&& j.app_dynamic_area == opaque_subrange(pm@.read_state, constants.app_dynamic_area_start as int,
-                                                          constants.app_dynamic_area_end as int)
                 &&& ready_for_app_setup(pm@.read_state, constants)
             },
             Err(JournalError::InvalidAlignment) => !ps.valid(),
@@ -411,16 +403,8 @@ pub exec fn end_setup<PM>(
     ensures
         pm.inv(),
         pm@.flush_predicted(),
-        ({
-            &&& recover_journal(pm@.durable_state) matches Some(j)
-            &&& j.constants == *journal_constants
-            &&& j.app_static_area == opaque_subrange(old(pm)@.read_state,
-                                                   journal_constants.app_static_area_start as int,
-                                                   journal_constants.app_static_area_end as int)
-            &&& j.app_dynamic_area == opaque_subrange(old(pm)@.read_state,
-                                                    journal_constants.app_dynamic_area_start as int,
-                                                    journal_constants.app_dynamic_area_end as int)
-        }),
+        recover_journal(pm@.durable_state) ==
+            Some(RecoveredJournal{ constants: *journal_constants, state: old(pm)@.read_state }),
 {
     pm.flush();
     proof {

@@ -126,7 +126,8 @@ impl <Perm, PM> Journal<Perm, PM>
         Some(*maybe_corrupted_sm.extract_init_val(Ghost(true_sm)))
     }
 
-    pub(super) exec fn read_committed_cdb(pm: &PM, vm: &JournalVersionMetadata, sm: &JournalStaticMetadata) -> (result: Option<bool>)
+    pub(super) exec fn read_committed_cdb(pm: &PM, vm: &JournalVersionMetadata, sm: &JournalStaticMetadata)
+                                          -> (result: Option<bool>)
         requires
             pm.inv(),
             pm@.len() <= u64::MAX,
@@ -157,6 +158,7 @@ impl <Perm, PM> Journal<Perm, PM>
         )
     }
 
+    /*
     pub(super) exec fn install_journal_entries(
         wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>,
@@ -215,6 +217,7 @@ impl <Perm, PM> Journal<Perm, PM>
         assume(false);
         Err(JournalError::NotEnoughSpace)
     }
+    */
 }
 
 }

@@ -20,10 +20,7 @@ verus! {
     pub struct JournalView {
         pub constants: JournalConstants,
         pub pmv: PersistentMemoryRegionView,
-        pub static_area: Seq<u8>,
-        pub dynamic_area_on_crash: Seq<u8>,
-        pub dynamic_area_on_read: Seq<u8>,
-        pub dynamic_area_on_commit: Seq<u8>,
+        pub commit_state: Seq<u8>,
         pub remaining_capacity: int,
         pub journaled_addrs: Set<int>,
     }
@@ -36,8 +33,7 @@ verus! {
 
     pub struct RecoveredJournal {
         pub constants: JournalConstants,
-        pub app_static_area: Seq<u8>,
-        pub app_dynamic_area: Seq<u8>,
+        pub state: Seq<u8>,
     }
 
     pub struct JournalSetupParameters {

@@ -160,16 +160,6 @@ pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetad
     }
 }
 
-pub open spec fn recover_app_static_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
-{
-    if sm.app_static_area_start <= sm.app_static_area_end && sm.app_static_area_end <= bytes.len() {
-        Some(opaque_subrange(bytes, sm.app_static_area_start as int, sm.app_static_area_end as int))
-    }
-    else {
-        None
-    }
-}
-
 pub open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
     match recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int) {
@@ -285,40 +275,29 @@ pub open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry
     }
 }
 
-pub open spec fn recover_app_dynamic_area_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     match recover_journal_length(bytes, sm) {
         None => None,
         Some(journal_length) => {
             match recover_journal_entries(bytes, sm, journal_length) {
                 None => None,
-                Some(journal_entries) => {
-                    match apply_journal_entries(bytes, journal_entries, 0, sm) {
-                        None => None,
-                        Some(updated_bytes) => {
-                            let app_bytes = opaque_subrange(updated_bytes, sm.app_dynamic_area_start as int,
-                                                            sm.app_dynamic_area_end as int);
-                            Some(app_bytes)
-                        },
-                    }
-                },
+                Some(journal_entries) => apply_journal_entries(bytes, journal_entries, 0, sm),
             }
         },
     }
 }
 
-pub open spec fn recover_app_dynamic_area(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub open spec fn recover_committed_cdb(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<bool>
 {
-    match recover_cdb(bytes, sm.committed_cdb_start as int) {
+    recover_cdb(bytes, sm.committed_cdb_start as int)
+}
+
+pub open spec fn recover_storage_state(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+{
+    match recover_committed_cdb(bytes, sm) {
         None => None,
-        Some(committed) =>
-            if committed {
-                recover_app_dynamic_area_case_committed(bytes, sm)
-            }
-            else {
-                Some(opaque_subrange(bytes, sm.app_dynamic_area_start as int,
-                                     sm.app_dynamic_area_end as int))
-            },
+        Some(c) => if c { recover_storage_state_case_committed(bytes, sm) } else { Some(bytes) },
     }
 }
 
@@ -331,8 +310,10 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
             match recover_static_metadata(bytes, vm) {
                 None => None,
                 Some(sm) =>
-                    match (recover_app_static_area(bytes, sm), recover_app_dynamic_area(bytes, sm)) {
-                        (Some(app_static_area), Some(app_dynamic_area)) => Some(RecoveredJournal {
+                    match recover_storage_state(bytes, sm) {
+                        None => None,
+                        Some(state) =>
+                            Some(RecoveredJournal {
                                 constants: JournalConstants {
                                     app_version_number: sm.app_version_number,
                                     app_program_guid: sm.app_program_guid,
@@ -342,10 +323,8 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
                                     app_dynamic_area_start: sm.app_dynamic_area_start,
                                     app_dynamic_area_end: sm.app_dynamic_area_end,
                                 },
-                                app_static_area: app_static_area,
-                                app_dynamic_area: app_dynamic_area,
+                                state,
                             }),
-                        (_, _) => None,
                     },
             },
     }
