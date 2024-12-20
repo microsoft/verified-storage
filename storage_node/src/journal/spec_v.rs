@@ -19,6 +19,7 @@ verus! {
 
     pub struct JournalView {
         pub constants: JournalConstants,
+        pub pmv: PersistentMemoryRegionView,
         pub static_area: Seq<u8>,
         pub dynamic_area_on_crash: Seq<u8>,
         pub dynamic_area_on_read: Seq<u8>,

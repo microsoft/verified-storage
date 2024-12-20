@@ -46,6 +46,7 @@ impl<Perm, PM> View for Journal<Perm, PM>
     {
         JournalView{
             constants: self.constants,
+            pmv: self.wrpm@,
             static_area: self.static_area@,
             dynamic_area_on_crash: self.dynamic_area_on_crash@,
             dynamic_area_on_read: self.dynamic_area_on_read@,
@@ -75,16 +76,42 @@ impl <Perm, PM> Journal<Perm, PM>
             self.journaled_addrs@.contains(addr)
     }
 
+    spec fn inv_constants_match(self) -> bool
+    {
+        &&& self.constants.app_version_number == self.sm.app_version_number
+        &&& self.constants.app_program_guid == self.sm.app_program_guid
+        &&& self.constants.journal_capacity == self.sm.journal_entries_end - self.sm.journal_entries_start
+        &&& self.constants.app_static_area_start == self.sm.app_static_area_start
+        &&& self.constants.app_static_area_end == self.sm.app_static_area_end
+        &&& self.constants.app_dynamic_area_start == self.sm.app_dynamic_area_start
+        &&& self.constants.app_dynamic_area_end == self.sm.app_dynamic_area_end
+    }
+
     spec fn inv(self) -> bool
     {
         let pmv = self.wrpm.view();
+        &&& self.wrpm.inv()
+        &&& self.inv_constants_match()
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
         &&& recover_cdb(pmv.durable_state, self.sm.committed_cdb_start as int) == Some(self.committed)
-        &&& self.committed ==> recover_app_dynamic_area_case_committed(pmv.durable_state, self.sm) == Some(self@.dynamic_area_on_commit)
-        &&& self@.dynamic_area_on_crash == opaque_subrange(pmv.durable_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
-        &&& self@.dynamic_area_on_read == opaque_subrange(pmv.read_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
-        &&& Some(self@.dynamic_area_on_commit) == apply_journal_entries(self@.dynamic_area_on_read, self.entries@, 0, self.sm)
+        &&& recover_app_static_area(pmv.durable_state, self.sm) == Some(self.static_area@)
+        &&& if self.committed {
+            &&& recover_journal_length(pmv.durable_state, self.sm) == Some(self.journal_length)
+            &&& recover_journal_entries(pmv.durable_state, self.sm.journal_entries_start as int,
+                                        self.sm.journal_entries_start + self.journal_length) == Some(self.entries@)
+            &&& apply_journal_entries(pmv.durable_state, self.entries@, 0, self.sm) matches Some(updated_bytes)
+            &&& self@.dynamic_area_on_commit == opaque_subrange(updated_bytes, self.sm.app_dynamic_area_start as int,
+                                                              self.sm.app_dynamic_area_end as int)
+        }
+        else {
+            self@.dynamic_area_on_commit == opaque_subrange(pmv.durable_state, self.sm.app_dynamic_area_start as int,
+                                                           self.sm.app_dynamic_area_end as int)
+        }
+        &&& self@.dynamic_area_on_crash ==
+            opaque_subrange(pmv.durable_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
+        &&& self@.dynamic_area_on_read ==
+            opaque_subrange(pmv.read_state, self.sm.app_dynamic_area_start as int, self.sm.app_dynamic_area_end as int)
         &&& self.inv_journaled_addrs_complete()
     }
 
@@ -97,6 +124,22 @@ impl <Perm, PM> Journal<Perm, PM>
     pub closed spec fn valid(self) -> bool
     {
         &&& self.valid_closed()
+    }
+
+    pub proof fn lemma_valid_implies_recover_successful(self)
+        requires
+            self.valid(),
+        ensures
+            match recover_journal(self@.pmv.durable_state) {
+                None => false,
+                Some(j) => {
+                    &&& j.constants == self@.constants
+                    &&& j.app_static_area == self@.static_area
+                    &&& j.app_dynamic_area == self@.dynamic_area_on_crash
+                },
+            },
+    {
+        reveal(recover_journal);
     }
 
     pub exec fn start(
@@ -128,8 +171,8 @@ impl <Perm, PM> Journal<Perm, PM>
         let sm = Self::read_static_metadata(pm, &vm).ok_or(JournalError::CRCError)?;
         let cdb = Self::read_committed_cdb(pm, &vm, &sm).ok_or(JournalError::CRCError)?;
         let constants = JournalConstants {
-            app_version_number: vm.version_number,
-            app_program_guid: vm.program_guid,
+            app_version_number: sm.app_version_number,
+            app_program_guid: sm.app_program_guid,
             journal_capacity: sm.journal_entries_end - sm.journal_entries_start,
             app_static_area_start: sm.app_static_area_start,
             app_static_area_end: sm.app_static_area_end,
@@ -143,11 +186,11 @@ impl <Perm, PM> Journal<Perm, PM>
             Err(JournalError::NotEnoughSpace)
         }
         else {
-            let j = Self {
+            Ok(Self {
                 wrpm,
                 vm: Ghost(vm),
                 sm,
-                status: JournalStatus::Quiescent{},
+                status: JournalStatus::Quiescent,
                 constants,
                 static_area: Ghost(app_static_area),
                 dynamic_area_on_crash: Ghost(app_dynamic_area),
@@ -157,9 +200,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 journal_length: 0,
                 journaled_addrs: Ghost(Set::<int>::empty()),
                 entries: Ghost(Seq::<JournalEntry>::empty()),
-            };
-            assume(j.valid());
-            Ok(j)
+            })
         }
     }
 }
