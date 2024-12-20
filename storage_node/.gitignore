@@ -4,3 +4,4 @@ lib.exe
 liblib.rlib
 Cargo.lock
 .vscode/
+rmeta*
