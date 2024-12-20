@@ -53,7 +53,7 @@ pub struct JournalStaticMetadata {
 pub struct JournalEntry
 {
     pub addr: int,
-    pub bytes: Seq<u8>,
+    pub bytes_to_write: Seq<u8>,
 }
 
 pub open spec fn spec_journal_version_metadata_start() -> int
@@ -192,19 +192,13 @@ pub open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStatic
     }
 }
 
-pub open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Option<Seq<JournalEntry>>
+pub open spec fn parse_journal_entry(entries_bytes: Seq<u8>, start: int) -> Option<(JournalEntry, int)>
     recommends
         0 <= start <= entries_bytes.len(),
     decreases
         entries_bytes.len() - start
 {
-    if !(0 <= start <= entries_bytes.len()) {
-        None
-    }
-    else if start == entries_bytes.len() {
-        Some(Seq::<JournalEntry>::empty())
-    }
-    else if start + u64::spec_size_of() + u64::spec_size_of() > entries_bytes.len() {
+    if start + u64::spec_size_of() + u64::spec_size_of() > entries_bytes.len() {
         None
     }
     else {
@@ -219,13 +213,76 @@ pub open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Op
         }
         else {
             let data = opaque_section(entries_bytes, data_offset, length as nat);
-            let entry = JournalEntry { addr: addr as int, bytes: data };
-            match parse_journal_entries(entries_bytes, data_offset + length) {
-                None => None,
-                Some(remaining_journal) => Some(seq![entry] + remaining_journal),
-            }
+            let entry = JournalEntry { addr: addr as int, bytes_to_write: data };
+            Some((entry, data_offset + length))
         }
     }
+}
+
+pub open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Option<Seq<JournalEntry>>
+    recommends
+        0 <= start <= entries_bytes.len(),
+    decreases
+        entries_bytes.len() - start
+{
+    if !(0 <= start <= entries_bytes.len()) {
+        None
+    }
+    else if start == entries_bytes.len() {
+        Some(Seq::<JournalEntry>::empty())
+    }
+    else {
+        match parse_journal_entry(entries_bytes, start) {
+            None => None,
+            Some((entry, next)) =>
+                match parse_journal_entries(entries_bytes, next) {
+                    None => None,
+                    Some(remaining_journal) => Some(seq![entry] + remaining_journal),
+                },
+        }
+    }
+}
+
+pub proof fn lemma_parse_journal_entry_relation_to_next(entries_bytes: Seq<u8>, start: int)
+    requires
+        parse_journal_entries(entries_bytes, start) is Some,
+        parse_journal_entry(entries_bytes, start) is Some,
+    ensures
+        ({
+            let (entry, next) = parse_journal_entry(entries_bytes, start).unwrap();
+            &&& parse_journal_entries(entries_bytes, start).unwrap().len() > 0
+            &&& parse_journal_entries(entries_bytes, next) is Some
+            &&& parse_journal_entries(entries_bytes, start).unwrap()[0] == entry
+            &&& parse_journal_entries(entries_bytes, next).unwrap() ==
+                parse_journal_entries(entries_bytes, start).unwrap().skip(1)
+        }),
+{
+    let (entry, next) = parse_journal_entry(entries_bytes, start).unwrap();
+    assert(parse_journal_entries(entries_bytes, next).unwrap() =~=
+           parse_journal_entries(entries_bytes, start).unwrap().skip(1));
+}
+
+pub proof fn lemma_parse_journal_entry_implications(
+    entries_bytes: Seq<u8>,
+    entries: Seq<JournalEntry>,
+    num_entries_read: int,
+    current_pos: int,
+)
+    requires
+        parse_journal_entries(entries_bytes, 0) == Some(entries),
+        0 <= num_entries_read < entries.len(),
+        0 <= current_pos < entries_bytes.len(),
+        parse_journal_entries(entries_bytes, current_pos) == Some(entries.skip(num_entries_read)),
+        parse_journal_entry(entries_bytes, current_pos) is Some
+    ensures ({
+        let (entry, next_pos) = parse_journal_entry(entries_bytes, current_pos).unwrap();
+        &&& num_entries_read + 1 == entries.len() <==> next_pos == entries_bytes.len()
+        &&& entries[num_entries_read] == entry
+        &&& parse_journal_entries(entries_bytes, next_pos) == Some(entries.skip(num_entries_read + 1))
+    }),
+{
+    lemma_parse_journal_entry_relation_to_next(entries_bytes, current_pos);
+    assert(entries.skip(num_entries_read + 1) =~= entries.skip(num_entries_read).skip(1));
 }
 
 pub open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
@@ -242,9 +299,9 @@ pub open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: Jo
 {
     if {
         &&& 0 <= sm.app_dynamic_area_start <= entry.addr
-        &&& entry.addr + entry.bytes.len() <= sm.app_dynamic_area_end
+        &&& entry.addr + entry.bytes_to_write.len() <= sm.app_dynamic_area_end
     } {
-        Some(opaque_update_bytes(bytes, entry.addr, entry.bytes))
+        Some(opaque_update_bytes(bytes, entry.addr, entry.bytes_to_write))
     }
     else {
         None

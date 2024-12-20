@@ -67,7 +67,7 @@ impl <Perm, PM> Journal<Perm, PM>
     spec fn inv_journaled_addrs_complete(self) -> bool
     {
         forall|entry, addr| #![trigger self.entries@.contains(entry), self.journaled_addrs@.contains(addr)]
-            self.entries@.contains(entry) && entry.addr <= addr < entry.addr + entry.bytes.len() ==>
+            self.entries@.contains(entry) && entry.addr <= addr < entry.addr + entry.bytes_to_write.len() ==>
             self.journaled_addrs@.contains(addr)
     }
 

@@ -254,76 +254,128 @@ impl <Perm, PM> Journal<Perm, PM>
         Some(maybe_corrupted_journal_entries)
     }
 
+    exec fn install_journal_entry(
+        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
+        Ghost(vm): Ghost<JournalVersionMetadata>,
+        sm: &JournalStaticMetadata,
+        addr: u64,
+        bytes_to_write: &[u8],
+        Ghost(num_entries_installed): Ghost<int>,
+        Ghost(entries): Ghost<Seq<JournalEntry>>,
+        Ghost(commit_state): Ghost<Seq<u8>>,
+    )
+        requires
+            old(wrpm).inv(),
+            old(wrpm)@.valid(),
+            0 <= sm.app_dynamic_area_end <= old(wrpm)@.len(),
+            apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed as int, *sm)
+                == Some(commit_state),
+            apply_journal_entries(old(wrpm)@.durable_state, entries, 0, *sm) == Some(commit_state),
+            apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) == Some(commit_state),
+            num_entries_installed < entries.len(),
+            entries[num_entries_installed as int].addr == addr,
+            entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
+            forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            wrpm.inv(),
+            wrpm.constants() == old(wrpm).constants(),
+            wrpm@.len() == old(wrpm)@.len(),
+            wrpm@.valid(),
+            recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
+            apply_journal_entries(wrpm@.read_state, entries, num_entries_installed + 1, *sm) == Some(commit_state),
+            apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) == Some(commit_state),
+            apply_journal_entries(wrpm@.read_state, entries, 0, *sm) == Some(commit_state),
+            opaque_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int) ==
+                opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_dynamic_area_start as int),
+            opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
+                opaque_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int),
+    {
+        assume(false);
+    }
+
     pub(super) exec fn install_journal_entries(
         wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>,
-        vm: Ghost<JournalVersionMetadata>,
+        Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
         entries_bytes: &Vec<u8>,
-        entries: Ghost<Seq<JournalEntry>>,
+        Ghost(entries): Ghost<Seq<JournalEntry>>,
     )
         requires
             old(wrpm).inv(),
             old(wrpm)@.flush_predicted(),
-            recover_version_metadata(old(wrpm)@.read_state) == Some(vm@),
-            recover_static_metadata(old(wrpm)@.read_state, vm@) == Some(*sm),
+            recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
+            recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
             recover_committed_cdb(old(wrpm)@.read_state, *sm) == Some(true),
             recover_journal_length(old(wrpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
             recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
                 == Some(entries_bytes@),
-            parse_journal_entries(entries_bytes@, 0) == Some(entries@),
-            apply_journal_entries(old(wrpm)@.read_state, entries@, 0, *sm) is Some,
+            parse_journal_entries(entries_bytes@, 0) == Some(entries),
+            apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) is Some,
             recover_journal(old(wrpm)@.read_state) is Some,
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
             wrpm.inv(),
+            wrpm.constants() == old(wrpm).constants(),
+            wrpm@.len() == old(wrpm)@.len(),
             wrpm@.flush_predicted(),
-            recover_version_metadata(wrpm@.read_state) == Some(vm@),
-            recover_static_metadata(wrpm@.read_state, vm@) == Some(*sm),
+            recover_version_metadata(wrpm@.read_state) == Some(vm),
+            recover_static_metadata(wrpm@.read_state, vm) == Some(*sm),
             recover_committed_cdb(wrpm@.read_state, *sm) == Some(true),
             recover_journal_length(wrpm@.read_state, *sm) == Some(entries_bytes.len() as u64),
             recover_journal_entries_bytes(wrpm@.read_state, *sm, entries_bytes.len() as u64) == Some(entries_bytes@),
-            apply_journal_entries(wrpm@.durable_state, entries@, 0, *sm) == Some(wrpm@.read_state),
-            apply_journal_entries(old(wrpm)@.read_state, entries@, 0, *sm) == Some(wrpm@.read_state),
+            apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) == Some(wrpm@.read_state),
+            apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) == Some(wrpm@.read_state),
             recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
     {
-        let start: usize = 0;
+        proof {
+            wrpm.lemma_inv_implies_view_valid();
+        }
+
+        let mut start: usize = 0;
         let end: usize = entries_bytes.len();
-        let num_entries_installed: usize = 0;
+        let ghost mut num_entries_installed: int = 0;
         let u64_size: usize = size_of::<u64>();
         let twice_u64_size: usize = u64_size + u64_size;
-        let ghost commit_state = apply_journal_entries(wrpm@.read_state, entries@, 0, *sm).unwrap();
+        let ghost commit_state = apply_journal_entries(wrpm@.read_state, entries, 0, *sm).unwrap();
 
-        assert(entries@.skip(0) =~= entries@);
+        assert(entries.skip(0) =~= entries);
 
         while start < end
             invariant
+                wrpm.inv(),
+                wrpm.constants() == old(wrpm).constants(),
+                wrpm@.valid(),
+                wrpm@.len() == old(wrpm)@.len(),
                 start <= end == entries_bytes.len(),
                 u64_size == u64::spec_size_of(),
                 twice_u64_size == u64_size + u64_size,
-                num_entries_installed <= entries@.len(),
-                recover_version_metadata(old(wrpm)@.read_state) == Some(vm@),
-                recover_static_metadata(old(wrpm)@.read_state, vm@) == Some(*sm),
+                0 <= num_entries_installed <= entries.len(),
+                num_entries_installed == entries.len() <==> start == end,
+                recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
+                recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
                 recover_committed_cdb(old(wrpm)@.read_state, *sm) == Some(true),
                 recover_journal_length(old(wrpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
                 recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
                     == Some(entries_bytes@),
-                parse_journal_entries(entries_bytes@, 0) == Some(entries@),
-                apply_journal_entries(old(wrpm)@.read_state, entries@, 0, *sm) is Some,
+                parse_journal_entries(entries_bytes@, 0) == Some(entries),
+                apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) is Some,
                 recover_journal(old(wrpm)@.read_state) is Some,
+                recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
                 forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                     ==> #[trigger] perm.check_permission(s),
-                parse_journal_entries(entries_bytes@, start as int)
-                    == Some(entries@.skip(num_entries_installed as int)),
+                parse_journal_entries(entries_bytes@, start as int) == Some(entries.skip(num_entries_installed)),
                 opaque_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int) ==
                     opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_dynamic_area_start as int),
                 opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
                     opaque_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int),
-                apply_journal_entries(wrpm@.read_state, entries@, num_entries_installed as int, *sm)
+                apply_journal_entries(wrpm@.read_state, entries, num_entries_installed, *sm)
                     == Some(commit_state),
-                apply_journal_entries(wrpm@.durable_state, entries@, 0, *sm) == Some(commit_state),
-                apply_journal_entries(wrpm@.read_state, entries@, 0, *sm) == Some(commit_state),
+                apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) == Some(commit_state),
+                apply_journal_entries(wrpm@.read_state, entries, 0, *sm) == Some(commit_state),
         {
             reveal(opaque_subrange);
             broadcast use pmcopy_axioms;
@@ -332,17 +384,35 @@ impl <Perm, PM> Journal<Perm, PM>
             let entries_bytes_slice = entries_bytes.as_slice();
             let addr = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start, start + u64_size));
             let len = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start + u64_size, start + twice_u64_size));
+            assert(addr == u64::spec_from_bytes(opaque_section(entries_bytes@, start as int, u64::spec_size_of())));
             assert(len == u64::spec_from_bytes(opaque_section(entries_bytes@, start + u64::spec_size_of(),
                                                               u64::spec_size_of())));
             assert(start + twice_u64_size + len as usize <= end);
-            let entry_bytes = slice_subrange(entries_bytes_slice, start + twice_u64_size,
-                                             start + twice_u64_size + len as usize);
-            assume(false);
+            let bytes_to_write = slice_subrange(entries_bytes_slice, start + twice_u64_size,
+                                                start + twice_u64_size + len as usize);
+            assert(bytes_to_write@ == opaque_section(entries_bytes@, start + u64::spec_size_of() + u64::spec_size_of(),
+                                                     len as nat));
+            let ghost entry = JournalEntry{ addr: addr as int, bytes_to_write: bytes_to_write@ };
+            proof {
+                lemma_parse_journal_entry_implications(entries_bytes@, entries, num_entries_installed,
+                                                       start as int);
+                assert(entries[num_entries_installed as int] == entry);
+            }
+            Self::install_journal_entry(wrpm, Tracked(perm), Ghost(vm), sm, addr, bytes_to_write,
+                                        Ghost(num_entries_installed), Ghost(entries), Ghost(commit_state));
+            proof {
+                assert(entries.skip(num_entries_installed) =~= seq![entries[num_entries_installed as int]] +
+                       entries.skip(num_entries_installed + 1));
+                num_entries_installed = num_entries_installed + 1;
+            }
+            start += (twice_u64_size + len as usize);
         }
+
+        wrpm.flush();
 
         proof {
             lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int);
-            lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int);
+            lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int);
             reveal(recover_journal);
         }
     }
