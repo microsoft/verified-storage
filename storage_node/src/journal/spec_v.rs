@@ -19,7 +19,8 @@ verus! {
 
     pub struct JournalView {
         pub constants: JournalConstants,
-        pub pmv: PersistentMemoryRegionView,
+        pub durable_state: Seq<u8>,
+        pub read_state: Seq<u8>,
         pub commit_state: Seq<u8>,
         pub remaining_capacity: int,
         pub journaled_addrs: Set<int>,

@@ -43,7 +43,8 @@ impl<Perm, PM> View for Journal<Perm, PM>
     {
         JournalView{
             constants: self.constants,
-            pmv: self.wrpm@,
+            durable_state: self.wrpm@.durable_state,
+            read_state: self.wrpm@.read_state,
             commit_state: self.commit_state@,
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
@@ -94,7 +95,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.inv_journaled_addrs_complete()
     }
 
-    spec fn valid_closed(self) -> bool
+    spec fn valid_internal(self) -> bool
     {
         &&& self.inv()
         &&& self.status is Quiescent
@@ -102,18 +103,15 @@ impl <Perm, PM> Journal<Perm, PM>
 
     pub closed spec fn valid(self) -> bool
     {
-        &&& self.valid_closed()
+        self.valid_internal()
     }
 
     pub proof fn lemma_valid_implies_recover_successful(self)
         requires
             self.valid(),
         ensures
-            ({
-                &&& recover_journal(self@.pmv.durable_state) matches Some(j)
-                &&& j.constants == self@.constants
-                &&& j.state == self@.pmv.durable_state
-            }),
+            recover_journal(self@.durable_state) == Some(RecoveredJournal{ constants: self@.constants,
+                                                                           state: self@.durable_state }),
     {
         reveal(recover_journal);
     }
