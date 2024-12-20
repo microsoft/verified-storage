@@ -269,10 +269,11 @@ impl <Perm, PM> Journal<Perm, PM>
             old(wrpm).inv(),
             old(wrpm)@.valid(),
             0 <= sm.app_dynamic_area_end <= old(wrpm)@.len(),
-            apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed as int, *sm)
+            apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed, *sm)
                 == Some(commit_state),
             apply_journal_entries(old(wrpm)@.durable_state, entries, 0, *sm) == Some(commit_state),
-            apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) == Some(commit_state),
+            apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed, *sm)
+                == Some(commit_state),
             num_entries_installed < entries.len(),
             entries[num_entries_installed as int].addr == addr,
             entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
@@ -286,7 +287,6 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
             apply_journal_entries(wrpm@.read_state, entries, num_entries_installed + 1, *sm) == Some(commit_state),
             apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) == Some(commit_state),
-            apply_journal_entries(wrpm@.read_state, entries, 0, *sm) == Some(commit_state),
             opaque_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int) ==
                 opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_dynamic_area_start as int),
             opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
@@ -375,7 +375,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 apply_journal_entries(wrpm@.read_state, entries, num_entries_installed, *sm)
                     == Some(commit_state),
                 apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) == Some(commit_state),
-                apply_journal_entries(wrpm@.read_state, entries, 0, *sm) == Some(commit_state),
         {
             reveal(opaque_subrange);
             broadcast use pmcopy_axioms;
