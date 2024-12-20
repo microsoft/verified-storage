@@ -89,7 +89,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.inv_constants_match()
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
-        &&& recover_cdb(pmv.durable_state, self.sm.committed_cdb_start as int) == Some(self.committed)
+        &&& recover_committed_cdb(pmv.durable_state, self.sm) == Some(self.committed)
         &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
         &&& self.status is Quiescent ==> !self.committed
         &&& self.inv_journaled_addrs_complete()

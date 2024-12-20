@@ -131,14 +131,14 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             pm.inv(),
             pm@.len() <= u64::MAX,
-            recover_cdb(pm@.read_state, sm.committed_cdb_start as int).is_some(),
+            recover_committed_cdb(pm@.read_state, *sm).is_some(),
             validate_version_metadata(*vm),
             validate_static_metadata(*sm, *vm),
             sm.app_dynamic_area_end <= pm@.len(),
         ensures
             match result {
                 None => !pm.constants().impervious_to_corruption(),
-                Some(b) => recover_cdb(pm@.read_state, sm.committed_cdb_start as int) == Some(b),
+                Some(b) => recover_committed_cdb(pm@.read_state, *sm) == Some(b),
             }
     {
         reveal(opaque_subrange);
@@ -171,12 +171,9 @@ impl <Perm, PM> Journal<Perm, PM>
     ) -> (result: Result<(), JournalError>)
         requires
             old(wrpm).inv(),
-            recover_version_metadata(old(wrpm)@.durable_state) == Some(vm@),
+            old(wrpm).flush_predicted(),
             recover_version_metadata(old(wrpm)@.read_state) == Some(vm@),
-            recover_static_metadata(old(wrpm)@.durable_state, vm@) == Some(sm),
             recover_static_metadata(old(wrpm)@.read_state, vm@) == Some(sm),
-            recover_app_static_area(old(wrpm)@.durable_state, sm) is Some,
-            recover_app_static_area(old(wrpm)@.read_state, sm) == recover_app_static_area(old(wrpm)@.durable_state, sm),
             recover_cdb(old(wrpm)@.durable_state, sm.committed_cdb_start as int) == Some(true),
             recover_cdb(old(wrpm)@.read_state, sm.committed_cdb_start as int) == Some(true),
             recover_journal_length(old(wrpm)@.durable_state, sm) == Some(journal_length),

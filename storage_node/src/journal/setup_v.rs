@@ -262,7 +262,7 @@ pub closed spec fn ready_for_app_setup(
 {
     &&& recover_version_metadata(bytes) matches Some(vm)
     &&& recover_static_metadata(bytes, vm) matches Some(sm)
-    &&& recover_cdb(bytes, sm.committed_cdb_start as int) == Some(false)
+    &&& recover_committed_cdb(bytes, sm) == Some(false)
     &&& recover_journal(bytes) == Some(RecoveredJournal{ constants, state: bytes })
     &&& constants.app_static_area_start == sm.app_static_area_start
     &&& constants.app_static_area_end == sm.app_static_area_end
