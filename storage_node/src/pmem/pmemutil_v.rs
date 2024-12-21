@@ -583,8 +583,8 @@ verus! {
     {
         forall|s2: Seq<u8>| {
             &&& s2.len() == s.len()
-            &&& forall|i: int| 0 <= i < s.len() && !addrs.contains(i) ==> s[i] == s2[i]
-        } ==> recover_fn(s2) == recover_fn(s)
+            &&& forall|i: int| #![trigger s2[i]] 0 <= i < s.len() && !addrs.contains(i) ==> s[i] == s2[i]
+        } ==> #[trigger] recover_fn(s2) == recover_fn(s)
     }
 
     // This lemma establishes that, if we only write to addresses

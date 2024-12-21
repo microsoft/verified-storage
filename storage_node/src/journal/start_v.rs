@@ -13,6 +13,7 @@ use crate::common::util_v::*;
 use super::journal_v::*;
 use super::layout_v::*;
 use super::spec_v::*;
+use super::util_v::*;
 use deps_hack::PmCopy;
 use vstd::bytes::u64_from_le_bytes;
 use vstd::slice::slice_subrange;
@@ -259,7 +260,7 @@ impl <Perm, PM> Journal<Perm, PM>
         Tracked(perm): Tracked<&Perm>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
-        addr: u64,
+        start: u64,
         bytes_to_write: &[u8],
         Ghost(num_entries_installed): Ghost<int>,
         Ghost(entries): Ghost<Seq<JournalEntry>>,
@@ -275,7 +276,7 @@ impl <Perm, PM> Journal<Perm, PM>
             apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed, *sm)
                 == Some(commit_state),
             num_entries_installed < entries.len(),
-            entries[num_entries_installed as int].addr == addr,
+            entries[num_entries_installed as int].start == start,
             entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
@@ -292,6 +293,12 @@ impl <Perm, PM> Journal<Perm, PM>
             opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
                 opaque_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int),
     {
+        /*
+        proof {
+            lemma_addresses_in_entry_dont_affect_recovery(wrpm@.durable_state, vm, sm, entries, num_entries_installed);
+        }
+        wrpm.write(start, bytes_to_write, Tracked(perm));
+        */
         assume(false);
     }
 
@@ -391,7 +398,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                                 start + twice_u64_size + len as usize);
             assert(bytes_to_write@ == opaque_section(entries_bytes@, start + u64::spec_size_of() + u64::spec_size_of(),
                                                      len as nat));
-            let ghost entry = JournalEntry{ addr: addr as int, bytes_to_write: bytes_to_write@ };
+            let ghost entry = JournalEntry{ start: addr as int, bytes_to_write: bytes_to_write@ };
             proof {
                 lemma_parse_journal_entry_implications(entries_bytes@, entries, num_entries_installed,
                                                        start as int);

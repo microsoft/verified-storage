@@ -52,8 +52,21 @@ pub struct JournalStaticMetadata {
 
 pub struct JournalEntry
 {
-    pub addr: int,
+    pub start: int,
     pub bytes_to_write: Seq<u8>,
+}
+
+impl JournalEntry
+{
+    pub open spec fn end(self) -> int
+    {
+        self.start + self.bytes_to_write.len()
+    }
+
+    pub open spec fn addrs(self) -> Set<int>
+    {
+        Set::<int>::new(|i| self.start <= i < self.end())
+    }
 }
 
 pub open spec fn spec_journal_version_metadata_start() -> int
@@ -213,7 +226,7 @@ pub open spec fn parse_journal_entry(entries_bytes: Seq<u8>, start: int) -> Opti
         }
         else {
             let data = opaque_section(entries_bytes, data_offset, length as nat);
-            let entry = JournalEntry { addr: addr as int, bytes_to_write: data };
+            let entry = JournalEntry { start: addr as int, bytes_to_write: data };
             Some((entry, data_offset + length))
         }
     }
@@ -298,10 +311,10 @@ pub open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: Jo
                                      -> Option<Seq<u8>>
 {
     if {
-        &&& 0 <= sm.app_dynamic_area_start <= entry.addr
-        &&& entry.addr + entry.bytes_to_write.len() <= sm.app_dynamic_area_end
+        &&& 0 <= sm.app_dynamic_area_start <= entry.start
+        &&& entry.end() <= sm.app_dynamic_area_end
     } {
-        Some(opaque_update_bytes(bytes, entry.addr, entry.bytes_to_write))
+        Some(opaque_update_bytes(bytes, entry.start, entry.bytes_to_write))
     }
     else {
         None
