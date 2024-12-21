@@ -67,6 +67,12 @@ impl JournalEntry
     {
         Set::<int>::new(|i| self.start <= i < self.end())
     }
+
+    pub open spec fn fits(self, sm: JournalStaticMetadata) -> bool
+    {
+        &&& 0 <= sm.app_dynamic_area_start <= self.start
+        &&& self.end() <= sm.app_dynamic_area_end  
+    }
 }
 
 pub open spec fn spec_journal_version_metadata_start() -> int
@@ -268,10 +274,7 @@ pub open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStaticMetada
 pub open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: JournalStaticMetadata)
                                      -> Option<Seq<u8>>
 {
-    if {
-        &&& 0 <= sm.app_dynamic_area_start <= entry.start
-        &&& entry.end() <= sm.app_dynamic_area_end
-    } {
+    if entry.fits(sm) {
         Some(opaque_update_bytes(bytes, entry.start, entry.bytes_to_write))
     }
     else {

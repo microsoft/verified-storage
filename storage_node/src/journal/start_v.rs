@@ -277,7 +277,7 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal_length(old(wrpm)@.durable_state, *sm) == Some(entries_bytes.len() as u64),
             recover_journal_entries_bytes(old(wrpm)@.durable_state, *sm, entries_bytes.len() as u64)
                 == Some(entries_bytes),
-            apply_journal_entries(old(wrpm)@.durable_state, entries, 0, *sm) is Some,
+            journal_entries_valid(entries, 0, *sm),
             apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed, *sm)
                 == Some(commit_state),
             parse_journal_entries(entries_bytes, 0) == Some(entries),
@@ -294,7 +294,6 @@ impl <Perm, PM> Journal<Perm, PM>
             wrpm@.valid(),
             recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
             apply_journal_entries(wrpm@.read_state, entries, num_entries_installed + 1, *sm) == Some(commit_state),
-            apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) is Some,
             opaque_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int) ==
                 opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_dynamic_area_start as int),
             opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
@@ -331,7 +330,6 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_opaque_subrange_subrange(old(wrpm)@.durable_state, 0, start as int);
             assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
             assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
-            assert(apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) is Some);
             lemma_auto_can_result_from_write_effect_on_read_state();
             lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, start as int);
             lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, start as int);
@@ -386,6 +384,9 @@ impl <Perm, PM> Journal<Perm, PM>
         let ghost commit_state = apply_journal_entries(wrpm@.read_state, entries, 0, *sm).unwrap();
 
         assert(entries.skip(0) =~= entries);
+        proof {
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(wrpm)@.read_state, entries, 0, *sm);
+        }
 
         while start < end
             invariant
@@ -406,6 +407,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
                     == Some(entries_bytes@),
                 parse_journal_entries(entries_bytes@, 0) == Some(entries),
+                journal_entries_valid(entries, 0, *sm),
                 apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) is Some,
                 recover_journal(old(wrpm)@.read_state) is Some,
                 recover_version_metadata(wrpm@.durable_state) == Some(vm),
@@ -424,7 +426,6 @@ impl <Perm, PM> Journal<Perm, PM>
                     opaque_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int),
                 apply_journal_entries(wrpm@.read_state, entries, num_entries_installed, *sm)
                     == Some(commit_state),
-                apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) is Some,
         {
             reveal(opaque_subrange);
             broadcast use pmcopy_axioms;

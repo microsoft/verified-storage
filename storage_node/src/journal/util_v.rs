@@ -62,7 +62,7 @@ pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductiv
         validate_version_metadata(vm),
         validate_static_metadata(sm, vm),
         sm.app_dynamic_area_end <= state1.len() == state2.len(),
-        apply_journal_entries(state1, entries, entries_checked_so_far, sm) is Some,
+        journal_entries_valid(entries, entries_checked_so_far, sm),
         0 <= entries_checked_so_far <= which_entry < entries.len(),
         forall|other_addr: int| #![trigger state2[other_addr]] {
             &&& 0 <= other_addr < state1.len()
@@ -100,7 +100,7 @@ pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries(
         validate_version_metadata(vm),
         validate_static_metadata(sm, vm),
         sm.app_dynamic_area_end <= state1.len() == state2.len(),
-        apply_journal_entries(state1, entries, 0, sm) is Some,
+        journal_entries_valid(entries, 0, sm),
         0 <= which_entry < entries.len(),
         forall|other_addr: int| #![trigger state2[other_addr]] {
             &&& 0 <= other_addr < state1.len()
@@ -129,7 +129,7 @@ pub proof fn lemma_addresses_in_entry_dont_affect_recovery(
         recover_journal_entries_bytes(state, sm, entries_bytes.len() as u64)
             == Some(entries_bytes),
         parse_journal_entries(entries_bytes, 0) == Some(entries),
-        apply_journal_entries(state, entries, 0, sm) is Some,
+        journal_entries_valid(entries, 0, sm),
         recover_journal(state) is Some,
         0 <= which_entry < entries.len(),
     ensures
@@ -220,6 +220,47 @@ pub proof fn lemma_parse_journal_entry_implications(
 {
     lemma_parse_journal_entry_relation_to_next(entries_bytes, current_pos);
     assert(entries.skip(num_entries_read + 1) =~= entries.skip(num_entries_read).skip(1));
+}
+
+pub open spec fn journal_entries_valid(entries: Seq<JournalEntry>, starting_entry: int, sm: JournalStaticMetadata) -> bool
+    decreases
+        entries.len() - starting_entry
+{
+    if starting_entry < 0 || starting_entry > entries.len() {
+        false
+    }
+    else if entries.len() == starting_entry {
+        true
+    }
+    else {
+        entries[starting_entry].fits(sm) && journal_entries_valid(entries, starting_entry + 1, sm)
+    }
+}
+
+pub proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
+    bytes: Seq<u8>,
+    entries: Seq<JournalEntry>,
+    starting_entry: int,
+    sm: JournalStaticMetadata
+)
+    ensures
+        apply_journal_entries(bytes, entries, starting_entry, sm) is Some
+        <==> journal_entries_valid(entries, starting_entry, sm)
+    decreases
+        entries.len() - starting_entry,
+{
+    if starting_entry < 0 || starting_entry > entries.len() {
+        return;
+    }
+    else if entries.len() == starting_entry {
+        return;
+    }
+    else {
+        if entries[starting_entry].fits(sm) {
+            let next_bytes = apply_journal_entry(bytes, entries[starting_entry], sm).unwrap();
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(next_bytes, entries, starting_entry + 1, sm);
+        }
+    }
 }
 
 }
