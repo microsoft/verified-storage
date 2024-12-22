@@ -269,7 +269,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 Ok(j) => {
                     &&& j.valid()
                     &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
-                    &&& j@.remaining_capacity >= 0
+                    &&& j@.remaining_capacity == j@.constants.journal_capacity
                     &&& j@.journaled_addrs.is_empty()
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
