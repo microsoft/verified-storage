@@ -16,7 +16,7 @@ use super::spec_v::*;
 
 verus! {
 
-pub proof fn lemma_apply_journal_entries_only_affects_dynamic_area_inductive_step(
+pub(super) proof fn lemma_apply_journal_entries_only_affects_dynamic_area_inductive_step(
     state: Seq<u8>,
     vm: JournalVersionMetadata,
     sm: JournalStaticMetadata,
@@ -46,7 +46,7 @@ pub proof fn lemma_apply_journal_entries_only_affects_dynamic_area_inductive_ste
     }
 }
 
-pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductive_step(
+pub(super) proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductive_step(
     state1: Seq<u8>,
     state2: Seq<u8>,
     vm: JournalVersionMetadata,
@@ -84,7 +84,7 @@ pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductiv
     }
 }
 
-pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries(
+pub(super) proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries(
     state1: Seq<u8>,
     state2: Seq<u8>,
     vm: JournalVersionMetadata,
@@ -108,7 +108,7 @@ pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries(
         state1, state2, vm, sm, entries, 0, which_entry);
 }
 
-pub proof fn lemma_addresses_in_entry_dont_affect_recovery(
+pub(super) proof fn lemma_addresses_in_entry_dont_affect_recovery(
     state: Seq<u8>,
     vm: JournalVersionMetadata,
     sm: JournalStaticMetadata,
@@ -142,7 +142,6 @@ pub proof fn lemma_addresses_in_entry_dont_affect_recovery(
         lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductive_step(
             state, s2, vm, sm, entries, 0, which_entry
         );
-        reveal(recover_journal);
         reveal(opaque_subrange);
         lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry(sm, state, entries, 0, which_entry);
         assert(forall|i| 0 <= i < sm.app_area_start ==> !addrs.contains(i));
@@ -153,7 +152,7 @@ pub proof fn lemma_addresses_in_entry_dont_affect_recovery(
     }
 }
 
-pub proof fn lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry(
+pub(super) proof fn lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry(
     sm: JournalStaticMetadata,
     state: Seq<u8>,
     entries: Seq<JournalEntry>,
@@ -175,7 +174,7 @@ pub proof fn lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry
     }
 }
 
-pub proof fn lemma_parse_journal_entry_relation_to_next(entries_bytes: Seq<u8>, start: int)
+pub(super) proof fn lemma_parse_journal_entry_relation_to_next(entries_bytes: Seq<u8>, start: int)
     requires
         parse_journal_entries(entries_bytes, start) is Some,
         parse_journal_entry(entries_bytes, start) is Some,
@@ -194,7 +193,7 @@ pub proof fn lemma_parse_journal_entry_relation_to_next(entries_bytes: Seq<u8>, 
            parse_journal_entries(entries_bytes, start).unwrap().skip(1));
 }
 
-pub proof fn lemma_parse_journal_entry_implications(
+pub(super) proof fn lemma_parse_journal_entry_implications(
     entries_bytes: Seq<u8>,
     entries: Seq<JournalEntry>,
     num_entries_read: int,
@@ -217,7 +216,7 @@ pub proof fn lemma_parse_journal_entry_implications(
     assert(entries.skip(num_entries_read + 1) =~= entries.skip(num_entries_read).skip(1));
 }
 
-pub open spec fn journal_entries_valid(entries: Seq<JournalEntry>, starting_entry: int, sm: JournalStaticMetadata) -> bool
+pub(super) open spec fn journal_entries_valid(entries: Seq<JournalEntry>, starting_entry: int, sm: JournalStaticMetadata) -> bool
     decreases
         entries.len() - starting_entry
 {
@@ -232,7 +231,7 @@ pub open spec fn journal_entries_valid(entries: Seq<JournalEntry>, starting_entr
     }
 }
 
-pub proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
+pub(super) proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
     bytes: Seq<u8>,
     entries: Seq<JournalEntry>,
     starting_entry: int,
@@ -256,6 +255,15 @@ pub proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
             lemma_apply_journal_entries_some_iff_journal_entries_valid(next_bytes, entries, starting_entry + 1, sm);
         }
     }
+}
+
+pub(super) open spec fn spec_recovery_equivalent_for_app(state1: Seq<u8>, state2: Seq<u8>) -> bool
+{
+    &&& recover_journal(state1) matches Some(j1)
+    &&& recover_journal(state2) matches Some(j2)
+    &&& j1.constants == j2.constants
+    &&& opaque_subrange(j1.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
+           == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
 }
 
 }

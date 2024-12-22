@@ -4,8 +4,10 @@ use vstd::prelude::*;
 use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
+use crate::common::align_v::*;
 use crate::pmem::wrpm_t::*;
 use super::layout_v::*;
+use super::setup_v::*;
 use super::spec_v::*;
 use deps_hack::PmCopy;
 
@@ -56,72 +58,201 @@ impl <Perm, PM> Journal<Perm, PM>
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
-    spec fn journal_entries_matches(self, read_state: Seq<u8>) -> bool
-    {
-        &&& 0 <= self.sm.journal_entries_start
-        &&& self.sm.journal_entries_start + self.constants.journal_capacity <= self.sm.journal_entries_end
-        &&& recover_journal_entries(read_state, self.sm, self.journal_length) == Some(self.entries@)
-    }
-
-    spec fn inv_journaled_addrs_complete(self) -> bool
-    {
-        forall|entry, addr| #![trigger self.entries@.contains(entry), self.journaled_addrs@.contains(addr)]
-            self.entries@.contains(entry) && entry.start <= addr < entry.end() ==>
-            self.journaled_addrs@.contains(addr)
-    }
-
-    spec fn inv_constants_match(self) -> bool
-    {
-        &&& self.constants.app_version_number == self.sm.app_version_number
-        &&& self.constants.app_program_guid == self.sm.app_program_guid
-        &&& self.constants.journal_capacity == self.sm.journal_entries_end - self.sm.journal_entries_start
-        &&& self.constants.app_area_start == self.sm.app_area_start
-        &&& self.constants.app_area_end == self.sm.app_area_end
-    }
-
-    spec fn inv(self) -> bool
-    {
-        let pmv = self.wrpm.view();
-        &&& self.wrpm.inv()
-        &&& pmv.valid()
-        &&& self.inv_constants_match()
-        &&& self.constants.app_area_end == pmv.len()
-        &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
-        &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
-        &&& recover_committed_cdb(pmv.durable_state, self.sm) matches Some(committed)
-        &&& self.status is Quiescent ==> !committed
-        &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
-        &&& self.inv_journaled_addrs_complete()
-    }
-
-    spec fn valid_internal(self) -> bool
-    {
-        &&& self.inv()
-        &&& self.status is Quiescent
-    }
-
     pub closed spec fn valid(self) -> bool
     {
         self.valid_internal()
+    }
+
+    pub closed spec fn recover(bytes: Seq<u8>) -> Option<RecoveredJournal>
+    {
+        recover_journal(bytes)
     }
 
     pub proof fn lemma_valid_implies_recover_successful(self)
         requires
             self.valid(),
         ensures
-            recover_journal(self@.durable_state) == Some(RecoveredJournal{ constants: self@.constants,
-                                                                           state: self@.durable_state }),
+            Self::recover(self@.durable_state) == Some(RecoveredJournal{ constants: self@.constants,
+                                                                         state: self@.durable_state }),
     {
-        reveal(recover_journal);
     }
 
     pub open spec fn recovery_equivalent_for_app(state1: Seq<u8>, state2: Seq<u8>) -> bool
     {
-        &&& recover_journal(state1) matches Some(j1)
-        &&& recover_journal(state2) matches Some(j2)
+        &&& Self::recover(state1) matches Some(j1)
+        &&& Self::recover(state2) matches Some(j2)
         &&& j1.constants == j2.constants
         &&& opaque_subrange(j1.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
-                == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
+               == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
+    }
+
+    pub closed spec fn space_needed_for_journal_entries(
+        max_journal_entries: u64,
+        max_journaled_bytes: u64,
+    ) -> int
+    {
+        spec_space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes)
+    }
+    
+
+    pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> int
+        recommends
+            ps.valid(),
+    {
+        spec_space_needed_for_setup(ps)
+    }
+
+    pub closed spec fn ready_for_app_setup(
+        bytes: Seq<u8>,
+        constants: JournalConstants,
+    ) -> bool
+    {
+        spec_ready_for_app_setup(bytes, constants)
+    }
+
+    pub exec fn get_space_needed_for_setup(ps: &JournalSetupParameters) -> (result: Option<u64>)
+        requires
+            ps.valid(),
+        ensures
+            ({
+                let space_needed = spec_space_needed_for_setup(*ps);
+                match result {
+                    Some(v) => v == space_needed,
+                    None => space_needed > u64::MAX,
+                }
+            })
+    {
+        match get_addresses_for_setup(ps) {
+            Some(addrs) => Some(addrs.min_app_area_end),
+            None => None
+        }
+    }
+
+    pub exec fn begin_setup(
+        pm: &mut PM,
+        ps: &JournalSetupParameters,
+    ) -> (result: Result<JournalConstants, JournalError>)
+        where
+            PM: PersistentMemoryRegion
+        requires
+            old(pm).inv(),
+        ensures
+            pm.inv(),
+            match result {
+                Ok(constants) => {
+                    &&& ps.valid()
+                    &&& Self::recover(pm@.read_state) == Some(RecoveredJournal{ constants, state: pm@.read_state })
+                    &&& constants.app_version_number == ps.app_version_number
+                    &&& constants.app_program_guid == ps.app_program_guid
+                    &&& constants.journal_capacity
+                           >= Self::space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
+                    &&& opaque_aligned(constants.app_area_start as int, ps.app_area_alignment as int)
+                    &&& constants.app_area_end >= constants.app_area_start + ps.app_area_size
+                    &&& constants.app_area_end == pm@.len()
+                    &&& Self::ready_for_app_setup(pm@.read_state, constants)
+                },
+                Err(JournalError::InvalidAlignment) => !ps.valid(),
+                Err(JournalError::NotEnoughSpace) => ps.valid() && Self::space_needed_for_setup(*ps) > pm@.len(),
+                Err(_) => false,
+            }
+    {
+        if ps.app_area_alignment == 0 {
+            return Err(JournalError::InvalidAlignment);
+        }
+    
+        // Compute the region size so we can see if we have enough space.
+        // This also establishes that the region size fits in a u64, so
+        // if it turns out we need more than u64::MAX bytes we're justified
+        // in returning `JournalError::NotEnoughSpace`.
+        let pm_size = pm.get_region_size();
+    
+        let addrs = match get_addresses_for_setup(ps) {
+            Some(addrs) => addrs,
+            None => { return Err(JournalError::NotEnoughSpace); }, // space needed > u64::MAX
+        };
+    
+        if addrs.min_app_area_end > pm_size {
+            return Err(JournalError::NotEnoughSpace);
+        }
+    
+        proof {
+            assert(pm@.valid()) by { pm.lemma_inv_implies_view_valid(); }
+            lemma_auto_can_result_from_write_effect_on_read_state();
+            broadcast use pmcopy_axioms;
+            assert(addrs.valid(*ps));
+        }
+    
+        // We now know we have enough space, and we know the addresses to store things.
+    
+        let vm = JournalVersionMetadata{
+            version_number: JOURNAL_PROGRAM_VERSION_NUMBER,
+            program_guid: JOURNAL_PROGRAM_GUID,
+        };
+        pm.serialize_and_write(addrs.journal_version_metadata_start, &vm);
+    
+        let vm_crc = calculate_crc(&vm);
+        pm.serialize_and_write(addrs.journal_version_metadata_crc_start, &vm_crc);
+        
+        let sm = JournalStaticMetadata{
+            app_version_number: ps.app_version_number,
+            app_program_guid: ps.app_program_guid,
+            committed_cdb_start: addrs.committed_cdb_start,
+            journal_length_start: addrs.journal_length_start,
+            journal_length_crc_start: addrs.journal_length_crc_start,
+            journal_entries_crc_start: addrs.journal_entries_crc_start,
+            journal_entries_start: addrs.journal_entries_start,
+            journal_entries_end: addrs.journal_entries_end,
+            app_area_start: addrs.app_area_start,
+            app_area_end: pm_size,
+        };
+        pm.serialize_and_write(addrs.journal_static_metadata_start, &sm);
+        let sm_crc = calculate_crc(&sm);
+        pm.serialize_and_write(addrs.journal_static_metadata_crc_start, &sm_crc);
+    
+        let committed_cdb = CDB_FALSE;
+        pm.serialize_and_write(addrs.committed_cdb_start, &committed_cdb);
+    
+        proof {
+            lemma_auto_can_result_from_write_effect_on_read_state();
+            lemma_setup_works(pm@.read_state, *ps, addrs, vm, sm);
+        }
+    
+        let journal_constants = JournalConstants {
+            app_version_number: ps.app_version_number,
+            app_program_guid: ps.app_program_guid,
+            journal_capacity: addrs.journal_entries_end - addrs.journal_entries_start,
+            app_area_start: addrs.app_area_start,
+            app_area_end: pm_size,
+        };
+    
+        Ok(journal_constants)
+    }
+
+    pub exec fn end_setup(
+        pm: &mut PM,
+        journal_constants: &JournalConstants,
+        Ghost(state_after_begin_setup): Ghost<Seq<u8>>, // the state after calling `begin_setup` and
+                                                        // before initializing the application state
+    )
+        where
+            PM: PersistentMemoryRegion
+        requires
+            old(pm).inv(),
+            Self::ready_for_app_setup(state_after_begin_setup, *journal_constants),
+            old(pm)@.len() == state_after_begin_setup.len(),
+            opaque_subrange(state_after_begin_setup, 0, journal_constants.app_area_start as int)
+                == opaque_subrange(old(pm)@.read_state, 0, journal_constants.app_area_start as int),
+        ensures
+            pm.inv(),
+            pm@.flush_predicted(),
+            Self::recover(pm@.durable_state) ==
+                Some(RecoveredJournal{ constants: *journal_constants, state: old(pm)@.read_state }),
+    {
+        pm.flush();
+        proof {
+            lemma_auto_opaque_subrange_subrange(state_after_begin_setup, 0, journal_constants.app_area_start as int);
+            lemma_auto_opaque_subrange_subrange(pm@.read_state, 0, journal_constants.app_area_start as int);
+        }
     }
 
     pub exec fn start(
@@ -130,7 +261,7 @@ impl <Perm, PM> Journal<Perm, PM>
     ) -> (result: Result<Self, JournalError>)
         requires
             wrpm.inv(),
-            recover_journal(wrpm.view().read_state).is_some(),
+            Self::recover(wrpm.view().read_state).is_some(),
             forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, wrpm.view().durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -149,7 +280,6 @@ impl <Perm, PM> Journal<Perm, PM>
         let pm = wrpm.get_pm_region_ref();
         let pm_size = pm.get_region_size(); // This establishes that `pm@.len() <= u64::MAX`
  
-        reveal(recover_journal);
         let vm = Self::read_version_metadata(pm).ok_or(JournalError::CRCError)?;
         let sm = Self::read_static_metadata(pm, &vm).ok_or(JournalError::CRCError)?;
         let cdb = Self::read_committed_cdb(pm, &vm, &sm).ok_or(JournalError::CRCError)?;

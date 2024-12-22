@@ -37,92 +37,92 @@ pub struct JournalVersionMetadata {
 #[repr(C)]
 #[derive(PmCopy, Copy, Default, Debug)]
 #[verifier::ext_equal]
-pub struct JournalStaticMetadata {
-    pub app_version_number: u64,
-    pub committed_cdb_start: u64,
-    pub journal_length_start: u64,
-    pub journal_length_crc_start: u64,
-    pub journal_entries_crc_start: u64,
-    pub journal_entries_start: u64,
-    pub journal_entries_end: u64,
-    pub app_area_start: u64,
-    pub app_area_end: u64,
-    pub app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
+pub(super) struct JournalStaticMetadata {
+    pub(super) app_version_number: u64,
+    pub(super) committed_cdb_start: u64,
+    pub(super) journal_length_start: u64,
+    pub(super) journal_length_crc_start: u64,
+    pub(super) journal_entries_crc_start: u64,
+    pub(super) journal_entries_start: u64,
+    pub(super) journal_entries_end: u64,
+    pub(super) app_area_start: u64,
+    pub(super) app_area_end: u64,
+    pub(super) app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
 #[verifier::ext_equal]
-pub struct JournalEntry
+pub(super) struct JournalEntry
 {
-    pub start: int,
-    pub bytes_to_write: Seq<u8>,
+    pub(super) start: int,
+    pub(super) bytes_to_write: Seq<u8>,
 }
 
 impl JournalEntry
 {
-    pub open spec fn end(self) -> int
+    pub(super) open spec fn end(self) -> int
     {
         self.start + self.bytes_to_write.len()
     }
 
-    pub open spec fn addrs(self) -> Set<int>
+    pub(super) open spec fn addrs(self) -> Set<int>
     {
         Set::<int>::new(|i| self.start <= i < self.end())
     }
 
-    pub open spec fn fits(self, sm: JournalStaticMetadata) -> bool
+    pub(super) open spec fn fits(self, sm: JournalStaticMetadata) -> bool
     {
         &&& 0 <= sm.app_area_start <= self.start
         &&& self.end() <= sm.app_area_end
     }
 }
 
-pub open spec fn spec_journal_version_metadata_start() -> int
+pub(super) open spec fn spec_journal_version_metadata_start() -> int
 {
     0
 }
 
-pub open spec fn spec_journal_version_metadata_end() -> int
+pub(super) open spec fn spec_journal_version_metadata_end() -> int
 {
     JournalVersionMetadata::spec_size_of() as int
 }
 
-pub open spec fn spec_journal_version_metadata_crc_start() -> int
+pub(super) open spec fn spec_journal_version_metadata_crc_start() -> int
 {
     round_up_to_alignment(spec_journal_version_metadata_end(), u64::spec_align_of() as int)
 }
 
-pub open spec fn spec_journal_version_metadata_crc_end() -> int
+pub(super) open spec fn spec_journal_version_metadata_crc_end() -> int
 {
     spec_journal_version_metadata_crc_start() + u64::spec_size_of() as int
 }
 
-pub open spec fn spec_journal_static_metadata_start() -> int
+pub(super) open spec fn spec_journal_static_metadata_start() -> int
 {
     round_up_to_alignment(spec_journal_version_metadata_crc_end(), JournalStaticMetadata::spec_align_of() as int)
 }
 
-pub open spec fn spec_journal_static_metadata_end() -> int
+pub(super) open spec fn spec_journal_static_metadata_end() -> int
 {
     spec_journal_static_metadata_start() + JournalStaticMetadata::spec_size_of()
 }
 
-pub open spec fn spec_journal_static_metadata_crc_start() -> int
+pub(super) open spec fn spec_journal_static_metadata_crc_start() -> int
 {
     round_up_to_alignment(spec_journal_static_metadata_end(), u64::spec_align_of() as int)
 }
 
-pub open spec fn spec_journal_static_metadata_crc_end() -> int
+pub(super) open spec fn spec_journal_static_metadata_crc_end() -> int
 {
     spec_journal_static_metadata_crc_start() + u64::spec_size_of() as int
 }
 
-pub open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
+pub(super) open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
 {
     &&& spec_journal_version_metadata_end() <= spec_journal_version_metadata_crc_start()
     &&& m.program_guid == JOURNAL_PROGRAM_GUID
 }
 
-pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
+pub(super) open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersionMetadata>
 {
     if spec_journal_version_metadata_crc_end() > bytes.len() {
         None
@@ -136,7 +136,7 @@ pub open spec fn recover_version_metadata(bytes: Seq<u8>) -> Option<JournalVersi
     }
 }
 
-pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: JournalVersionMetadata) -> bool
+pub(super) open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: JournalVersionMetadata) -> bool
 {
     if vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER {
         &&& spec_journal_version_metadata_crc_end() <= spec_journal_static_metadata_start()
@@ -159,7 +159,7 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
     }
 }
 
-pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetadata)
+pub(super) open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetadata)
                                          -> Option<JournalStaticMetadata>
 {
     if spec_journal_static_metadata_crc_end() > bytes.len() {
@@ -178,7 +178,7 @@ pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetad
     }
 }
 
-pub open spec fn validate_metadata(vm: JournalVersionMetadata, sm: JournalStaticMetadata, num_bytes: nat) -> bool
+pub(super) open spec fn validate_metadata(vm: JournalVersionMetadata, sm: JournalStaticMetadata, num_bytes: nat) -> bool
 {
     &&& validate_version_metadata(vm)
     &&& validate_static_metadata(sm, vm)
@@ -187,12 +187,12 @@ pub open spec fn validate_metadata(vm: JournalVersionMetadata, sm: JournalStatic
     &&& sm.app_area_end == num_bytes
 }
 
-pub open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
+pub(super) open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
     recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int)
 }
 
-pub open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
+pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
     -> Option<Seq<u8>>
 {
     if {
@@ -219,7 +219,7 @@ pub open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStatic
     }
 }
 
-pub open spec fn parse_journal_entry(entries_bytes: Seq<u8>, start: int) -> Option<(JournalEntry, int)>
+pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>, start: int) -> Option<(JournalEntry, int)>
     recommends
         0 <= start <= entries_bytes.len(),
     decreases
@@ -246,7 +246,7 @@ pub open spec fn parse_journal_entry(entries_bytes: Seq<u8>, start: int) -> Opti
     }
 }
 
-pub open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Option<Seq<JournalEntry>>
+pub(super) open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Option<Seq<JournalEntry>>
     recommends
         0 <= start <= entries_bytes.len(),
     decreases
@@ -270,7 +270,7 @@ pub open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Op
     }
 }
 
-pub open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
+pub(super) open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
     -> Option<Seq<JournalEntry>>
 {
     match recover_journal_entries_bytes(bytes, sm, journal_length) {
@@ -279,7 +279,7 @@ pub open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStaticMetada
     }
 }
 
-pub open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: JournalStaticMetadata)
+pub(super) open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: JournalStaticMetadata)
                                      -> Option<Seq<u8>>
 {
     if entry.fits(sm) {
@@ -290,7 +290,7 @@ pub open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: Jo
     }
 }
 
-pub open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry>, starting_entry: int,
+pub(super) open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry>, starting_entry: int,
                                        sm: JournalStaticMetadata) -> Option<Seq<u8>>
     decreases
         entries.len() - starting_entry
@@ -309,7 +309,7 @@ pub open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry
     }
 }
 
-pub open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub(super) open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     match recover_journal_length(bytes, sm) {
         None => None,
@@ -322,12 +322,12 @@ pub open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm: Journa
     }
 }
 
-pub open spec fn recover_committed_cdb(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<bool>
+pub(super) open spec fn recover_committed_cdb(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<bool>
 {
     recover_cdb(bytes, sm.committed_cdb_start as int)
 }
 
-pub open spec fn recover_storage_state(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
+pub(super) open spec fn recover_storage_state(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     match recover_committed_cdb(bytes, sm) {
         None => None,
@@ -335,8 +335,7 @@ pub open spec fn recover_storage_state(bytes: Seq<u8>, sm: JournalStaticMetadata
     }
 }
 
-#[verifier::opaque]
-pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
+pub(super) open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
 {
     match recover_version_metadata(bytes) {
         None => None,
