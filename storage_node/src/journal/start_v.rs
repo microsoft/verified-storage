@@ -70,8 +70,8 @@ impl <Perm, PM> Journal<Perm, PM>
     pub(super) exec fn read_static_metadata(pm: &PM, vm: &JournalVersionMetadata) -> (result: Option<JournalStaticMetadata>)
         requires
             pm.inv(),
-            recover_static_metadata(pm@.read_state, *vm).is_some(),
             validate_version_metadata(*vm),
+            recover_static_metadata(pm@.read_state, *vm).is_some(),
             pm@.len() <= u64::MAX,
         ensures
             match result {
@@ -135,9 +135,7 @@ impl <Perm, PM> Journal<Perm, PM>
             pm.inv(),
             pm@.len() <= u64::MAX,
             recover_committed_cdb(pm@.read_state, *sm).is_some(),
-            validate_version_metadata(*vm),
-            validate_static_metadata(*sm, *vm),
-            sm.app_dynamic_area_end <= pm@.len(),
+            validate_metadata(*vm, *sm, pm@.len()),
         ensures
             match result {
                 None => !pm.constants().impervious_to_corruption(),
@@ -169,7 +167,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             pm.inv(),
             recover_journal_length(pm@.read_state, *sm).is_some(),
-            validate_static_metadata(*sm, vm),
+            validate_metadata(vm, *sm, pm@.len()),
             pm@.len() <= u64::MAX,
         ensures
             match result {
@@ -214,7 +212,7 @@ impl <Perm, PM> Journal<Perm, PM>
     ) -> (result: Option<Vec<u8>>)
         requires
             pm.inv(),
-            validate_static_metadata(*sm, vm),
+            validate_metadata(vm, *sm, pm@.len()),
             recover_journal_length(pm@.read_state, *sm) == Some(journal_length),
             recover_journal_entries_bytes(pm@.read_state, *sm, journal_length) is Some,
             pm@.len() <= u64::MAX,

@@ -24,9 +24,7 @@ pub proof fn lemma_apply_journal_entries_only_affects_dynamic_area_inductive_ste
     entries_checked_so_far: int,
 )
     requires
-        validate_version_metadata(vm),
-        validate_static_metadata(sm, vm),
-        sm.app_dynamic_area_end <= state.len(),
+        validate_metadata(vm, sm, state.len()),
         apply_journal_entries(state, entries, entries_checked_so_far, sm) is Some,
         0 <= entries_checked_so_far <= entries.len(),
     ensures ({
@@ -59,9 +57,8 @@ pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductiv
     which_entry: int,
 )
     requires
-        validate_version_metadata(vm),
-        validate_static_metadata(sm, vm),
-        sm.app_dynamic_area_end <= state1.len() == state2.len(),
+        validate_metadata(vm, sm, state1.len()),
+        state1.len() == state2.len(),
         journal_entries_valid(entries, entries_checked_so_far, sm),
         0 <= entries_checked_so_far <= which_entry < entries.len(),
         forall|other_addr: int| #![trigger state2[other_addr]] {
@@ -97,9 +94,8 @@ pub proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries(
     which_entry: int,
 )
     requires
-        validate_version_metadata(vm),
-        validate_static_metadata(sm, vm),
-        sm.app_dynamic_area_end <= state1.len() == state2.len(),
+        validate_metadata(vm, sm, state1.len()),
+        state1.len() == state2.len(),
         journal_entries_valid(entries, 0, sm),
         0 <= which_entry < entries.len(),
         forall|other_addr: int| #![trigger state2[other_addr]] {

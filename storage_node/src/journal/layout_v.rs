@@ -179,6 +179,15 @@ pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetad
     }
 }
 
+pub open spec fn validate_metadata(vm: JournalVersionMetadata, sm: JournalStaticMetadata, num_bytes: nat) -> bool
+{
+    &&& validate_version_metadata(vm)
+    &&& validate_static_metadata(sm, vm)
+    &&& spec_journal_version_metadata_crc_end() <= num_bytes
+    &&& spec_journal_static_metadata_crc_end() <= num_bytes
+    &&& sm.app_dynamic_area_end <= num_bytes
+}
+
 pub open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
     recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int)
