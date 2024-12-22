@@ -10,6 +10,7 @@ use crate::common::align_v::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
+use super::inv_v::*;
 use super::journal_v::*;
 use super::layout_v::*;
 use super::spec_v::*;
@@ -264,6 +265,47 @@ pub(super) open spec fn spec_recovery_equivalent_for_app(state1: Seq<u8>, state2
     &&& j1.constants == j2.constants
     &&& opaque_subrange(j1.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
            == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
+}
+
+pub(super) proof fn lemma_apply_journal_entries_commutes_with_update_bytes(
+    s: Seq<u8>,
+    entries: Seq<JournalEntry>,
+    journaled_addrs: Set<int>,
+    starting_entry: int,
+    addr: int,
+    bytes_to_write: Seq<u8>,
+    sm: JournalStaticMetadata,
+)
+    requires
+        journal_entries_valid(entries, starting_entry, sm),
+        sm.app_area_start <= sm.app_area_end == s.len(),
+        journaled_addrs_complete(entries, journaled_addrs),
+        forall|i: int| #![trigger journaled_addrs.contains(i)] addr <= i < addr + bytes_to_write.len()
+            ==> !journaled_addrs.contains(i),
+    ensures ({
+        &&& apply_journal_entries(s, entries, starting_entry, sm) matches Some(s2)
+        &&& apply_journal_entries(opaque_update_bytes(s, addr, bytes_to_write), entries, starting_entry, sm) ==
+               Some(opaque_update_bytes(s2, addr, bytes_to_write))
+    }),
+    decreases
+        entries.len() - starting_entry,
+{
+    reveal(opaque_update_bytes);
+    if starting_entry < entries.len() {
+        let next_state = apply_journal_entry(s, entries[starting_entry], sm).unwrap();
+        lemma_apply_journal_entries_commutes_with_update_bytes(next_state, entries, journaled_addrs, starting_entry + 1,
+                                                               addr, bytes_to_write, sm);
+        vstd::assert_seqs_equal!(
+            apply_journal_entry(opaque_update_bytes(s, addr, bytes_to_write), entries[starting_entry], sm).unwrap() ==
+            opaque_update_bytes(next_state, addr, bytes_to_write),
+            i => {
+                assert(entries.contains(entries[starting_entry])); // triggers journaled_addrs_complete
+                if addr <= i < addr + bytes_to_write.len() {
+                    assert(!journaled_addrs.contains(i)); // triggers quantifier in this function's precondition
+                }
+            }
+        );
+    }
 }
 
 }

@@ -9,6 +9,7 @@ use crate::pmem::wrpm_t::*;
 use super::layout_v::*;
 use super::setup_v::*;
 use super::spec_v::*;
+use super::util_v::*;
 use deps_hack::PmCopy;
 
 verus! {
@@ -68,12 +69,17 @@ impl <Perm, PM> Journal<Perm, PM>
         recover_journal(bytes)
     }
 
+    pub open spec fn recover_successful(self) -> bool
+    {
+        Self::recover(self@.durable_state) == Some(RecoveredJournal{ constants: self@.constants,
+                                                                     state: self@.durable_state })
+    }
+
     pub proof fn lemma_valid_implies_recover_successful(self)
         requires
             self.valid(),
         ensures
-            Self::recover(self@.durable_state) == Some(RecoveredJournal{ constants: self@.constants,
-                                                                         state: self@.durable_state }),
+            self.recover_successful(),
     {
     }
 
@@ -315,6 +321,68 @@ impl <Perm, PM> Journal<Perm, PM>
             journaled_addrs: Ghost(Set::<int>::empty()),
             entries: Ghost(Seq::<JournalEntry>::empty()),
         })
+    }
+
+    pub exec fn write(
+        &mut self,
+        addr: u64,
+        bytes_to_write: Vec<u8>,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        requires
+            old(self).valid(),
+            old(self)@.constants.app_area_start <= addr,
+            addr + bytes_to_write@.len() <= old(self)@.constants.app_area_end,
+            forall|s: Seq<u8>| {
+                &&& opaque_match_except_in_range(s, old(self)@.durable_state, addr as int, addr + bytes_to_write@.len())
+                &&& Self::recover(s) matches Some(j)
+                &&& j.constants == old(self)@.constants
+                &&& j.state == s
+            } ==> #[trigger] perm.check_permission(s),
+            forall|i: int| #![trigger old(self)@.journaled_addrs.contains(i)]
+                addr <= i < addr + bytes_to_write@.len() ==> !old(self)@.journaled_addrs.contains(i),
+        ensures
+            self.valid(),
+            self.recover_successful(),
+            self@ == (JournalView{
+                read_state: opaque_update_bytes(old(self)@.read_state, addr as int, bytes_to_write@),
+                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
+                durable_state: self@.durable_state,
+                ..old(self)@
+            }),
+            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, addr as int,
+                                         addr + bytes_to_write@.len()),
+    {
+        proof {
+            lemma_auto_can_result_from_partial_write_effect_on_opaque();
+            lemma_auto_can_result_from_write_effect_on_read_state();
+            assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, addr as int, bytes_to_write@)
+                implies #[trigger] perm.check_permission(s) by {
+                assert(opaque_match_except_in_range(s, self.wrpm@.durable_state, addr as int,
+                                                    addr + bytes_to_write@.len()));
+                lemma_auto_opaque_subrange_subrange(s, 0, addr as int);
+                lemma_auto_opaque_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
+            }
+        }
+        self.wrpm.write(addr, bytes_to_write.as_slice(), Tracked(perm));
+        reveal(opaque_update_bytes);
+        proof {
+            lemma_auto_opaque_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
+            lemma_auto_opaque_subrange_subrange(old(self).wrpm@.durable_state, 0, addr as int);
+        }
+        self.commit_state = Ghost(opaque_update_bytes(self.commit_state@, addr as int, bytes_to_write@));
+        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)) by {
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).wrpm@.read_state, self.entries@,
+                                                                       0, self.sm);
+            assert forall|i: int| #![trigger self.journaled_addrs@.contains(i)]
+                addr <= i < addr + bytes_to_write@.len() implies !self.journaled_addrs@.contains(i) by {
+                assert(self.journaled_addrs@.contains(i) <==> old(self)@.journaled_addrs.contains(i)); // trigger
+            }
+            lemma_apply_journal_entries_commutes_with_update_bytes(
+                old(self).wrpm@.read_state, self.entries@, self.journaled_addrs@, 0, addr as int,
+                bytes_to_write@, self.sm
+            );
+        }
     }
 }
 
