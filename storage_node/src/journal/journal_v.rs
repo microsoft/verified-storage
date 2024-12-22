@@ -261,13 +261,19 @@ impl <Perm, PM> Journal<Perm, PM>
     ) -> (result: Result<Self, JournalError>)
         requires
             wrpm.inv(),
-            Self::recover(wrpm.view().read_state).is_some(),
-            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, wrpm.view().durable_state)
+            Self::recover(wrpm@.durable_state).is_some(),
+            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, wrpm@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
             match result {
                 Ok(j) => {
                     &&& j.valid()
+                    &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
+                    &&& j@.remaining_capacity >= 0
+                    &&& j@.journaled_addrs.is_empty()
+                    &&& j@.durable_state == j@.read_state
+                    &&& j@.read_state == j@.commit_state
+                    &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
                 },
                 Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
                 _ => true,
