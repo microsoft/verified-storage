@@ -323,6 +323,35 @@ impl <Perm, PM> Journal<Perm, PM>
         })
     }
 
+    pub open spec fn write_preconditions(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
+    {
+        &&& self.valid()
+        &&& self@.constants.app_area_start <= addr
+        &&& addr + bytes_to_write.len() <= self@.constants.app_area_end
+        &&& forall|s: Seq<u8>| {
+            &&& opaque_match_except_in_range(s, self@.durable_state, addr as int, addr + bytes_to_write.len())
+            &&& Self::recover(s) matches Some(j)
+            &&& j.constants == self@.constants
+            &&& j.state == s
+        } ==> #[trigger] perm.check_permission(s)
+        &&& forall|i: int| #![trigger self@.journaled_addrs.contains(i)]
+            addr <= i < addr + bytes_to_write.len() ==> !self@.journaled_addrs.contains(i)
+    }
+
+    pub open spec fn write_postconditions(self, old_self: Self, addr: u64, bytes_to_write: Seq<u8>) -> bool
+    {
+        &&& self.valid()
+        &&& self.recover_successful()
+        &&& self@ == (JournalView{
+                read_state: opaque_update_bytes(old_self@.read_state, addr as int, bytes_to_write),
+                commit_state: opaque_update_bytes(old_self@.commit_state, addr as int, bytes_to_write),
+                durable_state: self@.durable_state,
+                ..old_self@
+            })
+        &&& opaque_match_except_in_range(self@.durable_state, old_self@.durable_state, addr as int,
+                                       addr + bytes_to_write.len())
+    }
+
     pub exec fn write_slice(
         &mut self,
         addr: u64,
@@ -330,28 +359,9 @@ impl <Perm, PM> Journal<Perm, PM>
         Tracked(perm): Tracked<&Perm>,
     )
         requires
-            old(self).valid(),
-            old(self)@.constants.app_area_start <= addr,
-            addr + bytes_to_write@.len() <= old(self)@.constants.app_area_end,
-            forall|s: Seq<u8>| {
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, addr as int, addr + bytes_to_write@.len())
-                &&& Self::recover(s) matches Some(j)
-                &&& j.constants == old(self)@.constants
-                &&& j.state == s
-            } ==> #[trigger] perm.check_permission(s),
-            forall|i: int| #![trigger old(self)@.journaled_addrs.contains(i)]
-                addr <= i < addr + bytes_to_write@.len() ==> !old(self)@.journaled_addrs.contains(i),
+            old(self).write_preconditions(addr, bytes_to_write@, *perm),
         ensures
-            self.valid(),
-            self.recover_successful(),
-            self@ == (JournalView{
-                read_state: opaque_update_bytes(old(self)@.read_state, addr as int, bytes_to_write@),
-                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
-                durable_state: self@.durable_state,
-                ..old(self)@
-            }),
-            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, addr as int,
-                                         addr + bytes_to_write@.len()),
+            self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
         proof {
             lemma_auto_can_result_from_partial_write_effect_on_opaque();
@@ -392,28 +402,9 @@ impl <Perm, PM> Journal<Perm, PM>
         Tracked(perm): Tracked<&Perm>,
     )
         requires
-            old(self).valid(),
-            old(self)@.constants.app_area_start <= addr,
-            addr + bytes_to_write@.len() <= old(self)@.constants.app_area_end,
-            forall|s: Seq<u8>| {
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, addr as int, addr + bytes_to_write@.len())
-                &&& Self::recover(s) matches Some(j)
-                &&& j.constants == old(self)@.constants
-                &&& j.state == s
-            } ==> #[trigger] perm.check_permission(s),
-            forall|i: int| #![trigger old(self)@.journaled_addrs.contains(i)]
-                addr <= i < addr + bytes_to_write@.len() ==> !old(self)@.journaled_addrs.contains(i),
+            old(self).write_preconditions(addr, bytes_to_write@, *perm),
         ensures
-            self.valid(),
-            self.recover_successful(),
-            self@ == (JournalView{
-                read_state: opaque_update_bytes(old(self)@.read_state, addr as int, bytes_to_write@),
-                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
-                durable_state: self@.durable_state,
-                ..old(self)@
-            }),
-            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, addr as int,
-                                         addr + bytes_to_write@.len()),
+            self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
         self.write_slice(addr, bytes_to_write.as_slice(), Tracked(perm))
     }
@@ -427,32 +418,14 @@ impl <Perm, PM> Journal<Perm, PM>
         where
             S: PmCopy,
         requires
-            old(self).valid(),
-            old(self)@.constants.app_area_start <= addr,
-            addr + S::spec_size_of() <= old(self)@.constants.app_area_end,
-            forall|s: Seq<u8>| {
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, addr as int, addr + S::spec_size_of())
-                &&& Self::recover(s) matches Some(j)
-                &&& j.constants == old(self)@.constants
-                &&& j.state == s
-            } ==> #[trigger] perm.check_permission(s),
-            forall|i: int| #![trigger old(self)@.journaled_addrs.contains(i)]
-                addr <= i < addr + S::spec_size_of() ==> !old(self)@.journaled_addrs.contains(i),
+            old(self).write_preconditions(addr, object.spec_to_bytes(), *perm),
         ensures
-            self.valid(),
-            self.recover_successful(),
-            self@ == (JournalView{
-                read_state: opaque_update_bytes(old(self)@.read_state, addr as int, object.spec_to_bytes()),
-                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, object.spec_to_bytes()),
-                durable_state: self@.durable_state,
-                ..old(self)@
-            }),
-            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, addr as int,
-                                         addr + S::spec_size_of()),
+            self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
     {
         broadcast use pmcopy_axioms;
         self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
     }
+
 }
 
 }
