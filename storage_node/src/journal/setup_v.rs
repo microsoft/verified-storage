@@ -66,6 +66,7 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     app_dynamic_area_end
 }
 
+#[verifier::ext_equal]
 struct AddressesForSetup
 {
     journal_version_metadata_start: u64,

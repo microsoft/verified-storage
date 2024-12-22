@@ -28,6 +28,7 @@ pub const JOURNAL_PROGRAM_VERSION_NUMBER: u64 = 1;
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Default)]
+#[verifier::ext_equal]
 pub struct JournalVersionMetadata {
     pub version_number: u64,
     pub program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
@@ -35,6 +36,7 @@ pub struct JournalVersionMetadata {
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Default, Debug)]
+#[verifier::ext_equal]
 pub struct JournalStaticMetadata {
     pub app_version_number: u64,
     pub committed_cdb_start: u64,
@@ -50,6 +52,7 @@ pub struct JournalStaticMetadata {
     pub app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
+#[verifier::ext_equal]
 pub struct JournalEntry
 {
     pub start: int,

@@ -7,6 +7,7 @@ use deps_hack::PmCopy;
 
 verus! {
 
+    #[verifier::ext_equal]
     pub struct JournalConstants {
         pub app_version_number: u64,
         pub app_program_guid: u128,
@@ -25,6 +26,7 @@ verus! {
         }
     }
 
+    #[verifier::ext_equal]
     pub struct JournalView {
         pub constants: JournalConstants,
         pub durable_state: Seq<u8>,
@@ -40,11 +42,13 @@ verus! {
         NotEnoughSpace,
     }
 
+    #[verifier::ext_equal]
     pub struct RecoveredJournal {
         pub constants: JournalConstants,
         pub state: Seq<u8>,
     }
 
+    #[verifier::ext_equal]
     pub struct JournalSetupParameters {
         pub app_version_number: u64,
         pub app_program_guid: u128,
