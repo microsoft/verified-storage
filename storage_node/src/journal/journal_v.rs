@@ -323,10 +323,10 @@ impl <Perm, PM> Journal<Perm, PM>
         })
     }
 
-    pub exec fn write(
+    pub exec fn write_slice(
         &mut self,
         addr: u64,
-        bytes_to_write: Vec<u8>,
+        bytes_to_write: &[u8],
         Tracked(perm): Tracked<&Perm>,
     )
         requires
@@ -364,7 +364,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 lemma_auto_opaque_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
             }
         }
-        self.wrpm.write(addr, bytes_to_write.as_slice(), Tracked(perm));
+        self.wrpm.write(addr, bytes_to_write, Tracked(perm));
         reveal(opaque_update_bytes);
         proof {
             lemma_auto_opaque_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
@@ -383,6 +383,75 @@ impl <Perm, PM> Journal<Perm, PM>
                 bytes_to_write@, self.sm
             );
         }
+    }
+
+    pub exec fn write_vec(
+        &mut self,
+        addr: u64,
+        bytes_to_write: Vec<u8>,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        requires
+            old(self).valid(),
+            old(self)@.constants.app_area_start <= addr,
+            addr + bytes_to_write@.len() <= old(self)@.constants.app_area_end,
+            forall|s: Seq<u8>| {
+                &&& opaque_match_except_in_range(s, old(self)@.durable_state, addr as int, addr + bytes_to_write@.len())
+                &&& Self::recover(s) matches Some(j)
+                &&& j.constants == old(self)@.constants
+                &&& j.state == s
+            } ==> #[trigger] perm.check_permission(s),
+            forall|i: int| #![trigger old(self)@.journaled_addrs.contains(i)]
+                addr <= i < addr + bytes_to_write@.len() ==> !old(self)@.journaled_addrs.contains(i),
+        ensures
+            self.valid(),
+            self.recover_successful(),
+            self@ == (JournalView{
+                read_state: opaque_update_bytes(old(self)@.read_state, addr as int, bytes_to_write@),
+                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
+                durable_state: self@.durable_state,
+                ..old(self)@
+            }),
+            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, addr as int,
+                                         addr + bytes_to_write@.len()),
+    {
+        self.write_slice(addr, bytes_to_write.as_slice(), Tracked(perm))
+    }
+
+    pub exec fn write_object<S>(
+        &mut self,
+        addr: u64,
+        object: &S,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            S: PmCopy,
+        requires
+            old(self).valid(),
+            old(self)@.constants.app_area_start <= addr,
+            addr + S::spec_size_of() <= old(self)@.constants.app_area_end,
+            forall|s: Seq<u8>| {
+                &&& opaque_match_except_in_range(s, old(self)@.durable_state, addr as int, addr + S::spec_size_of())
+                &&& Self::recover(s) matches Some(j)
+                &&& j.constants == old(self)@.constants
+                &&& j.state == s
+            } ==> #[trigger] perm.check_permission(s),
+            forall|i: int| #![trigger old(self)@.journaled_addrs.contains(i)]
+                addr <= i < addr + S::spec_size_of() ==> !old(self)@.journaled_addrs.contains(i),
+        ensures
+            self.valid(),
+            self.recover_successful(),
+            self@ == (JournalView{
+                read_state: opaque_update_bytes(old(self)@.read_state, addr as int, object.spec_to_bytes()),
+                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, object.spec_to_bytes()),
+                durable_state: self@.durable_state,
+                ..old(self)@
+            }),
+            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, addr as int,
+                                         addr + S::spec_size_of()),
+    {
+        broadcast use pmcopy_axioms;
+        self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
     }
 }
 
