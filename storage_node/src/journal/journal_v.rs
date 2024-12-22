@@ -26,7 +26,6 @@ pub struct Journal<Perm, PM>
     pub(super) status: JournalStatus,
     pub(super) constants: JournalConstants,
     pub(super) commit_state: Ghost<Seq<u8>>,
-    pub(super) committed: bool,
     pub(super) journal_length: u64,
     pub(super) journaled_addrs: Ghost<Set<int>>,
     pub(super) entries: Ghost<Seq<JournalEntry>>,
@@ -89,9 +88,9 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.inv_constants_match()
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
-        &&& recover_committed_cdb(pmv.durable_state, self.sm) == Some(self.committed)
+        &&& recover_committed_cdb(pmv.durable_state, self.sm) matches Some(committed)
+        &&& self.status is Quiescent ==> !committed
         &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
-        &&& self.status is Quiescent ==> !self.committed
         &&& self.inv_journaled_addrs_complete()
     }
 
@@ -182,7 +181,6 @@ impl <Perm, PM> Journal<Perm, PM>
             status: JournalStatus::Quiescent,
             constants,
             commit_state: Ghost(wrpm@.read_state),
-            committed: false,
             journal_length: 0,
             journaled_addrs: Ghost(Set::<int>::empty()),
             entries: Ghost(Seq::<JournalEntry>::empty()),
