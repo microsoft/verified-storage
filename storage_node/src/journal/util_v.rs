@@ -29,8 +29,7 @@ pub proof fn lemma_apply_journal_entries_only_affects_dynamic_area_inductive_ste
         0 <= entries_checked_so_far <= entries.len(),
     ensures ({
         let state2 = apply_journal_entries(state, entries, entries_checked_so_far, sm).unwrap();
-        opaque_subrange(state2, 0, sm.app_dynamic_area_start as int) ==
-            opaque_subrange(state, 0, sm.app_dynamic_area_start as int)
+        opaque_subrange(state2, 0, sm.app_area_start as int) == opaque_subrange(state, 0, sm.app_area_start as int)
     }),
     decreases
         entries.len() - entries_checked_so_far
@@ -39,8 +38,8 @@ pub proof fn lemma_apply_journal_entries_only_affects_dynamic_area_inductive_ste
         reveal(opaque_update_bytes);
         reveal(opaque_subrange);
         let state_next = apply_journal_entry(state, entries[entries_checked_so_far], sm).unwrap();
-        assert(opaque_subrange(state_next, 0, sm.app_dynamic_area_start as int) =~=
-               opaque_subrange(state, 0, sm.app_dynamic_area_start as int));
+        assert(opaque_subrange(state_next, 0, sm.app_area_start as int) =~=
+               opaque_subrange(state, 0, sm.app_area_start as int));
         lemma_apply_journal_entries_only_affects_dynamic_area_inductive_step(
             state_next, vm, sm, entries, entries_checked_so_far + 1
         );
@@ -146,11 +145,11 @@ pub proof fn lemma_addresses_in_entry_dont_affect_recovery(
         reveal(recover_journal);
         reveal(opaque_subrange);
         lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry(sm, state, entries, 0, which_entry);
-        assert(forall|i| 0 <= i < sm.app_dynamic_area_start ==> !addrs.contains(i));
-        assert(opaque_subrange(state, 0, sm.app_dynamic_area_start as int) =~=
-               opaque_subrange(s2, 0, sm.app_dynamic_area_start as int));
-        lemma_auto_opaque_subrange_subrange(state, 0, sm.app_dynamic_area_start as int);
-        lemma_auto_opaque_subrange_subrange(s2, 0, sm.app_dynamic_area_start as int);
+        assert(forall|i| 0 <= i < sm.app_area_start ==> !addrs.contains(i));
+        assert(opaque_subrange(state, 0, sm.app_area_start as int) =~=
+               opaque_subrange(s2, 0, sm.app_area_start as int));
+        lemma_auto_opaque_subrange_subrange(state, 0, sm.app_area_start as int);
+        lemma_auto_opaque_subrange_subrange(s2, 0, sm.app_area_start as int);
     }
 }
 
@@ -165,7 +164,7 @@ pub proof fn lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry
         apply_journal_entries(state, entries, start, sm) is Some,
         0 <= start <= which_entry < entries.len(),
     ensures
-        entries[which_entry].start >= sm.app_dynamic_area_start,
+        entries[which_entry].fits(sm),
     decreases
         entries.len() - start,
 {

@@ -57,13 +57,9 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     let (journal_entries_crc_start, journal_entries_crc_end) = spec_allocate_space::<u64>(journal_length_crc_end);
     let (journal_entries_start, journal_entries_end) =
         spec_allocate_specified_space(journal_entries_crc_end, journal_size, u64::spec_size_of() as int);
-    let (app_static_area_start, app_static_area_end) =
-        spec_allocate_specified_space(journal_entries_end, ps.app_static_area_size as int,
-                                      ps.app_static_area_alignment as int);
-    let (app_dynamic_area_start, app_dynamic_area_end) =
-        spec_allocate_specified_space(app_static_area_end, ps.app_dynamic_area_size as int,
-                                      ps.app_dynamic_area_alignment as int);
-    app_dynamic_area_end
+    let (app_area_start, min_app_area_end) =
+        spec_allocate_specified_space(journal_entries_end, ps.app_area_size as int, ps.app_area_alignment as int);
+    min_app_area_end
 }
 
 #[verifier::ext_equal]
@@ -81,10 +77,8 @@ struct AddressesForSetup
     journal_entries_crc_start: u64,
     journal_entries_start: u64,
     journal_entries_end: u64,
-    app_static_area_start: u64,
-    app_static_area_end: u64,
-    app_dynamic_area_start: u64,
-    app_dynamic_area_end: u64,
+    app_area_start: u64,
+    min_app_area_end: u64,
 }
 
 impl AddressesForSetup
@@ -118,13 +112,9 @@ impl AddressesForSetup
         &&& self.journal_entries_crc_start + u64::spec_size_of() <= self.journal_entries_start
         &&& 0 <= journal_size
         &&& self.journal_entries_start + journal_size <= self.journal_entries_end
-        &&& self.journal_entries_end <= self.app_static_area_start
-        &&& opaque_aligned(self.app_static_area_start as int, ps.app_static_area_alignment as int)
-        &&& self.app_static_area_start + ps.app_static_area_size == self.app_static_area_end
-        &&& self.app_static_area_end <= self.app_dynamic_area_start
-        &&& opaque_aligned(self.app_dynamic_area_start as int, ps.app_dynamic_area_alignment as int)
-        &&& self.app_dynamic_area_start + ps.app_dynamic_area_size == self.app_dynamic_area_end
-        &&& self.app_dynamic_area_end == space_needed_for_setup
+        &&& self.journal_entries_end <= self.app_area_start
+        &&& opaque_aligned(self.app_area_start as int, ps.app_area_alignment as int)
+        &&& self.app_area_start + ps.app_area_size == self.min_app_area_end
     }
 }
 
@@ -133,7 +123,7 @@ exec fn get_addresses_for_setup(ps: &JournalSetupParameters) -> (result: Option<
         ps.valid(),
     ensures
         match result {
-            Some(v) => v.valid(*ps),
+            Some(v) => v.valid(*ps) && v.min_app_area_end == spec_space_needed_for_setup(*ps),
             None => u64::MAX < spec_space_needed_for_setup(*ps),
         }
 {
@@ -152,12 +142,10 @@ exec fn get_addresses_for_setup(ps: &JournalSetupParameters) -> (result: Option<
     let (journal_entries_crc_start, journal_entries_crc_end) = allocate_space::<u64>(&journal_length_crc_end);
     let (journal_entries_start, journal_entries_end) =
         allocate_specified_space_overflowing_u64(&journal_entries_crc_end, &journal_size, size_of::<u64>() as u64);
-    let (app_static_area_start, app_static_area_end) =
-        allocate_specified_space(&journal_entries_end, ps.app_static_area_size, ps.app_static_area_alignment);
-    let (app_dynamic_area_start, app_dynamic_area_end) =
-        allocate_specified_space(&app_static_area_end, ps.app_dynamic_area_size, ps.app_dynamic_area_alignment);
+    let (app_area_start, min_app_area_end) =
+        allocate_specified_space(&journal_entries_end, ps.app_area_size, ps.app_area_alignment);
 
-    if app_dynamic_area_end.is_overflowed() {
+    if min_app_area_end.is_overflowed() {
         None
     }
     else {
@@ -174,10 +162,8 @@ exec fn get_addresses_for_setup(ps: &JournalSetupParameters) -> (result: Option<
             journal_entries_crc_start: journal_entries_crc_start.unwrap(),
             journal_entries_start: journal_entries_start.unwrap(),
             journal_entries_end: journal_entries_end.unwrap(),
-            app_static_area_start: app_static_area_start.unwrap(),
-            app_static_area_end: app_static_area_end.unwrap(),
-            app_dynamic_area_start: app_dynamic_area_start.unwrap(),
-            app_dynamic_area_end: app_dynamic_area_end.unwrap(),
+            app_area_start: app_area_start.unwrap(),
+            min_app_area_end: min_app_area_end.unwrap(),
         })
     }
 }
@@ -195,7 +181,7 @@ pub exec fn get_space_needed_for_setup(ps: &JournalSetupParameters) -> (result: 
         })
 {
     match get_addresses_for_setup(ps) {
-        Some(addrs) => Some(addrs.app_dynamic_area_end),
+        Some(addrs) => Some(addrs.min_app_area_end),
         None => None
     }
 }
@@ -213,7 +199,6 @@ proof fn lemma_setup_works(
         validate_metadata(vm, sm, bytes.len()),
         vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER,
         vm.program_guid == JOURNAL_PROGRAM_GUID,
-        sm.app_dynamic_area_end <= bytes.len(),
         sm.app_version_number == ps.app_version_number,
         sm.app_program_guid == ps.app_program_guid,
         sm.committed_cdb_start == addrs.committed_cdb_start,
@@ -221,10 +206,9 @@ proof fn lemma_setup_works(
         sm.journal_length_crc_start == addrs.journal_length_crc_start,
         sm.journal_entries_start == addrs.journal_entries_start,
         sm.journal_entries_end == addrs.journal_entries_end,
-        sm.app_static_area_start == addrs.app_static_area_start,
-        sm.app_static_area_end == addrs.app_static_area_end,
-        sm.app_dynamic_area_start == addrs.app_dynamic_area_start,
-        sm.app_dynamic_area_end == addrs.app_dynamic_area_end,
+        sm.app_area_start == addrs.app_area_start,
+        sm.app_area_end >= addrs.min_app_area_end,
+        sm.app_area_end == bytes.len(),
         ({
             &&& opaque_subrange(bytes, spec_journal_version_metadata_start(),
                               spec_journal_version_metadata_end()) == vm.spec_to_bytes()
@@ -242,10 +226,8 @@ proof fn lemma_setup_works(
         &&& j.constants.app_version_number == ps.app_version_number
         &&& j.constants.app_program_guid == ps.app_program_guid
         &&& j.constants.journal_capacity == addrs.journal_entries_end - addrs.journal_entries_start
-        &&& j.constants.app_static_area_start == sm.app_static_area_start
-        &&& j.constants.app_static_area_end == sm.app_static_area_end
-        &&& j.constants.app_dynamic_area_start == sm.app_dynamic_area_start
-        &&& j.constants.app_dynamic_area_end == sm.app_dynamic_area_end
+        &&& j.constants.app_area_start == sm.app_area_start
+        &&& j.constants.app_area_end == sm.app_area_end
         &&& bytes == j.state
     }),
 {
@@ -262,15 +244,9 @@ pub closed spec fn ready_for_app_setup(
     &&& recover_static_metadata(bytes, vm) matches Some(sm)
     &&& recover_committed_cdb(bytes, sm) == Some(false)
     &&& recover_journal(bytes) == Some(RecoveredJournal{ constants, state: bytes })
-    &&& constants.app_static_area_start == sm.app_static_area_start
-    &&& constants.app_static_area_end == sm.app_static_area_end
-    &&& constants.app_dynamic_area_start == sm.app_dynamic_area_start
-    &&& constants.app_dynamic_area_end == sm.app_dynamic_area_end
-    &&& constants.app_static_area_start <= constants.app_static_area_end
-    &&& constants.app_static_area_end <= constants.app_dynamic_area_start
-    &&& constants.app_dynamic_area_start <= constants.app_dynamic_area_end
-    &&& constants.app_dynamic_area_start <= constants.app_dynamic_area_end
-    &&& constants.app_dynamic_area_end <= bytes.len()
+    &&& constants.app_area_start == sm.app_area_start
+    &&& constants.app_area_end == sm.app_area_end
+    &&& constants.app_area_end == bytes.len()
 }
 
 pub exec fn begin_setup<PM>(
@@ -291,12 +267,9 @@ pub exec fn begin_setup<PM>(
                 &&& constants.app_program_guid == ps.app_program_guid
                 &&& constants.journal_capacity
                        >= spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
-                &&& opaque_aligned(constants.app_static_area_start as int, ps.app_static_area_alignment as int)
-                &&& constants.app_static_area_end == constants.app_static_area_start + ps.app_static_area_size
-                &&& constants.app_static_area_end <= constants.app_dynamic_area_start
-                &&& opaque_aligned(constants.app_dynamic_area_start as int, ps.app_dynamic_area_alignment as int)
-                &&& constants.app_dynamic_area_end == constants.app_dynamic_area_start + ps.app_dynamic_area_size
-                &&& constants.app_dynamic_area_end <= pm@.len()
+                &&& opaque_aligned(constants.app_area_start as int, ps.app_area_alignment as int)
+                &&& constants.app_area_end >= constants.app_area_start + ps.app_area_size
+                &&& constants.app_area_end == pm@.len()
                 &&& ready_for_app_setup(pm@.read_state, constants)
             },
             Err(JournalError::InvalidAlignment) => !ps.valid(),
@@ -308,7 +281,7 @@ pub exec fn begin_setup<PM>(
             Err(_) => false,
         }
 {
-    if ps.app_static_area_alignment == 0 || ps.app_dynamic_area_alignment == 0 {
+    if ps.app_area_alignment == 0 {
         return Err(JournalError::InvalidAlignment);
     }
 
@@ -323,7 +296,7 @@ pub exec fn begin_setup<PM>(
         None => { return Err(JournalError::NotEnoughSpace); }, // space needed > u64::MAX
     };
 
-    if addrs.app_dynamic_area_end > pm_size {
+    if addrs.min_app_area_end > pm_size {
         return Err(JournalError::NotEnoughSpace);
     }
 
@@ -354,10 +327,8 @@ pub exec fn begin_setup<PM>(
         journal_entries_crc_start: addrs.journal_entries_crc_start,
         journal_entries_start: addrs.journal_entries_start,
         journal_entries_end: addrs.journal_entries_end,
-        app_static_area_start: addrs.app_static_area_start,
-        app_static_area_end: addrs.app_static_area_end,
-        app_dynamic_area_start: addrs.app_dynamic_area_start,
-        app_dynamic_area_end: addrs.app_dynamic_area_end,
+        app_area_start: addrs.app_area_start,
+        app_area_end: pm_size,
     };
     pm.serialize_and_write(addrs.journal_static_metadata_start, &sm);
     let sm_crc = calculate_crc(&sm);
@@ -375,10 +346,8 @@ pub exec fn begin_setup<PM>(
         app_version_number: ps.app_version_number,
         app_program_guid: ps.app_program_guid,
         journal_capacity: addrs.journal_entries_end - addrs.journal_entries_start,
-        app_static_area_start: addrs.app_static_area_start,
-        app_static_area_end: addrs.app_static_area_end,
-        app_dynamic_area_start: addrs.app_dynamic_area_start,
-        app_dynamic_area_end: addrs.app_dynamic_area_end,
+        app_area_start: addrs.app_area_start,
+        app_area_end: pm_size,
     };
 
     Ok(journal_constants)
@@ -396,8 +365,8 @@ pub exec fn end_setup<PM>(
         old(pm).inv(),
         ready_for_app_setup(state_after_begin_setup, *journal_constants),
         old(pm)@.len() == state_after_begin_setup.len(),
-        opaque_subrange(state_after_begin_setup, 0, journal_constants.app_static_area_start as int)
-            == opaque_subrange(old(pm)@.read_state, 0, journal_constants.app_static_area_start as int),
+        opaque_subrange(state_after_begin_setup, 0, journal_constants.app_area_start as int)
+            == opaque_subrange(old(pm)@.read_state, 0, journal_constants.app_area_start as int),
     ensures
         pm.inv(),
         pm@.flush_predicted(),
@@ -406,8 +375,8 @@ pub exec fn end_setup<PM>(
 {
     pm.flush();
     proof {
-        lemma_auto_opaque_subrange_subrange(state_after_begin_setup, 0, journal_constants.app_static_area_start as int);
-        lemma_auto_opaque_subrange_subrange(pm@.read_state, 0, journal_constants.app_static_area_start as int);
+        lemma_auto_opaque_subrange_subrange(state_after_begin_setup, 0, journal_constants.app_area_start as int);
+        lemma_auto_opaque_subrange_subrange(pm@.read_state, 0, journal_constants.app_area_start as int);
         reveal(recover_journal);
     }
 }

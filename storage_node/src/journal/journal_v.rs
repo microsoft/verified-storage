@@ -75,17 +75,17 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.constants.app_version_number == self.sm.app_version_number
         &&& self.constants.app_program_guid == self.sm.app_program_guid
         &&& self.constants.journal_capacity == self.sm.journal_entries_end - self.sm.journal_entries_start
-        &&& self.constants.app_static_area_start == self.sm.app_static_area_start
-        &&& self.constants.app_static_area_end == self.sm.app_static_area_end
-        &&& self.constants.app_dynamic_area_start == self.sm.app_dynamic_area_start
-        &&& self.constants.app_dynamic_area_end == self.sm.app_dynamic_area_end
+        &&& self.constants.app_area_start == self.sm.app_area_start
+        &&& self.constants.app_area_end == self.sm.app_area_end
     }
 
     spec fn inv(self) -> bool
     {
         let pmv = self.wrpm.view();
         &&& self.wrpm.inv()
+        &&& pmv.valid()
         &&& self.inv_constants_match()
+        &&& self.constants.app_area_end == pmv.len()
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
         &&& recover_committed_cdb(pmv.durable_state, self.sm) matches Some(committed)
@@ -120,8 +120,8 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& recover_journal(state1) matches Some(j1)
         &&& recover_journal(state2) matches Some(j2)
         &&& j1.constants == j2.constants
-        &&& opaque_subrange(j1.state, j1.constants.app_static_area_start as int, j1.constants.app_dynamic_area_end as int)
-                == opaque_subrange(j2.state, j2.constants.app_static_area_start as int, j2.constants.app_dynamic_area_end as int)
+        &&& opaque_subrange(j1.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
+                == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
     }
 
     pub exec fn start(
@@ -157,15 +157,9 @@ impl <Perm, PM> Journal<Perm, PM>
             app_version_number: sm.app_version_number,
             app_program_guid: sm.app_program_guid,
             journal_capacity: sm.journal_entries_end - sm.journal_entries_start,
-            app_static_area_start: sm.app_static_area_start,
-            app_static_area_end: sm.app_static_area_end,
-            app_dynamic_area_start: sm.app_dynamic_area_start,
-            app_dynamic_area_end: sm.app_dynamic_area_end,
+            app_area_start: sm.app_area_start,
+            app_area_end: sm.app_area_end,
         };
-        let ghost app_static_area =
-            opaque_subrange(pm@.read_state, sm.app_static_area_start as int, sm.app_static_area_end as int);
-        let ghost app_dynamic_area =
-            opaque_subrange(pm@.read_state, sm.app_dynamic_area_start as int, sm.app_dynamic_area_end as int);
         if cdb {
             let journal_length = Self::read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
             let entries_bytes =

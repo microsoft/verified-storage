@@ -45,10 +45,8 @@ pub struct JournalStaticMetadata {
     pub journal_entries_crc_start: u64,
     pub journal_entries_start: u64,
     pub journal_entries_end: u64,
-    pub app_static_area_start: u64,
-    pub app_static_area_end: u64,
-    pub app_dynamic_area_start: u64,
-    pub app_dynamic_area_end: u64,
+    pub app_area_start: u64,
+    pub app_area_end: u64,
     pub app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
@@ -73,8 +71,8 @@ impl JournalEntry
 
     pub open spec fn fits(self, sm: JournalStaticMetadata) -> bool
     {
-        &&& 0 <= sm.app_dynamic_area_start <= self.start
-        &&& self.end() <= sm.app_dynamic_area_end  
+        &&& 0 <= sm.app_area_start <= self.start
+        &&& self.end() <= sm.app_area_end
     }
 }
 
@@ -153,10 +151,8 @@ pub open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: Journal
         &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_entries_crc_start
         &&& sm.journal_entries_crc_start + u64::spec_size_of() <= sm.journal_entries_start
         &&& sm.journal_entries_start <= sm.journal_entries_end
-        &&& sm.journal_entries_end <= sm.app_static_area_start
-        &&& sm.app_static_area_start <= sm.app_static_area_end
-        &&& sm.app_static_area_end <= sm.app_dynamic_area_start
-        &&& sm.app_dynamic_area_start <= sm.app_dynamic_area_end
+        &&& sm.journal_entries_end <= sm.app_area_start
+        &&& sm.app_area_start <= sm.app_area_end
     }
     else {
         false
@@ -172,7 +168,7 @@ pub open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetad
     else {
         match recover_object::<JournalStaticMetadata>(bytes, spec_journal_static_metadata_start(),
                                                       spec_journal_static_metadata_crc_start()) {
-            Some(sm) => if validate_static_metadata(sm, vm) && sm.app_dynamic_area_end <= bytes.len() {
+            Some(sm) => if validate_static_metadata(sm, vm) && sm.app_area_end == bytes.len() {
                 Some(sm)
             } else {
                 None
@@ -188,7 +184,7 @@ pub open spec fn validate_metadata(vm: JournalVersionMetadata, sm: JournalStatic
     &&& validate_static_metadata(sm, vm)
     &&& spec_journal_version_metadata_crc_end() <= num_bytes
     &&& spec_journal_static_metadata_crc_end() <= num_bytes
-    &&& sm.app_dynamic_area_end <= num_bytes
+    &&& sm.app_area_end == num_bytes
 }
 
 pub open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
@@ -356,10 +352,8 @@ pub open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJournal>
                                     app_version_number: sm.app_version_number,
                                     app_program_guid: sm.app_program_guid,
                                     journal_capacity: (sm.journal_entries_end - sm.journal_entries_start) as u64,
-                                    app_static_area_start: sm.app_static_area_start,
-                                    app_static_area_end: sm.app_static_area_end,
-                                    app_dynamic_area_start: sm.app_dynamic_area_start,
-                                    app_dynamic_area_end: sm.app_dynamic_area_end,
+                                    app_area_start: sm.app_area_start,
+                                    app_area_end: sm.app_area_end,
                                 },
                                 state,
                             }),

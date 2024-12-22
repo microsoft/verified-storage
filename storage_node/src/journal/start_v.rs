@@ -268,7 +268,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             old(wrpm).inv(),
             old(wrpm)@.valid(),
-            0 <= sm.app_dynamic_area_end <= old(wrpm)@.len(),
+            0 <= sm.app_area_end <= old(wrpm)@.len(),
             recover_version_metadata(old(wrpm)@.durable_state) == Some(vm),
             recover_static_metadata(old(wrpm)@.durable_state, vm) == Some(*sm),
             recover_committed_cdb(old(wrpm)@.durable_state, *sm) == Some(true),
@@ -292,10 +292,10 @@ impl <Perm, PM> Journal<Perm, PM>
             wrpm@.valid(),
             recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
             apply_journal_entries(wrpm@.read_state, entries, num_entries_installed + 1, *sm) == Some(commit_state),
-            opaque_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int) ==
-                opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_dynamic_area_start as int),
-            opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
-                opaque_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int),
+            opaque_subrange(wrpm@.durable_state, 0, sm.app_area_start as int) ==
+                opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_area_start as int),
+            opaque_subrange(wrpm@.read_state, 0, sm.app_area_start as int) ==
+                opaque_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int),
     {
         proof {
             lemma_addresses_in_entry_dont_affect_recovery(wrpm@.durable_state, vm, *sm,
@@ -415,10 +415,10 @@ impl <Perm, PM> Journal<Perm, PM>
                 forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                     ==> #[trigger] perm.check_permission(s),
                 parse_journal_entries(entries_bytes@, start as int) == Some(entries.skip(num_entries_installed)),
-                opaque_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int) ==
-                    opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_dynamic_area_start as int),
-                opaque_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int) ==
-                    opaque_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int),
+                opaque_subrange(wrpm@.durable_state, 0, sm.app_area_start as int) ==
+                    opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_area_start as int),
+                opaque_subrange(wrpm@.read_state, 0, sm.app_area_start as int) ==
+                    opaque_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int),
                 apply_journal_entries(wrpm@.read_state, entries, num_entries_installed, *sm)
                     == Some(commit_state),
         {
@@ -451,8 +451,8 @@ impl <Perm, PM> Journal<Perm, PM>
                 assert(entries.skip(num_entries_installed) =~= seq![entries[num_entries_installed as int]] +
                        entries.skip(num_entries_installed + 1));
                 num_entries_installed = num_entries_installed + 1;
-                lemma_auto_opaque_subrange_subrange(durable_state_at_start_of_loop, 0, sm.app_dynamic_area_start as int);
-                lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, sm.app_dynamic_area_start as int);
+                lemma_auto_opaque_subrange_subrange(durable_state_at_start_of_loop, 0, sm.app_area_start as int);
+                lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, sm.app_area_start as int);
             }
             
             start += (twice_u64_size + len as usize);
@@ -461,8 +461,8 @@ impl <Perm, PM> Journal<Perm, PM>
         wrpm.flush();
 
         proof {
-            lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, sm.app_dynamic_area_start as int);
-            lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int);
+            lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, sm.app_area_start as int);
+            lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int);
             reveal(recover_journal);
         }
     }

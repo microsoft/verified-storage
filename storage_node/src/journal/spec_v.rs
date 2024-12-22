@@ -12,17 +12,14 @@ verus! {
         pub app_version_number: u64,
         pub app_program_guid: u128,
         pub journal_capacity: u64,
-        pub app_static_area_start: u64,
-        pub app_static_area_end: u64,
-        pub app_dynamic_area_start: u64,
-        pub app_dynamic_area_end: u64,
+        pub app_area_start: u64,
+        pub app_area_end: u64,
     }
 
     impl JournalConstants {
         pub open spec fn valid(self) -> bool
         {
-            0 <= self.app_static_area_start <= self.app_static_area_end <= self.app_dynamic_area_start
-                <= self.app_dynamic_area_end
+            0 <= self.app_area_start <= self.app_area_end
         }
     }
 
@@ -54,17 +51,14 @@ verus! {
         pub app_program_guid: u128,
         pub max_journal_entries: u64,
         pub max_journaled_bytes: u64,
-        pub app_static_area_size: u64,
-        pub app_static_area_alignment: u64,
-        pub app_dynamic_area_size: u64,
-        pub app_dynamic_area_alignment: u64,
+        pub app_area_size: u64,
+        pub app_area_alignment: u64,
     }
 
     impl JournalSetupParameters {
         pub open spec fn valid(&self) -> bool
         {
-            &&& 0 < self.app_static_area_alignment
-            &&& 0 < self.app_dynamic_area_alignment
+            0 < self.app_area_alignment
         }
     }
     
