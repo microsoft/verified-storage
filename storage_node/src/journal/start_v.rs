@@ -344,6 +344,7 @@ impl <Perm, PM> Journal<Perm, PM>
     )
         requires
             old(wrpm).inv(),
+            old(wrpm)@.valid(),
             old(wrpm)@.flush_predicted(),
             recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
             recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
@@ -370,10 +371,6 @@ impl <Perm, PM> Journal<Perm, PM>
             apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) == Some(wrpm@.read_state),
             recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
     {
-        proof {
-            wrpm.lemma_inv_implies_view_valid();
-        }
-
         let mut start: usize = 0;
         let end: usize = entries_bytes.len();
         let ghost mut num_entries_installed: int = 0;
@@ -468,6 +465,60 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_dynamic_area_start as int);
             reveal(recover_journal);
         }
+    }
+
+    pub exec fn clear_log(
+        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
+        Ghost(vm): Ghost<JournalVersionMetadata>,
+        sm: &JournalStaticMetadata,
+    )
+        requires
+            old(wrpm).inv(),
+            old(wrpm)@.valid(),
+            old(wrpm)@.flush_predicted(),
+            recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
+            recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(old(wrpm)@.read_state, *sm) == Some(true),
+            ({
+                &&& recover_journal(old(wrpm)@.read_state) matches Some(j)
+                &&& j.state == old(wrpm)@.read_state
+            }),
+            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(wrpm)@.durable_state)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            wrpm.inv(),
+            wrpm.constants() == old(wrpm).constants(),
+            wrpm@.len() == old(wrpm)@.len(),
+            wrpm@.flush_predicted(),
+            recover_version_metadata(wrpm@.read_state) == Some(vm),
+            recover_static_metadata(wrpm@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(wrpm@.read_state, *sm) == Some(false),
+            Self::recovery_equivalent_for_app(wrpm@.durable_state, old(wrpm)@.durable_state),
+    {
+        let new_cdb: u64 = CDB_FALSE;
+        let ghost new_state = update_bytes(wrpm@.durable_state, sm.committed_cdb_start as int,
+            new_cdb.spec_to_bytes());
+        proof {
+            broadcast use pmcopy_axioms;
+            assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0) by {
+                reveal(opaque_aligned);
+            }
+            assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
+            assert(perm.check_permission(wrpm@.durable_state));
+                    lemma_auto_effect_of_update_bytes_on_opaque_subrange();
+            lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
+            assert(recover_version_metadata(new_state) == Some(vm));
+            assert(recover_static_metadata(new_state, vm) == Some(*sm));
+            assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms
+            assert(Self::recovery_equivalent_for_app(new_state, old(wrpm)@.durable_state)) by {
+                reveal(recover_journal);
+            }
+            lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write();
+        }
+        wrpm.serialize_and_write::<u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
+        wrpm.flush();
+        assert(wrpm@.read_state == new_state);
     }
 }
 

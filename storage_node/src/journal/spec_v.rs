@@ -17,6 +17,14 @@ verus! {
         pub app_dynamic_area_end: u64,
     }
 
+    impl JournalConstants {
+        pub open spec fn valid(self) -> bool
+        {
+            0 <= self.app_static_area_start <= self.app_static_area_end <= self.app_dynamic_area_start
+                <= self.app_dynamic_area_end
+        }
+    }
+
     pub struct JournalView {
         pub constants: JournalConstants,
         pub durable_state: Seq<u8>,

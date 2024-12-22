@@ -116,6 +116,15 @@ impl <Perm, PM> Journal<Perm, PM>
         reveal(recover_journal);
     }
 
+    pub open spec fn recovery_equivalent_for_app(state1: Seq<u8>, state2: Seq<u8>) -> bool
+    {
+        &&& recover_journal(state1) matches Some(j1)
+        &&& recover_journal(state2) matches Some(j2)
+        &&& j1.constants == j2.constants
+        &&& opaque_subrange(j1.state, j1.constants.app_static_area_start as int, j1.constants.app_dynamic_area_end as int)
+                == opaque_subrange(j2.state, j2.constants.app_static_area_start as int, j2.constants.app_dynamic_area_end as int)
+    }
+
     pub exec fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>
@@ -123,7 +132,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             wrpm.inv(),
             recover_journal(wrpm.view().read_state).is_some(),
-            forall|s: Seq<u8>| recover_journal(s) == recover_journal(wrpm.view().durable_state)
+            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, wrpm.view().durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
             match result {
@@ -134,6 +143,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 _ => true,
             }
     {
+        let ghost old_durable_state = wrpm@.durable_state;
         let mut wrpm = wrpm;
         wrpm.flush();
 
@@ -163,23 +173,20 @@ impl <Perm, PM> Journal<Perm, PM>
                 Self::read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
             let ghost entries = parse_journal_entries(entries_bytes@, 0).unwrap();
             Self::install_journal_entries(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes, Ghost(entries));
-            assume(false);
-            Err(JournalError::NotEnoughSpace)
+            Self::clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
         }
-        else {
-            Ok(Self {
-                wrpm,
-                vm: Ghost(vm),
-                sm,
-                status: JournalStatus::Quiescent,
-                constants,
-                commit_state: Ghost(pm@.read_state),
-                committed: false,
-                journal_length: 0,
-                journaled_addrs: Ghost(Set::<int>::empty()),
-                entries: Ghost(Seq::<JournalEntry>::empty()),
-            })
-        }
+        Ok(Self {
+            wrpm,
+            vm: Ghost(vm),
+            sm,
+            status: JournalStatus::Quiescent,
+            constants,
+            commit_state: Ghost(wrpm@.read_state),
+            committed: false,
+            journal_length: 0,
+            journaled_addrs: Ghost(Set::<int>::empty()),
+            entries: Ghost(Seq::<JournalEntry>::empty()),
+        })
     }
 }
 

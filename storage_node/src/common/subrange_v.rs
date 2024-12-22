@@ -288,5 +288,108 @@ pub proof fn lemma_auto_opaque_subrange_subrange<T>(s: Seq<T>, outer_start: int,
     }
 }
 
+pub proof fn lemma_effect_of_update_bytes_on_opaque_subrange(s1: Seq<u8>, addr: int, bytes: Seq<u8>)
+    requires
+        0 <= addr,
+        addr + bytes.len() <= s1.len(),
+    ensures
+        opaque_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len()),
+        opaque_subrange(update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes,
+{
+    reveal(opaque_subrange);
+    let end = addr + bytes.len();
+    let s2 = update_bytes(s1, addr, bytes);
+    assert(opaque_subrange(s2, addr, end) =~= bytes);
+    assert(opaque_subrange(s2, 0, addr) =~= opaque_subrange(s1, 0, addr));
+    assert(opaque_subrange(s2, end, s1.len() as int) =~= opaque_subrange(s1, end, s1.len() as int));
+}
+
+pub proof fn lemma_auto_effect_of_update_bytes_on_opaque_subrange()
+    ensures
+        forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger update_bytes(s1, addr, bytes)] {
+            &&& 0 <= addr
+            &&& addr + bytes.len() <= s1.len()
+        } ==> {
+            &&& opaque_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len())
+            &&& opaque_subrange(update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+        }
+{
+    assert forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger update_bytes(s1, addr, bytes)] {
+        &&& 0 <= addr
+        &&& addr + bytes.len() <= s1.len()
+    } implies {
+        &&& opaque_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len())
+        &&& opaque_subrange(update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+    } by {
+        lemma_effect_of_update_bytes_on_opaque_subrange(s1, addr, bytes);
+    }
+}
+
+pub proof fn lemma_effect_of_opaque_update_bytes_on_opaque_subrange(s1: Seq<u8>, addr: int, bytes: Seq<u8>)
+    requires
+        0 <= addr,
+        addr + bytes.len() <= s1.len(),
+    ensures
+        opaque_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len()),
+        opaque_subrange(opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes,
+{
+    reveal(opaque_update_bytes);
+    lemma_effect_of_update_bytes_on_opaque_subrange(s1, addr, bytes);
+}
+
+pub proof fn lemma_auto_effect_of_opaque_update_bytes_on_opaque_subrange()
+    ensures
+        forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger opaque_update_bytes(s1, addr, bytes)] {
+            &&& 0 <= addr
+            &&& addr + bytes.len() <= s1.len()
+        } ==> {
+            &&& opaque_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len())
+            &&& opaque_subrange(opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+        }
+{
+    assert forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger opaque_update_bytes(s1, addr, bytes)] {
+        &&& 0 <= addr
+        &&& addr + bytes.len() <= s1.len()
+    } implies {
+        &&& opaque_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len())
+        &&& opaque_subrange(opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+    } by {
+        lemma_effect_of_opaque_update_bytes_on_opaque_subrange(s1, addr, bytes);
+    }
+}
+
+pub proof fn lemma_auto_effect_of_opaque_match_except_in_range_on_subranges()
+    ensures
+        forall|s1: Seq<u8>, s2: Seq<u8>, start: int, end: int|
+            #[trigger] opaque_match_except_in_range(s1, s2, start, end) ==>
+            forall|inner_start: int, inner_end: int|
+            0 <= inner_start <= inner_end <= start ==>
+                #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end),
+        forall|s1: Seq<u8>, s2: Seq<u8>, start: int, end: int|
+            #[trigger] opaque_match_except_in_range(s1, s2, start, end) ==>
+            forall|inner_start: int, inner_end: int|
+            end <= inner_start <= inner_end <= s2.len() ==>
+                #[trigger] opaque_subrange(s1, inner_start, inner_end) == opaque_subrange(s2, inner_start, inner_end),
+{
+    assert forall|s1: Seq<u8>, s2: Seq<u8>, start: int, end: int|
+           #[trigger] opaque_match_except_in_range(s1, s2, start, end) implies {
+            forall|inner_start: int, inner_end: int|
+            0 <= inner_start <= inner_end <= start ==>
+                #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end)
+    } by {
+        lemma_auto_opaque_subrange_subrange(s1, 0, start);
+        lemma_auto_opaque_subrange_subrange(s2, 0, start);
+    }
+    assert forall|s1: Seq<u8>, s2: Seq<u8>, start: int, end: int|
+           #[trigger] opaque_match_except_in_range(s1, s2, start, end) implies {
+        forall|inner_start: int, inner_end: int|
+        end <= inner_start <= inner_end <= s2.len() ==>
+            #[trigger] opaque_subrange(s1, inner_start, inner_end) == opaque_subrange(s2, inner_start, inner_end)
+    } by {
+        lemma_auto_opaque_subrange_subrange(s1, end, s1.len() as int);
+        lemma_auto_opaque_subrange_subrange(s2, end, s2.len() as int);
+    }
+}
 
 }
+
