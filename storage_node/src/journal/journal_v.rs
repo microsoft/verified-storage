@@ -469,6 +469,24 @@ impl <Perm, PM> Journal<Perm, PM>
         reveal(opaque_subrange);
         self.wrpm.get_pm_region_ref().read_unaligned(addr, num_bytes)
     }
+
+    pub exec fn abort(&mut self)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@ == (JournalView{
+                commit_state: self@.read_state,
+                remaining_capacity: self@.constants.journal_capacity as int,
+                journaled_addrs: Set::<int>::empty(),
+                ..old(self)@
+            }),
+    {
+        self.commit_state = Ghost(self@.read_state);
+        self.journal_length = 0;
+        self.journaled_addrs = Ghost(Set::<int>::empty());
+        self.entries = Ghost(Seq::<JournalEntry>::empty());
+    }
 }
 
 }
