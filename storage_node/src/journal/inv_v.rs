@@ -8,17 +8,11 @@ use crate::common::align_v::*;
 use crate::pmem::wrpm_t::*;
 use super::entry_v::*;
 use super::journal_v::*;
-use super::layout_v::*;
+use super::recover_v::*;
 use super::setup_v::*;
 use super::spec_v::*;
 
 verus! {
-
-pub(super) open spec fn journaled_addrs_complete(entries: Seq<JournalEntry>, journaled_addrs: Set<int>) -> bool
-{
-    forall|entry, addr| #![trigger entries.contains(entry), journaled_addrs.contains(addr)]
-        entries.contains(entry) && entry.start <= addr < entry.end() ==> journaled_addrs.contains(addr)
-}
 
 impl <Perm, PM> Journal<Perm, PM>
     where

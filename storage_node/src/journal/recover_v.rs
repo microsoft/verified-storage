@@ -254,36 +254,6 @@ pub(super) open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStati
     }
 }
 
-pub(super) open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: JournalStaticMetadata)
-                                     -> Option<Seq<u8>>
-{
-    if entry.fits(sm) {
-        Some(opaque_update_bytes(bytes, entry.start, entry.bytes_to_write))
-    }
-    else {
-        None
-    }
-}
-
-pub(super) open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry>, starting_entry: int,
-                                       sm: JournalStaticMetadata) -> Option<Seq<u8>>
-    decreases
-        entries.len() - starting_entry
-{
-    if starting_entry < 0 || starting_entry > entries.len() {
-        None
-    }
-    else if entries.len() == starting_entry {
-        Some(bytes)
-    }
-    else {
-        match apply_journal_entry(bytes, entries[starting_entry], sm) {
-            None => None,
-            Some(updated_bytes) => apply_journal_entries(updated_bytes, entries, starting_entry + 1, sm),
-        }
-    }
-}
-
 pub(super) open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
 {
     match recover_journal_length(bytes, sm) {
@@ -334,6 +304,15 @@ pub(super) open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJourn
                     },
             },
     }
+}
+
+pub(super) open spec fn spec_recovery_equivalent_for_app(state1: Seq<u8>, state2: Seq<u8>) -> bool
+{
+    &&& recover_journal(state1) matches Some(j1)
+    &&& recover_journal(state2) matches Some(j2)
+    &&& j1.constants == j2.constants
+    &&& opaque_subrange(j1.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
+           == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
 }
 
 }
