@@ -1,7 +1,10 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::*;
+use crate::pmem::traits_t::size_of;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use crate::common::align_v::*;
