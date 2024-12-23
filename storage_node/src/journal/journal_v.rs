@@ -94,6 +94,11 @@ impl <Perm, PM> Journal<Perm, PM>
                == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
     }
 
+    pub closed spec fn space_needed_for_journal_entry(num_bytes: nat) -> int
+    {
+        spec_space_needed_for_journal_entry(num_bytes)
+    }
+
     pub closed spec fn space_needed_for_journal_entries(
         max_journal_entries: u64,
         max_journaled_bytes: u64,
@@ -487,6 +492,60 @@ impl <Perm, PM> Journal<Perm, PM>
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
         self.entries = ConcreteJournalEntries::new();
+    }
+
+    pub exec fn journal_write(
+        &mut self,
+        addr: u64,
+        bytes_to_write: Vec<u8>,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        requires
+            old(self).valid(),
+            old(self)@.constants.app_area_start <= addr,
+            addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
+            forall|s: Seq<u8>| {
+                &&& opaque_match_except_in_range(s, old(self)@.durable_state, 0, old(self)@.constants.app_area_start as int)
+                &&& Self::recover(s) matches Some(j)
+                &&& j.constants == old(self)@.constants
+                &&& j.state == s
+            } ==> #[trigger] perm.check_permission(s),
+            old(self)@.remaining_capacity >= Self::space_needed_for_journal_entry(bytes_to_write@.len()),
+        ensures
+            self.valid(),
+            self.recover_successful(),
+            self@ == (JournalView{
+                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
+                journaled_addrs: old(self)@.journaled_addrs +
+                                 Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
+                ..old(self)@
+            }),
+            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, 0,
+                                         self@.constants.app_area_start as int)
+    {
+        let num_bytes: u64 = bytes_to_write.len() as u64;
+        let entry_addr = self.sm.journal_entries_start + self.journal_length;
+        assert forall |s|
+          can_result_from_partial_write(s, self.wrpm@.durable_state, entry_addr as int, addr.spec_to_bytes()) implies
+              #[trigger] perm.check_permission(s) by {
+            assume(false);
+        }
+        self.wrpm.serialize_and_write::<u64>(entry_addr, &addr, Tracked(perm));
+        broadcast use pmcopy_axioms;
+        assert forall |s|
+          can_result_from_partial_write(s, self.wrpm@.durable_state, entry_addr + u64::spec_size_of(),
+                                        num_bytes.spec_to_bytes()) implies
+              #[trigger] perm.check_permission(s) by {
+            assume(false);
+        }
+        self.wrpm.serialize_and_write::<u64>(entry_addr + size_of::<u64>() as u64, &num_bytes, Tracked(perm));
+
+        let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
+        self.entries.push(concrete_entry);
+        self.commit_state = Ghost(opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@));
+        self.journaled_addrs = Ghost(self.journaled_addrs@ +
+                                     Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
+        assume(false);
     }
 }
 
