@@ -315,4 +315,35 @@ pub(super) open spec fn spec_recovery_equivalent_for_app(state1: Seq<u8>, state2
            == opaque_subrange(j2.state, j2.constants.app_area_start as int, j2.constants.app_area_end as int)
 }
 
+pub(super) open spec fn recovers_to(
+    s: Seq<u8>,
+    vm: JournalVersionMetadata,
+    sm: JournalStaticMetadata,
+    constants: JournalConstants,
+) -> bool
+{
+    &&& recover_version_metadata(s) == Some(vm)
+    &&& recover_static_metadata(s, vm) == Some(sm)
+    &&& recover_committed_cdb(s, sm) == Some(false)
+    &&& recover_journal(s) matches Some(j)
+    &&& j.constants == constants
+    &&& j.state == s
+}
+
+pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    vm: JournalVersionMetadata,
+    sm: JournalStaticMetadata,
+    constants: JournalConstants,
+)
+    requires
+        recovers_to(s1, vm, sm, constants),
+        opaque_match_except_in_range(s1, s2, sm.journal_length_start as int, sm.journal_entries_end as int),
+    ensures
+        recovers_to(s2, vm, sm, constants),
+{
+    lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
+}
+
 }

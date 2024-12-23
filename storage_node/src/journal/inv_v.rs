@@ -18,18 +18,6 @@ impl <Perm, PM> Journal<Perm, PM>
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
-    pub(super) open spec fn journal_entries_matches(self, read_state: Seq<u8>) -> bool
-    {
-        &&& 0 <= self.sm.journal_entries_start
-        &&& self.sm.journal_entries_start + self.constants.journal_capacity <= self.sm.journal_entries_end
-        &&& recover_journal_entries(read_state, self.sm, self.journal_length) == Some(self.entries@)
-    }
-
-    pub(super) open spec fn inv_journaled_addrs_complete(self) -> bool
-    {
-        journaled_addrs_complete(self.entries@, self.journaled_addrs@)
-    }
-
     pub(super) open spec fn inv_constants_match(self) -> bool
     {
         &&& self.constants.app_version_number == self.sm.app_version_number
@@ -51,7 +39,9 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& recover_committed_cdb(pmv.durable_state, self.sm) matches Some(committed)
         &&& self.status is Quiescent ==> !committed
         &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
-        &&& self.inv_journaled_addrs_complete()
+        &&& journaled_addrs_complete(self.entries@, self.journaled_addrs@)
+        &&& 0 <= self.journal_length <= self.constants.journal_capacity
+        &&& self.journal_length == space_needed_for_journal_entries(self.entries@)
     }
 
     pub(super) open spec fn valid_internal(self) -> bool

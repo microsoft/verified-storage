@@ -55,6 +55,11 @@ impl JournalEntry
         &&& 0 <= sm.app_area_start <= self.start
         &&& self.end() <= sm.app_area_end
     }
+
+    pub(super) open spec fn space_needed(self) -> int
+    {
+        spec_space_needed_for_journal_entry(self.bytes_to_write.len())
+    }
 }
 
 pub(super) open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry, sm: JournalStaticMetadata)
@@ -69,7 +74,7 @@ pub(super) open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry,
 }
 
 pub(super) open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<JournalEntry>, starting_entry: int,
-                                       sm: JournalStaticMetadata) -> Option<Seq<u8>>
+                                              sm: JournalStaticMetadata) -> Option<Seq<u8>>
     decreases
         entries.len() - starting_entry
 {
@@ -100,6 +105,18 @@ pub(super) open spec fn journal_entries_valid(entries: Seq<JournalEntry>, starti
     }
     else {
         entries[starting_entry].fits(sm) && journal_entries_valid(entries, starting_entry + 1, sm)
+    }
+}
+
+pub(super) open spec fn space_needed_for_journal_entries(entries: Seq<JournalEntry>) -> int
+    decreases
+        entries.len()
+{
+    if entries.len() == 0 {
+        0
+    }
+    else {
+        entries.last().space_needed() + space_needed_for_journal_entries(entries.drop_last())
     }
 }
 
@@ -138,7 +155,9 @@ impl DeepView for ConcreteJournalEntry
 impl ConcreteJournalEntry
 {
     #[inline]
-    pub exec fn new(start: u64, bytes_to_write: Vec<u8>) -> Self
+    pub exec fn new(start: u64, bytes_to_write: Vec<u8>) -> (result: Self)
+        ensures
+            result@ == (JournalEntry{ start: start as int, bytes_to_write: bytes_to_write@ }),
     {
         Self{ start, bytes_to_write }
     }
@@ -445,6 +464,38 @@ pub(super) proof fn lemma_apply_journal_entries_commutes_with_update_bytes(
                 }
             }
         );
+    }
+}
+
+pub(super) proof fn lemma_effect_of_append_on_apply_journal_entries(
+    s: Seq<u8>,
+    entries: Seq<JournalEntry>,
+    starting_entry: int,
+    new_entry: JournalEntry,
+    sm: JournalStaticMetadata
+)
+    requires
+        apply_journal_entries(s, entries, starting_entry, sm) is Some,
+        apply_journal_entry(apply_journal_entries(s, entries, starting_entry, sm).unwrap(), new_entry, sm) is Some,
+        sm.app_area_start <= sm.app_area_end == s.len(),
+    ensures
+        apply_journal_entries(s, entries.push(new_entry), starting_entry, sm) ==
+            apply_journal_entry(apply_journal_entries(s, entries, starting_entry, sm).unwrap(), new_entry, sm),
+    decreases
+        entries.len() - starting_entry,
+{
+    if entries.len() == starting_entry {
+        let s_next = apply_journal_entry(s, new_entry, sm).unwrap();
+        assert(entries.push(new_entry)[starting_entry] == new_entry);
+        assert(apply_journal_entry(s, entries.push(new_entry)[starting_entry], sm) == Some(s_next));
+        assert(apply_journal_entries(s_next, entries.push(new_entry), starting_entry + 1, sm) == Some(s_next));
+    }
+    else {
+        reveal(opaque_update_bytes);
+        assert(entries.push(new_entry)[starting_entry] == entries[starting_entry]);
+        let s_next = apply_journal_entry(s, entries[starting_entry], sm).unwrap();
+        assert(apply_journal_entry(s, entries.push(new_entry)[starting_entry], sm) == Some(s_next));
+        lemma_effect_of_append_on_apply_journal_entries(s_next, entries, starting_entry + 1, new_entry, sm);
     }
 }
 
