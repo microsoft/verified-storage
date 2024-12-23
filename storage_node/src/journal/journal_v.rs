@@ -6,6 +6,7 @@ use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use crate::common::align_v::*;
 use crate::pmem::wrpm_t::*;
+use super::entry_v::*;
 use super::layout_v::*;
 use super::setup_v::*;
 use super::spec_v::*;
@@ -31,7 +32,7 @@ pub struct Journal<Perm, PM>
     pub(super) commit_state: Ghost<Seq<u8>>,
     pub(super) journal_length: u64,
     pub(super) journaled_addrs: Ghost<Set<int>>,
-    pub(super) entries: Ghost<Seq<JournalEntry>>,
+    pub(super) entries: ConcreteJournalEntries,
 }
 
 impl<Perm, PM> View for Journal<Perm, PM>
@@ -321,7 +322,7 @@ impl <Perm, PM> Journal<Perm, PM>
             commit_state: Ghost(wrpm@.read_state),
             journal_length: 0,
             journaled_addrs: Ghost(Set::<int>::empty()),
-            entries: Ghost(Seq::<JournalEntry>::empty()),
+            entries: ConcreteJournalEntries::new(),
         })
     }
 
@@ -485,7 +486,7 @@ impl <Perm, PM> Journal<Perm, PM>
         self.commit_state = Ghost(self@.read_state);
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
-        self.entries = Ghost(Seq::<JournalEntry>::empty());
+        self.entries = ConcreteJournalEntries::new();
     }
 }
 

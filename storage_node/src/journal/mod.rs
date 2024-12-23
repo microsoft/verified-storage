@@ -1,3 +1,4 @@
+mod entry_v;
 mod inv_v;
 mod journal_v;
 mod layout_v;

@@ -51,10 +51,10 @@ pub(super) struct JournalStaticMetadata {
 }
 
 #[verifier::ext_equal]
-pub(super) struct JournalEntry
+pub struct JournalEntry
 {
-    pub(super) start: int,
-    pub(super) bytes_to_write: Seq<u8>,
+    pub start: int,
+    pub bytes_to_write: Seq<u8>,
 }
 
 impl JournalEntry
