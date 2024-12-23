@@ -26,6 +26,7 @@ verus! {
     #[verifier::ext_equal]
     pub struct JournalView {
         pub constants: JournalConstants,
+        pub pm_constants: PersistentMemoryConstants,
         pub durable_state: Seq<u8>,
         pub read_state: Seq<u8>,
         pub commit_state: Seq<u8>,

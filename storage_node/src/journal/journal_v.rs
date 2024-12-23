@@ -45,6 +45,7 @@ impl<Perm, PM> View for Journal<Perm, PM>
     {
         JournalView{
             constants: self.constants,
+            pm_constants: self.wrpm.constants(),
             durable_state: self.wrpm@.durable_state,
             read_state: self.wrpm@.read_state,
             commit_state: self.commit_state@,
@@ -275,6 +276,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 Ok(j) => {
                     &&& j.valid()
                     &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
+                    &&& j@.pm_constants == wrpm.constants()
                     &&& j@.remaining_capacity == j@.constants.journal_capacity
                     &&& j@.journaled_addrs.is_empty()
                     &&& j@.durable_state == j@.read_state
@@ -426,6 +428,47 @@ impl <Perm, PM> Journal<Perm, PM>
         self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
     }
 
+    pub exec fn read_aligned<S>(&self, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
+        where 
+            S: PmCopy + Sized,
+        requires
+            self.valid(),
+            addr + S::spec_size_of() <= self@.read_state.len(),
+            // We must have previously written a serialized S to this addr
+            S::bytes_parseable(self@.read_state.subrange(addr as int, addr + S::spec_size_of()))
+        ensures
+            match bytes {
+                Ok(bytes) => bytes_read_from_storage(
+                    bytes@,
+                    opaque_subrange(self@.read_state, addr as int, addr + S::spec_size_of()),
+                    addr as int,
+                    self@.pm_constants
+                ),
+                _ => false,
+            }
+    {
+        reveal(opaque_subrange);
+        self.wrpm.get_pm_region_ref().read_aligned(addr)
+    }
+
+    pub exec fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) 
+        requires 
+            self.valid(),
+            addr + num_bytes <= self@.read_state.len(),
+        ensures 
+            match bytes {
+                Ok(bytes) => bytes_read_from_storage(
+                    bytes@,
+                    opaque_subrange(self@.read_state, addr as int, addr + num_bytes as nat),
+                    addr as int,
+                    self@.pm_constants
+                ),
+                _ => false,
+            }
+    {
+        reveal(opaque_subrange);
+        self.wrpm.get_pm_region_ref().read_unaligned(addr, num_bytes)
+    }
 }
 
 }
