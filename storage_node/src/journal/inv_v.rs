@@ -6,6 +6,7 @@ use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use crate::common::align_v::*;
 use crate::pmem::wrpm_t::*;
+use super::entry_v::*;
 use super::journal_v::*;
 use super::layout_v::*;
 use super::setup_v::*;

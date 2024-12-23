@@ -29,6 +29,32 @@ pub(super) exec fn get_space_needed_for_journal_entry(num_bytes: usize) -> (resu
     journal_entry_size.add_usize(num_bytes)
 }
 
+#[verifier::ext_equal]
+pub struct JournalEntry
+{
+    pub start: int,
+    pub bytes_to_write: Seq<u8>,
+}
+
+impl JournalEntry
+{
+    pub(super) open spec fn end(self) -> int
+    {
+        self.start + self.bytes_to_write.len()
+    }
+
+    pub(super) open spec fn addrs(self) -> Set<int>
+    {
+        Set::<int>::new(|i| self.start <= i < self.end())
+    }
+
+    pub(super) open spec fn fits(self, sm: JournalStaticMetadata) -> bool
+    {
+        &&& 0 <= sm.app_area_start <= self.start
+        &&& self.end() <= sm.app_area_end
+    }
+}
+
 pub struct ConcreteJournalEntry
 {
     pub start: u64,

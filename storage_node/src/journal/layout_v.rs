@@ -9,6 +9,7 @@ use crate::common::align_v::*;
 use crate::common::saturate_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
+use super::entry_v::*;
 use super::spec_v::*;
 use deps_hack::PmCopy;
 
@@ -48,32 +49,6 @@ pub(super) struct JournalStaticMetadata {
     pub(super) app_area_start: u64,
     pub(super) app_area_end: u64,
     pub(super) app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
-}
-
-#[verifier::ext_equal]
-pub struct JournalEntry
-{
-    pub start: int,
-    pub bytes_to_write: Seq<u8>,
-}
-
-impl JournalEntry
-{
-    pub(super) open spec fn end(self) -> int
-    {
-        self.start + self.bytes_to_write.len()
-    }
-
-    pub(super) open spec fn addrs(self) -> Set<int>
-    {
-        Set::<int>::new(|i| self.start <= i < self.end())
-    }
-
-    pub(super) open spec fn fits(self, sm: JournalStaticMetadata) -> bool
-    {
-        &&& 0 <= sm.app_area_start <= self.start
-        &&& self.end() <= sm.app_area_end
-    }
 }
 
 pub(super) open spec fn spec_journal_version_metadata_start() -> int
