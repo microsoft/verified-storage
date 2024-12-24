@@ -409,16 +409,19 @@ pub(super) proof fn lemma_parse_journal_entries_append(
         0 <= entry.start <= u64::MAX,
         entry.bytes_to_write.len() <= u64::MAX,
     ensures ({
-        let new_entries_bytes =
-            entries_bytes
-            + (entry.start as u64).spec_to_bytes()
-            + (entry.bytes_to_write.len() as u64).spec_to_bytes()
-            + entry.bytes_to_write;
+        let new_entry_bytes = (entry.start as u64).spec_to_bytes()
+                            + (entry.bytes_to_write.len() as u64).spec_to_bytes()
+                            + entry.bytes_to_write;
+        let new_entries_bytes = entries_bytes + new_entry_bytes;
         parse_journal_entries(new_entries_bytes, 0) ==
             Some(parse_journal_entries(entries_bytes, 0).unwrap().push(entry))
     }),
 {
-    assume(false);
+    let new_entry_bytes = (entry.start as u64).spec_to_bytes()
+                        + (entry.bytes_to_write.len() as u64).spec_to_bytes()
+                        + entry.bytes_to_write;
+    let new_entries_bytes = entries_bytes + new_entry_bytes;
+    assume(false); // TODO @jay
 }
 
 pub(super) proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
@@ -703,8 +706,6 @@ pub(super) exec fn write_journal_entry<Perm, PM>(
             lemma_auto_can_result_from_write_effect_on_read_state();
             reveal(opaque_subrange);
         }
-        assert(new_entries_bytes =~=
-               old_entries_bytes + entry.start.spec_to_bytes() + num_bytes.spec_to_bytes() + entry.bytes_to_write@);
         assert(parse_journal_entries(new_entries_bytes, 0) ==
                Some(entries@.take(current_entry_index as int).push(entry@))) by {
             lemma_parse_journal_entries_append(opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int,
