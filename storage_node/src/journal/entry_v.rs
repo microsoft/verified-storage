@@ -402,26 +402,65 @@ pub(super) proof fn lemma_parse_journal_entry_implications(
 
 pub(super) proof fn lemma_parse_journal_entries_append(
     entries_bytes: Seq<u8>,
-    entry: JournalEntry,
+    start: int,
+    entries: Seq<JournalEntry>,
+    new_entry: JournalEntry,
 )
     requires
-        parse_journal_entries(entries_bytes, 0) is Some,
-        0 <= entry.start <= u64::MAX,
-        entry.bytes_to_write.len() <= u64::MAX,
+        0 <= start <= entries_bytes.len(),
+        parse_journal_entries(entries_bytes, start) == Some(entries),
+        0 <= new_entry.start <= u64::MAX,
+        new_entry.bytes_to_write.len() <= u64::MAX,
     ensures ({
-        let new_entry_bytes = (entry.start as u64).spec_to_bytes()
-                            + (entry.bytes_to_write.len() as u64).spec_to_bytes()
-                            + entry.bytes_to_write;
-        let new_entries_bytes = entries_bytes + new_entry_bytes;
-        parse_journal_entries(new_entries_bytes, 0) ==
-            Some(parse_journal_entries(entries_bytes, 0).unwrap().push(entry))
+        let new_entries_bytes = entries_bytes
+                              + (new_entry.start as u64).spec_to_bytes()
+                              + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
+                              + new_entry.bytes_to_write;
+        parse_journal_entries(new_entries_bytes, start) == Some(entries.push(new_entry))
     }),
+    decreases
+        entries.len(),
 {
-    let new_entry_bytes = (entry.start as u64).spec_to_bytes()
-                        + (entry.bytes_to_write.len() as u64).spec_to_bytes()
-                        + entry.bytes_to_write;
-    let new_entries_bytes = entries_bytes + new_entry_bytes;
-    assume(false); // TODO @jay
+    reveal(opaque_subrange);
+    broadcast use pmcopy_axioms;
+    let new_entries_bytes = entries_bytes
+                          + (new_entry.start as u64).spec_to_bytes()
+                          + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
+                          + new_entry.bytes_to_write;
+    if start == entries_bytes.len() {
+        let addr_bytes = opaque_section(new_entries_bytes, start, u64::spec_size_of());
+        assert(addr_bytes =~= (new_entry.start as u64).spec_to_bytes());
+        let length_offset = start + u64::spec_size_of();
+        let length_bytes = opaque_section(new_entries_bytes, length_offset, u64::spec_size_of());
+        assert(length_bytes =~= (new_entry.bytes_to_write.len() as u64).spec_to_bytes());
+        let data_offset = length_offset + u64::spec_size_of();
+        assert(opaque_section(new_entries_bytes, data_offset, new_entry.bytes_to_write.len())
+               =~= new_entry.bytes_to_write);
+        assert(parse_journal_entry(new_entries_bytes, start) == Some((new_entry, new_entries_bytes.len() as int)));
+        assert(entries =~= Seq::<JournalEntry>::empty());
+        assert(parse_journal_entries(new_entries_bytes, new_entries_bytes.len() as int)
+               == Some(Seq::<JournalEntry>::empty()));
+        assert(Seq::<JournalEntry>::empty().push(new_entry) =~= seq![new_entry] + Seq::<JournalEntry>::empty());
+    }
+    else {
+        let (entry, next_pos) = parse_journal_entry(entries_bytes, start).unwrap();
+        let remaining_entries = parse_journal_entries(entries_bytes, next_pos).unwrap();
+
+        let (alt_entry, alt_next_pos) = parse_journal_entry(new_entries_bytes, start).unwrap();
+        let addr_bytes = opaque_section(new_entries_bytes, start, u64::spec_size_of());
+        assert(addr_bytes =~= opaque_section(entries_bytes, start, u64::spec_size_of()));
+        let length_offset = start + u64::spec_size_of();
+        let length_bytes = opaque_section(new_entries_bytes, length_offset, u64::spec_size_of());
+        assert(length_bytes =~= opaque_section(entries_bytes, length_offset, u64::spec_size_of()));
+        let length = u64::spec_from_bytes(length_bytes);
+        let data_offset = length_offset + u64::spec_size_of();
+        assert(opaque_section(new_entries_bytes, data_offset, length as nat) =~=
+               opaque_section(entries_bytes, data_offset, length as nat));
+        assert(alt_entry == entry);
+        assert(alt_next_pos == next_pos);
+
+        lemma_parse_journal_entries_append(entries_bytes, next_pos, remaining_entries, new_entry);
+    }
 }
 
 pub(super) proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
@@ -693,23 +732,22 @@ pub(super) exec fn write_journal_entry<Perm, PM>(
     assert(parse_journal_entries(opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, new_pos as int), 0)
             == Some(entries@.take(current_entry_index + 1))) by {
         let old_entries_bytes = opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, current_pos as int);
-        let new_entry_bytes = opaque_subrange(wrpm@.read_state, current_pos as int, new_pos as int);
         let new_entries_bytes = opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, new_pos as int);
-        assert(new_entries_bytes =~= old_entries_bytes + new_entry_bytes) by {
-            reveal(opaque_subrange);
-        }
         assert(old_entries_bytes ==
                opaque_subrange(old(wrpm)@.read_state, sm.journal_entries_start as int, current_pos as int)) by {
             lemma_auto_can_result_from_write_effect_on_read_state_subranges();
         }
-        assert(new_entry_bytes =~= entry.start.spec_to_bytes() + num_bytes.spec_to_bytes() + entry.bytes_to_write@) by {
+        assert(new_entries_bytes =~= old_entries_bytes + entry.start.spec_to_bytes() + num_bytes.spec_to_bytes() + entry.bytes_to_write@) by {
             lemma_auto_can_result_from_write_effect_on_read_state();
             reveal(opaque_subrange);
         }
         assert(parse_journal_entries(new_entries_bytes, 0) ==
                Some(entries@.take(current_entry_index as int).push(entry@))) by {
             lemma_parse_journal_entries_append(opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int,
-                                                               current_pos as int), entry@);
+                                                               current_pos as int),
+                                               0,
+                                               entries@.take(current_entry_index as int),
+                                               entry@);
         }
         assert(entries@.take(current_entry_index as int).push(entry@) =~= entries@.take(current_entry_index + 1));
     }
