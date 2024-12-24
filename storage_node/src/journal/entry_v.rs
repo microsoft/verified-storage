@@ -400,6 +400,27 @@ pub(super) proof fn lemma_parse_journal_entry_implications(
     assert(entries.skip(num_entries_read + 1) =~= entries.skip(num_entries_read).skip(1));
 }
 
+pub(super) proof fn lemma_parse_journal_entries_append(
+    entries_bytes: Seq<u8>,
+    entry: JournalEntry,
+)
+    requires
+        parse_journal_entries(entries_bytes, 0) is Some,
+        0 <= entry.start <= u64::MAX,
+        entry.bytes_to_write.len() <= u64::MAX,
+    ensures ({
+        let new_entries_bytes =
+            entries_bytes
+            + (entry.start as u64).spec_to_bytes()
+            + (entry.bytes_to_write.len() as u64).spec_to_bytes()
+            + entry.bytes_to_write;
+        parse_journal_entries(new_entries_bytes, 0) ==
+            Some(parse_journal_entries(entries_bytes, 0).unwrap().push(entry))
+    }),
+{
+    assume(false);
+}
+
 pub(super) proof fn lemma_apply_journal_entries_some_iff_journal_entries_valid(
     bytes: Seq<u8>,
     entries: Seq<JournalEntry>,
@@ -467,6 +488,43 @@ pub(super) proof fn lemma_apply_journal_entries_commutes_with_update_bytes(
     }
 }
 
+pub(super) proof fn lemma_space_needed_for_journal_entries_monotonic(entries: Seq<JournalEntry>, i: int, j: int)
+    requires
+        0 <= i <= j <= entries.len(),
+    ensures
+        space_needed_for_journal_entries(entries.take(i)) <= space_needed_for_journal_entries(entries.take(j)),
+    decreases
+        j - i
+{
+    if i < j {
+        lemma_space_needed_for_journal_entries_monotonic(entries, i + 1, j);
+        assert(entries.take(i + 1).drop_last() =~= entries.take(i));
+        assert(entries.take(i + 1).last() =~= entries[i]);
+    }
+}
+
+pub(super) proof fn lemma_space_needed_for_journal_entries_increases(entries: Seq<JournalEntry>, i: int)
+    requires
+        0 <= i < entries.len(),
+    ensures
+        space_needed_for_journal_entries(entries.take(i + 1))
+           == space_needed_for_journal_entries(entries.take(i)) + entries[i].space_needed()
+{
+    assert(entries.take(i + 1).drop_last() =~= entries.take(i));
+    assert(entries.take(i + 1).last() =~= entries[i]);
+}
+
+pub(super) proof fn lemma_space_needed_for_journal_entries_nonnegative(entries: Seq<JournalEntry>)
+    ensures
+        0 <= space_needed_for_journal_entries(entries),
+    decreases
+        entries.len()
+{
+    if entries.len() > 0 {
+        lemma_space_needed_for_journal_entries_nonnegative(entries.drop_last());
+    }
+}
+
 pub(super) proof fn lemma_effect_of_append_on_apply_journal_entries(
     s: Seq<u8>,
     entries: Seq<JournalEntry>,
@@ -497,6 +555,164 @@ pub(super) proof fn lemma_effect_of_append_on_apply_journal_entries(
         assert(apply_journal_entry(s, entries.push(new_entry)[starting_entry], sm) == Some(s_next));
         lemma_effect_of_append_on_apply_journal_entries(s_next, entries, starting_entry + 1, new_entry, sm);
     }
+}
+
+pub(super) exec fn write_journal_entry<Perm, PM>(
+    wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+    Tracked(perm): Tracked<&Perm>,
+    Ghost(vm): Ghost<JournalVersionMetadata>,
+    sm: &JournalStaticMetadata,
+    Ghost(constants): Ghost<JournalConstants>,
+    entries: &ConcreteJournalEntries,
+    current_entry_index: usize,
+    current_pos: u64,
+    journal_length: u64,
+) -> (new_pos: u64)
+    where
+        PM: PersistentMemoryRegion,
+        Perm: CheckPermission<Seq<u8>>,
+    requires
+        old(wrpm).inv(),
+        old(wrpm)@.valid(),
+        recovers_to(old(wrpm)@.durable_state, vm, *sm, constants),
+        forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(wrpm)@.durable_state)
+            ==> #[trigger] perm.check_permission(s),
+        sm.journal_entries_start + journal_length <= sm.journal_entries_end,
+        journal_length == space_needed_for_journal_entries(entries@),
+        parse_journal_entries(opaque_subrange(old(wrpm)@.read_state, sm.journal_entries_start as int, current_pos as int),
+                              0) == Some(entries@.take(current_entry_index as int)),
+        0 <= current_entry_index < entries@.len(),
+        sm.journal_entries_start <= current_pos,
+        current_pos == sm.journal_entries_start +
+                       space_needed_for_journal_entries(entries@.take(current_entry_index as int)),
+    ensures
+        wrpm.inv(),
+        wrpm@.valid(),
+        wrpm.constants() == old(wrpm).constants(),
+        recovers_to(wrpm@.durable_state, vm, *sm, constants),
+        new_pos == current_pos + entries@[current_entry_index as int].space_needed(),
+        opaque_match_except_in_range(old(wrpm)@.durable_state, wrpm@.durable_state, sm.journal_entries_start as int,
+                                     sm.journal_entries_end as int),
+        opaque_match_except_in_range(old(wrpm)@.read_state, wrpm@.read_state, sm.journal_entries_start as int,
+                                     sm.journal_entries_end as int),
+        parse_journal_entries(opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, new_pos as int), 0)
+            == Some(entries@.take(current_entry_index + 1)),
+        current_pos < new_pos <= sm.journal_entries_start + journal_length,
+        new_pos == sm.journal_entries_start +
+                   space_needed_for_journal_entries(entries@.take(current_entry_index + 1)),
+        new_pos == sm.journal_entries_start + journal_length <==> current_entry_index == entries@.len() - 1,
+{
+    broadcast use pmcopy_axioms;
+    let entry: &ConcreteJournalEntry = &entries.entries[current_entry_index];
+    let num_bytes: u64 = entry.bytes_to_write.len() as u64;
+
+    assert({
+        &&& current_pos + entry@.space_needed() ==
+            sm.journal_entries_start + space_needed_for_journal_entries(entries@.take(current_entry_index + 1))
+        &&& 0 <= current_pos
+        &&& current_pos + entry@.space_needed() <= sm.journal_entries_start + journal_length
+        &&& current_pos + entry@.space_needed() == sm.journal_entries_start + journal_length <==>
+             current_entry_index == entries@.len() - 1
+    }) by {
+        lemma_space_needed_for_journal_entries_increases(entries@, current_entry_index as int);
+        lemma_space_needed_for_journal_entries_nonnegative(entries@.take(current_entry_index as int));
+        lemma_space_needed_for_journal_entries_monotonic(entries@, current_entry_index + 1, entries@.len() as int);
+        if current_entry_index < entries@.len() - 1 {
+            lemma_space_needed_for_journal_entries_increases(entries@, current_entry_index + 1);
+            lemma_space_needed_for_journal_entries_monotonic(entries@, current_entry_index + 1,
+                                                             current_entry_index + 2);
+            lemma_space_needed_for_journal_entries_monotonic(entries@, current_entry_index + 2,
+                                                             entries@.len() as int);
+        }
+        assert(entries@ =~= entries@.take(entries@.len() as int));
+        assert(entry@ == entries@[current_entry_index as int]);
+    }
+
+    // First, write the `start` field of the entry, which is the address that the entry
+    // is referring to, to the next position in the journal.
+
+    assert forall |s|
+        #[trigger] can_result_from_partial_write(s, wrpm@.durable_state, current_pos as int,
+                                                 entry.start.spec_to_bytes()) implies {
+            &&& recovers_to(s, vm, *sm, constants)
+            &&& perm.check_permission(s)
+            &&& opaque_match_except_in_range(s, old(wrpm)@.durable_state, sm.journal_entries_start as int,
+                                           sm.journal_entries_end as int)
+        } by {
+        lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
+        lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(wrpm@.durable_state, s,
+                                                                          vm, *sm, constants);
+    }
+    wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
+
+    // Next, write the `num_bytes` field of the entry.
+
+    let num_bytes_addr = current_pos + size_of::<u64>() as u64;
+    assert forall |s|
+        #[trigger] can_result_from_partial_write(s, wrpm@.durable_state, num_bytes_addr as int,
+                                                 num_bytes.spec_to_bytes()) implies {
+            &&& recovers_to(s, vm, *sm, constants)
+            &&& perm.check_permission(s)
+            &&& opaque_match_except_in_range(s, old(wrpm)@.durable_state, sm.journal_entries_start as int,
+                                           sm.journal_entries_end as int)
+        } by {
+        lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
+        lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(wrpm@.durable_state, s,
+                                                                          vm, *sm, constants);
+    }
+    wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
+
+    // Next, write the `bytes_to_write` field of the entry.
+
+    let bytes_to_write_addr = num_bytes_addr + size_of::<u64>() as u64;
+    assert forall |s|
+        #[trigger] can_result_from_partial_write(s, wrpm@.durable_state, bytes_to_write_addr as int,
+                                                 entry.bytes_to_write@) implies {
+            &&& recovers_to(s, vm, *sm, constants)
+            &&& perm.check_permission(s)
+            &&& opaque_match_except_in_range(s, old(wrpm)@.durable_state, sm.journal_entries_start as int,
+                                           sm.journal_entries_end as int)
+        } by {
+        lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
+        lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(wrpm@.durable_state, s,
+                                                                          vm, *sm, constants);
+    }
+    wrpm.write(bytes_to_write_addr, entry.bytes_to_write.as_slice(), Tracked(perm));
+
+    proof {
+        assert(opaque_match_except_in_range(wrpm@.read_state, old(wrpm)@.read_state, sm.journal_entries_start as int,
+                                            sm.journal_entries_end as int)) by {
+            lemma_auto_can_result_from_write_effect_on_read_state_subranges();
+        }
+    }
+
+    let new_pos = bytes_to_write_addr + num_bytes;
+    assert(parse_journal_entries(opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, new_pos as int), 0)
+            == Some(entries@.take(current_entry_index + 1))) by {
+        let old_entries_bytes = opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, current_pos as int);
+        let new_entry_bytes = opaque_subrange(wrpm@.read_state, current_pos as int, new_pos as int);
+        let new_entries_bytes = opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int, new_pos as int);
+        assert(new_entries_bytes =~= old_entries_bytes + new_entry_bytes) by {
+            reveal(opaque_subrange);
+        }
+        assert(old_entries_bytes ==
+               opaque_subrange(old(wrpm)@.read_state, sm.journal_entries_start as int, current_pos as int)) by {
+            lemma_auto_can_result_from_write_effect_on_read_state_subranges();
+        }
+        assert(new_entry_bytes =~= entry.start.spec_to_bytes() + num_bytes.spec_to_bytes() + entry.bytes_to_write@) by {
+            lemma_auto_can_result_from_write_effect_on_read_state();
+            reveal(opaque_subrange);
+        }
+        assert(new_entries_bytes =~=
+               old_entries_bytes + entry.start.spec_to_bytes() + num_bytes.spec_to_bytes() + entry.bytes_to_write@);
+        assert(parse_journal_entries(new_entries_bytes, 0) ==
+               Some(entries@.take(current_entry_index as int).push(entry@))) by {
+            lemma_parse_journal_entries_append(opaque_subrange(wrpm@.read_state, sm.journal_entries_start as int,
+                                                               current_pos as int), entry@);
+        }
+        assert(entries@.take(current_entry_index as int).push(entry@) =~= entries@.take(current_entry_index + 1));
+    }
+    new_pos
 }
 
 }

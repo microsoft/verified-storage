@@ -40,7 +40,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.status is Quiescent ==> !committed
         &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
         &&& journaled_addrs_complete(self.entries@, self.journaled_addrs@)
-        &&& 0 <= self.journal_length <= self.constants.journal_capacity
+        &&& self.journal_length <= self.constants.journal_capacity
         &&& self.journal_length == space_needed_for_journal_entries(self.entries@)
     }
 

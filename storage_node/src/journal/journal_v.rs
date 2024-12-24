@@ -496,109 +496,6 @@ impl <Perm, PM> Journal<Perm, PM>
         self.entries = ConcreteJournalEntries::new();
     }
 
-    /*
-    pub exec fn journal_write(
-        &mut self,
-        addr: u64,
-        bytes_to_write: Vec<u8>,
-        Tracked(perm): Tracked<&Perm>,
-    )
-        requires
-            old(self).valid(),
-            old(self)@.constants.app_area_start <= addr,
-            addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
-            forall|s: Seq<u8>| {
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, 0, old(self)@.constants.app_area_start as int)
-                &&& Self::recover(s) matches Some(j)
-                &&& j.constants == old(self)@.constants
-                &&& j.state == s
-            } ==> #[trigger] perm.check_permission(s),
-            old(self)@.remaining_capacity >= Self::space_needed_for_journal_entry(bytes_to_write@.len()),
-        ensures
-            self.valid(),
-            self.recover_successful(),
-            self@ == (JournalView{
-                durable_state: self@.durable_state,
-                read_state: self@.read_state,
-                commit_state: opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
-                journaled_addrs: old(self)@.journaled_addrs +
-                                 Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
-                ..old(self)@
-            }),
-            opaque_match_except_in_range(self@.durable_state, old(self)@.durable_state, 0,
-                                         self@.constants.app_area_start as int),
-            opaque_match_except_in_range(self@.read_state, old(self)@.read_state, 0,
-                                         self@.constants.app_area_start as int),
-    {
-        broadcast use pmcopy_axioms;
-        let num_bytes: u64 = bytes_to_write.len() as u64;
-
-        // First, write the `start` field of the entry, which is the address that the entry
-        // is referring to, to the next position in the journal.
-
-        let start_addr = self.sm.journal_entries_start + self.journal_length;
-        assert forall |s|
-            #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state, start_addr as int,
-                                                     addr.spec_to_bytes()) implies {
-                &&& recovers_to(s, self.vm@, self.sm, self.constants)
-                &&& perm.check_permission(s)
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, 0, self@.constants.app_area_start as int)
-            } by {
-            lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(self.wrpm@.durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
-        }
-        self.wrpm.serialize_and_write::<u64>(start_addr, &addr, Tracked(perm));
-
-        // Next, write the `num_bytes` field of the entry.
-
-        let num_bytes_addr = start_addr + size_of::<u64>() as u64;
-        assert forall |s|
-            #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state, num_bytes_addr as int,
-                                                     num_bytes.spec_to_bytes()) implies {
-                &&& recovers_to(s, self.vm@, self.sm, self.constants)
-                &&& perm.check_permission(s)
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, 0, self@.constants.app_area_start as int)
-            } by {
-            lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(self.wrpm@.durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
-        }
-        self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
-
-        // Next, write the `bytes_to_write` field of the entry.
-
-        let bytes_to_write_addr = num_bytes_addr + size_of::<u64>() as u64;
-        assert forall |s|
-            #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state, bytes_to_write_addr as int,
-                                                     bytes_to_write@) implies {
-                &&& recovers_to(s, self.vm@, self.sm, self.constants)
-                &&& perm.check_permission(s)
-                &&& opaque_match_except_in_range(s, old(self)@.durable_state, 0, self@.constants.app_area_start as int)
-            } by {
-            lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(self.wrpm@.durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
-        }
-        self.wrpm.write(bytes_to_write_addr, bytes_to_write.as_slice(), Tracked(perm));
-
-        let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
-        self.entries.push(concrete_entry);
-        self.commit_state = Ghost(opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@));
-        self.journaled_addrs = Ghost(self.journaled_addrs@ +
-                                     Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
-
-        proof {
-            assert(opaque_match_except_in_range(self@.read_state, old(self)@.read_state, 0,
-                                            self@.constants.app_area_start as int)) by {
-                lemma_auto_can_result_from_write_effect_on_read_state_subranges();
-            }
-        }
-        assume(apply_journal_entries(self.wrpm@.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state));
-        assume(self.inv_journaled_addrs_complete());
-    }
-    */
-
     pub exec fn journal_write(
         &mut self,
         addr: u64,
@@ -653,6 +550,34 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
 
+    pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
+        requires
+            old(self).valid(),
+            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(self)@.durable_state)
+                ==> #[trigger] perm.check_permission(s),
+            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(self)@.commit_state)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            self.valid(),
+            self@ == (JournalView{
+                durable_state: old(self)@.commit_state,
+                read_state: old(self)@.commit_state,
+                commit_state: old(self)@.commit_state,
+                remaining_capacity: self@.constants.journal_capacity as int,
+                journaled_addrs: Set::<int>::empty(),
+                ..old(self)@
+            }),
+    {
+        // write log contents by looping calling `write_journal_entry`
+        // write journal metadata (length, length CRC, entries CRC)
+        // flush
+        // write committed CDB
+        // install log
+        // clear log
+        assume(false);
+        Self::clear_log(&mut self.wrpm, Tracked(perm), self.vm, &self.sm);
+        assume(false);
+    }
 }
 
 }
