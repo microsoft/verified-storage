@@ -13,6 +13,7 @@ use super::entry_v::*;
 use super::recover_v::*;
 use super::setup_v::*;
 use super::spec_v::*;
+use super::start_v::*;
 use deps_hack::PmCopy;
 
 verus! {
@@ -303,9 +304,9 @@ impl <Perm, PM> Journal<Perm, PM>
         let pm = wrpm.get_pm_region_ref();
         let pm_size = pm.get_region_size(); // This establishes that `pm@.len() <= u64::MAX`
  
-        let vm = Self::read_version_metadata(pm).ok_or(JournalError::CRCError)?;
-        let sm = Self::read_static_metadata(pm, &vm).ok_or(JournalError::CRCError)?;
-        let cdb = Self::read_committed_cdb(pm, &vm, &sm).ok_or(JournalError::CRCError)?;
+        let vm = read_version_metadata(pm).ok_or(JournalError::CRCError)?;
+        let sm = read_static_metadata(pm, &vm).ok_or(JournalError::CRCError)?;
+        let cdb = read_committed_cdb(pm, &vm, &sm).ok_or(JournalError::CRCError)?;
         let constants = JournalConstants {
             app_version_number: sm.app_version_number,
             app_program_guid: sm.app_program_guid,
@@ -314,12 +315,12 @@ impl <Perm, PM> Journal<Perm, PM>
             app_area_end: sm.app_area_end,
         };
         if cdb {
-            let journal_length = Self::read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
+            let journal_length = read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
             let entries_bytes =
-                Self::read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
+                read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
             let ghost entries = parse_journal_entries(entries_bytes@, 0).unwrap();
-            Self::install_journal_entries(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes, Ghost(entries));
-            Self::clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
+            install_journal_entries(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes, Ghost(entries));
+            clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
         }
         Ok(Self {
             wrpm,
@@ -755,7 +756,7 @@ impl <Perm, PM> Journal<Perm, PM>
         // install log
         // clear log
         assume(false);
-        Self::clear_log(&mut self.wrpm, Tracked(perm), self.vm, &self.sm);
+        clear_log(&mut self.wrpm, Tracked(perm), self.vm, &self.sm);
         assume(false);
     }
 }
