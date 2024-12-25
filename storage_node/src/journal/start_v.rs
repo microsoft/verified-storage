@@ -507,7 +507,6 @@ impl <Perm, PM> Journal<Perm, PM>
             assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
             assert(perm.check_permission(wrpm@.durable_state));
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
-            lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
             assert(recover_version_metadata(new_state) == Some(vm));
             assert(recover_static_metadata(new_state, vm) == Some(*sm));
             assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms

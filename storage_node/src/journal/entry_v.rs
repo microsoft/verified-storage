@@ -555,12 +555,10 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
         entries.len() - starting_entry,
 {
     if starting_entry < entries.len() {
-        reveal(opaque_update_bytes);
         let entry = entries[starting_entry];
         let s1_next = apply_journal_entry(s1, entry, sm).unwrap();
         let s2_next = apply_journal_entry(s2, entry, sm).unwrap();
-        lemma_auto_effect_of_update_bytes_on_opaque_subrange();
-        lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
+        lemma_auto_effect_of_opaque_update_bytes_on_opaque_subrange();
         lemma_auto_opaque_subrange_subrange(s1, sm.app_area_start as int, sm.app_area_end as int);
         lemma_auto_opaque_subrange_subrange(s2, sm.app_area_start as int, sm.app_area_end as int);
         assert(opaque_subrange(s1_next, sm.app_area_start as int, sm.app_area_end as int)

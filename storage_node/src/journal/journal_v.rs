@@ -642,7 +642,6 @@ impl <Perm, PM> Journal<Perm, PM>
         assert(opaque_subrange(old(self)@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
                    == opaque_subrange(self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
-            lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
         }
     
         // Next, write the `num_bytes` field of the entry.
@@ -664,7 +663,6 @@ impl <Perm, PM> Journal<Perm, PM>
         assert(opaque_subrange(old(self)@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
                    == opaque_subrange(self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
-            lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
         }
     
         // Next, write the `bytes_to_write` field of the entry.
@@ -686,7 +684,6 @@ impl <Perm, PM> Journal<Perm, PM>
         assert(opaque_subrange(old(self)@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
                    == opaque_subrange(self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
-            lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
         }
     
         proof {

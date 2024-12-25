@@ -369,6 +369,7 @@ pub proof fn lemma_auto_effect_of_update_bytes_on_opaque_subrange()
         } ==> {
             &&& opaque_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len())
             &&& opaque_subrange(update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+            &&& opaque_subranges_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len())
         }
 {
     assert forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger update_bytes(s1, addr, bytes)] {
@@ -377,8 +378,10 @@ pub proof fn lemma_auto_effect_of_update_bytes_on_opaque_subrange()
     } implies {
         &&& opaque_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len())
         &&& opaque_subrange(update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+        &&& opaque_subranges_match_except_in_range(s1, update_bytes(s1, addr, bytes), addr, addr + bytes.len())
     } by {
         lemma_effect_of_update_bytes_on_opaque_subrange(s1, addr, bytes);
+        lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
     }
 }
 
@@ -402,6 +405,8 @@ pub proof fn lemma_auto_effect_of_opaque_update_bytes_on_opaque_subrange()
         } ==> {
             &&& opaque_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len())
             &&& opaque_subrange(opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+            &&& opaque_subranges_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes),
+                                                     addr, addr + bytes.len())
         }
 {
     assert forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger opaque_update_bytes(s1, addr, bytes)] {
@@ -410,8 +415,10 @@ pub proof fn lemma_auto_effect_of_opaque_update_bytes_on_opaque_subrange()
     } implies {
         &&& opaque_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len())
         &&& opaque_subrange(opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len()) == bytes
+        &&& opaque_subranges_match_except_in_range(s1, opaque_update_bytes(s1, addr, bytes), addr, addr + bytes.len())
     } by {
         lemma_effect_of_opaque_update_bytes_on_opaque_subrange(s1, addr, bytes);
+        lemma_auto_effect_of_opaque_match_except_in_range_on_subranges();
     }
 }
 
