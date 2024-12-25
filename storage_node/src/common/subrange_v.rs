@@ -451,5 +451,27 @@ pub proof fn lemma_auto_effect_of_opaque_match_except_in_range_on_subranges()
     }
 }
 
+pub proof fn lemma_concatenate_opaque_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int)
+    requires
+        0 <= pos1 <= pos2 <= pos3 <= s.len(),
+    ensures
+        opaque_subrange(s, pos1, pos3) == opaque_subrange(s, pos1, pos2) + opaque_subrange(s, pos2, pos3),
+{
+    reveal(opaque_subrange);
+    assert(opaque_subrange(s, pos1, pos3) =~= opaque_subrange(s, pos1, pos2) + opaque_subrange(s, pos2, pos3));
+}
+
+pub proof fn lemma_concatenate_three_opaque_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int, pos4: int)
+    requires
+        0 <= pos1 <= pos2 <= pos3 <= pos4 <= s.len(),
+    ensures
+        opaque_subrange(s, pos1, pos4) ==
+            opaque_subrange(s, pos1, pos2) + opaque_subrange(s, pos2, pos3) + opaque_subrange(s, pos3, pos4),
+{
+    reveal(opaque_subrange);
+    assert(opaque_subrange(s, pos1, pos4) =~=
+               opaque_subrange(s, pos1, pos2) + opaque_subrange(s, pos2, pos3) + opaque_subrange(s, pos3, pos4));
+}
+
 }
 

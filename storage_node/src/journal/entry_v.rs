@@ -562,16 +562,11 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
         lemma_auto_opaque_subrange_subrange(s1, sm.app_area_start as int, sm.app_area_end as int);
         lemma_auto_opaque_subrange_subrange(s2, sm.app_area_start as int, sm.app_area_end as int);
         assert(opaque_subrange(s1_next, sm.app_area_start as int, sm.app_area_end as int)
-               =~= opaque_subrange(s2_next, sm.app_area_start as int, sm.app_area_end as int)) by {
-            reveal(opaque_subrange);
-            assert(opaque_subrange(s1_next, sm.app_area_start as int, sm.app_area_end as int)
-                   =~= opaque_subrange(s1_next, sm.app_area_start as int, entry.start)
-                     + opaque_subrange(s1_next, entry.start, entry.end())
-                     + opaque_subrange(s1_next, entry.end(), sm.app_area_end as int));
-            assert(opaque_subrange(s2_next, sm.app_area_start as int, sm.app_area_end as int)
-                     =~= opaque_subrange(s2_next, sm.app_area_start as int, entry.start)
-                       + opaque_subrange(s2_next, entry.start, entry.end())
-                       + opaque_subrange(s2_next, entry.end(), sm.app_area_end as int));
+               == opaque_subrange(s2_next, sm.app_area_start as int, sm.app_area_end as int)) by {
+            lemma_concatenate_three_opaque_subranges(s1_next, sm.app_area_start as int, entry.start as int,
+                                                     entry.end(), sm.app_area_end as int);
+            lemma_concatenate_three_opaque_subranges(s2_next, sm.app_area_start as int, entry.start as int,
+                                                     entry.end(), sm.app_area_end as int);
         }
         lemma_updating_journal_area_doesnt_affect_apply_journal_entries(
             s1_next, s2_next, entries, starting_entry + 1, vm, sm);
