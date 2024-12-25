@@ -37,7 +37,10 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
         &&& recover_committed_cdb(pmv.durable_state, self.sm) matches Some(committed)
-        &&& self.status is Quiescent ==> !committed
+        &&& match self.status@ {
+            JournalStatus::Quiescent => !committed,
+            JournalStatus::WritingJournalEntries => !committed,
+        }
         &&& apply_journal_entries(pmv.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)
         &&& journaled_addrs_complete(self.entries@, self.journaled_addrs@)
         &&& self.journal_length <= self.constants.journal_capacity
@@ -47,7 +50,7 @@ impl <Perm, PM> Journal<Perm, PM>
     pub(super) open spec fn valid_internal(self) -> bool
     {
         &&& self.inv()
-        &&& self.status is Quiescent
+        &&& self.status@ is Quiescent
     }
 }
 
