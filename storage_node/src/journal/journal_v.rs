@@ -33,7 +33,6 @@ pub struct Journal<Perm, PM>
     pub(super) sm: JournalStaticMetadata,
     pub(super) status: Ghost<JournalStatus>,
     pub(super) constants: JournalConstants,
-    pub(super) commit_state: Ghost<Seq<u8>>,
     pub(super) journal_length: u64,
     pub(super) journaled_addrs: Ghost<Set<int>>,
     pub(super) entries: ConcreteJournalEntries,
@@ -53,7 +52,7 @@ impl<Perm, PM> View for Journal<Perm, PM>
             pm_constants: self.wrpm.constants(),
             durable_state: self.wrpm@.durable_state,
             read_state: self.wrpm@.read_state,
-            commit_state: self.commit_state@,
+            commit_state: apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap(),
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
         }
@@ -328,7 +327,6 @@ impl <Perm, PM> Journal<Perm, PM>
             sm,
             status: Ghost(JournalStatus::Quiescent),
             constants,
-            commit_state: Ghost(wrpm@.read_state),
             journal_length: 0,
             journaled_addrs: Ghost(Set::<int>::empty()),
             entries: ConcreteJournalEntries::new(),
@@ -392,8 +390,10 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_opaque_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
             lemma_auto_opaque_subrange_subrange(old(self).wrpm@.durable_state, 0, addr as int);
         }
-        self.commit_state = Ghost(opaque_update_bytes(self.commit_state@, addr as int, bytes_to_write@));
-        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)) by {
+        assert({
+            &&& apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
+            &&& self@.commit_state == opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
+        }) by {
             lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).wrpm@.read_state, self.entries@,
                                                                        self.sm);
             assert forall|i: int| #![trigger self.journaled_addrs@.contains(i)]
@@ -492,7 +492,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..old(self)@
             }),
     {
-        self.commit_state = Ghost(self@.read_state);
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
         self.entries = ConcreteJournalEntries::new();
@@ -526,11 +525,13 @@ impl <Perm, PM> Journal<Perm, PM>
         self.journal_length = self.journal_length + (size_of::<u64>() + size_of::<u64>() + bytes_to_write.len()) as u64;
         self.journaled_addrs = Ghost(self.journaled_addrs@ +
                                      Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
-        self.commit_state = Ghost(opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@));
         let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
         self.entries.push(concrete_entry);
 
-        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)) by {
+        assert({
+            &&& apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
+            &&& self@.commit_state == opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
+        }) by {
             lemma_effect_of_append_on_apply_journal_entries(old(self).wrpm@.read_state, old(self).entries@,
                                                             concrete_entry@, self.sm);
         }
@@ -577,7 +578,6 @@ impl <Perm, PM> Journal<Perm, PM>
             self.inv(),
             self == (Self{
                 wrpm: self.wrpm,
-                commit_state: self.commit_state,
                 ..*old(self)
             }),
             new_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
@@ -727,7 +727,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 old(self)@.read_state, self@.read_state, self.entries@, self.vm@, self.sm
             );
         }
-        self.commit_state = Ghost(apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap());
         new_pos
     }
 
