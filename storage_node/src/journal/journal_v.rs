@@ -256,8 +256,7 @@ impl <Perm, PM> Journal<Perm, PM>
             old(pm).inv(),
             Self::ready_for_app_setup(state_after_begin_setup, *journal_constants),
             old(pm)@.len() == state_after_begin_setup.len(),
-            opaque_subrange(state_after_begin_setup, 0, journal_constants.app_area_start as int)
-                == opaque_subrange(old(pm)@.read_state, 0, journal_constants.app_area_start as int),
+            opaque_match_in_range(state_after_begin_setup, old(pm)@.read_state, 0, journal_constants.app_area_start as int),
         ensures
             pm.inv(),
             pm@.flush_predicted(),
@@ -585,8 +584,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                          self.sm.journal_entries_start as int, self.sm.journal_entries_end as int),
             opaque_match_except_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
                                          self.sm.journal_entries_start as int, self.sm.journal_entries_end as int),
-            opaque_subrange(old(self)@.commit_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
-                == opaque_subrange(self@.commit_state, self.sm.app_area_start as int, self.sm.app_area_end as int),
+            opaque_match_in_range(old(self)@.commit_state, self@.commit_state, self.sm.app_area_start as int, self.sm.app_area_end as int),
             parse_journal_entries(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                   new_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1)),
@@ -640,8 +638,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                                                               self.vm@, self.sm, self.constants);
         }
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
-        assert(opaque_subrange(old(self)@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
-                   == opaque_subrange(self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
+        assert(opaque_match_in_range(old(self)@.read_state, self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
         }
     
@@ -661,8 +658,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                                                               self.vm@, self.sm, self.constants);
         }
         self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
-        assert(opaque_subrange(old(self)@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
-                   == opaque_subrange(self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
+        assert(opaque_match_in_range(old(self)@.read_state, self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
         }
     
@@ -682,8 +678,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                                                               self.vm@, self.sm, self.constants);
         }
         self.wrpm.write(bytes_to_write_addr, entry.bytes_to_write.as_slice(), Tracked(perm));
-        assert(opaque_subrange(old(self)@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
-                   == opaque_subrange(self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
+        assert(opaque_match_in_range(old(self)@.read_state, self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
             lemma_auto_effect_of_update_bytes_on_opaque_subrange();
         }
     
@@ -726,6 +721,11 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_updating_journal_area_doesnt_affect_apply_journal_entries(
                 old(self)@.read_state, self@.read_state, self.entries@, self.vm@, self.sm
             );
+            assert(opaque_match_in_range(old(self)@.commit_state, self@.commit_state, self.sm.app_area_start as int,
+                                         self.sm.app_area_end as int)) by {
+                lemma_apply_journal_entries_doesnt_change_size(old(self).wrpm@.read_state, self.entries@, self.sm);
+                lemma_apply_journal_entries_doesnt_change_size(self.wrpm@.read_state, self.entries@, self.sm);
+            }
         }
         new_pos
     }

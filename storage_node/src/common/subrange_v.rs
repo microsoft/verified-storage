@@ -26,11 +26,18 @@ pub open spec fn opaque_update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> S
     update_bytes(s, addr, bytes)
 }
 
+pub open spec fn opaque_match_in_range(s1: Seq<u8>, s2: Seq<u8>, start: int, end: int) -> bool
+{
+    &&& s1.len() == s2.len()
+    &&& 0 <= start <= end <= s1.len()
+    &&& opaque_subrange(s1, start, end) == opaque_subrange(s2, start, end)
+}
+
 pub open spec fn opaque_match_except_in_range(s1: Seq<u8>, s2: Seq<u8>, start: int, end: int) -> bool
 {
     &&& s1.len() == s2.len()
     &&& 0 <= start <= end <= s1.len()
-    &&& opaque_subrange(s1, 0, start) == opaque_subrange(s2, 0, start)
+    &&& opaque_match_in_range(s1, s2, 0, start)
     &&& opaque_subrange(s1, end, s1.len() as int) == opaque_subrange(s2, end, s2.len() as int)
 }
 
@@ -194,7 +201,7 @@ pub proof fn lemma_can_result_from_write_lack_of_effect_on_read_state(
         end <= write_addr || write_addr + bytes.len() <= start,
     ensures
         v2.valid(),
-        opaque_subrange(v2.read_state, start, end) == opaque_subrange(v1.read_state, start, end),
+        opaque_match_in_range(v1.read_state, v2.read_state, start, end),
 {
     reveal(opaque_subrange);
     assert(opaque_subrange(v2.read_state, start, end) =~= opaque_subrange(v1.read_state, start, end));
@@ -279,7 +286,7 @@ pub proof fn lemma_auto_can_result_from_write_effect()
             &&& opaque_subranges_match_except_in_range(v1.durable_state, v2.durable_state, write_addr,
                                                      write_addr + bytes.len())
             &&& opaque_subranges_match_except_in_range(v1.read_state, v2.read_state, write_addr,
-                                                     write_addr + bytes.len())
+                                                       write_addr + bytes.len())
         },
 {
     lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
@@ -306,7 +313,7 @@ pub proof fn lemma_auto_length_of_opaque_subrange<T>()
 }
 
 pub proof fn lemma_opaque_subrange_subrange<T>(s: Seq<T>, outer_start: int, outer_end: int,
-                                            inner_start: int, inner_end: int)
+                                               inner_start: int, inner_end: int)
     requires
         0 <= outer_start <= inner_start <= inner_end <= outer_end <= s.len(),
     ensures

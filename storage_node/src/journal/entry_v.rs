@@ -299,6 +299,38 @@ pub(super) proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries(
         state1, state2, vm, sm, entries, which_entry);
 }
 
+pub(super) proof fn lemma_apply_journal_entry_doesnt_change_size(
+    state: Seq<u8>,
+    entry: JournalEntry,
+    sm: JournalStaticMetadata,
+)
+    requires
+        apply_journal_entry(state, entry, sm) is Some,
+    ensures
+        state.len() == apply_journal_entry(state, entry, sm).unwrap().len(),
+{
+    reveal(opaque_update_bytes);
+}
+
+pub(super) proof fn lemma_apply_journal_entries_doesnt_change_size(
+    state: Seq<u8>,
+    entries: Seq<JournalEntry>,
+    sm: JournalStaticMetadata,
+)
+    requires
+        apply_journal_entries(state, entries, sm) is Some,
+    ensures
+        state.len() == apply_journal_entries(state, entries, sm).unwrap().len(),
+    decreases
+        entries.len()
+{
+    if entries.len() > 0 {
+        let next_state = apply_journal_entry(state, entries[0], sm).unwrap();
+        lemma_apply_journal_entry_doesnt_change_size(state, entries[0], sm);
+        lemma_apply_journal_entries_doesnt_change_size(next_state, entries.skip(1), sm);
+    }
+}
+
 pub(super) proof fn lemma_addresses_in_entry_dont_affect_recovery(
     state: Seq<u8>,
     vm: JournalVersionMetadata,
