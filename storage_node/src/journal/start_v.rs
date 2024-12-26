@@ -536,7 +536,7 @@ pub(super) exec fn clear_log<Perm, PM>(
         assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
         assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
         assert(perm.check_permission(wrpm@.durable_state));
-        lemma_auto_effect_of_update_bytes_on_opaque_subranges();
+        lemma_update_bytes_effect_on_opaque_subranges();
         assert(recover_version_metadata(new_state) == Some(vm));
         assert(recover_static_metadata(new_state, vm) == Some(*sm));
         assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms

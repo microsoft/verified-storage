@@ -531,6 +531,8 @@ impl <Perm, PM> Journal<Perm, PM>
             &&& apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
             &&& self@.commit_state == opaque_update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
         }) by {
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).wrpm@.read_state,
+                                                                       old(self).entries@, self.sm);
             lemma_effect_of_append_on_apply_journal_entries(old(self).wrpm@.read_state, old(self).entries@,
                                                             concrete_entry@, self.sm);
         }
@@ -549,6 +551,10 @@ impl <Perm, PM> Journal<Perm, PM>
                space_needed_for_journal_entries(old(self).entries@) + concrete_entry@.space_needed()) by {
             assert(self.entries@.last() == concrete_entry@);
             assert(self.entries@.drop_last() =~= old(self).entries@);
+        }
+
+        proof {
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
         }
     }
 
@@ -577,9 +583,9 @@ impl <Perm, PM> Journal<Perm, PM>
             current_pos == old(self).sm.journal_entries_start +
                            space_needed_for_journal_entries(old(self).entries@.take(current_entry_index as int)),
             opaque_match_in_range(original_durable_state, old(self).wrpm@.durable_state,
-                                  old(self).constants.app_area_start as int, old(self).constants.app_area_end as int),
+                                  old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
             opaque_match_in_range(original_read_state, old(self).wrpm@.read_state,
-                                  old(self).constants.app_area_start as int, old(self).constants.app_area_end as int),
+                                  old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
         ensures
             self.inv(),
             self == (Self{
@@ -588,9 +594,9 @@ impl <Perm, PM> Journal<Perm, PM>
             }),
             new_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
             opaque_match_in_range(original_durable_state, self.wrpm@.durable_state,
-                                  self.constants.app_area_start as int, self.constants.app_area_end as int),
+                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
             opaque_match_in_range(original_read_state, self.wrpm@.read_state,
-                                  self.constants.app_area_start as int, self.constants.app_area_end as int),
+                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
             parse_journal_entries(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                   new_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1)),
@@ -603,7 +609,7 @@ impl <Perm, PM> Journal<Perm, PM>
         broadcast use pmcopy_axioms;
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
         let num_bytes: u64 = entry.bytes_to_write.len() as u64;
-    
+
         assert({
             &&& current_pos + entry@.space_needed() ==
                 self.sm.journal_entries_start +
@@ -628,19 +634,10 @@ impl <Perm, PM> Journal<Perm, PM>
             assert(entry@ == self.entries@[current_entry_index as int]);
         }
 
-        assume(false); // TODO @jay
-        assert forall|s: Seq<u8>| {
+        assert(forall|s: Seq<u8>| {
             &&& recovers_to(s, self.vm@, self.sm, self.constants)
             &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int, self.sm.app_area_end as int)
-        } implies #[trigger] perm.check_permission(s) by
-        {
-            lemma_auto_opaque_subrange_subrange(original_durable_state, self.sm.app_area_start as int,
-                                                self.sm.app_area_end as int);
-            lemma_auto_opaque_subrange_subrange(s, self.sm.app_area_start as int, self.sm.app_area_end as int);
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(original_durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
-            assert(spec_recovery_equivalent_for_app(s, original_durable_state));
-        }
+        } ==> #[trigger] perm.check_permission(s));
         
         // First, write the `start` field of the entry, which is the address that the entry
         // is referring to, to the next position in the journal.
@@ -649,15 +646,18 @@ impl <Perm, PM> Journal<Perm, PM>
             #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state, current_pos as int,
                                                      entry.start.spec_to_bytes()) implies {
                 &&& recovers_to(s, self.vm@, self.sm, self.constants)
-                &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int, self.sm.app_area_end as int)
+                &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int,
+                                         self.sm.app_area_end as int)
             } by {
             lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(self.wrpm@.durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
+            lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
         }
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
-        assert(opaque_match_in_range(old(self)@.read_state, self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
-            lemma_auto_effect_of_update_bytes_on_opaque_subranges();
+        assert(opaque_match_in_range(original_durable_state, self.wrpm@.durable_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int));
+        assert(opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int)) by {
+            lemma_auto_can_result_from_write_effect_on_read_state_subranges();
         }
     
         // Next, write the `num_bytes` field of the entry.
@@ -667,17 +667,18 @@ impl <Perm, PM> Journal<Perm, PM>
             #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state, num_bytes_addr as int,
                                                      num_bytes.spec_to_bytes()) implies {
                 &&& recovers_to(s, self.vm@, self.sm, self.constants)
-                &&& perm.check_permission(s)
-                &&& opaque_match_except_in_range(s, old(self).wrpm@.durable_state, self.sm.journal_entries_start as int,
-                                               self.sm.journal_entries_end as int)
+                &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int,
+                                         self.sm.app_area_end as int)
             } by {
             lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(self.wrpm@.durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
+            lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
         }
         self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
-        assert(opaque_match_in_range(old(self)@.read_state, self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
-            lemma_auto_effect_of_update_bytes_on_opaque_subranges();
+        assert(opaque_match_in_range(original_durable_state, self.wrpm@.durable_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int));
+        assert(opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int)) by {
+            lemma_auto_can_result_from_write_effect_on_read_state_subranges();
         }
     
         // Next, write the `bytes_to_write` field of the entry.
@@ -687,25 +688,18 @@ impl <Perm, PM> Journal<Perm, PM>
             #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state, bytes_to_write_addr as int,
                                                      entry.bytes_to_write@) implies {
                 &&& recovers_to(s, self.vm@, self.sm, self.constants)
-                &&& perm.check_permission(s)
-                &&& opaque_match_except_in_range(s, old(self).wrpm@.durable_state, self.sm.journal_entries_start as int,
-                                               self.sm.journal_entries_end as int)
+                &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int,
+                                                self.sm.app_area_end as int)
             } by {
             lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
-            lemma_recovery_doesnt_depend_on_journal_contents_when_uncommitted(self.wrpm@.durable_state, s,
-                                                                              self.vm@, self.sm, self.constants);
+            lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
         }
         self.wrpm.write(bytes_to_write_addr, entry.bytes_to_write.as_slice(), Tracked(perm));
-        assert(opaque_match_in_range(old(self)@.read_state, self@.read_state, self.sm.app_area_start as int, self.sm.app_area_end as int)) by {
-            lemma_auto_effect_of_update_bytes_on_opaque_subranges();
-        }
-    
-        proof {
-            assert(opaque_match_except_in_range(self.wrpm@.read_state, old(self).wrpm@.read_state,
-                                                self.sm.journal_entries_start as int,
-                                                self.sm.journal_entries_end as int)) by {
-                lemma_auto_can_result_from_write_effect_on_read_state_subranges();
-            }
+        assert(opaque_match_in_range(original_durable_state, self.wrpm@.durable_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int));
+        assert(opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int)) by {
+            lemma_auto_can_result_from_write_effect_on_read_state_subranges();
         }
     
         let new_pos = bytes_to_write_addr + num_bytes;
@@ -735,16 +729,6 @@ impl <Perm, PM> Journal<Perm, PM>
                    self.entries@.take(current_entry_index + 1));
         }
 
-        proof {
-            lemma_updating_journal_area_doesnt_affect_apply_journal_entries(
-                old(self)@.read_state, self@.read_state, self.entries@, self.vm@, self.sm
-            );
-            assert(opaque_match_in_range(old(self)@.commit_state, self@.commit_state, self.sm.app_area_start as int,
-                                         self.sm.app_area_end as int)) by {
-                lemma_apply_journal_entries_doesnt_change_size(old(self).wrpm@.read_state, self.entries@, self.sm);
-                lemma_apply_journal_entries_doesnt_change_size(self.wrpm@.read_state, self.entries@, self.sm);
-            }
-        }
         new_pos
     }
 

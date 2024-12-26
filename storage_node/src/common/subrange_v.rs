@@ -284,7 +284,7 @@ pub proof fn lemma_auto_can_result_from_write_effect_on_read_state_subranges()
             &&& opaque_subrange(v2.read_state, write_addr, write_addr + bytes.len()) == bytes
         } by {
         lemma_can_result_from_write_effect_on_read_state(v2, v1, write_addr, bytes);
-        lemma_auto_effect_of_opaque_match_except_in_range_on_subranges::<u8>();
+        lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
     }
     assert forall|v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>,
              inner_start: int, inner_end: int|
@@ -430,7 +430,7 @@ pub proof fn lemma_effect_of_update_bytes_on_opaque(s1: Seq<u8>, addr: int, byte
     assert(opaque_subrange(s2, end, s1.len() as int) =~= opaque_subrange(s1, end, s1.len() as int));
 }
 
-pub proof fn lemma_auto_effect_of_update_bytes_on_opaque_subranges()
+pub proof fn lemma_update_bytes_effect_on_opaque_subranges()
     ensures
         forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| #![trigger update_bytes(s1, addr, bytes)] {
             &&& 0 <= addr
@@ -463,11 +463,11 @@ pub proof fn lemma_auto_effect_of_update_bytes_on_opaque_subranges()
             &&& 0 <= inner_start <= inner_end <= addr || addr + bytes.len() <= inner_start <= inner_end <= s1.len()
         } implies #[trigger] opaque_subrange(update_bytes(s1, addr, bytes), inner_start, inner_end) ==
                              opaque_subrange(s1, inner_start, inner_end) by {
-        lemma_auto_effect_of_opaque_match_except_in_range_on_subranges::<u8>();
+        lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
     }
 }
 
-pub proof fn lemma_auto_effect_of_opaque_update_bytes_on_opaque_subranges()
+pub proof fn lemma_auto_opaque_bytes_effect_on_opaque_subranges()
     ensures
         forall|s1: Seq<u8>, addr: int, bytes: Seq<u8>| {
             &&& 0 <= addr
@@ -485,16 +485,20 @@ pub proof fn lemma_auto_effect_of_opaque_update_bytes_on_opaque_subranges()
                          opaque_subrange(s1, inner_start, inner_end),
 {
     reveal(opaque_update_bytes);
-    lemma_auto_effect_of_update_bytes_on_opaque_subranges();
+    lemma_update_bytes_effect_on_opaque_subranges();
 }
 
-pub proof fn lemma_auto_effect_of_opaque_match_except_in_range_on_subranges<T>()
+pub proof fn lemma_auto_opaque_match_except_in_range_effect_on_subranges<T>()
     ensures
         forall|s1: Seq<T>, s2: Seq<T>, outer_start: int, outer_end: int, inner_start: int, inner_end: int| {
             &&& #[trigger] opaque_match_except_in_range(s1, s2, outer_start, outer_end)
             &&& 0 <= inner_start <= inner_end <= outer_start || outer_end <= inner_start <= inner_end <= s1.len()
         } ==>
-           #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end)
+           #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end),
+        forall|s1: Seq<T>, s2: Seq<T>, outer_start: int, outer_end: int, inner_start: int, inner_end: int| {
+            &&& #[trigger] opaque_match_except_in_range(s1, s2, inner_start, inner_end)
+            &&& 0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len()
+        } ==> #[trigger] opaque_match_except_in_range(s1, s2, outer_start, outer_end),
 {
     assert forall|s1: Seq<T>, s2: Seq<T>, outer_start: int, outer_end: int, inner_start: int, inner_end: int| {
             &&& #[trigger] opaque_match_except_in_range(s1, s2, outer_start, outer_end)
@@ -505,6 +509,15 @@ pub proof fn lemma_auto_effect_of_opaque_match_except_in_range_on_subranges<T>()
         lemma_auto_opaque_subrange_subrange(s2, 0, outer_start);
         lemma_auto_opaque_subrange_subrange(s1, outer_end, s1.len() as int);
         lemma_auto_opaque_subrange_subrange(s2, outer_end, s2.len() as int);
+    }
+    assert forall|s1: Seq<T>, s2: Seq<T>, outer_start: int, outer_end: int, inner_start: int, inner_end: int| {
+            &&& #[trigger] opaque_match_except_in_range(s1, s2, inner_start, inner_end)
+            &&& 0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len()
+        } implies #[trigger] opaque_match_except_in_range(s1, s2, outer_start, outer_end) by {
+        lemma_auto_opaque_subrange_subrange(s1, 0, inner_start);
+        lemma_auto_opaque_subrange_subrange(s2, 0, inner_start);
+        lemma_auto_opaque_subrange_subrange(s1, inner_end, s1.len() as int);
+        lemma_auto_opaque_subrange_subrange(s2, inner_end, s2.len() as int);
     }
 }
 
@@ -530,7 +543,7 @@ pub proof fn lemma_concatenate_three_opaque_subranges<T>(s: Seq<T>, pos1: int, p
                opaque_subrange(s, pos1, pos2) + opaque_subrange(s, pos2, pos3) + opaque_subrange(s, pos3, pos4));
 }
 
-pub proof fn lemma_auto_opaque_match_in_range_effect<T>()
+pub proof fn lemma_auto_opaque_match_in_range_effect_on_subranges<T>()
     ensures
         forall|s1: Seq<T>, s2: Seq<T>, outer_start: int, outer_end: int, inner_start: int, inner_end: int| {
             &&& #[trigger] opaque_match_in_range(s1, s2, outer_start, outer_end)
