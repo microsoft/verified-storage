@@ -264,7 +264,8 @@ exec fn install_journal_entry<Perm, PM>(
     Tracked(perm): Tracked<&Perm>,
     Ghost(vm): Ghost<JournalVersionMetadata>,
     sm: &JournalStaticMetadata,
-    start: u64,
+    start: usize,
+    write_addr: u64,
     bytes_to_write: &[u8],
     Ghost(entries_bytes): Ghost<Seq<u8>>,
     Ghost(num_entries_installed): Ghost<int>,
@@ -284,13 +285,14 @@ exec fn install_journal_entry<Perm, PM>(
         recover_journal_length(old(wrpm)@.durable_state, *sm) == Some(entries_bytes.len() as u64),
         recover_journal_entries_bytes(old(wrpm)@.durable_state, *sm, entries_bytes.len() as u64)
             == Some(entries_bytes),
-        journal_entries_valid(entries, 0, *sm),
-        apply_journal_entries(old(wrpm)@.read_state, entries, num_entries_installed, *sm)
+        journal_entries_valid(entries, *sm),
+        apply_journal_entries(old(wrpm)@.read_state, entries.skip(num_entries_installed), *sm)
             == Some(commit_state),
-        parse_journal_entries(entries_bytes, 0) == Some(entries),
+        parse_journal_entries(entries_bytes) == Some(entries),
         recover_journal(old(wrpm)@.durable_state) is Some,
-        num_entries_installed < entries.len(),
-        entries[num_entries_installed as int].start == start,
+        0 <= start < entries_bytes.len(),
+        0 <= num_entries_installed < entries.len(),
+        entries[num_entries_installed as int].start == write_addr,
         entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
         forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
             ==> #[trigger] perm.check_permission(s),
@@ -300,7 +302,7 @@ exec fn install_journal_entry<Perm, PM>(
         wrpm@.len() == old(wrpm)@.len(),
         wrpm@.valid(),
         recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
-        apply_journal_entries(wrpm@.read_state, entries, num_entries_installed + 1, *sm) == Some(commit_state),
+        apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
         opaque_subrange(wrpm@.durable_state, 0, sm.app_area_start as int) ==
             opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_area_start as int),
         opaque_subrange(wrpm@.read_state, 0, sm.app_area_start as int) ==
@@ -309,21 +311,24 @@ exec fn install_journal_entry<Perm, PM>(
     proof {
         lemma_addresses_in_entry_dont_affect_recovery(wrpm@.durable_state, vm, *sm,
                                                       entries_bytes, entries, num_entries_installed);
-        assert forall|s| can_result_from_partial_write(s, wrpm@.durable_state, start as int, bytes_to_write@)
+        assert(entries[num_entries_installed].fits(*sm)) by {
+            lemma_journal_entries_valid_implies_one_valid(entries, *sm, num_entries_installed);
+        }
+        assert forall|s| can_result_from_partial_write(s, wrpm@.durable_state, write_addr as int, bytes_to_write@)
             implies #[trigger] perm.check_permission(s) by {
             lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
-                s, wrpm@.durable_state, start as int, bytes_to_write@,
+                s, wrpm@.durable_state, write_addr as int, bytes_to_write@,
                 entries[num_entries_installed as int].addrs(),
                 |s| recover_journal(s),
             );
             assert(recover_journal(s) == recover_journal(wrpm@.durable_state));
         }
     }
-    wrpm.write(start, bytes_to_write, Tracked(perm));
+    wrpm.write(write_addr, bytes_to_write, Tracked(perm));
     proof {
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state)) by {
             lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
-                wrpm@.durable_state, old(wrpm)@.durable_state, start as int, bytes_to_write@,
+                wrpm@.durable_state, old(wrpm)@.durable_state, write_addr as int, bytes_to_write@,
                 entries[num_entries_installed as int].addrs(),
                 |s| recover_journal(s),
             );
@@ -333,13 +338,16 @@ exec fn install_journal_entry<Perm, PM>(
             reveal(opaque_update_bytes);
         }
         lemma_auto_can_result_from_partial_write_effect_on_opaque();
-        lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, start as int);
-        lemma_auto_opaque_subrange_subrange(old(wrpm)@.durable_state, 0, start as int);
+        lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
+        lemma_auto_opaque_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
         assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
         lemma_auto_can_result_from_write_effect_on_read_state();
-        lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, start as int);
-        lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, start as int);
+        lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, write_addr as int);
+        lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, write_addr as int);
+
+        assert(entries.skip(num_entries_installed)[0] =~= entries[num_entries_installed]);
+        assert(entries.skip(num_entries_installed).skip(1) =~= entries.skip(num_entries_installed + 1));
     }
 }
 
@@ -364,8 +372,8 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
         recover_journal_length(old(wrpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
         recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
             == Some(entries_bytes@),
-        parse_journal_entries(entries_bytes@, 0) == Some(entries),
-        apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) is Some,
+        parse_journal_entries(entries_bytes@) == Some(entries),
+        apply_journal_entries(old(wrpm)@.read_state, entries, *sm) is Some,
         recover_journal(old(wrpm)@.read_state) is Some,
         forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
             ==> #[trigger] perm.check_permission(s),
@@ -379,8 +387,8 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
         recover_committed_cdb(wrpm@.read_state, *sm) == Some(true),
         recover_journal_length(wrpm@.read_state, *sm) == Some(entries_bytes.len() as u64),
         recover_journal_entries_bytes(wrpm@.read_state, *sm, entries_bytes.len() as u64) == Some(entries_bytes@),
-        apply_journal_entries(wrpm@.durable_state, entries, 0, *sm) == Some(wrpm@.read_state),
-        apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) == Some(wrpm@.read_state),
+        apply_journal_entries(wrpm@.durable_state, entries, *sm) == Some(wrpm@.read_state),
+        apply_journal_entries(old(wrpm)@.read_state, entries, *sm) == Some(wrpm@.read_state),
         recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
 {
     let mut start: usize = 0;
@@ -388,11 +396,12 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
     let ghost mut num_entries_installed: int = 0;
     let u64_size: usize = size_of::<u64>();
     let twice_u64_size: usize = u64_size + u64_size;
-    let ghost commit_state = apply_journal_entries(wrpm@.read_state, entries, 0, *sm).unwrap();
+    let ghost commit_state = apply_journal_entries(wrpm@.read_state, entries, *sm).unwrap();
 
     assert(entries.skip(0) =~= entries);
+    assert(entries_bytes@.skip(0) =~= entries_bytes@);
     proof {
-        lemma_apply_journal_entries_some_iff_journal_entries_valid(old(wrpm)@.read_state, entries, 0, *sm);
+        lemma_apply_journal_entries_some_iff_journal_entries_valid(old(wrpm)@.read_state, entries, *sm);
     }
 
     while start < end
@@ -413,9 +422,9 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
             recover_journal_length(old(wrpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
             recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
                 == Some(entries_bytes@),
-            parse_journal_entries(entries_bytes@, 0) == Some(entries),
-            journal_entries_valid(entries, 0, *sm),
-            apply_journal_entries(old(wrpm)@.read_state, entries, 0, *sm) is Some,
+            parse_journal_entries(entries_bytes@) == Some(entries),
+            journal_entries_valid(entries, *sm),
+            apply_journal_entries(old(wrpm)@.read_state, entries, *sm) is Some,
             recover_journal(old(wrpm)@.read_state) is Some,
             recover_version_metadata(wrpm@.durable_state) == Some(vm),
             recover_static_metadata(wrpm@.durable_state, vm) == Some(*sm),
@@ -426,37 +435,43 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
             recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
-            parse_journal_entries(entries_bytes@, start as int) == Some(entries.skip(num_entries_installed)),
+            parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
             opaque_subrange(wrpm@.durable_state, 0, sm.app_area_start as int) ==
                 opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_area_start as int),
             opaque_subrange(wrpm@.read_state, 0, sm.app_area_start as int) ==
                 opaque_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int),
-            apply_journal_entries(wrpm@.read_state, entries, num_entries_installed, *sm)
+            apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed), *sm)
                 == Some(commit_state),
     {
         reveal(opaque_subrange);
         broadcast use pmcopy_axioms;
         let ghost durable_state_at_start_of_loop = wrpm@.durable_state;
-        
+
         assert(start + twice_u64_size <= end);
+        assert(parse_journal_entry(entries_bytes@.skip(start as int)) is Some);
+        assert(parse_journal_entry(entries_bytes@.skip(start as int)).unwrap().0 == entries[num_entries_installed]);
         let entries_bytes_slice = entries_bytes.as_slice();
         let addr = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start, start + u64_size));
         let len = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start + u64_size, start + twice_u64_size));
-        assert(addr == u64::spec_from_bytes(opaque_section(entries_bytes@, start as int, u64::spec_size_of())));
-        assert(len == u64::spec_from_bytes(opaque_section(entries_bytes@, start + u64::spec_size_of(),
+        assert(entries_bytes_slice@.subrange(start as int, (start + u64_size) as int) ==
+               opaque_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of()));
+        assert(addr == u64::spec_from_bytes(opaque_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())));
+        assert(entries_bytes_slice@.subrange((start + u64_size) as int, (start + u64_size + u64_size) as int) ==
+               opaque_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int, u64::spec_size_of()));
+        assert(len == u64::spec_from_bytes(opaque_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int,
                                                           u64::spec_size_of())));
         assert(start + twice_u64_size + len as usize <= end);
         let bytes_to_write = slice_subrange(entries_bytes_slice, start + twice_u64_size,
                                             start + twice_u64_size + len as usize);
-        assert(bytes_to_write@ == opaque_section(entries_bytes@, start + u64::spec_size_of() + u64::spec_size_of(),
+        assert(bytes_to_write@ == opaque_section(entries_bytes@.skip(start as int),
+                                                 (u64::spec_size_of() + u64::spec_size_of()) as int,
                                                  len as nat));
         let ghost entry = JournalEntry{ start: addr as int, bytes_to_write: bytes_to_write@ };
         proof {
-            lemma_parse_journal_entry_implications(entries_bytes@, entries, num_entries_installed,
-                                                   start as int);
+            lemma_parse_journal_entry_implications(entries_bytes@, entries, start as int, num_entries_installed);
             assert(entries[num_entries_installed as int] == entry);
         }
-        install_journal_entry(wrpm, Tracked(perm), Ghost(vm), sm, addr, bytes_to_write,
+        install_journal_entry(wrpm, Tracked(perm), Ghost(vm), sm, start, addr, bytes_to_write,
                               Ghost(entries_bytes@), Ghost(num_entries_installed), Ghost(entries),
                               Ghost(commit_state));
         proof {

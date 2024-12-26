@@ -318,7 +318,7 @@ impl <Perm, PM> Journal<Perm, PM>
             let journal_length = read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
             let entries_bytes =
                 read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
-            let ghost entries = parse_journal_entries(entries_bytes@, 0).unwrap();
+            let ghost entries = parse_journal_entries(entries_bytes@).unwrap();
             install_journal_entries(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes, Ghost(entries));
             clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
         }
@@ -393,15 +393,15 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_opaque_subrange_subrange(old(self).wrpm@.durable_state, 0, addr as int);
         }
         self.commit_state = Ghost(opaque_update_bytes(self.commit_state@, addr as int, bytes_to_write@));
-        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)) by {
+        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)) by {
             lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).wrpm@.read_state, self.entries@,
-                                                                       0, self.sm);
+                                                                       self.sm);
             assert forall|i: int| #![trigger self.journaled_addrs@.contains(i)]
                 addr <= i < addr + bytes_to_write@.len() implies !self.journaled_addrs@.contains(i) by {
                 assert(self.journaled_addrs@.contains(i) <==> old(self)@.journaled_addrs.contains(i)); // trigger
             }
             lemma_apply_journal_entries_commutes_with_update_bytes(
-                old(self).wrpm@.read_state, self.entries@, self.journaled_addrs@, 0, addr as int,
+                old(self).wrpm@.read_state, self.entries@, self.journaled_addrs@, addr as int,
                 bytes_to_write@, self.sm
             );
         }
@@ -530,8 +530,8 @@ impl <Perm, PM> Journal<Perm, PM>
         let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
         self.entries.push(concrete_entry);
 
-        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, 0, self.sm) == Some(self@.commit_state)) by {
-            lemma_effect_of_append_on_apply_journal_entries(old(self).wrpm@.read_state, old(self).entries@, 0,
+        assert(apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)) by {
+            lemma_effect_of_append_on_apply_journal_entries(old(self).wrpm@.read_state, old(self).entries@,
                                                             concrete_entry@, self.sm);
         }
 
@@ -567,8 +567,8 @@ impl <Perm, PM> Journal<Perm, PM>
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(self).wrpm@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
             parse_journal_entries(
-                opaque_subrange(old(self).wrpm@.read_state, old(self).sm.journal_entries_start as int, current_pos as int),
-                0) == Some(old(self).entries@.take(current_entry_index as int)),
+                opaque_subrange(old(self).wrpm@.read_state, old(self).sm.journal_entries_start as int, current_pos as int)
+            ) == Some(old(self).entries@.take(current_entry_index as int)),
             0 <= current_entry_index < old(self).entries@.len(),
             old(self).sm.journal_entries_start <= current_pos,
             current_pos == old(self).sm.journal_entries_start +
@@ -588,7 +588,7 @@ impl <Perm, PM> Journal<Perm, PM>
             opaque_subrange(old(self)@.commit_state, self.sm.app_area_start as int, self.sm.app_area_end as int)
                 == opaque_subrange(self@.commit_state, self.sm.app_area_start as int, self.sm.app_area_end as int),
             parse_journal_entries(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
-                                                  new_pos as int), 0)
+                                                  new_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1)),
             current_pos < new_pos <= self.sm.journal_entries_start + self.journal_length,
             new_pos == self.sm.journal_entries_start +
@@ -697,7 +697,7 @@ impl <Perm, PM> Journal<Perm, PM>
     
         let new_pos = bytes_to_write_addr + num_bytes;
         assert(parse_journal_entries(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
-                                                     new_pos as int), 0)
+                                                     new_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1))) by {
             let old_entries_bytes = opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                     current_pos as int);
@@ -713,9 +713,9 @@ impl <Perm, PM> Journal<Perm, PM>
                 lemma_auto_can_result_from_write_effect_on_read_state();
                 reveal(opaque_subrange);
             }
-            assert(parse_journal_entries(new_entries_bytes, 0) ==
+            assert(parse_journal_entries(new_entries_bytes) ==
                    Some(self.entries@.take(current_entry_index as int).push(entry@))) by {
-                lemma_parse_journal_entries_append(old_entries_bytes, 0,
+                lemma_parse_journal_entries_append(old_entries_bytes,
                                                    self.entries@.take(current_entry_index as int), entry@);
             }
             assert(self.entries@.take(current_entry_index as int).push(entry@) =~=
@@ -724,10 +724,10 @@ impl <Perm, PM> Journal<Perm, PM>
 
         proof {
             lemma_updating_journal_area_doesnt_affect_apply_journal_entries(
-                old(self)@.read_state, self@.read_state, self.entries@, 0, self.vm@, self.sm
+                old(self)@.read_state, self@.read_state, self.entries@, self.vm@, self.sm
             );
         }
-        self.commit_state = Ghost(apply_journal_entries(self.wrpm@.read_state, self.entries@, 0, self.sm).unwrap());
+        self.commit_state = Ghost(apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap());
         new_pos
     }
 

@@ -194,50 +194,42 @@ pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: Journa
     }
 }
 
-pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>, start: int) -> Option<(JournalEntry, int)>
-    recommends
-        0 <= start <= entries_bytes.len(),
+pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>) -> Option<(JournalEntry, int)>
     decreases
-        entries_bytes.len() - start
+        entries_bytes.len()
 {
-    if start + u64::spec_size_of() + u64::spec_size_of() > entries_bytes.len() {
+    if u64::spec_size_of() + u64::spec_size_of() > entries_bytes.len() {
         None
     }
     else {
-        let addr_bytes = opaque_section(entries_bytes, start, u64::spec_size_of());
+        let addr_bytes = opaque_section(entries_bytes, 0, u64::spec_size_of());
         let addr = u64::spec_from_bytes(addr_bytes);
-        let length_offset = start + u64::spec_size_of();
-        let length_bytes = opaque_section(entries_bytes, length_offset, u64::spec_size_of());
+        let length_bytes = opaque_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
         let length = u64::spec_from_bytes(length_bytes);
-        let data_offset = length_offset + u64::spec_size_of();
+        let data_offset = u64::spec_size_of() + u64::spec_size_of();
         if data_offset + length > entries_bytes.len() {
             None
         }
         else {
-            let data = opaque_section(entries_bytes, data_offset, length as nat);
+            let data = opaque_section(entries_bytes, data_offset as int, length as nat);
             let entry = JournalEntry { start: addr as int, bytes_to_write: data };
             Some((entry, data_offset + length))
         }
     }
 }
 
-pub(super) open spec fn parse_journal_entries(entries_bytes: Seq<u8>, start: int) -> Option<Seq<JournalEntry>>
-    recommends
-        0 <= start <= entries_bytes.len(),
+pub(super) open spec fn parse_journal_entries(entries_bytes: Seq<u8>) -> Option<Seq<JournalEntry>>
     decreases
-        entries_bytes.len() - start
+        entries_bytes.len()
 {
-    if !(0 <= start <= entries_bytes.len()) {
-        None
-    }
-    else if start == entries_bytes.len() {
+    if entries_bytes.len() == 0 {
         Some(Seq::<JournalEntry>::empty())
     }
     else {
-        match parse_journal_entry(entries_bytes, start) {
+        match parse_journal_entry(entries_bytes) {
             None => None,
-            Some((entry, next)) =>
-                match parse_journal_entries(entries_bytes, next) {
+            Some((entry, num_bytes)) =>
+                match parse_journal_entries(entries_bytes.skip(num_bytes)) {
                     None => None,
                     Some(remaining_journal) => Some(seq![entry] + remaining_journal),
                 },
@@ -250,7 +242,7 @@ pub(super) open spec fn recover_journal_entries(bytes: Seq<u8>, sm: JournalStati
 {
     match recover_journal_entries_bytes(bytes, sm, journal_length) {
         None => None,
-        Some(entries_bytes) => parse_journal_entries(entries_bytes, 0),
+        Some(entries_bytes) => parse_journal_entries(entries_bytes),
     }
 }
 
@@ -261,7 +253,7 @@ pub(super) open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm:
         Some(journal_length) => {
             match recover_journal_entries(bytes, sm, journal_length) {
                 None => None,
-                Some(journal_entries) => apply_journal_entries(bytes, journal_entries, 0, sm),
+                Some(journal_entries) => apply_journal_entries(bytes, journal_entries, sm),
             }
         },
     }
