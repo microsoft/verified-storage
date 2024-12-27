@@ -524,8 +524,6 @@ pub broadcast group group_match_in_range {
 pub broadcast group group_opaque_subrange {
     group_can_result_from_write_effect,
     group_update_bytes_effect,
-    group_match_except_in_range,
-    group_match_in_range,
     broadcast_length_of_opaque_subrange,
 }
 

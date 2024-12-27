@@ -16,6 +16,8 @@ use super::spec_v::*;
 
 verus! {
 
+broadcast use group_opaque_subrange, pmcopy_axioms;
+
 pub open spec fn spec_space_needed_for_journal_entry(num_bytes: nat) -> int
 {
     num_bytes + u64::spec_size_of() as int + u64::spec_size_of() as int
@@ -481,7 +483,6 @@ pub(super) proof fn lemma_parse_journal_entries_append(
         entries.len(),
 {
     reveal(opaque_subrange);
-    broadcast use pmcopy_axioms;
     let new_entries_bytes = entries_bytes
                           + (new_entry.start as u64).spec_to_bytes()
                           + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
@@ -620,8 +621,6 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
         let entry = entries[0];
         let s1_next = apply_journal_entry(s1, entry, sm).unwrap();
         let s2_next = apply_journal_entry(s2, entry, sm).unwrap();
-        broadcast use broadcast_opaque_update_bytes_effect_on_opaque;
-        broadcast use broadcast_opaque_update_bytes_effect_on_opaque_subranges;
         lemma_auto_opaque_subrange_subrange(s1, sm.app_area_start as int, sm.app_area_end as int);
         lemma_auto_opaque_subrange_subrange(s2, sm.app_area_start as int, sm.app_area_end as int);
         assert(opaque_subrange(s1_next, sm.app_area_start as int, sm.app_area_end as int)

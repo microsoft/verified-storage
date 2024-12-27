@@ -20,6 +20,8 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
+broadcast use group_opaque_subrange, pmcopy_axioms;
+
 pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<JournalVersionMetadata>)
     where
         PM: PersistentMemoryRegion,
@@ -337,12 +339,10 @@ exec fn install_journal_entry<Perm, PM>(
                apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm)) by {
             reveal(opaque_update_bytes);
         }
-        broadcast use broadcast_can_result_from_partial_write_effect_on_opaque;
         lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
         lemma_auto_opaque_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
         assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
-        broadcast use broadcast_can_result_from_write_effect_on_read_state;
         lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, write_addr as int);
         lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, write_addr as int);
 
@@ -444,7 +444,6 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
                 == Some(commit_state),
     {
         reveal(opaque_subrange);
-        broadcast use pmcopy_axioms;
         let ghost durable_state_at_start_of_loop = wrpm@.durable_state;
 
         assert(start + twice_u64_size <= end);
@@ -529,15 +528,12 @@ pub(super) exec fn clear_log<Perm, PM>(
     let ghost new_state = update_bytes(wrpm@.durable_state, sm.committed_cdb_start as int,
         new_cdb.spec_to_bytes());
     proof {
-        broadcast use pmcopy_axioms;
         assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0) by {
             reveal(opaque_aligned);
         }
         assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
         assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
         assert(perm.check_permission(wrpm@.durable_state));
-        broadcast use broadcast_update_bytes_effect_on_opaque;
-        broadcast use broadcast_update_bytes_effect_on_opaque_subranges;
         assert(recover_version_metadata(new_state) == Some(vm));
         assert(recover_static_metadata(new_state, vm) == Some(*sm));
         assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms

@@ -19,6 +19,8 @@ use deps_hack::PmCopy;
 
 verus! {
 
+broadcast use group_opaque_subrange, pmcopy_axioms;
+
 pub enum JournalStatus {
     Quiescent,
     WritingJournalEntries,
@@ -195,8 +197,6 @@ impl <Perm, PM> Journal<Perm, PM>
     
         proof {
             assert(pm@.valid()) by { pm.lemma_inv_implies_view_valid(); }
-            broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
-            broadcast use pmcopy_axioms;
             assert(addrs.valid(*ps));
         }
     
@@ -231,7 +231,6 @@ impl <Perm, PM> Journal<Perm, PM>
         pm.serialize_and_write(addrs.committed_cdb_start, &committed_cdb);
     
         proof {
-            broadcast use broadcast_can_result_from_write_effect_on_read_state;
             lemma_setup_works(pm@.read_state, *ps, addrs, vm, sm);
         }
     
@@ -376,8 +375,6 @@ impl <Perm, PM> Journal<Perm, PM>
             self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
         proof {
-            broadcast use broadcast_can_result_from_partial_write_effect_on_opaque;
-            broadcast use broadcast_can_result_from_write_effect_on_read_state;
             assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, addr as int, bytes_to_write@)
                 implies #[trigger] perm.check_permission(s) by {
                 assert(opaque_match_except_in_range(s, self.wrpm@.durable_state, addr as int,
@@ -436,7 +433,6 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
     {
-        broadcast use pmcopy_axioms;
         self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
     }
 
@@ -525,8 +521,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..old(self)@
             }),
     {
-        broadcast use pmcopy_axioms;
-
         self.journal_length = self.journal_length + (size_of::<u64>() + size_of::<u64>() + bytes_to_write.len()) as u64;
         self.journaled_addrs = Ghost(self.journaled_addrs@ +
                                      Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
@@ -618,7 +612,6 @@ impl <Perm, PM> Journal<Perm, PM>
             crc_digest.bytes_in_digest() ==
                 opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int, next_pos as int),
     {
-        broadcast use pmcopy_axioms;
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
         let num_bytes: u64 = entry.bytes_to_write.len() as u64;
 
@@ -661,8 +654,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int,
                                          self.sm.app_area_end as int)
             } by {
-            broadcast use broadcast_can_result_from_partial_write_effect_on_opaque_subranges;
-            broadcast use group_match_except_in_range;
         }
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
@@ -675,8 +666,6 @@ impl <Perm, PM> Journal<Perm, PM>
                   opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                   current_pos + u64::spec_size_of())
         }) by {
-            broadcast use broadcast_can_result_from_write_effect_on_read_state;
-            broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
             lemma_concatenate_opaque_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                current_pos as int, current_pos + u64::spec_size_of());
         }
@@ -691,8 +680,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int,
                                          self.sm.app_area_end as int)
             } by {
-            broadcast use broadcast_can_result_from_partial_write_effect_on_opaque_subranges;
-            broadcast use group_match_except_in_range;
         }
         self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
         crc_digest.write(&num_bytes);
@@ -705,8 +692,6 @@ impl <Perm, PM> Journal<Perm, PM>
                   opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                   num_bytes_addr + u64::spec_size_of())
         }) by {
-            broadcast use broadcast_can_result_from_write_effect_on_read_state;
-            broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
             lemma_concatenate_opaque_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                num_bytes_addr as int, num_bytes_addr + u64::spec_size_of());
         }
@@ -721,8 +706,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 &&& opaque_match_in_range(original_durable_state, s, self.sm.app_area_start as int,
                                                 self.sm.app_area_end as int)
             } by {
-            broadcast use broadcast_can_result_from_partial_write_effect_on_opaque_subranges;
-            broadcast use group_match_except_in_range;
         }
         let bytes_to_write_as_slice = entry.bytes_to_write.as_slice();
         self.wrpm.write(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
@@ -736,8 +719,6 @@ impl <Perm, PM> Journal<Perm, PM>
                   opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                   bytes_to_write_addr + num_bytes)
         }) by {
-            broadcast use broadcast_can_result_from_write_effect_on_read_state;
-            broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
             lemma_concatenate_opaque_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                bytes_to_write_addr as int, bytes_to_write_addr + num_bytes);
         }
@@ -753,11 +734,9 @@ impl <Perm, PM> Journal<Perm, PM>
             assert(old_entries_bytes ==
                    opaque_subrange(old(self).wrpm@.read_state, self.sm.journal_entries_start as int,
                                    current_pos as int)) by {
-                broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
             }
             assert(new_entries_bytes =~= old_entries_bytes + entry.start.spec_to_bytes()
                                          + num_bytes.spec_to_bytes() + entry.bytes_to_write@) by {
-                broadcast use broadcast_can_result_from_write_effect_on_read_state;
                 reveal(opaque_subrange);
             }
             assert(parse_journal_entries(new_entries_bytes) ==
