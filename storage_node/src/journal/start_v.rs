@@ -337,12 +337,12 @@ exec fn install_journal_entry<Perm, PM>(
                apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm)) by {
             reveal(opaque_update_bytes);
         }
-        lemma_auto_can_result_from_partial_write_effect_on_opaque();
+        broadcast use broadcast_can_result_from_partial_write_effect_on_opaque;
         lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
         lemma_auto_opaque_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
         assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
-        lemma_auto_can_result_from_write_effect_on_read_state();
+        broadcast use broadcast_can_result_from_write_effect_on_read_state;
         lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, write_addr as int);
         lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, write_addr as int);
 
@@ -536,7 +536,8 @@ pub(super) exec fn clear_log<Perm, PM>(
         assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
         assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
         assert(perm.check_permission(wrpm@.durable_state));
-        lemma_update_bytes_effect_on_opaque_subranges();
+        broadcast use broadcast_update_bytes_effect_on_opaque;
+        broadcast use broadcast_update_bytes_effect_on_opaque_subranges;
         assert(recover_version_metadata(new_state) == Some(vm));
         assert(recover_static_metadata(new_state, vm) == Some(*sm));
         assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms

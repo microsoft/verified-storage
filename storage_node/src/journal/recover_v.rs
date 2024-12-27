@@ -334,7 +334,7 @@ pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncomm
     ensures
         recovers_to(s2, vm, sm, constants),
 {
-    lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
+    broadcast use group_match_except_in_range;
 }
 
 }
