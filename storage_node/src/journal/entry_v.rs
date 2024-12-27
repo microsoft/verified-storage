@@ -16,7 +16,7 @@ use super::spec_v::*;
 
 verus! {
 
-broadcast use group_opaque_subrange, pmcopy_axioms;
+broadcast use group_auto_subrange, pmcopy_axioms;
 
 pub open spec fn spec_space_needed_for_journal_entry(num_bytes: nat) -> int
 {
@@ -68,7 +68,7 @@ pub(super) open spec fn apply_journal_entry(bytes: Seq<u8>, entry: JournalEntry,
                                      -> Option<Seq<u8>>
 {
     if entry.fits(sm) {
-        Some(opaque_update_bytes(bytes, entry.start, entry.bytes_to_write))
+        Some(update_bytes(bytes, entry.start, entry.bytes_to_write))
     }
     else {
         None
@@ -241,17 +241,15 @@ pub(super) proof fn lemma_apply_journal_entries_only_affects_dynamic_area_induct
         apply_journal_entries(state, entries, sm) is Some,
     ensures ({
         let state2 = apply_journal_entries(state, entries, sm).unwrap();
-        opaque_subrange(state2, 0, sm.app_area_start as int) == opaque_subrange(state, 0, sm.app_area_start as int)
+        state2.subrange(0, sm.app_area_start as int) == state.subrange(0, sm.app_area_start as int)
     }),
     decreases
         entries.len()
 {
     if 0 < entries.len() {
-        reveal(opaque_update_bytes);
-        reveal(opaque_subrange);
+        reveal(update_bytes);
         let state_next = apply_journal_entry(state, entries[0], sm).unwrap();
-        assert(opaque_subrange(state_next, 0, sm.app_area_start as int) =~=
-               opaque_subrange(state, 0, sm.app_area_start as int));
+        assert(state_next.subrange(0, sm.app_area_start as int) =~= state.subrange(0, sm.app_area_start as int));
         lemma_apply_journal_entries_only_affects_dynamic_area_inductive_step(
             state_next, vm, sm, entries.skip(1)
         );
@@ -280,7 +278,7 @@ pub(super) proof fn lemma_addresses_in_entry_dont_affect_apply_journal_entries_i
     decreases
         entries.len()
 {
-    reveal(opaque_update_bytes);
+    reveal(update_bytes);
     let state1_next = apply_journal_entry(state1, entries[0], sm).unwrap();
     let state2_next = apply_journal_entry(state2, entries[0], sm).unwrap();
     if which_entry == 0 {
@@ -327,7 +325,7 @@ pub(super) proof fn lemma_apply_journal_entry_doesnt_change_size(
     ensures
         state.len() == apply_journal_entry(state, entry, sm).unwrap().len(),
 {
-    reveal(opaque_update_bytes);
+    reveal(update_bytes);
 }
 
 pub(super) proof fn lemma_apply_journal_entries_doesnt_change_size(
@@ -383,13 +381,11 @@ pub(super) proof fn lemma_addresses_in_entry_dont_affect_recovery(
         lemma_addresses_in_entry_dont_affect_apply_journal_entries_inductive_step(
             state, s2, vm, sm, entries, which_entry
         );
-        reveal(opaque_subrange);
         lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry(sm, state, entries, which_entry);
         assert(forall|i| 0 <= i < sm.app_area_start ==> !addrs.contains(i));
-        assert(opaque_subrange(state, 0, sm.app_area_start as int) =~=
-               opaque_subrange(s2, 0, sm.app_area_start as int));
-        lemma_auto_opaque_subrange_subrange(state, 0, sm.app_area_start as int);
-        lemma_auto_opaque_subrange_subrange(s2, 0, sm.app_area_start as int);
+        assert(state.subrange(0, sm.app_area_start as int) =~= s2.subrange(0, sm.app_area_start as int));
+        lemma_auto_subrange_subrange(state, 0, sm.app_area_start as int);
+        lemma_auto_subrange_subrange(s2, 0, sm.app_area_start as int);
     }
 }
 
@@ -482,18 +478,17 @@ pub(super) proof fn lemma_parse_journal_entries_append(
     decreases
         entries.len(),
 {
-    reveal(opaque_subrange);
     let new_entries_bytes = entries_bytes
                           + (new_entry.start as u64).spec_to_bytes()
                           + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
                           + new_entry.bytes_to_write;
     if entries_bytes.len() == 0 {
-        let addr_bytes = opaque_section(new_entries_bytes, 0, u64::spec_size_of());
+        let addr_bytes = extract_section(new_entries_bytes, 0, u64::spec_size_of());
         assert(addr_bytes =~= (new_entry.start as u64).spec_to_bytes());
-        let length_bytes = opaque_section(new_entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
+        let length_bytes = extract_section(new_entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
         assert(length_bytes =~= (new_entry.bytes_to_write.len() as u64).spec_to_bytes());
         let data_offset = u64::spec_size_of() + u64::spec_size_of();
-        assert(opaque_section(new_entries_bytes, data_offset as int, new_entry.bytes_to_write.len())
+        assert(extract_section(new_entries_bytes, data_offset as int, new_entry.bytes_to_write.len())
                =~= new_entry.bytes_to_write);
         assert(parse_journal_entry(new_entries_bytes) == Some((new_entry, new_entries_bytes.len() as int)));
         assert(entries =~= Seq::<JournalEntry>::empty());
@@ -506,14 +501,14 @@ pub(super) proof fn lemma_parse_journal_entries_append(
         let remaining_entries = parse_journal_entries(entries_bytes.skip(num_bytes)).unwrap();
 
         let (alt_entry, alt_num_bytes) = parse_journal_entry(new_entries_bytes).unwrap();
-        let addr_bytes = opaque_section(new_entries_bytes, 0, u64::spec_size_of());
-        assert(addr_bytes =~= opaque_section(entries_bytes, 0, u64::spec_size_of()));
-        let length_bytes = opaque_section(new_entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
-        assert(length_bytes =~= opaque_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of()));
+        let addr_bytes = extract_section(new_entries_bytes, 0, u64::spec_size_of());
+        assert(addr_bytes =~= extract_section(entries_bytes, 0, u64::spec_size_of()));
+        let length_bytes = extract_section(new_entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
+        assert(length_bytes =~= extract_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of()));
         let length = u64::spec_from_bytes(length_bytes);
         let data_offset = u64::spec_size_of() + u64::spec_size_of();
-        assert(opaque_section(new_entries_bytes, data_offset as int, length as nat) =~=
-               opaque_section(entries_bytes, data_offset as int, length as nat));
+        assert(extract_section(new_entries_bytes, data_offset as int, length as nat) =~=
+               extract_section(entries_bytes, data_offset as int, length as nat));
         assert(alt_entry == entry);
         assert(alt_num_bytes == num_bytes);
 
@@ -563,13 +558,13 @@ pub(super) proof fn lemma_apply_journal_entries_commutes_with_update_bytes(
             ==> !journaled_addrs.contains(i),
     ensures ({
         &&& apply_journal_entries(s, entries, sm) matches Some(s2)
-        &&& apply_journal_entries(opaque_update_bytes(s, addr, bytes_to_write), entries, sm) ==
-               Some(opaque_update_bytes(s2, addr, bytes_to_write))
+        &&& apply_journal_entries(update_bytes(s, addr, bytes_to_write), entries, sm) ==
+               Some(update_bytes(s2, addr, bytes_to_write))
     }),
     decreases
         entries.len(),
 {
-    reveal(opaque_update_bytes);
+    reveal(update_bytes);
     if 0 < entries.len() {
         let next_state = apply_journal_entry(s, entries[0], sm).unwrap();
         assert (journaled_addrs_complete(entries.skip(1), journaled_addrs)) by {
@@ -582,8 +577,8 @@ pub(super) proof fn lemma_apply_journal_entries_commutes_with_update_bytes(
         lemma_apply_journal_entries_commutes_with_update_bytes(next_state, entries.skip(1), journaled_addrs,
                                                                addr, bytes_to_write, sm);
         vstd::assert_seqs_equal!(
-            apply_journal_entry(opaque_update_bytes(s, addr, bytes_to_write), entries[0], sm).unwrap() ==
-            opaque_update_bytes(next_state, addr, bytes_to_write),
+            apply_journal_entry(update_bytes(s, addr, bytes_to_write), entries[0], sm).unwrap() ==
+            update_bytes(next_state, addr, bytes_to_write),
             i => {
                 assert(entries.contains(entries[0])); // triggers journaled_addrs_complete
                 if addr <= i < addr + bytes_to_write.len() {
@@ -605,14 +600,14 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
         validate_metadata(vm, sm, s1.len()),
         s1.len() == s2.len(),
         apply_journal_entries(s1, entries, sm) is Some,
-        opaque_subrange(s1, sm.app_area_start as int, sm.app_area_end as int)
-            == opaque_subrange(s2, sm.app_area_start as int, sm.app_area_end as int),
+        s1.subrange(sm.app_area_start as int, sm.app_area_end as int)
+            == s2.subrange(sm.app_area_start as int, sm.app_area_end as int),
     ensures ({
         let s1_updated = apply_journal_entries(s1, entries, sm);
         let s2_updated = apply_journal_entries(s2, entries, sm);
         &&& s2_updated is Some
-        &&& opaque_subrange(s1_updated.unwrap(), sm.app_area_start as int, sm.app_area_end as int)
-            == opaque_subrange(s2_updated.unwrap(), sm.app_area_start as int, sm.app_area_end as int)
+        &&& s1_updated.unwrap().subrange(sm.app_area_start as int, sm.app_area_end as int)
+            == s2_updated.unwrap().subrange(sm.app_area_start as int, sm.app_area_end as int)
     }),
     decreases
         entries.len(),
@@ -621,14 +616,14 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
         let entry = entries[0];
         let s1_next = apply_journal_entry(s1, entry, sm).unwrap();
         let s2_next = apply_journal_entry(s2, entry, sm).unwrap();
-        lemma_auto_opaque_subrange_subrange(s1, sm.app_area_start as int, sm.app_area_end as int);
-        lemma_auto_opaque_subrange_subrange(s2, sm.app_area_start as int, sm.app_area_end as int);
-        assert(opaque_subrange(s1_next, sm.app_area_start as int, sm.app_area_end as int)
-               == opaque_subrange(s2_next, sm.app_area_start as int, sm.app_area_end as int)) by {
-            lemma_concatenate_three_opaque_subranges(s1_next, sm.app_area_start as int, entry.start as int,
-                                                     entry.end(), sm.app_area_end as int);
-            lemma_concatenate_three_opaque_subranges(s2_next, sm.app_area_start as int, entry.start as int,
-                                                     entry.end(), sm.app_area_end as int);
+        lemma_auto_subrange_subrange(s1, sm.app_area_start as int, sm.app_area_end as int);
+        lemma_auto_subrange_subrange(s2, sm.app_area_start as int, sm.app_area_end as int);
+        assert(s1_next.subrange(sm.app_area_start as int, sm.app_area_end as int)
+               == s2_next.subrange(sm.app_area_start as int, sm.app_area_end as int)) by {
+            lemma_concatenate_three_subranges(s1_next, sm.app_area_start as int, entry.start as int,
+                                              entry.end(), sm.app_area_end as int);
+            lemma_concatenate_three_subranges(s2_next, sm.app_area_start as int, entry.start as int,
+                                              entry.end(), sm.app_area_end as int);
         }
         lemma_updating_journal_area_doesnt_affect_apply_journal_entries(
             s1_next, s2_next, entries.skip(1), vm, sm);
@@ -696,7 +691,7 @@ pub(super) proof fn lemma_effect_of_append_on_apply_journal_entries(
         assert(apply_journal_entries(s_next, entries.push(new_entry).skip(1), sm) == Some(s_next));
     }
     else {
-        reveal(opaque_update_bytes);
+        reveal(update_bytes);
         assert(entries.push(new_entry)[0] == entries[0]);
         let s_next = apply_journal_entry(s, entries[0], sm).unwrap();
         assert(apply_journal_entry(s, entries.push(new_entry)[0], sm) == Some(s_next));

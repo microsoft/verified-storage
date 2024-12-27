@@ -192,16 +192,16 @@ pub(super) proof fn lemma_setup_works(
         sm.app_area_end >= addrs.min_app_area_end,
         sm.app_area_end == bytes.len(),
         ({
-            &&& opaque_subrange(bytes, spec_journal_version_metadata_start(),
+            &&& bytes.subrange(spec_journal_version_metadata_start(),
                               spec_journal_version_metadata_end()) == vm.spec_to_bytes()
-            &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start(),
+            &&& bytes.subrange(spec_journal_version_metadata_crc_start(),
                               spec_journal_version_metadata_crc_end())
                     == spec_crc_bytes(vm.spec_to_bytes())
-            &&& opaque_subrange(bytes, spec_journal_static_metadata_start(), spec_journal_static_metadata_end())
+            &&& bytes.subrange(spec_journal_static_metadata_start(), spec_journal_static_metadata_end())
                     == sm.spec_to_bytes()
-            &&& opaque_subrange(bytes, spec_journal_static_metadata_crc_start(), spec_journal_static_metadata_crc_end())
+            &&& bytes.subrange(spec_journal_static_metadata_crc_start(), spec_journal_static_metadata_crc_end())
                     == spec_crc_bytes(sm.spec_to_bytes())
-            &&& opaque_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
+            &&& extract_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
         }),
     ensures ({
         &&& recover_journal(bytes) matches Some(j)

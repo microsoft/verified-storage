@@ -20,7 +20,7 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-broadcast use group_opaque_subrange, pmcopy_axioms;
+broadcast use group_auto_subrange, pmcopy_axioms;
 
 pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<JournalVersionMetadata>)
     where
@@ -35,13 +35,11 @@ pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<Journal
             Some(vm) => recover_version_metadata(pm@.read_state) == Some(vm),
         }
 {
-    reveal(opaque_subrange);
-
     let journal_version_metadata_end = size_of::<JournalVersionMetadata>() as u64;
     let journal_version_metadata_crc_addr = exec_round_up_to_alignment::<u64>(journal_version_metadata_end);
 
     assert(spec_journal_version_metadata_start() == 0);
-    let ghost true_vm_bytes = opaque_section(pm@.read_state, 0, JournalVersionMetadata::spec_size_of());
+    let ghost true_vm_bytes = extract_section(pm@.read_state, 0, JournalVersionMetadata::spec_size_of());
     let ghost true_vm = JournalVersionMetadata::spec_from_bytes(true_vm_bytes);
     let maybe_corrupted_vm = match pm.read_aligned::<JournalVersionMetadata>(0) {
         Ok(bytes) => bytes,
@@ -81,8 +79,6 @@ pub(super) exec fn read_static_metadata<PM>(pm: &PM, vm: &JournalVersionMetadata
             Some(sm) => recover_static_metadata(pm@.read_state, *vm) == Some(sm),
         }
 {
-    reveal(opaque_subrange);
-
     if vm.version_number != 1 {
         assert(false);
         return None;
@@ -106,8 +102,8 @@ pub(super) exec fn read_static_metadata<PM>(pm: &PM, vm: &JournalVersionMetadata
     let journal_static_metadata_crc_start = exec_round_up_to_alignment::<u64>(journal_static_metadata_end);
     assert(journal_static_metadata_crc_start == spec_journal_static_metadata_crc_start());
 
-    let ghost true_sm_bytes = opaque_subrange(pm@.read_state, journal_static_metadata_start as int,
-                                              journal_static_metadata_end as int);
+    let ghost true_sm_bytes = pm@.read_state.subrange(journal_static_metadata_start as int,
+                                                      journal_static_metadata_end as int);
     let ghost true_sm = JournalStaticMetadata::spec_from_bytes(true_sm_bytes);
     let maybe_corrupted_sm = match pm.read_aligned::<JournalStaticMetadata>(journal_static_metadata_start) {
         Ok(bytes) => bytes,
@@ -146,10 +142,8 @@ pub(super) exec fn read_committed_cdb<PM>(pm: &PM, vm: &JournalVersionMetadata, 
             Some(b) => recover_committed_cdb(pm@.read_state, *sm) == Some(b),
         }
 {
-    reveal(opaque_subrange);
-
-    let ghost true_cdb_bytes = opaque_subrange(pm@.read_state, sm.committed_cdb_start as int,
-                                               sm.committed_cdb_start as int + u64::spec_size_of() as int);
+    let ghost true_cdb_bytes = pm@.read_state.subrange(sm.committed_cdb_start as int,
+                                                       sm.committed_cdb_start as int + u64::spec_size_of() as int);
     let cdb_bytes = match pm.read_aligned::<u64>(sm.committed_cdb_start) {
         Ok(bytes) => bytes,
         Err(_) => { assert(false); return None; }
@@ -181,10 +175,8 @@ pub(super) exec fn read_journal_length<PM>(
             Some(journal_length) => recover_journal_length(pm@.read_state, *sm) == Some(journal_length),
         }
 {
-    reveal(opaque_subrange);
-
     let ghost true_journal_length_bytes =
-         opaque_section(pm@.read_state, sm.journal_length_start as int, u64::spec_size_of());
+         extract_section(pm@.read_state, sm.journal_length_start as int, u64::spec_size_of());
     let ghost true_journal_length = u64::spec_from_bytes(true_journal_length_bytes);
     let maybe_corrupted_journal_length = match pm.read_aligned::<u64>(sm.journal_length_start) {
         Ok(bytes) => bytes,
@@ -233,10 +225,8 @@ pub(super) exec fn read_journal_entries_bytes<PM>(
             },
         }
 {
-    reveal(opaque_subrange);
-
     let ghost true_journal_entries_bytes =
-         opaque_section(pm@.read_state, sm.journal_entries_start as int, journal_length as nat);
+         extract_section(pm@.read_state, sm.journal_entries_start as int, journal_length as nat);
     let maybe_corrupted_journal_entries = match pm.read_unaligned(sm.journal_entries_start, journal_length) {
         Ok(bytes) => bytes,
         Err(_) => { assert(false); return None; }
@@ -305,10 +295,10 @@ exec fn install_journal_entry<Perm, PM>(
         wrpm@.valid(),
         recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
         apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
-        opaque_subrange(wrpm@.durable_state, 0, sm.app_area_start as int) ==
-            opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_area_start as int),
-        opaque_subrange(wrpm@.read_state, 0, sm.app_area_start as int) ==
-            opaque_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int),
+        wrpm@.durable_state.subrange(0, sm.app_area_start as int) ==
+            old(wrpm)@.durable_state.subrange(0, sm.app_area_start as int),
+        wrpm@.read_state.subrange(0, sm.app_area_start as int) ==
+            old(wrpm)@.read_state.subrange(0, sm.app_area_start as int),
 {
     proof {
         lemma_addresses_in_entry_dont_affect_recovery(wrpm@.durable_state, vm, *sm,
@@ -337,14 +327,14 @@ exec fn install_journal_entry<Perm, PM>(
         }
         assert(Some(wrpm@.read_state) ==
                apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm)) by {
-            reveal(opaque_update_bytes);
+            reveal(update_bytes);
         }
-        lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
-        lemma_auto_opaque_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
+        lemma_auto_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
+        lemma_auto_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
         assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
-        lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, write_addr as int);
-        lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, write_addr as int);
+        lemma_auto_subrange_subrange(wrpm@.read_state, 0, write_addr as int);
+        lemma_auto_subrange_subrange(old(wrpm)@.read_state, 0, write_addr as int);
 
         assert(entries.skip(num_entries_installed)[0] =~= entries[num_entries_installed]);
         assert(entries.skip(num_entries_installed).skip(1) =~= entries.skip(num_entries_installed + 1));
@@ -436,14 +426,13 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
             parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
-            opaque_subrange(wrpm@.durable_state, 0, sm.app_area_start as int) ==
-                opaque_subrange(old(wrpm)@.durable_state, 0, sm.app_area_start as int),
-            opaque_subrange(wrpm@.read_state, 0, sm.app_area_start as int) ==
-                opaque_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int),
+            wrpm@.durable_state.subrange(0, sm.app_area_start as int) ==
+                old(wrpm)@.durable_state.subrange(0, sm.app_area_start as int),
+            wrpm@.read_state.subrange(0, sm.app_area_start as int) ==
+                old(wrpm)@.read_state.subrange(0, sm.app_area_start as int),
             apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed), *sm)
                 == Some(commit_state),
     {
-        reveal(opaque_subrange);
         let ghost durable_state_at_start_of_loop = wrpm@.durable_state;
 
         assert(start + twice_u64_size <= end);
@@ -453,16 +442,16 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
         let addr = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start, start + u64_size));
         let len = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start + u64_size, start + twice_u64_size));
         assert(entries_bytes_slice@.subrange(start as int, (start + u64_size) as int) ==
-               opaque_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of()));
-        assert(addr == u64::spec_from_bytes(opaque_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())));
+               extract_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of()));
+        assert(addr == u64::spec_from_bytes(extract_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())));
         assert(entries_bytes_slice@.subrange((start + u64_size) as int, (start + u64_size + u64_size) as int) ==
-               opaque_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int, u64::spec_size_of()));
-        assert(len == u64::spec_from_bytes(opaque_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int,
+               extract_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int, u64::spec_size_of()));
+        assert(len == u64::spec_from_bytes(extract_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int,
                                                           u64::spec_size_of())));
         assert(start + twice_u64_size + len as usize <= end);
         let bytes_to_write = slice_subrange(entries_bytes_slice, start + twice_u64_size,
                                             start + twice_u64_size + len as usize);
-        assert(bytes_to_write@ == opaque_section(entries_bytes@.skip(start as int),
+        assert(bytes_to_write@ == extract_section(entries_bytes@.skip(start as int),
                                                  (u64::spec_size_of() + u64::spec_size_of()) as int,
                                                  len as nat));
         let ghost entry = JournalEntry{ start: addr as int, bytes_to_write: bytes_to_write@ };
@@ -477,8 +466,8 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
             assert(entries.skip(num_entries_installed) =~= seq![entries[num_entries_installed as int]] +
                    entries.skip(num_entries_installed + 1));
             num_entries_installed = num_entries_installed + 1;
-            lemma_auto_opaque_subrange_subrange(durable_state_at_start_of_loop, 0, sm.app_area_start as int);
-            lemma_auto_opaque_subrange_subrange(wrpm@.durable_state, 0, sm.app_area_start as int);
+            lemma_auto_subrange_subrange(durable_state_at_start_of_loop, 0, sm.app_area_start as int);
+            lemma_auto_subrange_subrange(wrpm@.durable_state, 0, sm.app_area_start as int);
         }
         
         start += (twice_u64_size + len as usize);
@@ -487,8 +476,8 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
     wrpm.flush();
 
     proof {
-        lemma_auto_opaque_subrange_subrange(wrpm@.read_state, 0, sm.app_area_start as int);
-        lemma_auto_opaque_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int);
+        lemma_auto_subrange_subrange(wrpm@.read_state, 0, sm.app_area_start as int);
+        lemma_auto_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int);
     }
 }
 

@@ -177,8 +177,8 @@ pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: Journa
         &&& 0 <= sm.journal_entries_crc_start
         &&& sm.journal_entries_crc_start + u64::spec_size_of() <= bytes.len()
     } {
-        let journal_entries = opaque_section(bytes, sm.journal_entries_start as int, journal_length as nat);
-        let journal_entries_crc_bytes = opaque_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
+        let journal_entries = extract_section(bytes, sm.journal_entries_start as int, journal_length as nat);
+        let journal_entries_crc_bytes = extract_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
         if {
             &&& u64::bytes_parseable(journal_entries_crc_bytes)
             &&& journal_entries_crc_bytes == spec_crc_bytes(journal_entries)
@@ -202,16 +202,16 @@ pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>) -> Option<(J
         None
     }
     else {
-        let addr_bytes = opaque_section(entries_bytes, 0, u64::spec_size_of());
+        let addr_bytes = extract_section(entries_bytes, 0, u64::spec_size_of());
         let addr = u64::spec_from_bytes(addr_bytes);
-        let length_bytes = opaque_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
+        let length_bytes = extract_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
         let length = u64::spec_from_bytes(length_bytes);
         let data_offset = u64::spec_size_of() + u64::spec_size_of();
         if data_offset + length > entries_bytes.len() {
             None
         }
         else {
-            let data = opaque_section(entries_bytes, data_offset as int, length as nat);
+            let data = extract_section(entries_bytes, data_offset as int, length as nat);
             let entry = JournalEntry { start: addr as int, bytes_to_write: data };
             Some((entry, data_offset + length))
         }
@@ -303,7 +303,7 @@ pub(super) open spec fn spec_recovery_equivalent_for_app(state1: Seq<u8>, state2
     &&& recover_journal(state1) matches Some(j1)
     &&& recover_journal(state2) matches Some(j2)
     &&& j1.constants == j2.constants
-    &&& opaque_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
+    &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
 }
 
 pub(super) open spec fn recovers_to(
@@ -330,7 +330,7 @@ pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncomm
 )
     requires
         recovers_to(s1, vm, sm, constants),
-        opaque_match_except_in_range(s1, s2, sm.journal_length_start as int, sm.journal_entries_end as int),
+        seqs_match_except_in_range(s1, s2, sm.journal_length_start as int, sm.journal_entries_end as int),
     ensures
         recovers_to(s2, vm, sm, constants),
 {
