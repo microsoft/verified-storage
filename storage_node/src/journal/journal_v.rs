@@ -1,6 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use crate::pmem::crc_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -571,6 +572,7 @@ impl <Perm, PM> Journal<Perm, PM>
         Ghost(original_read_state): Ghost<Seq<u8>>,
         current_entry_index: usize,
         current_pos: u64,
+        crc_digest: &mut CrcDigest,
     ) -> (next_pos: u64)
         where
             PM: PersistentMemoryRegion,
@@ -592,6 +594,8 @@ impl <Perm, PM> Journal<Perm, PM>
                                   old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
             opaque_match_in_range(original_read_state, old(self).wrpm@.read_state,
                                   old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
+            old(crc_digest).bytes_in_digest() ==
+                opaque_subrange(old(self).wrpm@.read_state, old(self).sm.journal_entries_start as int, current_pos as int),
         ensures
             self.inv(),
             self == (Self{
@@ -611,6 +615,8 @@ impl <Perm, PM> Journal<Perm, PM>
                        space_needed_for_journal_entries(self.entries@.take(current_entry_index + 1)),
             next_pos == self.sm.journal_entries_start + self.journal_length
                 <==> current_entry_index == self.entries@.len() - 1,
+            crc_digest.bytes_in_digest() ==
+                opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int, next_pos as int),
     {
         broadcast use pmcopy_axioms;
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
@@ -659,11 +665,19 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
         }
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
+        crc_digest.write(&entry.start);
         assert(opaque_match_in_range(original_durable_state, self.wrpm@.durable_state, self.sm.app_area_start as int,
                                      self.sm.app_area_end as int));
-        assert(opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
-                                     self.sm.app_area_end as int)) by {
+        assert({
+            &&& opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int)
+            &&& crc_digest.bytes_in_digest() ==
+                  opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                  current_pos + u64::spec_size_of())
+        }) by {
             lemma_auto_can_result_from_write_effect_on_read_state_subranges();
+            lemma_concatenate_opaque_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                               current_pos as int, current_pos + u64::spec_size_of());
         }
     
         // Next, write the `num_bytes` field of the entry.
@@ -680,11 +694,19 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
         }
         self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
+        crc_digest.write(&num_bytes);
         assert(opaque_match_in_range(original_durable_state, self.wrpm@.durable_state, self.sm.app_area_start as int,
                                      self.sm.app_area_end as int));
-        assert(opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
-                                     self.sm.app_area_end as int)) by {
+        assert({
+            &&& opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int)
+            &&& crc_digest.bytes_in_digest() ==
+                  opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                  num_bytes_addr + u64::spec_size_of())
+        }) by {
             lemma_auto_can_result_from_write_effect_on_read_state_subranges();
+            lemma_concatenate_opaque_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                               num_bytes_addr as int, num_bytes_addr + u64::spec_size_of());
         }
     
         // Next, write the `bytes_to_write` field of the entry.
@@ -700,12 +722,21 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_can_result_from_partial_write_effect_on_opaque_subranges();
             lemma_auto_opaque_match_except_in_range_effect_on_subranges::<u8>();
         }
-        self.wrpm.write(bytes_to_write_addr, entry.bytes_to_write.as_slice(), Tracked(perm));
+        let bytes_to_write_as_slice = entry.bytes_to_write.as_slice();
+        self.wrpm.write(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
+        crc_digest.write_bytes(bytes_to_write_as_slice);
         assert(opaque_match_in_range(original_durable_state, self.wrpm@.durable_state, self.sm.app_area_start as int,
                                      self.sm.app_area_end as int));
-        assert(opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
-                                     self.sm.app_area_end as int)) by {
+        assert({
+            &&& opaque_match_in_range(original_read_state, self@.read_state, self.sm.app_area_start as int,
+                                     self.sm.app_area_end as int)
+            &&& crc_digest.bytes_in_digest() ==
+                  opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                  bytes_to_write_addr + num_bytes)
+        }) by {
             lemma_auto_can_result_from_write_effect_on_read_state_subranges();
+            lemma_concatenate_opaque_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                               bytes_to_write_addr as int, bytes_to_write_addr + num_bytes);
         }
     
         let next_pos = bytes_to_write_addr + num_bytes;
@@ -741,7 +772,7 @@ impl <Perm, PM> Journal<Perm, PM>
     exec fn write_journal_entries(
         &mut self,
         Tracked(perm): Tracked<&Perm>,
-    )
+    ) -> (journal_entries_crc: u64)
         where
             PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
@@ -763,6 +794,9 @@ impl <Perm, PM> Journal<Perm, PM>
             parse_journal_entries(opaque_section(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                  self.journal_length as nat))
                 == Some(self.entries@),
+            journal_entries_crc ==
+                spec_crc_u64(opaque_section(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                            self.journal_length as nat)),
     {
         self.status = Ghost(JournalStatus::WritingJournalEntries);
         let mut current_entry_index: usize = 0;
@@ -773,6 +807,7 @@ impl <Perm, PM> Journal<Perm, PM>
         assert(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int, current_pos as int)
                =~= Seq::<u8>::empty()) by { reveal(opaque_subrange); }
         assert(self.entries@.take(current_entry_index as int) =~= Seq::<JournalEntry>::empty());
+        let mut crc_digest = CrcDigest::new();
         proof {
             lemma_space_needed_for_journal_entries_zero_iff_journal_empty(self.entries@);
         }
@@ -796,13 +831,17 @@ impl <Perm, PM> Journal<Perm, PM>
                 opaque_match_in_range(original_read_state, self.wrpm@.read_state,
                 self.sm.app_area_start as int, self.sm.app_area_end as int),
                 self == (Self{ status: Ghost(JournalStatus::WritingJournalEntries), wrpm: self.wrpm, ..*old(self) }),
+                crc_digest.bytes_in_digest() ==
+                    opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int, current_pos as int),
         {
             current_pos = self.write_journal_entry(Tracked(perm),
                                                    Ghost(original_durable_state), Ghost(original_read_state),
-                                                   current_entry_index, current_pos);
+                                                   current_entry_index, current_pos,
+                                                   &mut crc_digest);
             current_entry_index = current_entry_index + 1;
         }
         assert(self.entries@ == self.entries@.take(current_entry_index as int));
+        crc_digest.sum64()
     }
 
     pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
@@ -823,7 +862,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..old(self)@
             }),
     {
-        // write log contents by looping calling `write_journal_entry`
+        let journal_entries_crc = self.write_journal_entries(Tracked(perm));
         // write journal metadata (length, length CRC, entries CRC)
         // flush
         // write committed CDB
