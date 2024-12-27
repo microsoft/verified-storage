@@ -150,11 +150,7 @@ pub broadcast proof fn broadcast_can_result_from_partial_write_effect_on_opaque_
         opaque_subrange(s1, inner_start, inner_end) == #[trigger] opaque_subrange(s2, inner_start, inner_end),
 {
     broadcast use broadcast_can_result_from_partial_write_effect_on_opaque;
-    let end = write_addr + bytes.len();
-    lemma_auto_opaque_subrange_subrange(s2, 0, write_addr);
-    lemma_auto_opaque_subrange_subrange(s1, 0, write_addr);
-    lemma_auto_opaque_subrange_subrange(s2, end, s1.len() as int);
-    lemma_auto_opaque_subrange_subrange(s1, end, s1.len() as int);
+    broadcast use broadcast_opaque_subrange_subrange_dangerous;
 }
 
 pub proof fn lemma_can_result_from_write_effect_on_read_state(
@@ -245,11 +241,7 @@ pub broadcast proof fn broadcast_can_result_from_write_effect_on_read_state_subr
             #[trigger] opaque_subrange(v2.read_state, inner_start, inner_end),
 {
     broadcast use broadcast_can_result_from_write_effect_on_read_state;
-    let end = write_addr + bytes.len();
-    lemma_auto_opaque_subrange_subrange(v1.read_state, 0, write_addr);
-    lemma_auto_opaque_subrange_subrange(v2.read_state, 0, write_addr);
-    lemma_auto_opaque_subrange_subrange(v1.read_state, end, v1.len() as int);
-    lemma_auto_opaque_subrange_subrange(v2.read_state, end, v1.len() as int);
+    broadcast use broadcast_opaque_subrange_subrange_dangerous;
 }
 
 pub broadcast proof fn broadcast_length_of_opaque_subrange<T>(s: Seq<T>, i: int, j: int)
@@ -397,10 +389,7 @@ pub broadcast proof fn broadcast_opaque_match_except_in_range_effect_on_subrange
     ensures
         #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end),
 {
-    lemma_auto_opaque_subrange_subrange(s1, 0, outer_start);
-    lemma_auto_opaque_subrange_subrange(s2, 0, outer_start);
-    lemma_auto_opaque_subrange_subrange(s1, outer_end, s1.len() as int);
-    lemma_auto_opaque_subrange_subrange(s2, outer_end, s2.len() as int);
+    broadcast use broadcast_opaque_subrange_subrange_dangerous;
 }
 
 pub broadcast proof fn broadcast_opaque_match_except_in_range_can_widen_range<T>(
@@ -417,10 +406,7 @@ pub broadcast proof fn broadcast_opaque_match_except_in_range_can_widen_range<T>
     ensures
         #[trigger] opaque_match_except_in_range(s1, s2, outer_start, outer_end),
 {
-    lemma_auto_opaque_subrange_subrange(s1, 0, inner_start);
-    lemma_auto_opaque_subrange_subrange(s2, 0, inner_start);
-    lemma_auto_opaque_subrange_subrange(s1, inner_end, s1.len() as int);
-    lemma_auto_opaque_subrange_subrange(s2, inner_end, s2.len() as int);
+    broadcast use broadcast_opaque_subrange_subrange_dangerous;
 }
 
 pub proof fn lemma_concatenate_opaque_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int)
@@ -474,8 +460,7 @@ pub broadcast proof fn broadcast_opaque_match_in_range_effect_on_subranges<T>(
         #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end),
 {
     reveal(opaque_subrange);
-    lemma_auto_opaque_subrange_subrange(s1, outer_start, outer_end);
-    lemma_auto_opaque_subrange_subrange(s2, outer_start, outer_end);
+    broadcast use broadcast_opaque_subrange_subrange_dangerous;
 }
 
 pub broadcast proof fn broadcast_opaque_match_in_range_can_narrow_range<T>(
@@ -493,8 +478,7 @@ pub broadcast proof fn broadcast_opaque_match_in_range_can_narrow_range<T>(
         #[trigger] opaque_subrange(s2, inner_start, inner_end) == opaque_subrange(s1, inner_start, inner_end),
 {
     reveal(opaque_subrange);
-    lemma_auto_opaque_subrange_subrange(s1, outer_start, outer_end);
-    lemma_auto_opaque_subrange_subrange(s2, outer_start, outer_end);
+    broadcast use broadcast_opaque_subrange_subrange_dangerous;
 }
 
 pub broadcast group group_can_result_from_write_effect {
