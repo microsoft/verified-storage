@@ -7,6 +7,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::common::align_v::*;
+use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use crate::pmem::wrpm_t::*;
@@ -496,25 +497,52 @@ impl <Perm, PM> Journal<Perm, PM>
         addr: u64,
         bytes_to_write: Vec<u8>,
         Tracked(perm): Tracked<&Perm>,
-    )
+    ) -> (result: Result<(), JournalError>)
         requires
             old(self).valid(),
             old(self)@.constants.app_area_start <= addr,
             addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
-            old(self)@.remaining_capacity >= Self::space_needed_for_journal_entry(bytes_to_write@.len()),
         ensures
             self.valid(),
             self.recover_successful(),
-            self@ == (JournalView{
-                commit_state: update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
-                journaled_addrs: old(self)@.journaled_addrs +
-                                 Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
-                remaining_capacity: old(self)@.remaining_capacity -
-                    Self::space_needed_for_journal_entry(bytes_to_write@.len()),
-                ..old(self)@
+            ({
+                let space_needed = Self::space_needed_for_journal_entry(bytes_to_write@.len());
+                match result {
+                    Ok(_) => {
+                        &&& space_needed <= old(self)@.remaining_capacity
+                        &&& self@ == (JournalView{
+                               commit_state: update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
+                               journaled_addrs: old(self)@.journaled_addrs +
+                                                Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
+                               remaining_capacity: old(self)@.remaining_capacity - space_needed,
+                               ..old(self)@
+                           })
+                    },
+                    Err(JournalError::NotEnoughSpace) => {
+                        &&& space_needed > old(self)@.remaining_capacity
+                        &&& self == old(self)
+                    },
+                    Err(_) => false,
+                }
             }),
     {
-        self.journal_length = self.journal_length + (size_of::<u64>() + size_of::<u64>() + bytes_to_write.len()) as u64;
+        // Compute how much space is needed for this entry, and return an error
+        // if there isn't enough space. Do this before doing anything else so that
+        // we can ensure `self` hasn't changed if we return this error.
+        
+        let space_needed = get_space_needed_for_journal_entry(bytes_to_write.len());
+        if space_needed.is_overflowed() {
+            return Err(JournalError::NotEnoughSpace);
+        }
+        let space_needed = space_needed.unwrap();
+        if space_needed > self.sm.journal_entries_end - self.sm.journal_entries_start - self.journal_length {
+            return Err(JournalError::NotEnoughSpace);
+        }
+
+        // Update the relevant in-memory fields of `self`:
+        // `journal_length`, `journaled_addrs`, and `entries`.
+        
+        self.journal_length = self.journal_length + space_needed;
         self.journaled_addrs = Ghost(self.journaled_addrs@ +
                                      Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
         let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
@@ -549,6 +577,7 @@ impl <Perm, PM> Journal<Perm, PM>
         proof {
             lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
         }
+        Ok(())
     }
 
     #[inline]
