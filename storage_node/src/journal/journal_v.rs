@@ -575,11 +575,11 @@ impl <Perm, PM> Journal<Perm, PM>
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
                 ==> #[trigger] perm.check_permission(s),
             recovers_to(original_durable_state, old(self).vm@, old(self).sm, old(self).constants),
+            old(self).sm.journal_entries_start <= current_pos <= old(self).wrpm@.read_state.len(),
             parse_journal_entries(
                 old(self).wrpm@.read_state.subrange(old(self).sm.journal_entries_start as int, current_pos as int)
             ) == Some(old(self).entries@.take(current_entry_index as int)),
             0 <= current_entry_index < old(self).entries@.len(),
-            old(self).sm.journal_entries_start <= current_pos,
             current_pos == old(self).sm.journal_entries_start +
                            space_needed_for_journal_entries(old(self).entries@.take(current_entry_index as int)),
             seqs_match_in_range(original_durable_state, old(self).wrpm@.durable_state,
