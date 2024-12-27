@@ -55,6 +55,7 @@ impl<Perm, PM> View for Journal<Perm, PM>
             commit_state: apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap(),
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
+            num_journal_entries: self.entries@.len() as int,
         }
     }
 }
@@ -289,6 +290,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& j@.journaled_addrs.is_empty()
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
+                    &&& j@.num_journal_entries == 0
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
                 },
                 Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
@@ -488,6 +490,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 commit_state: self@.read_state,
                 remaining_capacity: self@.constants.journal_capacity as int,
                 journaled_addrs: Set::<int>::empty(),
+                num_journal_entries: 0,
                 ..old(self)@
             }),
     {
@@ -507,6 +510,7 @@ impl <Perm, PM> Journal<Perm, PM>
             old(self)@.constants.app_area_start <= addr,
             addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
             old(self)@.remaining_capacity >= Self::space_needed_for_journal_entry(bytes_to_write@.len()),
+            old(self)@.num_journal_entries < u64::MAX,
         ensures
             self.valid(),
             self.recover_successful(),
@@ -516,6 +520,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                  Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
                 remaining_capacity: old(self)@.remaining_capacity -
                     Self::space_needed_for_journal_entry(bytes_to_write@.len()),
+                num_journal_entries: old(self)@.num_journal_entries + 1,
                 ..old(self)@
             }),
     {
@@ -558,6 +563,7 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
 
+    #[inline]
     exec fn write_journal_entry(
         &mut self,
         Tracked(perm): Tracked<&Perm>,
@@ -565,7 +571,7 @@ impl <Perm, PM> Journal<Perm, PM>
         Ghost(original_read_state): Ghost<Seq<u8>>,
         current_entry_index: usize,
         current_pos: u64,
-    ) -> (new_pos: u64)
+    ) -> (next_pos: u64)
         where
             PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
@@ -592,18 +598,18 @@ impl <Perm, PM> Journal<Perm, PM>
                 wrpm: self.wrpm,
                 ..*old(self)
             }),
-            new_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
+            next_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
             opaque_match_in_range(original_durable_state, self.wrpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
             opaque_match_in_range(original_read_state, self.wrpm@.read_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
             parse_journal_entries(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
-                                                  new_pos as int))
+                                                  next_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1)),
-            current_pos < new_pos <= self.sm.journal_entries_start + self.journal_length,
-            new_pos == self.sm.journal_entries_start +
+            current_pos < next_pos <= self.sm.journal_entries_start + self.journal_length,
+            next_pos == self.sm.journal_entries_start +
                        space_needed_for_journal_entries(self.entries@.take(current_entry_index + 1)),
-            new_pos == self.sm.journal_entries_start + self.journal_length
+            next_pos == self.sm.journal_entries_start + self.journal_length
                 <==> current_entry_index == self.entries@.len() - 1,
     {
         broadcast use pmcopy_axioms;
@@ -702,14 +708,14 @@ impl <Perm, PM> Journal<Perm, PM>
             lemma_auto_can_result_from_write_effect_on_read_state_subranges();
         }
     
-        let new_pos = bytes_to_write_addr + num_bytes;
+        let next_pos = bytes_to_write_addr + num_bytes;
         assert(parse_journal_entries(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
-                                                     new_pos as int))
+                                                     next_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1))) by {
             let old_entries_bytes = opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                                     current_pos as int);
             let new_entries_bytes = opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int,
-                                                    new_pos as int);
+                                                    next_pos as int);
             assert(old_entries_bytes ==
                    opaque_subrange(old(self).wrpm@.read_state, self.sm.journal_entries_start as int,
                                    current_pos as int)) by {
@@ -729,7 +735,74 @@ impl <Perm, PM> Journal<Perm, PM>
                    self.entries@.take(current_entry_index + 1));
         }
 
-        new_pos
+        next_pos
+    }
+
+    exec fn write_journal_entries(
+        &mut self,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            PM: PersistentMemoryRegion,
+            Perm: CheckPermission<Seq<u8>>,
+        requires
+            old(self).valid(),
+            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(self).wrpm@.durable_state)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            self.inv(),
+            self == (Self{
+                status: Ghost(JournalStatus::WritingJournalEntries),
+                wrpm: self.wrpm,
+                ..*old(self)
+            }),
+            opaque_match_in_range(old(self).wrpm@.durable_state, self.wrpm@.durable_state,
+                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
+            opaque_match_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
+                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
+            parse_journal_entries(opaque_section(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                                                 self.journal_length as nat))
+                == Some(self.entries@),
+    {
+        self.status = Ghost(JournalStatus::WritingJournalEntries);
+        let mut current_entry_index: usize = 0;
+        let mut current_pos = self.sm.journal_entries_start;
+        let end_pos = current_pos + self.journal_length;
+        let ghost original_durable_state = self.wrpm@.durable_state;
+        let ghost original_read_state = self.wrpm@.read_state;
+        assert(opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int, current_pos as int)
+               =~= Seq::<u8>::empty()) by { reveal(opaque_subrange); }
+        assert(self.entries@.take(current_entry_index as int) =~= Seq::<JournalEntry>::empty());
+        proof {
+            lemma_space_needed_for_journal_entries_zero_iff_journal_empty(self.entries@);
+        }
+        while current_pos < end_pos
+            invariant
+                self.inv(),
+                end_pos == self.sm.journal_entries_start + self.journal_length,
+                forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
+                    ==> #[trigger] perm.check_permission(s),
+                recovers_to(original_durable_state, self.vm@, self.sm, self.constants),
+                parse_journal_entries(
+                    opaque_subrange(self.wrpm@.read_state, self.sm.journal_entries_start as int, current_pos as int)
+                ) == Some(self.entries@.take(current_entry_index as int)),
+                0 <= current_entry_index <= self.entries@.len(),
+                self.sm.journal_entries_start <= current_pos <= end_pos,
+                current_pos == end_pos <==> current_entry_index == self.entries@.len(),
+                current_pos == self.sm.journal_entries_start +
+                               space_needed_for_journal_entries(self.entries@.take(current_entry_index as int)),
+                opaque_match_in_range(original_durable_state, self.wrpm@.durable_state,
+                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
+                opaque_match_in_range(original_read_state, self.wrpm@.read_state,
+                self.sm.app_area_start as int, self.sm.app_area_end as int),
+                self == (Self{ status: Ghost(JournalStatus::WritingJournalEntries), wrpm: self.wrpm, ..*old(self) }),
+        {
+            current_pos = self.write_journal_entry(Tracked(perm),
+                                                   Ghost(original_durable_state), Ghost(original_read_state),
+                                                   current_entry_index, current_pos);
+            current_entry_index = current_entry_index + 1;
+        }
+        assert(self.entries@ == self.entries@.take(current_entry_index as int));
     }
 
     pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)

@@ -132,6 +132,22 @@ pub(super) open spec fn space_needed_for_journal_entries(entries: Seq<JournalEnt
     }
 }
 
+pub(super) proof fn lemma_space_needed_for_journal_entries_zero_iff_journal_empty(entries: Seq<JournalEntry>)
+    ensures
+        if entries.len() == 0 {
+            space_needed_for_journal_entries(entries) == 0
+        }
+        else {
+            space_needed_for_journal_entries(entries) > 0
+        }
+    decreases
+        entries.len()
+{
+    if entries.len() > 0 {
+        lemma_space_needed_for_journal_entries_zero_iff_journal_empty(entries.drop_last());
+    }
+}
+
 pub(super) open spec fn journaled_addrs_complete(entries: Seq<JournalEntry>, journaled_addrs: Set<int>) -> bool
 {
     forall|entry, addr| #![trigger entries.contains(entry), journaled_addrs.contains(addr)]
