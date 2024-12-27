@@ -41,7 +41,7 @@ pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<Journal
     let journal_version_metadata_crc_addr = exec_round_up_to_alignment::<u64>(journal_version_metadata_end);
 
     assert(spec_journal_version_metadata_start() == 0);
-    let ghost true_vm_bytes = opaque_section(pm@.read_state, 0, JournalVersionMetadata::spec_size_of());
+    let ghost true_vm_bytes = extract_bytes(pm@.read_state, 0, JournalVersionMetadata::spec_size_of());
     let ghost true_vm = JournalVersionMetadata::spec_from_bytes(true_vm_bytes);
     let maybe_corrupted_vm = match pm.read_aligned::<JournalVersionMetadata>(0) {
         Ok(bytes) => bytes,
@@ -57,8 +57,8 @@ pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<Journal
     if !check_crc(maybe_corrupted_vm.as_slice(), maybe_corrupted_vm_crc.as_slice(),
         Ghost(true_vm_bytes),
         Ghost(pm.constants()),
-        Ghost(spec_journal_version_metadata_start()),
-        Ghost(spec_journal_version_metadata_crc_start()),
+        Ghost(spec_journal_version_metadata_start() as int),
+        Ghost(spec_journal_version_metadata_crc_start() as int),
     ) {
         return None;
     }
@@ -122,8 +122,8 @@ pub(super) exec fn read_static_metadata<PM>(pm: &PM, vm: &JournalVersionMetadata
     if !check_crc(maybe_corrupted_sm.as_slice(), maybe_corrupted_sm_crc.as_slice(),
         Ghost(true_sm_bytes),
         Ghost(pm.constants()),
-        Ghost(spec_journal_static_metadata_start()),
-        Ghost(spec_journal_static_metadata_crc_start()),
+        Ghost(spec_journal_static_metadata_start() as int),
+        Ghost(spec_journal_static_metadata_crc_start() as int),
     ) {
         return None;
     }
@@ -184,7 +184,7 @@ pub(super) exec fn read_journal_length<PM>(
     reveal(opaque_subrange);
 
     let ghost true_journal_length_bytes =
-         opaque_section(pm@.read_state, sm.journal_length_start as int, u64::spec_size_of());
+         extract_bytes(pm@.read_state, sm.journal_length_start as nat, u64::spec_size_of());
     let ghost true_journal_length = u64::spec_from_bytes(true_journal_length_bytes);
     let maybe_corrupted_journal_length = match pm.read_aligned::<u64>(sm.journal_length_start) {
         Ok(bytes) => bytes,
@@ -236,7 +236,7 @@ pub(super) exec fn read_journal_entries_bytes<PM>(
     reveal(opaque_subrange);
 
     let ghost true_journal_entries_bytes =
-         opaque_section(pm@.read_state, sm.journal_entries_start as int, journal_length as nat);
+         extract_bytes(pm@.read_state, sm.journal_entries_start as nat, journal_length as nat);
     let maybe_corrupted_journal_entries = match pm.read_unaligned(sm.journal_entries_start, journal_length) {
         Ok(bytes) => bytes,
         Err(_) => { assert(false); return None; }
@@ -453,18 +453,18 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
         let addr = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start, start + u64_size));
         let len = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start + u64_size, start + twice_u64_size));
         assert(entries_bytes_slice@.subrange(start as int, (start + u64_size) as int) ==
-               opaque_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of()));
-        assert(addr == u64::spec_from_bytes(opaque_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())));
+               extract_bytes(entries_bytes@.skip(start as int), 0, u64::spec_size_of()));
+        assert(addr == u64::spec_from_bytes(extract_bytes(entries_bytes@.skip(start as int), 0, u64::spec_size_of())));
         assert(entries_bytes_slice@.subrange((start + u64_size) as int, (start + u64_size + u64_size) as int) ==
-               opaque_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int, u64::spec_size_of()));
-        assert(len == u64::spec_from_bytes(opaque_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int,
+               extract_bytes(entries_bytes@.skip(start as int), u64::spec_size_of(), u64::spec_size_of()));
+        assert(len == u64::spec_from_bytes(extract_bytes(entries_bytes@.skip(start as int), u64::spec_size_of(),
                                                           u64::spec_size_of())));
         assert(start + twice_u64_size + len as usize <= end);
         let bytes_to_write = slice_subrange(entries_bytes_slice, start + twice_u64_size,
                                             start + twice_u64_size + len as usize);
-        assert(bytes_to_write@ == opaque_section(entries_bytes@.skip(start as int),
-                                                 (u64::spec_size_of() + u64::spec_size_of()) as int,
-                                                 len as nat));
+        assert(bytes_to_write@ == extract_bytes(entries_bytes@.skip(start as int),
+                                                u64::spec_size_of() + u64::spec_size_of(),
+                                                len as nat));
         let ghost entry = JournalEntry{ start: addr as int, bytes_to_write: bytes_to_write@ };
         proof {
             lemma_parse_journal_entry_implications(entries_bytes@, entries, start as int, num_entries_installed);

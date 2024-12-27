@@ -51,44 +51,44 @@ pub(super) struct JournalStaticMetadata {
     pub(super) app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
-pub(super) open spec fn spec_journal_version_metadata_start() -> int
+pub(super) open spec fn spec_journal_version_metadata_start() -> nat
 {
     0
 }
 
-pub(super) open spec fn spec_journal_version_metadata_end() -> int
+pub(super) open spec fn spec_journal_version_metadata_end() -> nat
 {
-    JournalVersionMetadata::spec_size_of() as int
+    JournalVersionMetadata::spec_size_of()
 }
 
-pub(super) open spec fn spec_journal_version_metadata_crc_start() -> int
+pub(super) open spec fn spec_journal_version_metadata_crc_start() -> nat
 {
-    round_up_to_alignment(spec_journal_version_metadata_end(), u64::spec_align_of() as int)
+    round_up_to_alignment(spec_journal_version_metadata_end(), u64::spec_align_of())
 }
 
-pub(super) open spec fn spec_journal_version_metadata_crc_end() -> int
+pub(super) open spec fn spec_journal_version_metadata_crc_end() -> nat
 {
-    spec_journal_version_metadata_crc_start() + u64::spec_size_of() as int
+    spec_journal_version_metadata_crc_start() + u64::spec_size_of()
 }
 
-pub(super) open spec fn spec_journal_static_metadata_start() -> int
+pub(super) open spec fn spec_journal_static_metadata_start() -> nat
 {
-    round_up_to_alignment(spec_journal_version_metadata_crc_end(), JournalStaticMetadata::spec_align_of() as int)
+    round_up_to_alignment(spec_journal_version_metadata_crc_end(), JournalStaticMetadata::spec_align_of())
 }
 
-pub(super) open spec fn spec_journal_static_metadata_end() -> int
+pub(super) open spec fn spec_journal_static_metadata_end() -> nat
 {
     spec_journal_static_metadata_start() + JournalStaticMetadata::spec_size_of()
 }
 
-pub(super) open spec fn spec_journal_static_metadata_crc_start() -> int
+pub(super) open spec fn spec_journal_static_metadata_crc_start() -> nat
 {
-    round_up_to_alignment(spec_journal_static_metadata_end(), u64::spec_align_of() as int)
+    round_up_to_alignment(spec_journal_static_metadata_end(), u64::spec_align_of())
 }
 
-pub(super) open spec fn spec_journal_static_metadata_crc_end() -> int
+pub(super) open spec fn spec_journal_static_metadata_crc_end() -> nat
 {
-    spec_journal_static_metadata_crc_start() + u64::spec_size_of() as int
+    spec_journal_static_metadata_crc_start() + u64::spec_size_of()
 }
 
 pub(super) open spec fn validate_version_metadata(m: JournalVersionMetadata) -> bool
@@ -121,7 +121,7 @@ pub(super) open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: 
         &&& spec_journal_static_metadata_crc_start() + u64::spec_size_of() == spec_journal_static_metadata_crc_end()
         &&& spec_journal_static_metadata_crc_end() <= sm.committed_cdb_start
         &&& sm.committed_cdb_start + u64::spec_size_of() <= sm.journal_length_start
-        &&& opaque_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
+        &&& opaque_aligned(sm.committed_cdb_start as nat, const_persistence_chunk_size() as nat)
         &&& sm.journal_length_start + u64::spec_size_of() <= sm.journal_length_crc_start
         &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_entries_crc_start
         &&& sm.journal_entries_crc_start + u64::spec_size_of() <= sm.journal_entries_start
@@ -164,7 +164,7 @@ pub(super) open spec fn validate_metadata(vm: JournalVersionMetadata, sm: Journa
 
 pub(super) open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
-    recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int)
+    recover_object::<u64>(bytes, sm.journal_length_start as nat, sm.journal_length_crc_start as nat)
 }
 
 pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
@@ -177,8 +177,8 @@ pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: Journa
         &&& 0 <= sm.journal_entries_crc_start
         &&& sm.journal_entries_crc_start + u64::spec_size_of() <= bytes.len()
     } {
-        let journal_entries = opaque_section(bytes, sm.journal_entries_start as int, journal_length as nat);
-        let journal_entries_crc_bytes = opaque_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
+        let journal_entries = extract_bytes(bytes, sm.journal_entries_start as nat, journal_length as nat);
+        let journal_entries_crc_bytes = extract_bytes(bytes, sm.journal_entries_crc_start as nat, u64::spec_size_of());
         if {
             &&& u64::bytes_parseable(journal_entries_crc_bytes)
             &&& journal_entries_crc_bytes == spec_crc_bytes(journal_entries)
@@ -202,16 +202,16 @@ pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>) -> Option<(J
         None
     }
     else {
-        let addr_bytes = opaque_section(entries_bytes, 0, u64::spec_size_of());
+        let addr_bytes = extract_bytes(entries_bytes, 0, u64::spec_size_of());
         let addr = u64::spec_from_bytes(addr_bytes);
-        let length_bytes = opaque_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
+        let length_bytes = extract_bytes(entries_bytes, u64::spec_size_of(), u64::spec_size_of());
         let length = u64::spec_from_bytes(length_bytes);
         let data_offset = u64::spec_size_of() + u64::spec_size_of();
         if data_offset + length > entries_bytes.len() {
             None
         }
         else {
-            let data = opaque_section(entries_bytes, data_offset as int, length as nat);
+            let data = extract_bytes(entries_bytes, data_offset, length as nat);
             let entry = JournalEntry { start: addr as int, bytes_to_write: data };
             Some((entry, data_offset + length))
         }
@@ -261,7 +261,7 @@ pub(super) open spec fn recover_storage_state_case_committed(bytes: Seq<u8>, sm:
 
 pub(super) open spec fn recover_committed_cdb(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<bool>
 {
-    recover_cdb(bytes, sm.committed_cdb_start as int)
+    recover_cdb(bytes, sm.committed_cdb_start as nat)
 }
 
 pub(super) open spec fn recover_storage_state(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<Seq<u8>>
@@ -334,6 +334,7 @@ pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncomm
     ensures
         recovers_to(s2, vm, sm, constants),
 {
+    broadcast use group_opaque_subrange;
     broadcast use group_match_except_in_range;
 }
 

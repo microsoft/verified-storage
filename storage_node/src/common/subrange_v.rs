@@ -10,18 +10,11 @@ use crate::pmem::pmemutil_v::*;
 
 verus! {
 
-#[verifier::opaque]
 pub open spec fn opaque_subrange<T>(s: Seq<T>, i: int, j: int) -> Seq<T>
 {
     s.subrange(i, j)
 }
 
-pub open spec fn opaque_section<T>(s: Seq<T>, i: int, len: nat) -> Seq<T>
-{
-    opaque_subrange(s, i, i + len)
-}
-
-#[verifier::opaque]
 pub open spec fn opaque_update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> Seq<u8>
 {
     update_bytes(s, addr, bytes)
@@ -42,18 +35,16 @@ pub open spec fn opaque_match_except_in_range<T>(s1: Seq<T>, s2: Seq<T>, start: 
     &&& opaque_subrange(s1, end, s1.len() as int) == opaque_subrange(s2, end, s2.len() as int)
 }
 
-pub open spec fn recover_object<T>(s: Seq<u8>, start: int, crc_addr: int) -> Option<T>
+pub open spec fn recover_object<T>(s: Seq<u8>, start: nat, crc_addr: nat) -> Option<T>
     where
         T: PmCopy
 {
     if {
-        &&& 0 <= start
         &&& start + T::spec_size_of() <= s.len()
-        &&& 0 <= crc_addr
         &&& crc_addr + u64::spec_size_of() <= s.len()
     } {
-        let object_bytes = opaque_section(s, start, T::spec_size_of());
-        let crc_bytes = opaque_section(s, crc_addr, u64::spec_size_of());
+        let object_bytes = extract_bytes(s, start, T::spec_size_of());
+        let crc_bytes = extract_bytes(s, crc_addr, u64::spec_size_of());
         if {
             &&& T::bytes_parseable(object_bytes)
             &&& u64::bytes_parseable(crc_bytes)
@@ -70,10 +61,10 @@ pub open spec fn recover_object<T>(s: Seq<u8>, start: int, crc_addr: int) -> Opt
     }
 }
 
-pub open spec fn recover_cdb(s: Seq<u8>, addr: int) -> Option<bool>
+pub open spec fn recover_cdb(s: Seq<u8>, addr: nat) -> Option<bool>
 {
-    if 0 <= addr && addr + u64::spec_size_of() <= s.len() {
-        let cdb_bytes = opaque_section(s, addr, u64::spec_size_of());
+    if addr + u64::spec_size_of() <= s.len() {
+        let cdb_bytes = extract_bytes(s, addr, u64::spec_size_of());
         if u64::bytes_parseable(cdb_bytes) {
             let cdb = u64::spec_from_bytes(cdb_bytes);
             if cdb == CDB_FALSE {

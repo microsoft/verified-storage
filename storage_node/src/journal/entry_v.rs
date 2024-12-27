@@ -488,12 +488,12 @@ pub(super) proof fn lemma_parse_journal_entries_append(
                           + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
                           + new_entry.bytes_to_write;
     if entries_bytes.len() == 0 {
-        let addr_bytes = opaque_section(new_entries_bytes, 0, u64::spec_size_of());
+        let addr_bytes = extract_bytes(new_entries_bytes, 0, u64::spec_size_of());
         assert(addr_bytes =~= (new_entry.start as u64).spec_to_bytes());
-        let length_bytes = opaque_section(new_entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
+        let length_bytes = extract_bytes(new_entries_bytes, u64::spec_size_of(), u64::spec_size_of());
         assert(length_bytes =~= (new_entry.bytes_to_write.len() as u64).spec_to_bytes());
         let data_offset = u64::spec_size_of() + u64::spec_size_of();
-        assert(opaque_section(new_entries_bytes, data_offset as int, new_entry.bytes_to_write.len())
+        assert(extract_bytes(new_entries_bytes, data_offset, new_entry.bytes_to_write.len())
                =~= new_entry.bytes_to_write);
         assert(parse_journal_entry(new_entries_bytes) == Some((new_entry, new_entries_bytes.len() as int)));
         assert(entries =~= Seq::<JournalEntry>::empty());
@@ -506,14 +506,14 @@ pub(super) proof fn lemma_parse_journal_entries_append(
         let remaining_entries = parse_journal_entries(entries_bytes.skip(num_bytes)).unwrap();
 
         let (alt_entry, alt_num_bytes) = parse_journal_entry(new_entries_bytes).unwrap();
-        let addr_bytes = opaque_section(new_entries_bytes, 0, u64::spec_size_of());
-        assert(addr_bytes =~= opaque_section(entries_bytes, 0, u64::spec_size_of()));
-        let length_bytes = opaque_section(new_entries_bytes, u64::spec_size_of() as int, u64::spec_size_of());
-        assert(length_bytes =~= opaque_section(entries_bytes, u64::spec_size_of() as int, u64::spec_size_of()));
+        let addr_bytes = extract_bytes(new_entries_bytes, 0, u64::spec_size_of());
+        assert(addr_bytes =~= extract_bytes(entries_bytes, 0, u64::spec_size_of()));
+        let length_bytes = extract_bytes(new_entries_bytes, u64::spec_size_of(), u64::spec_size_of());
+        assert(length_bytes =~= extract_bytes(entries_bytes, u64::spec_size_of(), u64::spec_size_of()));
         let length = u64::spec_from_bytes(length_bytes);
         let data_offset = u64::spec_size_of() + u64::spec_size_of();
-        assert(opaque_section(new_entries_bytes, data_offset as int, length as nat) =~=
-               opaque_section(entries_bytes, data_offset as int, length as nat));
+        assert(extract_bytes(new_entries_bytes, data_offset, length as nat) =~=
+               extract_bytes(entries_bytes, data_offset, length as nat));
         assert(alt_entry == entry);
         assert(alt_num_bytes == num_bytes);
 

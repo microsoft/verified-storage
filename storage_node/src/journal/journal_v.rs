@@ -109,13 +109,13 @@ impl <Perm, PM> Journal<Perm, PM>
     pub closed spec fn space_needed_for_journal_entries(
         max_journal_entries: u64,
         max_journaled_bytes: u64,
-    ) -> int
+    ) -> nat
     {
         spec_space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes)
     }
     
 
-    pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> int
+    pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> nat
         recommends
             ps.valid(),
     {
@@ -166,7 +166,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& constants.app_program_guid == ps.app_program_guid
                     &&& constants.journal_capacity
                            >= Self::space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
-                    &&& opaque_aligned(constants.app_area_start as int, ps.app_area_alignment as int)
+                    &&& opaque_aligned(constants.app_area_start as nat, ps.app_area_alignment as nat)
                     &&& constants.app_area_end >= constants.app_area_start + ps.app_area_size
                     &&& constants.app_area_end == pm@.len()
                     &&& Self::ready_for_app_setup(pm@.read_state, constants)
@@ -773,11 +773,11 @@ impl <Perm, PM> Journal<Perm, PM>
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
             opaque_match_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
-            parse_journal_entries(opaque_section(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+            parse_journal_entries(extract_bytes(self.wrpm@.read_state, self.sm.journal_entries_start as nat,
                                                  self.journal_length as nat))
                 == Some(self.entries@),
             journal_entries_crc ==
-                spec_crc_u64(opaque_section(self.wrpm@.read_state, self.sm.journal_entries_start as int,
+                spec_crc_u64(extract_bytes(self.wrpm@.read_state, self.sm.journal_entries_start as nat,
                                             self.journal_length as nat)),
     {
         self.status = Ghost(JournalStatus::WritingJournalEntries);

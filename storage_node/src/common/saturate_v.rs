@@ -10,15 +10,15 @@ use vstd::arithmetic::mul::lemma_mul_inequality;
 verus! {
 
 pub struct SaturatingU64 {
-    i: Ghost<int>,
+    i: Ghost<nat>,
     v: u64,
 }
 
 impl View for SaturatingU64
 {
-    type V = int;
+    type V = nat;
 
-    closed spec fn view(&self) -> int
+    closed spec fn view(&self) -> nat
     {
         self.i@
     }
@@ -43,7 +43,7 @@ impl SaturatingU64 {
 
     pub closed spec fn spec_new(v: u64) -> SaturatingU64
     {
-        SaturatingU64{ i: Ghost(v as int), v }
+        SaturatingU64{ i: Ghost(v as nat), v }
     }
 
     #[verifier::when_used_as_spec(spec_new)]
@@ -51,7 +51,7 @@ impl SaturatingU64 {
         ensures
             result@ == v
     {
-        Self{ i: Ghost(v as int), v }
+        Self{ i: Ghost(v as nat), v }
     }
 
     pub open spec fn spec_is_saturated(&self) -> bool
@@ -107,7 +107,7 @@ impl SaturatingU64 {
         proof {
             use_type_invariant(&self);
         }
-        let i: Ghost<int> = Ghost(&self@ + v2);
+        let i: Ghost<nat> = Ghost(&self@ + v2 as nat);
         if v2 > u64::MAX - self.v {
             Self{ i, v: u64::MAX }
         }
@@ -131,17 +131,17 @@ impl SaturatingU64 {
         ensures
             self@ <= result@,
             result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@, alignment as int),
-            opaque_aligned(result@, alignment as int),
+            result@ == round_up_to_alignment(self@, alignment as nat),
+            opaque_aligned(result@, alignment as nat),
     {
         proof {
             use_type_invariant(self);
-            lemma_space_needed_for_alignment_works(self@, alignment as int);
+            lemma_space_needed_for_alignment_works(self@, alignment as nat);
         }
 
         if self.v == u64::MAX {
             Self{
-                i: Ghost(round_up_to_alignment(self.i@, alignment as int)),
+                i: Ghost(round_up_to_alignment(self.i@, alignment as nat)),
                 v: self.v,
             }
         }
@@ -160,7 +160,7 @@ impl SaturatingU64 {
             use_type_invariant(self);
             use_type_invariant(v2);
         }
-        let i: Ghost<int> = Ghost(self@ + v2@);
+        let i: Ghost<nat> = Ghost(self@ + v2@);
         if v2.is_saturated() || self.v > u64::MAX - v2.v {
             Self{ i, v: u64::MAX }
         }
@@ -177,7 +177,7 @@ impl SaturatingU64 {
         proof {
             use_type_invariant(self);
         }
-        let i: Ghost<int> = Ghost(self@ * v2);
+        let i: Ghost<nat> = Ghost(self@ * v2 as nat);
         if v2 == 0 || self.v == 0 {
             Self{ i, v: 0 }
         }
@@ -196,7 +196,7 @@ impl SaturatingU64 {
                     }
                 }
                 assert(self@ * v2 >= ((u64::MAX + v2) / (v2 as int)) * v2) by {
-                    lemma_mul_inequality((u64::MAX + v2) / (v2 as int), self@, v2 as int);
+                    lemma_mul_inequality((u64::MAX + v2) / (v2 as int), self@ as int, v2 as int);
                 }
                 assert(self@ * v2 > u64::MAX);
             }

@@ -18,10 +18,11 @@ verus! {
 pub open spec fn spec_space_needed_for_journal_entries(
     max_journal_entries: u64,
     max_journaled_bytes: u64,
-) -> int
+) -> nat
 {
-    max_journaled_bytes as int + // journal data
-    max_journal_entries * (u64::spec_size_of() as int + u64::spec_size_of() as int) // entry headers
+    (max_journaled_bytes as nat + // journal data
+     max_journal_entries * (u64::spec_size_of() + u64::spec_size_of())) // entry headers
+    as nat
 }
 
 pub(super) exec fn get_space_needed_for_journal_entries(
@@ -38,13 +39,13 @@ pub(super) exec fn get_space_needed_for_journal_entries(
     num_journaled_bytes.add_overflowing_u64(&num_header_bytes)
 }
 
-pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> int
+pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> nat
     recommends
         ps.valid(),
 {
     let journal_size = spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
-    let journal_version_metadata_start: int = 0;
-    let journal_version_metadata_end = JournalVersionMetadata::spec_size_of() as int;
+    let journal_version_metadata_start: nat = 0;
+    let journal_version_metadata_end = JournalVersionMetadata::spec_size_of();
     let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
         spec_allocate_space::<u64>(journal_version_metadata_end);
     let (journal_static_metadata_start, journal_static_metadata_end) =
@@ -56,9 +57,9 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     let (journal_length_crc_start, journal_length_crc_end) = spec_allocate_space::<u64>(journal_length_end);
     let (journal_entries_crc_start, journal_entries_crc_end) = spec_allocate_space::<u64>(journal_length_crc_end);
     let (journal_entries_start, journal_entries_end) =
-        spec_allocate_specified_space(journal_entries_crc_end, journal_size, u64::spec_size_of() as int);
+        spec_allocate_specified_space(journal_entries_crc_end, journal_size, u64::spec_size_of());
     let (app_area_start, min_app_area_end) =
-        spec_allocate_specified_space(journal_entries_end, ps.app_area_size as int, ps.app_area_alignment as int);
+        spec_allocate_specified_space(journal_entries_end, ps.app_area_size as nat, ps.app_area_alignment as nat);
     min_app_area_end
 }
 
@@ -91,21 +92,21 @@ impl AddressesForSetup
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()
                 <= self.journal_version_metadata_crc_start
         &&& self.journal_version_metadata_crc_start == spec_journal_version_metadata_crc_start()
-        &&& opaque_aligned(self.journal_version_metadata_crc_start as int, u64::spec_size_of() as int)
+        &&& opaque_aligned(self.journal_version_metadata_crc_start as nat, u64::spec_size_of())
         &&& self.journal_version_metadata_crc_start ==
-            round_up_to_alignment(self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of(),
-                                  u64::spec_align_of() as int)
+            round_up_to_alignment(self.journal_version_metadata_start as nat + JournalVersionMetadata::spec_size_of(),
+                                  u64::spec_align_of())
         &&& self.journal_version_metadata_crc_start + u64::spec_size_of() <= self.journal_static_metadata_start
         &&& self.journal_static_metadata_start == spec_journal_static_metadata_start()
-        &&& opaque_aligned(self.journal_static_metadata_start as int, JournalStaticMetadata::spec_align_of() as int)
+        &&& opaque_aligned(self.journal_static_metadata_start as nat, JournalStaticMetadata::spec_align_of())
         &&& self.journal_static_metadata_start + JournalStaticMetadata::spec_size_of() ==
                self.journal_static_metadata_end
         &&& self.journal_static_metadata_end <= self.journal_static_metadata_crc_start
         &&& self.journal_static_metadata_crc_start == spec_journal_static_metadata_crc_start()
-        &&& opaque_aligned(self.journal_static_metadata_crc_start as int, u64::spec_size_of() as int)
+        &&& opaque_aligned(self.journal_static_metadata_crc_start as nat, u64::spec_size_of())
         &&& self.journal_static_metadata_crc_start + u64::spec_size_of() <= self.journal_dynamic_area_start
         &&& self.journal_dynamic_area_start <= self.committed_cdb_start
-        &&& opaque_aligned(self.committed_cdb_start as int, const_persistence_chunk_size() as int)
+        &&& opaque_aligned(self.committed_cdb_start as nat, const_persistence_chunk_size() as nat)
         &&& self.committed_cdb_start + u64::spec_size_of() <= self.journal_length_start
         &&& self.journal_length_start + u64::spec_size_of() <= self.journal_length_crc_start
         &&& self.journal_length_crc_start + u64::spec_size_of() <= self.journal_entries_crc_start
@@ -113,7 +114,7 @@ impl AddressesForSetup
         &&& 0 <= journal_size
         &&& self.journal_entries_start + journal_size <= self.journal_entries_end
         &&& self.journal_entries_end <= self.app_area_start
-        &&& opaque_aligned(self.app_area_start as int, ps.app_area_alignment as int)
+        &&& opaque_aligned(self.app_area_start as nat, ps.app_area_alignment as nat)
         &&& self.app_area_start + ps.app_area_size == self.min_app_area_end
     }
 }
@@ -192,16 +193,18 @@ pub(super) proof fn lemma_setup_works(
         sm.app_area_end >= addrs.min_app_area_end,
         sm.app_area_end == bytes.len(),
         ({
-            &&& opaque_subrange(bytes, spec_journal_version_metadata_start(),
-                              spec_journal_version_metadata_end()) == vm.spec_to_bytes()
-            &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start(),
-                              spec_journal_version_metadata_crc_end())
+            &&& opaque_subrange(bytes, spec_journal_version_metadata_start() as int,
+                              spec_journal_version_metadata_end() as int) == vm.spec_to_bytes()
+            &&& opaque_subrange(bytes, spec_journal_version_metadata_crc_start() as int,
+                              spec_journal_version_metadata_crc_end() as int)
                     == spec_crc_bytes(vm.spec_to_bytes())
-            &&& opaque_subrange(bytes, spec_journal_static_metadata_start(), spec_journal_static_metadata_end())
+            &&& opaque_subrange(bytes, spec_journal_static_metadata_start() as int,
+                               spec_journal_static_metadata_end() as int)
                     == sm.spec_to_bytes()
-            &&& opaque_subrange(bytes, spec_journal_static_metadata_crc_start(), spec_journal_static_metadata_crc_end())
+            &&& opaque_subrange(bytes, spec_journal_static_metadata_crc_start() as int,
+                              spec_journal_static_metadata_crc_end() as int)
                     == spec_crc_bytes(sm.spec_to_bytes())
-            &&& opaque_section(bytes, sm.committed_cdb_start as int, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
+            &&& extract_bytes(bytes, sm.committed_cdb_start as nat, u64::spec_size_of()) == u64::spec_to_bytes(CDB_FALSE)
         }),
     ensures ({
         &&& recover_journal(bytes) matches Some(j)
