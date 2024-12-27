@@ -351,11 +351,11 @@ pub broadcast proof fn broadcast_seqs_match_except_in_range_can_widen_range<T>(
     broadcast use broadcast_subrange_subrange_dangerous;
 }
 
-pub proof fn lemma_concatenate_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int)
+pub broadcast proof fn lemma_concatenate_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int)
     requires
         0 <= pos1 <= pos2 <= pos3 <= s.len(),
     ensures
-        s.subrange(pos1, pos3) == s.subrange(pos1, pos2) + s.subrange(pos2, pos3),
+        s.subrange(pos1, pos3) == #[trigger] s.subrange(pos1, pos2) + #[trigger] s.subrange(pos2, pos3),
 {
     assert(s.subrange(pos1, pos3) =~= s.subrange(pos1, pos2) + s.subrange(pos2, pos3));
 }
