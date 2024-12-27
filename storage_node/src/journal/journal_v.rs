@@ -58,7 +58,6 @@ impl<Perm, PM> View for Journal<Perm, PM>
             commit_state: apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap(),
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
-            num_journal_entries: self.entries@.len() as int,
         }
     }
 }
@@ -290,7 +289,6 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& j@.journaled_addrs.is_empty()
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
-                    &&& j@.num_journal_entries == 0
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
                 },
                 Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
@@ -485,7 +483,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 commit_state: self@.read_state,
                 remaining_capacity: self@.constants.journal_capacity as int,
                 journaled_addrs: Set::<int>::empty(),
-                num_journal_entries: 0,
                 ..old(self)@
             }),
     {
@@ -505,7 +502,6 @@ impl <Perm, PM> Journal<Perm, PM>
             old(self)@.constants.app_area_start <= addr,
             addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
             old(self)@.remaining_capacity >= Self::space_needed_for_journal_entry(bytes_to_write@.len()),
-            old(self)@.num_journal_entries < u64::MAX,
         ensures
             self.valid(),
             self.recover_successful(),
@@ -515,7 +511,6 @@ impl <Perm, PM> Journal<Perm, PM>
                                  Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
                 remaining_capacity: old(self)@.remaining_capacity -
                     Self::space_needed_for_journal_entry(bytes_to_write@.len()),
-                num_journal_entries: old(self)@.num_journal_entries + 1,
                 ..old(self)@
             }),
     {
@@ -623,7 +618,7 @@ impl <Perm, PM> Journal<Perm, PM>
                  current_entry_index == self.entries@.len() - 1
         }) by {
             lemma_space_needed_for_journal_entries_increases(self.entries@, current_entry_index as int);
-            lemma_space_needed_for_journal_entries_nonnegative(self.entries@.take(current_entry_index as int));
+            lemma_space_needed_for_journal_entries_at_least_num_entries(self.entries@.take(current_entry_index as int));
             lemma_space_needed_for_journal_entries_monotonic(self.entries@, current_entry_index + 1,
                                                              self.entries@.len() as int);
             if current_entry_index < self.entries@.len() - 1 {
@@ -816,6 +811,9 @@ impl <Perm, PM> Journal<Perm, PM>
                                                    Ghost(original_durable_state), Ghost(original_read_state),
                                                    current_entry_index, current_pos,
                                                    &mut crc_digest);
+            assert(current_entry_index < u64::MAX) by {
+                lemma_space_needed_for_journal_entries_at_least_num_entries(self.entries@);
+            }
             current_entry_index = current_entry_index + 1;
         }
         assert(self.entries@ == self.entries@.take(current_entry_index as int));

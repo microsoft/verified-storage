@@ -32,7 +32,6 @@ pub struct JournalView {
     pub commit_state: Seq<u8>,
     pub remaining_capacity: int,
     pub journaled_addrs: Set<int>,
-    pub num_journal_entries: int,
 }
 
 pub enum JournalError {

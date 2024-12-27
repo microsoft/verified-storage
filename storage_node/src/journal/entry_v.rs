@@ -657,14 +657,14 @@ pub(super) proof fn lemma_space_needed_for_journal_entries_increases(entries: Se
     assert(entries.take(i + 1).last() =~= entries[i]);
 }
 
-pub(super) proof fn lemma_space_needed_for_journal_entries_nonnegative(entries: Seq<JournalEntry>)
+pub(super) proof fn lemma_space_needed_for_journal_entries_at_least_num_entries(entries: Seq<JournalEntry>)
     ensures
-        0 <= space_needed_for_journal_entries(entries),
+        entries.len() <= space_needed_for_journal_entries(entries),
     decreases
         entries.len()
 {
     if entries.len() > 0 {
-        lemma_space_needed_for_journal_entries_nonnegative(entries.drop_last());
+        lemma_space_needed_for_journal_entries_at_least_num_entries(entries.drop_last());
     }
 }
 
