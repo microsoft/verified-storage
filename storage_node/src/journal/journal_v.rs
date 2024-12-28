@@ -319,7 +319,8 @@ impl <Perm, PM> Journal<Perm, PM>
             let entries_bytes =
                 read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
             let ghost entries = parse_journal_entries(entries_bytes@).unwrap();
-            install_journal_entries(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes, Ghost(entries));
+            install_journal_entries_during_start(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes,
+                                                 Ghost(entries));
             clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
         }
         Ok(Self {
@@ -874,6 +875,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ==> #[trigger] perm.check_permission(s),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
                 ==> #[trigger] perm.check_permission(s),
+            recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
         ensures
             self.inv(),
             self == (Self{
@@ -897,17 +899,6 @@ impl <Perm, PM> Journal<Perm, PM>
             }),
     {
         let cdb = CDB_TRUE;
-
-        assert(recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants)) by {
-            lemma_apply_journal_entries_only_affects_app_area(original_read_state, self.vm@, self.sm, self.entries@);
-            broadcast use group_match_in_range;
-            assert(recover_version_metadata(original_read_state) ==
-                   recover_version_metadata(original_commit_state));
-            assert(recover_static_metadata(original_read_state, self.vm@) ==
-                   recover_static_metadata(original_commit_state, self.vm@));
-            assert(recover_committed_cdb(original_read_state, self.sm) ==
-                   recover_committed_cdb(original_commit_state, self.sm));
-        }
         
         let ghost desired_state = update_bytes(self.wrpm@.durable_state, self.sm.committed_cdb_start as int,
                                                cdb.spec_to_bytes());
@@ -944,6 +935,211 @@ impl <Perm, PM> Journal<Perm, PM>
         self.status = Ghost(JournalStatus::Committed);
     }
 
+    #[inline]
+    exec fn install_journal_entry_during_commit(
+        &mut self,
+        num_entries_installed: usize,
+        Ghost(original_read_state): Ghost<Seq<u8>>,
+        Ghost(original_commit_state): Ghost<Seq<u8>>,
+        Ghost(desired_commit_state): Ghost<Seq<u8>>,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            PM: PersistentMemoryRegion,
+            Perm: CheckPermission<Seq<u8>>,
+        requires
+            old(self).inv(),
+            old(self).status@ is Committed,
+            num_entries_installed < old(self).entries@.len(),
+            recover_version_metadata(original_read_state) == Some(old(self).vm@),
+            recover_static_metadata(original_read_state, old(self).vm@) == Some(old(self).sm),
+            recover_committed_cdb(original_read_state, old(self).sm) == Some(true),
+            recover_journal_length(original_read_state, old(self).sm) == Some(old(self).journal_length),
+            recover_journal_entries(original_read_state, old(self).sm, old(self).journal_length)
+                == Some(old(self).entries@),
+            journal_entries_valid(old(self).entries@, old(self).sm),
+            apply_journal_entries(original_read_state, old(self).entries@, old(self).sm) is Some,
+            recover_journal(original_read_state) is Some,
+            recover_version_metadata(old(self).wrpm@.durable_state) == Some(old(self).vm@),
+            recover_static_metadata(old(self).wrpm@.durable_state, old(self).vm@) == Some(old(self).sm),
+            recover_committed_cdb(old(self).wrpm@.durable_state, old(self).sm) == Some(true),
+            recover_journal_length(old(self).wrpm@.durable_state, old(self).sm) == Some(old(self).journal_length),
+            recover_journal_entries(old(self).wrpm@.durable_state, old(self).sm, old(self).journal_length)
+                == Some(old(self).entries@),
+            recover_journal(old(self).wrpm@.durable_state) == recover_journal(original_read_state),
+            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
+                ==> #[trigger] perm.check_permission(s),
+            seqs_match_except_in_range(original_read_state, old(self).wrpm@.durable_state,
+                                       old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
+            seqs_match_except_in_range(original_read_state, old(self).wrpm@.read_state,
+                                       old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
+            apply_journal_entries(old(self).wrpm@.read_state, old(self).entries@.skip(num_entries_installed as int),
+                                  old(self).sm) == Some(desired_commit_state),
+            desired_commit_state == apply_journal_entries(original_read_state, old(self).entries@, old(self).sm).unwrap(),
+            seqs_match_in_range(original_commit_state, desired_commit_state,
+                                old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
+            recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
+        ensures
+            self.inv(),
+            self == (Self{
+                wrpm: self.wrpm,
+                ..*old(self)
+            }),
+            
+            journal_entries_valid(self.entries@, self.sm),
+            apply_journal_entries(original_read_state, self.entries@, self.sm) is Some,
+            recover_version_metadata(self.wrpm@.durable_state) == Some(self.vm@),
+            recover_static_metadata(self.wrpm@.durable_state, self.vm@) == Some(self.sm),
+            recover_committed_cdb(self.wrpm@.durable_state, self.sm) == Some(true),
+            recover_journal_length(self.wrpm@.durable_state, self.sm) == Some(self.journal_length),
+            recover_journal_entries(self.wrpm@.durable_state, self.sm, self.journal_length) == Some(self.entries@),
+            recover_journal(self.wrpm@.durable_state) == recover_journal(original_read_state),
+            seqs_match_except_in_range(original_read_state, self.wrpm@.durable_state,
+                                       self.sm.app_area_start as int, self.sm.app_area_end as int),
+            seqs_match_except_in_range(original_read_state, self.wrpm@.read_state,
+                                       self.sm.app_area_start as int, self.sm.app_area_end as int),
+            apply_journal_entries(self.wrpm@.read_state, self.entries@.skip(num_entries_installed + 1), self.sm)
+                == Some(desired_commit_state),
+    {
+        let entry: &ConcreteJournalEntry = &self.entries.entries[num_entries_installed];
+        let ghost entries_bytes = recover_journal_entries_bytes(self.wrpm@.durable_state, self.sm,
+                                                                self.journal_length).unwrap();
+        assert(parse_journal_entries(entries_bytes) == Some(self.entries@));
+        
+        proof {
+            lemma_addresses_in_entry_dont_affect_recovery(self.wrpm@.durable_state, self.vm@, self.sm,
+                                                          entries_bytes, self.entries@, num_entries_installed as int);
+            assert(entry@.fits(self.sm)) by {
+                lemma_journal_entries_valid_implies_one_valid(self.entries@, self.sm, num_entries_installed as int);
+            }
+            assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, entry.start as int,
+                                                      entry.bytes_to_write@)
+                implies #[trigger] perm.check_permission(s) by {
+                lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
+                    s, self.wrpm@.durable_state, entry.start as int, entry.bytes_to_write@,
+                    entry@.addrs(),
+                    |s| recover_journal(s),
+                );
+                assert(recover_journal(s) == recover_journal(self.wrpm@.durable_state));
+            }
+        }
+        self.wrpm.write(entry.start, entry.bytes_to_write.as_slice(), Tracked(perm));
+        proof {
+            assert(recover_journal(self.wrpm@.durable_state) == recover_journal(old(self).wrpm@.durable_state)) by {
+                lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
+                    self.wrpm@.durable_state, old(self).wrpm@.durable_state, entry.start as int, entry.bytes_to_write@,
+                    entry@.addrs(),
+                    |s| recover_journal(s),
+                );
+            }
+            assert(Some(self.wrpm@.read_state) == apply_journal_entry(old(self).wrpm@.read_state, entry@, self.sm));
+            lemma_auto_subrange_subrange(self.wrpm@.durable_state, 0, entry.start as int);
+            lemma_auto_subrange_subrange(old(self).wrpm@.durable_state, 0, entry.start as int);
+            assert(recover_journal(self.wrpm@.durable_state) == recover_journal(old(self).wrpm@.durable_state));
+            assert(recover_journal_length(self.wrpm@.durable_state, self.sm) == Some(self.journal_length));
+            lemma_auto_subrange_subrange(self.wrpm@.read_state, 0, entry.start as int);
+            lemma_auto_subrange_subrange(old(self).wrpm@.read_state, 0, entry.start as int);
+    
+            assert(self.entries@.skip(num_entries_installed as int)[0] =~= self.entries@[num_entries_installed as int]);
+            assert(self.entries@.skip(num_entries_installed as int).skip(1)
+                   =~= self.entries@.skip(num_entries_installed + 1));
+        }
+    }
+
+    exec fn install_journal_entries_during_commit(
+        &mut self,
+        Ghost(original_commit_state): Ghost<Seq<u8>>,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            PM: PersistentMemoryRegion,
+            Perm: CheckPermission<Seq<u8>>,
+        requires
+            old(self).inv(),
+            old(self).status@ is Committed,
+            old(self).wrpm@.flush_predicted(),
+            recover_journal_length(old(self).wrpm@.read_state, old(self).sm) == Some(old(self).journal_length),
+            recover_journal_entries(old(self).wrpm@.read_state, old(self).sm, old(self).journal_length)
+                == Some(old(self).entries@),
+            ({
+                &&& recover_journal(old(self).wrpm@.read_state) matches Some(j)
+                &&& j.constants == old(self).constants
+                &&& seqs_match_in_range(j.state, original_commit_state, old(self).sm.app_area_start as int,
+                                      old(self).sm.app_area_end as int)
+            }),
+            recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
+            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            self.inv(),
+            self == (Self{
+                wrpm: self.wrpm,
+                ..*old(self)
+            }),
+            self.wrpm@.flush_predicted(),
+            seqs_match_in_range(self.wrpm@.read_state, original_commit_state, self.sm.app_area_start as int,
+                                self.sm.app_area_end as int),
+            ({
+                &&& recover_journal(self.wrpm@.read_state) matches Some(j)
+                &&& j.constants == self.constants
+                &&& j.state == self.wrpm@.read_state
+            }),
+    {
+        let mut num_entries_installed: usize = 0;
+        let end: usize = self.entries.entries.len();
+        let ghost desired_commit_state = apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap();
+    
+        assert(self.entries@.skip(0) =~= self.entries@);
+    
+        while num_entries_installed < end
+            invariant
+                self.inv(),
+                self.status@ is Committed,
+                num_entries_installed <= end == self.entries@.len(),
+                recover_version_metadata(old(self).wrpm@.read_state) == Some(self.vm@),
+                recover_static_metadata(old(self).wrpm@.read_state, self.vm@) == Some(self.sm),
+                recover_committed_cdb(old(self).wrpm@.read_state, self.sm) == Some(true),
+                recover_journal_length(old(self).wrpm@.read_state, self.sm) == Some(self.journal_length),
+                recover_journal_entries(old(self).wrpm@.read_state, self.sm, self.journal_length) == Some(self.entries@),
+                journal_entries_valid(self.entries@, self.sm),
+                apply_journal_entries(old(self).wrpm@.read_state, self.entries@, self.sm) is Some,
+                recover_journal(old(self).wrpm@.read_state) is Some,
+                recover_version_metadata(self.wrpm@.durable_state) == Some(self.vm@),
+                recover_static_metadata(self.wrpm@.durable_state, self.vm@) == Some(self.sm),
+                recover_committed_cdb(self.wrpm@.durable_state, self.sm) == Some(true),
+                recover_journal_length(self.wrpm@.durable_state, self.sm) == Some(self.journal_length),
+                recover_journal_entries(self.wrpm@.durable_state, self.sm, self.journal_length) == Some(self.entries@),
+                recover_journal(self.wrpm@.durable_state) == recover_journal(old(self).wrpm@.read_state),
+                forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
+                    ==> #[trigger] perm.check_permission(s),
+                seqs_match_except_in_range(old(self).wrpm@.read_state, self.wrpm@.durable_state,
+                                           self.sm.app_area_start as int, self.sm.app_area_end as int),
+                seqs_match_except_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
+                                           self.sm.app_area_start as int, self.sm.app_area_end as int),
+                apply_journal_entries(self.wrpm@.read_state, self.entries@.skip(num_entries_installed as int), self.sm)
+                    == Some(desired_commit_state),
+                desired_commit_state ==
+                    apply_journal_entries(old(self).wrpm@.read_state, self.entries@, self.sm).unwrap(),
+                seqs_match_in_range(original_commit_state, desired_commit_state,
+                                    self.sm.app_area_start as int, self.sm.app_area_end as int),
+                recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
+                self == (Self{ wrpm: self.wrpm, ..*old(self) }),
+        {
+            let ghost durable_state_at_start_of_loop = self.wrpm@.durable_state;
+    
+            self.install_journal_entry_during_commit(num_entries_installed, Ghost(old(self).wrpm@.read_state),
+                                                     Ghost(original_commit_state), Ghost(desired_commit_state),
+                                                     Tracked(perm));
+            assert(self.entries@.skip(num_entries_installed as int)
+                   =~= seq![self.entries@[num_entries_installed as int]]
+                       + self.entries@.skip(num_entries_installed + 1));
+
+            num_entries_installed = num_entries_installed + 1;
+        }
+
+        self.wrpm.flush();
+    }
+
     pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
         requires
             old(self).valid(),
@@ -977,11 +1173,22 @@ impl <Perm, PM> Journal<Perm, PM>
                        recover_committed_cdb(self.wrpm@.read_state, self.sm));
             }
         }
+
+        assert(recovers_to(self@.commit_state, self.vm@, self.sm, self.constants)) by {
+            lemma_apply_journal_entries_only_affects_app_area(self.wrpm@.read_state, self.vm@, self.sm, self.entries@);
+            broadcast use group_match_in_range;
+            assert(recover_version_metadata(self.wrpm@.read_state) == recover_version_metadata(self@.commit_state));
+            assert(recover_static_metadata(self.wrpm@.read_state, self.vm@) ==
+                   recover_static_metadata(self@.commit_state, self.vm@));
+            assert(recover_committed_cdb(self.wrpm@.read_state, self.sm) ==
+                   recover_committed_cdb(self@.commit_state, self.sm));
+        }
+
         self.status = Ghost(JournalStatus::WritingJournal);
         self.write_journal_metadata(Tracked(perm));
         self.mark_journal_committed(Ghost(old(self).wrpm@.durable_state), Ghost(old(self).wrpm@.read_state),
                                     Ghost(old(self)@.commit_state), Tracked(perm));
-        // install log
+        self.install_journal_entries_during_commit(Ghost(old(self)@.commit_state), Tracked(perm));
         // clear log
         assume(false); // TODO @jay
         clear_log(&mut self.wrpm, Tracked(perm), self.vm, &self.sm);

@@ -251,7 +251,7 @@ pub(super) exec fn read_journal_entries_bytes<PM>(
     Some(maybe_corrupted_journal_entries)
 }
 
-exec fn install_journal_entry<Perm, PM>(
+exec fn install_journal_entry_during_start<Perm, PM>(
     wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
     Tracked(perm): Tracked<&Perm>,
     Ghost(vm): Ghost<JournalVersionMetadata>,
@@ -341,7 +341,7 @@ exec fn install_journal_entry<Perm, PM>(
     }
 }
 
-pub(super) exec fn install_journal_entries<Perm, PM>(
+pub(super) exec fn install_journal_entries_during_start<Perm, PM>(
     wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
     Tracked(perm): Tracked<&Perm>,
     Ghost(vm): Ghost<JournalVersionMetadata>,
@@ -459,9 +459,9 @@ pub(super) exec fn install_journal_entries<Perm, PM>(
             lemma_parse_journal_entry_implications(entries_bytes@, entries, start as int, num_entries_installed);
             assert(entries[num_entries_installed as int] == entry);
         }
-        install_journal_entry(wrpm, Tracked(perm), Ghost(vm), sm, start, addr, bytes_to_write,
-                              Ghost(entries_bytes@), Ghost(num_entries_installed), Ghost(entries),
-                              Ghost(commit_state));
+        install_journal_entry_during_start(wrpm, Tracked(perm), Ghost(vm), sm, start, addr, bytes_to_write,
+                                           Ghost(entries_bytes@), Ghost(num_entries_installed), Ghost(entries),
+                                           Ghost(commit_state));
         proof {
             assert(entries.skip(num_entries_installed) =~= seq![entries[num_entries_installed as int]] +
                    entries.skip(num_entries_installed + 1));
