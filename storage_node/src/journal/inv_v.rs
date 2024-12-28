@@ -38,7 +38,12 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)
         &&& recover_committed_cdb(pmv.durable_state, self.sm) matches Some(committed)
         &&& match self.status@ {
-            JournalStatus::Quiescent => !committed,
+            JournalStatus::Quiescent => {
+                &&& !committed
+                &&& seqs_match_except_in_range(pmv.durable_state, pmv.read_state, self.sm.app_area_start as int,
+                                              self.sm.app_area_end as int)
+            },
+            JournalStatus::WritingJournal => !committed,
             JournalStatus::Committed => committed,
         }
         &&& journal_entries_valid(self.entries@, self.sm)
