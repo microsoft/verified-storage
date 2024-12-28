@@ -228,6 +228,23 @@ impl ConcreteJournalEntries
         self.entries.push(e);
         assert(self@ =~= old(self)@.push(e@));
     }
+
+    #[inline]
+    pub exec fn len(&self) -> (result: usize)
+        ensures
+            result == self@.len(),
+    {
+        self.entries.len()
+    }
+
+    #[inline]
+    pub exec fn clear(&mut self)
+        ensures
+            self@ == Seq::<JournalEntry>::empty(),
+    {
+        self.entries.clear();
+        assert(self@ =~= Seq::<JournalEntry>::empty());
+    }
 }
 
 pub(super) proof fn lemma_apply_journal_entries_only_affects_app_area(

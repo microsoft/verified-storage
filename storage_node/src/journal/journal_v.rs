@@ -620,6 +620,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 wrpm: self.wrpm,
                 ..*old(self)
             }),
+            self.wrpm.constants() == old(self).wrpm.constants(),
             next_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
             seqs_match_in_range(original_durable_state, self.wrpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
@@ -745,6 +746,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 wrpm: self.wrpm,
                 ..*old(self)
             }),
+            self.wrpm.constants() == old(self).wrpm.constants(),
             seqs_match_in_range(old(self).wrpm@.durable_state, self.wrpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
             seqs_match_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
@@ -772,6 +774,7 @@ impl <Perm, PM> Journal<Perm, PM>
             invariant
                 self.inv(),
                 self.status@ is WritingJournal,
+                self.wrpm.constants() == old(self).wrpm.constants(),
                 end_pos == self.sm.journal_entries_start + self.journal_length,
                 forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
                     ==> #[trigger] perm.check_permission(s),
@@ -819,6 +822,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ==> #[trigger] perm.check_permission(s),
         ensures
             self.inv(),
+            self.wrpm.constants() == old(self).wrpm.constants(),
             self == (Self{
                 wrpm: self.wrpm,
                 ..*old(self)
@@ -878,6 +882,7 @@ impl <Perm, PM> Journal<Perm, PM>
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
         ensures
             self.inv(),
+            self.wrpm.constants() == old(self).wrpm.constants(),
             self == (Self{
                 status: Ghost(JournalStatus::Committed),
                 wrpm: self.wrpm,
@@ -985,7 +990,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 wrpm: self.wrpm,
                 ..*old(self)
             }),
-            
+            self.wrpm.constants() == old(self).wrpm.constants(),
             journal_entries_valid(self.entries@, self.sm),
             apply_journal_entries(original_read_state, self.entries@, self.sm) is Some,
             recover_version_metadata(self.wrpm@.durable_state) == Some(self.vm@),
@@ -1076,6 +1081,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 wrpm: self.wrpm,
                 ..*old(self)
             }),
+            self.wrpm.constants() == old(self).wrpm.constants(),
             self.wrpm@.flush_predicted(),
             seqs_match_in_range(self.wrpm@.read_state, original_commit_state, self.sm.app_area_start as int,
                                 self.sm.app_area_end as int),
@@ -1086,7 +1092,7 @@ impl <Perm, PM> Journal<Perm, PM>
             }),
     {
         let mut num_entries_installed: usize = 0;
-        let end: usize = self.entries.entries.len();
+        let end: usize = self.entries.len();
         let ghost desired_commit_state = apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap();
     
         assert(self.entries@.skip(0) =~= self.entries@);
@@ -1124,6 +1130,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                     self.sm.app_area_start as int, self.sm.app_area_end as int),
                 recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
                 self == (Self{ wrpm: self.wrpm, ..*old(self) }),
+                self.wrpm.constants() == old(self).wrpm.constants(),
         {
             let ghost durable_state_at_start_of_loop = self.wrpm@.durable_state;
     
@@ -1150,13 +1157,15 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@ == (JournalView{
-                durable_state: old(self)@.commit_state,
-                read_state: old(self)@.commit_state,
-                commit_state: old(self)@.commit_state,
+                durable_state: self@.commit_state,
+                read_state: self@.commit_state,
+                commit_state: self@.commit_state,
                 remaining_capacity: self@.constants.journal_capacity as int,
                 journaled_addrs: Set::<int>::empty(),
                 ..old(self)@
             }),
+            seqs_match_in_range(old(self)@.commit_state, self@.commit_state, self@.constants.app_area_start as int,
+                                self@.constants.app_area_end as int),
     {
         proof {
             lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
@@ -1189,10 +1198,12 @@ impl <Perm, PM> Journal<Perm, PM>
         self.mark_journal_committed(Ghost(old(self).wrpm@.durable_state), Ghost(old(self).wrpm@.read_state),
                                     Ghost(old(self)@.commit_state), Tracked(perm));
         self.install_journal_entries_during_commit(Ghost(old(self)@.commit_state), Tracked(perm));
-        // clear log
-        assume(false); // TODO @jay
         clear_log(&mut self.wrpm, Tracked(perm), self.vm, &self.sm);
-        assume(false); // TODO @jay
+        self.status = Ghost(JournalStatus::Quiescent);
+        self.journal_length = 0;
+        self.journaled_addrs = Ghost(Set::<int>::empty());
+        self.entries.clear();
+        assert(self.wrpm.constants() == old(self).wrpm.constants());
     }
 }
 
