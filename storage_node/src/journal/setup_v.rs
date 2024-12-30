@@ -5,6 +5,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::size_of;
 use crate::common::align_v::*;
+use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use super::recover_v::*;
@@ -18,8 +19,9 @@ pub(super) exec fn get_space_needed_for_journal_entries(
 ) -> (result: OverflowingU64)
     ensures
         0 <= result@,
-        result@ == space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes),
+        result@ == space_needed_for_journal_entries(max_journal_entries as int, max_journaled_bytes as int),
 {
+    reveal(opaque_mul);
     let num_journaled_bytes = OverflowingU64::new(max_journaled_bytes);
     let journal_entry_size = OverflowingU64::new(size_of::<u64>() as u64).add(size_of::<u64>() as u64);
     let num_header_bytes = OverflowingU64::new(max_journal_entries).mul_overflowing_u64(&journal_entry_size);
@@ -30,7 +32,7 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     recommends
         ps.valid(),
 {
-    let journal_size = space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
+    let journal_size = space_needed_for_journal_entries(ps.max_journal_entries as int, ps.max_journaled_bytes as int);
     let journal_version_metadata_start: int = 0;
     let journal_version_metadata_end = JournalVersionMetadata::spec_size_of() as int;
     let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
@@ -73,7 +75,7 @@ impl AddressesForSetup
 {
     pub(super) open spec fn valid(&self, ps: JournalSetupParameters) -> bool
     {
-        let journal_size = space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
+        let journal_size = space_needed_for_journal_entries(ps.max_journal_entries as int, ps.max_journaled_bytes as int);
         let space_needed_for_setup = spec_space_needed_for_setup(ps);
         &&& self.journal_version_metadata_start == spec_journal_version_metadata_start()
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()

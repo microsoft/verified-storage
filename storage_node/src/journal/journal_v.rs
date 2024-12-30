@@ -137,7 +137,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& constants.app_version_number == ps.app_version_number
                     &&& constants.app_program_guid == ps.app_program_guid
                     &&& constants.journal_capacity
-                           >= space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
+                           >= space_needed_for_journal_entries(ps.max_journal_entries as int, ps.max_journaled_bytes as int)
                     &&& opaque_aligned(constants.app_area_start as int, ps.app_area_alignment as int)
                     &&& constants.app_area_end >= constants.app_area_start + ps.app_area_size
                     &&& constants.app_area_end == pm@.len()
