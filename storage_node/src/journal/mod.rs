@@ -7,3 +7,4 @@ mod spec_v;
 mod start_v;
 
 pub use journal_v::Journal;
+pub use spec_v::{space_needed_for_journal_entries, space_needed_for_journal_entry};

@@ -2,6 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::common::subrange_v::*;
 
 verus! {
@@ -132,6 +133,20 @@ impl JournalSetupParameters {
     {
         0 < self.app_area_alignment
     }
+}
+
+pub open spec fn space_needed_for_journal_entry(num_bytes: nat) -> int
+{
+    num_bytes + u64::spec_size_of() as int + u64::spec_size_of() as int
+}
+
+pub open spec fn space_needed_for_journal_entries(
+    max_journal_entries: u64,
+    max_journaled_bytes: u64,
+) -> int
+{
+    max_journaled_bytes as int + // journal data
+    max_journal_entries * (u64::spec_size_of() as int + u64::spec_size_of() as int) // entry headers
 }
     
 }

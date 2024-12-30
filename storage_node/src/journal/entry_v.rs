@@ -8,21 +8,17 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use super::recover_v::*;
+use super::spec_v::*;
 
 verus! {
 
 broadcast use group_auto_subrange;
 
-pub open spec fn spec_space_needed_for_journal_entry(num_bytes: nat) -> int
-{
-    num_bytes + u64::spec_size_of() as int + u64::spec_size_of() as int
-}
-
 #[inline]
 pub(super) exec fn get_space_needed_for_journal_entry(num_bytes: usize) -> (result: OverflowingU64)
     ensures
         0 <= result@,
-        result@ == spec_space_needed_for_journal_entry(num_bytes as nat),
+        result@ == space_needed_for_journal_entry(num_bytes as nat),
 {
     let journal_entry_size = OverflowingU64::new(size_of::<u64>() as u64).add_usize(size_of::<u64>());
     journal_entry_size.add_usize(num_bytes)
@@ -55,7 +51,7 @@ impl JournalEntry
 
     pub(super) open spec fn space_needed(self) -> int
     {
-        spec_space_needed_for_journal_entry(self.bytes_to_write.len())
+        space_needed_for_journal_entry(self.bytes_to_write.len())
     }
 }
 
@@ -117,7 +113,7 @@ pub(super) proof fn lemma_journal_entries_valid_implies_one_valid(
     }
 }
 
-pub(super) open spec fn space_needed_for_journal_entries(entries: Seq<JournalEntry>) -> int
+pub(super) open spec fn space_needed_for_journal_entries_list(entries: Seq<JournalEntry>) -> int
     decreases
         entries.len()
 {
@@ -125,23 +121,23 @@ pub(super) open spec fn space_needed_for_journal_entries(entries: Seq<JournalEnt
         0
     }
     else {
-        entries.last().space_needed() + space_needed_for_journal_entries(entries.drop_last())
+        entries.last().space_needed() + space_needed_for_journal_entries_list(entries.drop_last())
     }
 }
 
-pub(super) proof fn lemma_space_needed_for_journal_entries_zero_iff_journal_empty(entries: Seq<JournalEntry>)
+pub(super) proof fn lemma_space_needed_for_journal_entries_list_zero_iff_journal_empty(entries: Seq<JournalEntry>)
     ensures
         if entries.len() == 0 {
-            space_needed_for_journal_entries(entries) == 0
+            space_needed_for_journal_entries_list(entries) == 0
         }
         else {
-            space_needed_for_journal_entries(entries) > 0
+            space_needed_for_journal_entries_list(entries) > 0
         }
     decreases
         entries.len()
 {
     if entries.len() > 0 {
-        lemma_space_needed_for_journal_entries_zero_iff_journal_empty(entries.drop_last());
+        lemma_space_needed_for_journal_entries_list_zero_iff_journal_empty(entries.drop_last());
     }
 }
 
@@ -659,40 +655,40 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
 
 }
 
-pub(super) proof fn lemma_space_needed_for_journal_entries_monotonic(entries: Seq<JournalEntry>, i: int, j: int)
+pub(super) proof fn lemma_space_needed_for_journal_entries_list_monotonic(entries: Seq<JournalEntry>, i: int, j: int)
     requires
         0 <= i <= j <= entries.len(),
     ensures
-        space_needed_for_journal_entries(entries.take(i)) <= space_needed_for_journal_entries(entries.take(j)),
+        space_needed_for_journal_entries_list(entries.take(i)) <= space_needed_for_journal_entries_list(entries.take(j)),
     decreases
         j - i
 {
     if i < j {
-        lemma_space_needed_for_journal_entries_monotonic(entries, i + 1, j);
+        lemma_space_needed_for_journal_entries_list_monotonic(entries, i + 1, j);
         assert(entries.take(i + 1).drop_last() =~= entries.take(i));
         assert(entries.take(i + 1).last() =~= entries[i]);
     }
 }
 
-pub(super) proof fn lemma_space_needed_for_journal_entries_increases(entries: Seq<JournalEntry>, i: int)
+pub(super) proof fn lemma_space_needed_for_journal_entries_list_increases(entries: Seq<JournalEntry>, i: int)
     requires
         0 <= i < entries.len(),
     ensures
-        space_needed_for_journal_entries(entries.take(i + 1))
-           == space_needed_for_journal_entries(entries.take(i)) + entries[i].space_needed()
+        space_needed_for_journal_entries_list(entries.take(i + 1))
+           == space_needed_for_journal_entries_list(entries.take(i)) + entries[i].space_needed()
 {
     assert(entries.take(i + 1).drop_last() =~= entries.take(i));
     assert(entries.take(i + 1).last() =~= entries[i]);
 }
 
-pub(super) proof fn lemma_space_needed_for_journal_entries_at_least_num_entries(entries: Seq<JournalEntry>)
+pub(super) proof fn lemma_space_needed_for_journal_entries_list_at_least_num_entries(entries: Seq<JournalEntry>)
     ensures
-        entries.len() <= space_needed_for_journal_entries(entries),
+        entries.len() <= space_needed_for_journal_entries_list(entries),
     decreases
         entries.len()
 {
     if entries.len() > 0 {
-        lemma_space_needed_for_journal_entries_at_least_num_entries(entries.drop_last());
+        lemma_space_needed_for_journal_entries_list_at_least_num_entries(entries.drop_last());
     }
 }
 

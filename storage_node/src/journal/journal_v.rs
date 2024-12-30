@@ -87,20 +87,6 @@ impl <Perm, PM> Journal<Perm, PM>
                == j2.state.subrange(j2.constants.app_area_start as int, j2.constants.app_area_end as int)
     }
 
-    pub open spec fn space_needed_for_journal_entry(num_bytes: nat) -> int
-    {
-        spec_space_needed_for_journal_entry(num_bytes)
-    }
-
-    pub closed spec fn space_needed_for_journal_entries(
-        max_journal_entries: u64,
-        max_journaled_bytes: u64,
-    ) -> int
-    {
-        spec_space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes)
-    }
-    
-
     pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> int
         recommends
             ps.valid(),
@@ -151,7 +137,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& constants.app_version_number == ps.app_version_number
                     &&& constants.app_program_guid == ps.app_program_guid
                     &&& constants.journal_capacity
-                           >= Self::space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
+                           >= space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes)
                     &&& opaque_aligned(constants.app_area_start as int, ps.app_area_alignment as int)
                     &&& constants.app_area_end >= constants.app_area_start + ps.app_area_size
                     &&& constants.app_area_end == pm@.len()
@@ -505,7 +491,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self@.valid(),
             self.recover_successful(),
             ({
-                let space_needed = Self::space_needed_for_journal_entry(bytes_to_write@.len());
+                let space_needed = space_needed_for_journal_entry(bytes_to_write@.len());
                 match result {
                     Ok(_) => {
                         &&& space_needed <= old(self)@.remaining_capacity
@@ -570,8 +556,8 @@ impl <Perm, PM> Journal<Perm, PM>
             }
         }
 
-        assert(space_needed_for_journal_entries(self.entries@) ==
-               space_needed_for_journal_entries(old(self).entries@) + concrete_entry@.space_needed()) by {
+        assert(space_needed_for_journal_entries_list(self.entries@) ==
+               space_needed_for_journal_entries_list(old(self).entries@) + concrete_entry@.space_needed()) by {
             assert(self.entries@.last() == concrete_entry@);
             assert(self.entries@.drop_last() =~= old(self).entries@);
         }
@@ -607,7 +593,7 @@ impl <Perm, PM> Journal<Perm, PM>
             ) == Some(old(self).entries@.take(current_entry_index as int)),
             0 <= current_entry_index < old(self).entries@.len(),
             current_pos == old(self).sm.journal_entries_start +
-                           space_needed_for_journal_entries(old(self).entries@.take(current_entry_index as int)),
+                           space_needed_for_journal_entries_list(old(self).entries@.take(current_entry_index as int)),
             seqs_match_in_range(original_durable_state, old(self).wrpm@.durable_state,
                                   old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
             seqs_match_in_range(original_read_state, old(self).wrpm@.read_state,
@@ -631,7 +617,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 == Some(self.entries@.take(current_entry_index + 1)),
             current_pos < next_pos <= self.sm.journal_entries_start + self.journal_length,
             next_pos == self.sm.journal_entries_start +
-                       space_needed_for_journal_entries(self.entries@.take(current_entry_index + 1)),
+                       space_needed_for_journal_entries_list(self.entries@.take(current_entry_index + 1)),
             next_pos == self.sm.journal_entries_start + self.journal_length
                 <==> current_entry_index == self.entries@.len() - 1,
             crc_digest.bytes_in_digest() ==
@@ -644,21 +630,22 @@ impl <Perm, PM> Journal<Perm, PM>
         assert({
             &&& current_pos + entry@.space_needed() ==
                 self.sm.journal_entries_start +
-                space_needed_for_journal_entries(self.entries@.take(current_entry_index + 1))
+                space_needed_for_journal_entries_list(self.entries@.take(current_entry_index + 1))
             &&& 0 <= current_pos
             &&& current_pos + entry@.space_needed() <= self.sm.journal_entries_start + self.journal_length
             &&& current_pos + entry@.space_needed() == self.sm.journal_entries_start + self.journal_length <==>
                  current_entry_index == self.entries@.len() - 1
         }) by {
-            lemma_space_needed_for_journal_entries_increases(self.entries@, current_entry_index as int);
-            lemma_space_needed_for_journal_entries_at_least_num_entries(self.entries@.take(current_entry_index as int));
-            lemma_space_needed_for_journal_entries_monotonic(self.entries@, current_entry_index + 1,
+            lemma_space_needed_for_journal_entries_list_increases(self.entries@, current_entry_index as int);
+            lemma_space_needed_for_journal_entries_list_at_least_num_entries(
+                self.entries@.take(current_entry_index as int));
+            lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 1,
                                                              self.entries@.len() as int);
             if current_entry_index < self.entries@.len() - 1 {
-                lemma_space_needed_for_journal_entries_increases(self.entries@, current_entry_index + 1);
-                lemma_space_needed_for_journal_entries_monotonic(self.entries@, current_entry_index + 1,
+                lemma_space_needed_for_journal_entries_list_increases(self.entries@, current_entry_index + 1);
+                lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 1,
                                                                  current_entry_index + 2);
-                lemma_space_needed_for_journal_entries_monotonic(self.entries@, current_entry_index + 2,
+                lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 2,
                                                                  self.entries@.len() as int);
             }
             assert(self.entries@ =~= self.entries@.take(self.entries@.len() as int));
@@ -773,7 +760,7 @@ impl <Perm, PM> Journal<Perm, PM>
         assert(self.entries@.take(current_entry_index as int) =~= Seq::<JournalEntry>::empty());
         let mut crc_digest = CrcDigest::new();
         proof {
-            lemma_space_needed_for_journal_entries_zero_iff_journal_empty(self.entries@);
+            lemma_space_needed_for_journal_entries_list_zero_iff_journal_empty(self.entries@);
         }
         while current_pos < end_pos
             invariant
@@ -791,7 +778,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 self.sm.journal_entries_start <= current_pos <= end_pos,
                 current_pos == end_pos <==> current_entry_index == self.entries@.len(),
                 current_pos == self.sm.journal_entries_start +
-                               space_needed_for_journal_entries(self.entries@.take(current_entry_index as int)),
+                               space_needed_for_journal_entries_list(self.entries@.take(current_entry_index as int)),
                 seqs_match_in_range(original_durable_state, self.wrpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
                 seqs_match_in_range(original_read_state, self.wrpm@.read_state,
@@ -805,7 +792,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                                    current_entry_index, current_pos,
                                                    &mut crc_digest);
             assert(current_entry_index < u64::MAX) by {
-                lemma_space_needed_for_journal_entries_at_least_num_entries(self.entries@);
+                lemma_space_needed_for_journal_entries_list_at_least_num_entries(self.entries@);
             }
             current_entry_index = current_entry_index + 1;
         }

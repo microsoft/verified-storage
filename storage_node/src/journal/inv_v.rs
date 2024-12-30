@@ -53,7 +53,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& journal_entries_valid(self.entries@, self.sm)
         &&& journaled_addrs_complete(self.entries@, self.journaled_addrs@)
         &&& self.journal_length <= self.constants.journal_capacity
-        &&& self.journal_length == space_needed_for_journal_entries(self.entries@)
+        &&& self.journal_length == space_needed_for_journal_entries_list(self.entries@)
     }
 
     pub(super) open spec fn valid_internal(self) -> bool

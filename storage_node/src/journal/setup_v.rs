@@ -12,22 +12,13 @@ use super::spec_v::*;
 
 verus! {
 
-pub open spec fn spec_space_needed_for_journal_entries(
-    max_journal_entries: u64,
-    max_journaled_bytes: u64,
-) -> int
-{
-    max_journaled_bytes as int + // journal data
-    max_journal_entries * (u64::spec_size_of() as int + u64::spec_size_of() as int) // entry headers
-}
-
 pub(super) exec fn get_space_needed_for_journal_entries(
     max_journal_entries: u64,
     max_journaled_bytes: u64,
 ) -> (result: OverflowingU64)
     ensures
         0 <= result@,
-        result@ == spec_space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes),
+        result@ == space_needed_for_journal_entries(max_journal_entries, max_journaled_bytes),
 {
     let num_journaled_bytes = OverflowingU64::new(max_journaled_bytes);
     let journal_entry_size = OverflowingU64::new(size_of::<u64>() as u64).add(size_of::<u64>() as u64);
@@ -39,7 +30,7 @@ pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> in
     recommends
         ps.valid(),
 {
-    let journal_size = spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
+    let journal_size = space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
     let journal_version_metadata_start: int = 0;
     let journal_version_metadata_end = JournalVersionMetadata::spec_size_of() as int;
     let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
@@ -82,7 +73,7 @@ impl AddressesForSetup
 {
     pub(super) open spec fn valid(&self, ps: JournalSetupParameters) -> bool
     {
-        let journal_size = spec_space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
+        let journal_size = space_needed_for_journal_entries(ps.max_journal_entries, ps.max_journaled_bytes);
         let space_needed_for_setup = spec_space_needed_for_setup(ps);
         &&& self.journal_version_metadata_start == spec_journal_version_metadata_start()
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()
