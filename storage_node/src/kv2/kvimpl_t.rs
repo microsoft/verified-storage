@@ -183,7 +183,7 @@ where
     pub exec fn read_item(
         &self,
         key: &K,
-    ) -> (result: Result<Box<I>, KvError<K>>)
+    ) -> (result: Result<&I, KvError<K>>)
         requires 
             self.valid(),
         ensures 
@@ -325,7 +325,7 @@ where
     pub exec fn read_item_and_list(
         &self,
         key: &K,
-    ) -> (result: Result<(Box<I>, &Vec<L>), KvError<K>>)
+    ) -> (result: Result<(&I, &Vec<L>), KvError<K>>)
         requires 
             self.valid(),
         ensures 
