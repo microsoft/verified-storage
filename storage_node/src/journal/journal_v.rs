@@ -1212,7 +1212,6 @@ impl <Perm, PM> Journal<Perm, PM>
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
         self.entries.clear();
-        assert(self.wrpm.constants() == old(self).wrpm.constants());
     }
 }
 
