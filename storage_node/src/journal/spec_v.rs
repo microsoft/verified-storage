@@ -150,5 +150,5 @@ pub broadcast group broadcast_journal_view_matches_in_range {
     broadcast_journal_view_matches_in_range_can_narrow_range,
     broadcast_journal_view_matches_in_range_effect_on_subranges,
 }
-    
+
 }
