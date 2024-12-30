@@ -129,7 +129,7 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn read_item(
+    pub exec fn untrusted_read_item(
         &self,
         key: &K,
     ) -> (result: Result<Box<I>, KvError<K>>)
@@ -141,12 +141,12 @@ where
                     &&& self@.tentative.read_item(*key) matches Ok(i)
                     &&& item == i
                 },
-                Err(KvError::KeyNotFound) => !self@.tentative.contains_key(*key),
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item(*key) matches Err(e_spec)
                     &&& e == e_spec
                 },
-            }
+            },
     {
         assume(false);
         Err(KvError::NotImplemented)
@@ -286,82 +286,66 @@ where
         Err(KvError::NotImplemented)
     }
 
-/*
-    // // // TODO: return a Vec<&L> to save space/reduce copies
-    // // pub fn untrusted_read_item_and_list(&self, key: &K) -> (result: Option<(&I, Vec<&L>)>)
-    // //     requires
-    // //         self.valid(),
-    // //     ensures
-    // //     ({
-    // //         let spec_result = self@.read_item_and_list(*key);
-    // //         match (result, spec_result) {
-    // //             (Some((output_item, output_pages)), Some((spec_item, spec_pages))) => {
-    // //                 &&& spec_item == output_item
-    // //                 &&& spec_pages == output_pages@
-    // //             }
-    // //             (Some((output_item, output_pages)), None) => false,
-    // //             (None, Some((spec_item, spec_pages))) => false,
-    // //             (None, None) => true,
-    // //         }
-    // //     })
-    // // {
-    // //     assume(false);
-    // //     // First, get the offset of the header in the durable store using the volatile index
-    // //     let offset = self.volatile_index.get(key);
-    // //     match offset {
-    // //         Some(offset) => self.durable_store.read_item_and_list(offset),
-    // //         None => None
-    // //     }
-    // // }
+    pub fn untrusted_read_item_and_list(&self, key: &K) -> (result: Result<(Box<I>, &Vec<L>), KvError<K>>)
+        requires
+            self.valid(),
+        ensures
+            match result {
+                Ok((item, lst)) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
+                    &&& item == i
+                    &&& lst@ == l
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
-    // pub fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
-    //     requires
-    //         self.valid()
-    //     ensures
-    //         ({
-    //             let spec_result = self@.read_list_entry_at_index(*key, idx as int);
-    //             match (result, spec_result) {
-    //                 (Ok(output_entry), Ok(spec_entry)) => {
-    //                     &&& output_entry == spec_entry
-    //                 }
-    //                 (Err(KvError::IndexOutOfRange), Err(KvError::IndexOutOfRange)) => {
-    //                     &&& self@.contents.contains_key(*key)
-    //                     &&& self@.contents[*key].1.len() <= idx
-    //                 }
-    //                 (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => {
-    //                     &&& !self@.contents.contains_key(*key)
-    //                 }
-    //                 (_, _) => false
-    //             }
-    //         })
-    // {
-    //     assume(false);
-    //     Err(KvError::NotImplemented)
-    // }
+    pub fn untrusted_read_list(&self, key: &K) -> (result: Result<&Vec<L>, KvError<K>>)
+        requires
+            self.valid(),
+        ensures
+            match result {
+                Ok(lst) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
+                    &&& lst@ == l
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
-    // // pub fn untrusted_read_list(&self, key: &K) -> (result: Option<&Vec<L>>)
-    // //     requires
-    // //         self.valid(),
-    // //     ensures
-    // //     ({
-    // //         let spec_result = self@.read_item_and_list(*key);
-    // //         match (result, spec_result) {
-    // //             (Some(output_pages), Some((spec_item, spec_pages))) => {
-    // //                 &&& spec_pages == output_pages@
-    // //             }
-    // //             (Some(output_pages), None) => false,
-    // //             (None, Some((spec_item, spec_pages))) => false,
-    // //             (None, None) => true,
-    // //         }
-    // //     })
-    // // {
-    // //     assume(false);
-    // //     let offset = self.volatile_index.get(key);
-    // //     match offset {
-    // //         Some(offset) => self.durable_store.read_list(offset),
-    // //         None => None
-    // //     }
-    // // }
+    pub fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
+        requires
+            self.valid()
+        ensures
+            match result {
+                Ok(element) => {
+                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
+                    &&& *element == e
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
     // pub fn untrusted_delete(
     //     &mut self,
@@ -415,12 +399,12 @@ where
     //     assume(false);
     //     return Err(KvError::InternalError);
     //     // let offset = self.volatile_index.get(key);
-    //     // // append a page to the list rooted at this offset
+    //     append a page to the list rooted at this offset
     //     // let page_offset = match offset {
     //     //     Some(offset) => self.durable_store.append(offset, new_list_entry, perm)?,
     //     //     None => return Err(KvError::KeyNotFound)
     //     // };
-    //     // // add the durable location of the page to the in-memory list
+    //     add the durable location of the page to the in-memory list
     //     // self.volatile_index.append_offset_to_list(key, page_offset)
     // }
 
@@ -626,8 +610,6 @@ where
     //     assume(false);
     //     self.volatile_index.get_keys()
     // }
-
-    */
 
     // pub fn untrusted_contains_key(&self, key: &K) -> (result: bool)
     //     requires

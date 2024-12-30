@@ -124,19 +124,19 @@ where
         }
     }
 
-    // pub open spec fn read_list_entry_at_index(self, key: K, idx: int) -> Result<L, KvError<K>>
-    // {
-    //     if self.contents.contains_key(key) {
-    //         let (offset, list) = self.contents[key];
-    //         if list.len() > idx {
-    //             Ok(list[idx])
-    //         } else {
-    //             Err(KvError::IndexOutOfRange)
-    //         }
-    //     } else {
-    //         Err(KvError::KeyNotFound)
-    //     }
-    // }
+    pub open spec fn read_list_entry_at_index(self, key: K, idx: nat) -> Result<L, KvError<K>>
+    {
+        if self.contents.contains_key(key) {
+            let (offset, list) = self.contents[key];
+            if idx < list.len() {
+                Ok(list[idx as int])
+            } else {
+                Err(KvError::IndexOutOfRange)
+            }
+        } else {
+            Err(KvError::KeyNotFound)
+        }
+    }
 
     pub open spec fn update_item(self, key: K, new_item: I) -> Result<Self, KvError<K>>
     {

@@ -189,17 +189,17 @@ where
         ensures 
             match result {
                 Ok(item) => {
-                    match self@.tentative[*key] {
-                        Some((i, _)) => i == item,
-                        None => false,
-                    }
-                }
+                    &&& self@.tentative.read_item(*key) matches Ok(i)
+                    &&& item == i
+                },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
-                Err(KvError::KeyNotFound) => !self@.tentative.contains_key(*key),
-                Err(_) => false,
+                Err(e) => {
+                    &&& self@.tentative.read_item(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
             }
     {
-        self.untrusted_kv_impl.read_item(key)
+        self.untrusted_kv_impl.untrusted_read_item(key)
     }
 
     pub exec fn create(
@@ -321,6 +321,68 @@ where
         let tracked perm = TrustedKvPermission::new_two_possibilities(self@.durable, self@.tentative);
         self.untrusted_kv_impl.untrusted_commit(Tracked(&perm))
     }
+
+    pub exec fn read_item_and_list(
+        &self,
+        key: &K,
+    ) -> (result: Result<(Box<I>, &Vec<L>), KvError<K>>)
+        requires 
+            self.valid(),
+        ensures 
+            match result {
+                Ok((item, lst)) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
+                    &&& item == i
+                    &&& lst@ == l
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        self.untrusted_kv_impl.untrusted_read_item_and_list(key)
+    }
+
+    pub exec fn read_list(&self, key: &K) -> (result: Result<&Vec<L>, KvError<K>>)
+        requires
+            self.valid(),
+        ensures
+            match result {
+                Ok(lst) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
+                    &&& lst@ == l
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        self.untrusted_kv_impl.untrusted_read_list(key)
+    }
+
+    pub exec fn read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
+        requires
+            self.valid(),
+        ensures
+            match result {
+                Ok(element) => {
+                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
+                    &&& *element == e
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        self.untrusted_kv_impl.untrusted_read_list_entry_at_index(key, idx)
+    }
+
 }
 
 }
