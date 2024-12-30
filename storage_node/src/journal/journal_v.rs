@@ -4,13 +4,14 @@ use vstd::prelude::*;
 use crate::common::align_v::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
-use super::entry_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::pmem::wrpm_t::*;
+use super::entry_v::*;
+use super::inv_v::*;
 use super::recover_v::*;
 use super::setup_v::*;
 use super::spec_v::*;
@@ -19,12 +20,6 @@ use super::start_v::*;
 verus! {
 
 broadcast use group_auto_subrange;
-
-pub enum JournalStatus {
-    Quiescent,
-    WritingJournal,
-    Committed,
-}
 
 pub struct Journal<Perm, PM>
     where
@@ -83,14 +78,6 @@ impl <Perm, PM> Journal<Perm, PM>
                                                                      state: self@.durable_state })
     }
 
-    pub proof fn lemma_valid_implies_recover_successful(self)
-        requires
-            self.valid(),
-        ensures
-            self.recover_successful(),
-    {
-    }
-
     pub open spec fn recovery_equivalent_for_app(state1: Seq<u8>, state2: Seq<u8>) -> bool
     {
         &&& Self::recover(state1) matches Some(j1)
@@ -100,7 +87,7 @@ impl <Perm, PM> Journal<Perm, PM>
                == j2.state.subrange(j2.constants.app_area_start as int, j2.constants.app_area_end as int)
     }
 
-    pub closed spec fn space_needed_for_journal_entry(num_bytes: nat) -> int
+    pub open spec fn space_needed_for_journal_entry(num_bytes: nat) -> int
     {
         spec_space_needed_for_journal_entry(num_bytes)
     }
@@ -490,6 +477,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
+            self.recover_successful(),
             self@ == (JournalView{
                 commit_state: self@.read_state,
                 remaining_capacity: self@.constants.journal_capacity as int,
@@ -1217,6 +1205,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
+            self.recover_successful(),
             self@ == (JournalView{
                 durable_state: self@.commit_state,
                 read_state: self@.commit_state,

@@ -10,6 +10,12 @@ use super::recover_v::*;
 
 verus! {
 
+pub(super) enum JournalStatus {
+    Quiescent,
+    WritingJournal,
+    Committed,
+}
+
 impl <Perm, PM> Journal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
