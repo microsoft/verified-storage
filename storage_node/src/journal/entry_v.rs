@@ -365,12 +365,13 @@ pub(super) proof fn lemma_apply_journal_entries_doesnt_change_size(
     sm: JournalStaticMetadata,
 )
     requires
-        apply_journal_entries(state, entries, sm) is Some,
+        apply_journal_entries(state, entries, sm) is Some || journal_entries_valid(entries, sm)
     ensures
         state.len() == apply_journal_entries(state, entries, sm).unwrap().len(),
     decreases
         entries.len()
 {
+    lemma_apply_journal_entries_some_iff_journal_entries_valid(state, entries, sm);
     if entries.len() > 0 {
         let next_state = apply_journal_entry(state, entries[0], sm).unwrap();
         lemma_apply_journal_entry_doesnt_change_size(state, entries[0], sm);

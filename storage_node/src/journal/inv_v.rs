@@ -31,6 +31,7 @@ impl <Perm, PM> Journal<Perm, PM>
     {
         let pmv = self.wrpm.view();
         &&& self.wrpm.inv()
+        &&& self@.valid()
         &&& pmv.valid()
         &&& self.inv_constants_match()
         &&& self.constants.app_area_end == pmv.len()

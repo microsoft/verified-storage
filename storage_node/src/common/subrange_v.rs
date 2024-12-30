@@ -411,7 +411,7 @@ pub broadcast proof fn broadcast_seqs_match_in_range_can_narrow_range<T>(
 )
     requires
         #[trigger] seqs_match_in_range(s1, s2, outer_start, outer_end),
-        0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len() == s2.len(),
+        0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len(),
     ensures
         #[trigger] s2.subrange(inner_start, inner_end) == s1.subrange(inner_start, inner_end),
 {

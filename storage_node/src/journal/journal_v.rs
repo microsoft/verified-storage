@@ -286,6 +286,7 @@ impl <Perm, PM> Journal<Perm, PM>
             match result {
                 Ok(j) => {
                     &&& j.valid()
+                    &&& j@.valid()
                     &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
                     &&& j@.pm_constants == wrpm.constants()
                     &&& j@.remaining_capacity == j@.constants.journal_capacity
@@ -299,6 +300,9 @@ impl <Perm, PM> Journal<Perm, PM>
             }
     {
         let ghost old_durable_state = wrpm@.durable_state;
+        assert(wrpm.constants().valid()) by {
+            wrpm.lemma_inv_implies_view_valid();
+        }
         let mut wrpm = wrpm;
         wrpm.flush();
 
@@ -354,6 +358,7 @@ impl <Perm, PM> Journal<Perm, PM>
     pub open spec fn write_postconditions(self, old_self: Self, addr: u64, bytes_to_write: Seq<u8>) -> bool
     {
         &&& self.valid()
+        &&& self@.valid()
         &&& self.recover_successful()
         &&& self@ == (JournalView{
                 read_state: update_bytes(old_self@.read_state, addr as int, bytes_to_write),
@@ -361,8 +366,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 durable_state: self@.durable_state,
                 ..old_self@
             })
-        &&& seqs_match_except_in_range(self@.durable_state, old_self@.durable_state, addr as int,
-                                       addr + bytes_to_write.len())
+        &&& old_self@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len())
     }
 
     pub exec fn write_slice(
@@ -405,6 +409,9 @@ impl <Perm, PM> Journal<Perm, PM>
                 old(self).wrpm@.read_state, self.entries@, self.journaled_addrs@, addr as int,
                 bytes_to_write@, self.sm
             );
+        }
+
+        assert(old(self)@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len())) by {
         }
     }
 
@@ -484,6 +491,7 @@ impl <Perm, PM> Journal<Perm, PM>
             old(self).valid(),
         ensures
             self.valid(),
+            self@.valid(),
             self@ == (JournalView{
                 commit_state: self@.read_state,
                 remaining_capacity: self@.constants.journal_capacity as int,
@@ -508,6 +516,7 @@ impl <Perm, PM> Journal<Perm, PM>
             addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
         ensures
             self.valid(),
+            self@.valid(),
             self.recover_successful(),
             ({
                 let space_needed = Self::space_needed_for_journal_entry(bytes_to_write@.len());
@@ -521,6 +530,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                remaining_capacity: old(self)@.remaining_capacity - space_needed,
                                ..old(self)@
                            })
+                        &&& self@.matches_except_in_range(old(self)@, addr as int, addr + bytes_to_write.len())
                     },
                     Err(JournalError::NotEnoughSpace) => {
                         &&& space_needed > old(self)@.remaining_capacity
@@ -729,6 +739,10 @@ impl <Perm, PM> Journal<Perm, PM>
                    self.entries@.take(current_entry_index + 1));
         }
 
+        proof {
+            lemma_apply_journal_entries_doesnt_change_size(self@.read_state, self.entries@, self.sm);
+        }
+
         next_pos
     }
 
@@ -853,6 +867,10 @@ impl <Perm, PM> Journal<Perm, PM>
         self.wrpm.serialize_and_write::<u64>(self.sm.journal_length_crc_start, &journal_length_crc, Tracked(perm));
         self.wrpm.serialize_and_write::<u64>(self.sm.journal_entries_crc_start, &journal_entries_crc, Tracked(perm));
         self.wrpm.flush();
+
+        proof {
+            lemma_apply_journal_entries_doesnt_change_size(self@.read_state, self.entries@, self.sm);
+        }
     }
 
     exec fn mark_journal_committed(
@@ -1057,6 +1075,7 @@ impl <Perm, PM> Journal<Perm, PM>
             assert(self.entries@.skip(num_entries_installed as int)[0] =~= self.entries@[num_entries_installed as int]);
             assert(self.entries@.skip(num_entries_installed as int).skip(1)
                    =~= self.entries@.skip(num_entries_installed + 1));
+            lemma_apply_journal_entries_doesnt_change_size(self@.read_state, self.entries@, self.sm);
         }
     }
 
@@ -1156,6 +1175,40 @@ impl <Perm, PM> Journal<Perm, PM>
         self.wrpm.flush();
     }
 
+    proof fn lemma_commit_initial_conditions(&self)
+        requires
+            self.valid(),
+        ensures
+            apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) is Some,
+            recover_committed_cdb(self.wrpm@.read_state, self.sm) == Some(false),
+            recovers_to(self.wrpm@.read_state, self.vm@, self.sm, self.constants),
+            recovers_to(self@.commit_state, self.vm@, self.sm, self.constants),
+    {
+        lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
+        assert({
+            &&& recover_committed_cdb(self.wrpm@.read_state, self.sm) == Some(false)
+            &&& recovers_to(self.wrpm@.read_state, self.vm@, self.sm, self.constants)
+        }) by {
+            broadcast use group_match_in_range;
+            assert(recover_version_metadata(self.wrpm@.durable_state) ==
+                   recover_version_metadata(self.wrpm@.read_state));
+            assert(recover_static_metadata(self.wrpm@.durable_state, self.vm@) ==
+                   recover_static_metadata(self.wrpm@.read_state, self.vm@));
+            assert(recover_committed_cdb(self.wrpm@.durable_state, self.sm) ==
+                   recover_committed_cdb(self.wrpm@.read_state, self.sm));
+        }
+
+        assert(recovers_to(self@.commit_state, self.vm@, self.sm, self.constants)) by {
+            lemma_apply_journal_entries_only_affects_app_area(self.wrpm@.read_state, self.vm@, self.sm, self.entries@);
+            broadcast use group_match_in_range;
+            assert(recover_version_metadata(self.wrpm@.read_state) == recover_version_metadata(self@.commit_state));
+            assert(recover_static_metadata(self.wrpm@.read_state, self.vm@) ==
+                   recover_static_metadata(self@.commit_state, self.vm@));
+            assert(recover_committed_cdb(self.wrpm@.read_state, self.sm) ==
+                   recover_committed_cdb(self@.commit_state, self.sm));
+        }
+    }
+
     pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
         requires
             old(self).valid(),
@@ -1165,6 +1218,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(),
+            self@.valid(),
             self@ == (JournalView{
                 durable_state: self@.commit_state,
                 read_state: self@.commit_state,
@@ -1177,31 +1231,8 @@ impl <Perm, PM> Journal<Perm, PM>
                                 self@.constants.app_area_end as int),
     {
         proof {
-            lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
-            assert({
-                &&& recover_committed_cdb(self.wrpm@.read_state, self.sm) == Some(false)
-                &&& recovers_to(self.wrpm@.read_state, old(self).vm@, old(self).sm, old(self).constants)
-            }) by {
-                broadcast use group_match_in_range;
-                assert(recover_version_metadata(self.wrpm@.durable_state) ==
-                       recover_version_metadata(self.wrpm@.read_state));
-                assert(recover_static_metadata(self.wrpm@.durable_state, self.vm@) ==
-                       recover_static_metadata(self.wrpm@.read_state, self.vm@));
-                assert(recover_committed_cdb(self.wrpm@.durable_state, self.sm) ==
-                       recover_committed_cdb(self.wrpm@.read_state, self.sm));
-            }
+            self.lemma_commit_initial_conditions();
         }
-
-        assert(recovers_to(self@.commit_state, self.vm@, self.sm, self.constants)) by {
-            lemma_apply_journal_entries_only_affects_app_area(self.wrpm@.read_state, self.vm@, self.sm, self.entries@);
-            broadcast use group_match_in_range;
-            assert(recover_version_metadata(self.wrpm@.read_state) == recover_version_metadata(self@.commit_state));
-            assert(recover_static_metadata(self.wrpm@.read_state, self.vm@) ==
-                   recover_static_metadata(self@.commit_state, self.vm@));
-            assert(recover_committed_cdb(self.wrpm@.read_state, self.sm) ==
-                   recover_committed_cdb(self@.commit_state, self.sm));
-        }
-
         self.status = Ghost(JournalStatus::WritingJournal);
         self.write_journal_metadata(Tracked(perm));
         self.mark_journal_committed(Ghost(old(self).wrpm@.durable_state), Ghost(old(self).wrpm@.read_state),
