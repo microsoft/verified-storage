@@ -22,6 +22,7 @@ use vstd::prelude::*;
 
 pub mod journal;
 //pub mod kv;
+pub mod kv2;
 // pub mod log;
 // pub mod multilog;
 pub mod pmem;
