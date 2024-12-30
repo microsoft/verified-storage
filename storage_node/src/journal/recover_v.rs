@@ -332,7 +332,7 @@ pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncomm
     ensures
         recovers_to(s2, vm, sm, constants),
 {
-    broadcast use group_match_except_in_range;
+    broadcast use group_match_in_range;
 }
 
 }

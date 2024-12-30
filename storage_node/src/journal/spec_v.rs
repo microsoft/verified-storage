@@ -87,7 +87,7 @@ pub broadcast proof fn broadcast_journal_view_matches_except_in_range_can_widen_
     ensures
         #[trigger] jv1.matches_except_in_range(jv2, new_start, new_end),
 {
-    broadcast use broadcast_seqs_match_except_in_range_can_widen_range;
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 }
 
 pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(

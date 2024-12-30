@@ -24,10 +24,9 @@ pub open spec fn seqs_match_in_range<T>(s1: Seq<T>, s2: Seq<T>, start: int, end:
 
 pub open spec fn seqs_match_except_in_range<T>(s1: Seq<T>, s2: Seq<T>, start: int, end: int) -> bool
 {
-    &&& s1.len() == s2.len()
-    &&& 0 <= start <= end <= s1.len()
+    &&& start <= end
     &&& seqs_match_in_range(s1, s2, 0, start)
-    &&& s1.subrange(end, s1.len() as int) == s2.subrange(end, s2.len() as int)
+    &&& seqs_match_in_range(s1, s2, end, s1.len() as int)
 }
 
 pub open spec fn recover_object<T>(s: Seq<u8>, start: int, crc_addr: int) -> Option<T>
@@ -314,41 +313,7 @@ pub broadcast proof fn broadcast_update_bytes_effect_on_subranges(
             s1.subrange(inner_start, inner_end),
 {
     broadcast use broadcast_update_bytes_effect_on_match;
-    broadcast use group_match_except_in_range;
-}
-
-pub broadcast proof fn broadcast_seqs_match_except_in_range_effect_on_subranges<T>(
-    s1: Seq<T>,
-    s2: Seq<T>,
-    outer_start: int,
-    outer_end: int,
-    inner_start: int,
-    inner_end: int
-)
-    requires
-        #[trigger] seqs_match_except_in_range(s1, s2, outer_start, outer_end),
-        0 <= inner_start <= inner_end <= outer_start || outer_end <= inner_start <= inner_end <= s1.len(),
-    ensures
-        #[trigger] s2.subrange(inner_start, inner_end) == s1.subrange(inner_start, inner_end),
-{
-    broadcast use broadcast_subrange_subrange_dangerous;
-}
-
-pub broadcast proof fn broadcast_seqs_match_except_in_range_can_widen_range<T>(
-    s1: Seq<T>,
-    s2: Seq<T>,
-    outer_start: int,
-    outer_end: int,
-    inner_start: int,
-    inner_end: int
-)
-    requires
-        #[trigger] seqs_match_except_in_range(s1, s2, inner_start, inner_end),
-        0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len(),
-    ensures
-        #[trigger] seqs_match_except_in_range(s1, s2, outer_start, outer_end),
-{
-    broadcast use broadcast_subrange_subrange_dangerous;
+    broadcast use group_match_in_range;
 }
 
 pub broadcast proof fn lemma_concatenate_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int)
@@ -428,11 +393,6 @@ pub broadcast group group_can_result_from_write_effect {
 pub broadcast group group_update_bytes_effect {
     broadcast_update_bytes_effect_on_match,
     broadcast_update_bytes_effect_on_subranges,
-}
-
-pub broadcast group group_match_except_in_range {
-    broadcast_seqs_match_except_in_range_effect_on_subranges,
-    broadcast_seqs_match_except_in_range_can_widen_range,
 }
 
 pub broadcast group group_match_in_range {
