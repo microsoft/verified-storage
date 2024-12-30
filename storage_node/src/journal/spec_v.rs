@@ -54,6 +54,7 @@ impl JournalView {
     {
         &&& self.valid()
         &&& other.valid()
+        &&& 0 <= start <= end <= self.len()
         &&& seqs_match_in_range(self.durable_state, other.durable_state, start, end)
         &&& seqs_match_in_range(self.read_state, other.read_state, start, end)
         &&& seqs_match_in_range(self.commit_state, other.commit_state, start, end)
@@ -65,29 +66,27 @@ impl JournalView {
     {
         &&& self.valid()
         &&& other.valid()
-        &&& seqs_match_except_in_range(self.durable_state, other.durable_state, start, end)
-        &&& seqs_match_except_in_range(self.read_state, other.read_state, start, end)
-        &&& seqs_match_except_in_range(self.commit_state, other.commit_state, start, end)
-        &&& forall|addr: int| addr < start || end <= addr ==>
-            self.journaled_addrs.contains(addr) == #[trigger] other.journaled_addrs.contains(addr)
+        &&& 0 <= start <= end <= self.len()
+        &&& self.matches_in_range(other, 0, start)
+        &&& self.matches_in_range(other, end, self.len() as int)
     }
 }
 
-pub broadcast proof fn broadcast_journal_view_matches_except_in_range_can_widen_range(
+pub broadcast proof fn broadcast_journal_view_matches_in_range_effect_on_subranges(
     jv1: JournalView,
     jv2: JournalView,
-    start: int,
-    end: int,
-    new_start: int,
-    new_end: int,
+    outer_start: int,
+    outer_end: int,
+    inner_start: int,
+    inner_end: int,
 )
     requires
-        #[trigger] jv1.matches_except_in_range(jv2, start, end),
-        0 <= new_start <= start <= end <= new_end <= jv1.len(),
+        #[trigger] jv1.matches_in_range(jv2, outer_start, outer_end),
+        0 <= outer_start <= inner_start <= inner_end <= outer_end <= jv1.len(),
     ensures
-        #[trigger] jv1.matches_except_in_range(jv2, new_start, new_end),
+        #[trigger] jv1.matches_in_range(jv2, inner_start, inner_end),
 {
-    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+    broadcast use broadcast_seqs_match_in_range_effect_on_subranges;
 }
 
 pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(
@@ -145,6 +144,11 @@ pub open spec fn space_needed_for_journal_entries(max_journal_entries: int, max_
 {
     max_journaled_bytes + // journal data
     opaque_mul(max_journal_entries, (u64::spec_size_of() + u64::spec_size_of()) as int) // entry headers
+}
+
+pub broadcast group broadcast_journal_view_matches_in_range {
+    broadcast_journal_view_matches_in_range_can_narrow_range,
+    broadcast_journal_view_matches_in_range_effect_on_subranges,
 }
     
 }
