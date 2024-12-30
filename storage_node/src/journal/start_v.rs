@@ -20,7 +20,7 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-broadcast use group_auto_subrange, pmcopy_axioms;
+broadcast use group_auto_subrange;
 
 pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<JournalVersionMetadata>)
     where
@@ -433,6 +433,7 @@ pub(super) exec fn install_journal_entries_during_start<Perm, PM>(
             apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed), *sm)
                 == Some(commit_state),
     {
+        broadcast use pmcopy_axioms;
         let ghost durable_state_at_start_of_loop = wrpm@.durable_state;
 
         assert(start + twice_u64_size <= end);
@@ -517,6 +518,7 @@ pub(super) exec fn clear_log<Perm, PM>(
     let ghost new_state = update_bytes(wrpm@.durable_state, sm.committed_cdb_start as int,
         new_cdb.spec_to_bytes());
     proof {
+        broadcast use pmcopy_axioms;
         assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0) by {
             reveal(opaque_aligned);
         }

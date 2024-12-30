@@ -20,7 +20,7 @@ use deps_hack::PmCopy;
 
 verus! {
 
-broadcast use group_auto_subrange, pmcopy_axioms;
+broadcast use group_auto_subrange;
 
 pub enum JournalStatus {
     Quiescent,
@@ -198,6 +198,7 @@ impl <Perm, PM> Journal<Perm, PM>
     
         proof {
             assert(pm@.valid()) by { pm.lemma_inv_implies_view_valid(); }
+            broadcast use pmcopy_axioms;
             assert(addrs.valid(*ps));
         }
     
@@ -434,6 +435,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
     {
+        broadcast use pmcopy_axioms;
         self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
     }
 
@@ -528,6 +530,8 @@ impl <Perm, PM> Journal<Perm, PM>
                 }
             }),
     {
+        broadcast use pmcopy_axioms;
+
         // Compute how much space is needed for this entry, and return an error
         // if there isn't enough space. Do this before doing anything else so that
         // we can ensure `self` hasn't changed if we return this error.
@@ -637,6 +641,7 @@ impl <Perm, PM> Journal<Perm, PM>
             crc_digest.bytes_in_digest() ==
                 self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int, next_pos as int),
     {
+        broadcast use pmcopy_axioms;
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
         let num_bytes: u64 = entry.bytes_to_write.len() as u64;
 
@@ -835,6 +840,8 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal_length(self.wrpm@.read_state, self.sm) == Some(self.journal_length),
             recover_journal_entries(self.wrpm@.read_state, self.sm, self.journal_length) == Some(self.entries@),
     {
+        broadcast use pmcopy_axioms;
+
         let journal_length_crc = {
             let mut digest = CrcDigest::new();
             digest.write(&self.journal_length);

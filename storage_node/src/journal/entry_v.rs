@@ -16,7 +16,7 @@ use super::spec_v::*;
 
 verus! {
 
-broadcast use group_auto_subrange, pmcopy_axioms;
+broadcast use group_auto_subrange;
 
 pub open spec fn spec_space_needed_for_journal_entry(num_bytes: nat) -> int
 {
@@ -509,6 +509,7 @@ pub(super) proof fn lemma_parse_journal_entries_append(
     decreases
         entries.len(),
 {
+    broadcast use pmcopy_axioms;
     let new_entries_bytes = entries_bytes
                           + (new_entry.start as u64).spec_to_bytes()
                           + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
