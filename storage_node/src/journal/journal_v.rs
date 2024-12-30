@@ -910,6 +910,8 @@ impl <Perm, PM> Journal<Perm, PM>
                                       self.sm.app_area_end as int)
             }),
     {
+        broadcast use pmcopy_axioms;
+
         let cdb = CDB_TRUE;
         
         let ghost desired_state = update_bytes(self.wrpm@.durable_state, self.sm.committed_cdb_start as int,
