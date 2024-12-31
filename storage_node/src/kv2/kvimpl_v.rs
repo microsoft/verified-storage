@@ -42,6 +42,22 @@ where
     phantom_l: core::marker::PhantomData<L>,
 }
 
+
+impl<PM, K, I, L> View for UntrustedKvStoreImpl<PM, K, I, L>
+where
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug + Copy,
+{
+    type V = AbstractKvState<K, I, L>;
+
+    closed spec fn view(&self) -> AbstractKvState<K, I, L>
+    {
+        arbitrary()
+    }
+}
+
 impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
@@ -50,11 +66,6 @@ where
     L: PmCopy + std::fmt::Debug + Copy,
 {
     pub closed spec fn pm_constants(self) -> PersistentMemoryConstants
-    {
-        arbitrary()
-    }
-
-    pub closed spec fn view(&self) -> AbstractKvState<K, I, L>
     {
         arbitrary()
     }
