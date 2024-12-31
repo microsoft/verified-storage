@@ -528,28 +528,22 @@ where
         Err(KvError::NotImplemented)
     }
 
-    // pub fn untrusted_get_keys(&self) -> (result: Vec<K>)
-    //     requires
-    //         self.valid()
-    //     ensures
-    //         result@.to_set() == self@.get_keys()
-    // {
-    //     assume(false);
-    //     self.volatile_index.get_keys()
-    // }
-
-    // pub fn untrusted_contains_key(&self, key: &K) -> (result: bool)
-    //     requires
-    //         self.valid(),
-    //     ensures
-    //         match result {
-    //             true => self@[*key] is Some,
-    //             false => self@[*key] is None
-    //         }
-    // {
-    //     assume(false);
-    //     self.volatile_index.get(key).is_some()
-    // }
+    pub fn untrusted_get_keys(&self) -> (result: Result<Vec<K>, KvError<K>>)
+        requires
+            self.valid(),
+        ensures
+            match result {
+                Ok(keys) => {
+                    &&& keys@.to_set() == self@.tentative.get_keys()
+                    &&& keys@.no_duplicates()
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(_) => false,
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
 }
 

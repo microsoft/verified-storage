@@ -321,6 +321,22 @@ where
         self.untrusted_kv_impl.untrusted_commit(Tracked(&perm))
     }
 
+    pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError<K>>)
+        requires 
+            self.valid(),
+        ensures 
+            match result {
+                Ok(keys) => {
+                    &&& keys@.to_set() == self@.tentative.get_keys()
+                    &&& keys@.no_duplicates()
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(_) => false,
+            },
+    {
+        self.untrusted_kv_impl.untrusted_get_keys()
+    }
+
     pub exec fn read_item_and_list(
         &self,
         key: &K,
