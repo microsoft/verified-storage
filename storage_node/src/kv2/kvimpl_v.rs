@@ -351,10 +351,11 @@ where
         &mut self,
         key: &K,
         new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError<K>>)
         requires
-            old(self).valid()
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -379,10 +380,11 @@ where
         key: &K,
         new_list_entry: L,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError<K>>)
         requires
-            old(self).valid()
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -404,74 +406,72 @@ where
         Err(KvError::NotImplemented)
     }
 
-    // pub fn untrusted_update_list_entry_at_index(
-    //     &mut self,
-    //     key: &K,
-    //     idx: usize,
-    //     new_list_entry: L,
-    //     perm: Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         self.valid(),
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self@ == old(self)@.update_list_entry_at_index(*key, idx, new_list_entry).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     match self.volatile_index.get_entry_location_by_index(key, idx) {
-    //         Ok((list_node_addr, offset_within_list_node)) =>
-    //             self.durable_store.update_list_entry_at_index(list_node_addr, offset_within_list_node, new_list_entry, perm),
-    //         Err(e) => Err(e),
-    //     }
-    // }
+    pub fn untrusted_update_list_entry_at_index(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_list_entry: L,
+        Tracked(perm): Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx, new_list_entry) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx, new_list_entry) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
-    // pub fn untrusted_update_entry_at_index_and_item(
-    //     &mut self,
-    //     key: &K,
-    //     idx: usize,
-    //     new_list_entry: L,
-    //     new_item: I,
-    //     perm: Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self.valid()
-    //                 &&& self@ == old(self)@.update_entry_at_index_and_item(*key, idx, new_list_entry, new_item).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     let header_offset = self.volatile_index.get(key);
-    //     match self.volatile_index.get_entry_location_by_index(key, idx) {
-    //         Ok((list_node_addr, offset_within_list_node)) =>
-    //             self.durable_store.update_entry_at_index_and_item(list_node_addr, offset_within_list_node,
-    //                                                               new_item, new_list_entry,  perm),
-    //         Err(e) => Err(e),
-    //     }
-    // }
+    pub fn untrusted_update_list_entry_at_index_and_item(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_list_entry: L,
+        new_item: I,
+        Tracked(perm): Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx, new_list_entry, new_item)
+                        matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx, new_list_entry, new_item)
+                        matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
     // pub fn untrusted_trim_list(
     //     &mut self,
     //     key: &K,
     //     trim_length: usize,
-    //     perm: Tracked<&TrustedKvPermission>
+    //     Tracked(perm): Tracked<&TrustedKvPermission>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -521,7 +521,7 @@ where
     //     key: &K,
     //     trim_length: usize,
     //     new_item: I,
-    //     perm: Tracked<&TrustedKvPermission>
+    //     Tracked(perm): Tracked<&TrustedKvPermission>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
