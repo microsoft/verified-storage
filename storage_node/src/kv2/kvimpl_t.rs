@@ -132,8 +132,8 @@ where
         pm: &mut PM,
         kvstore_id: u128,
         num_keys: u64, 
-        num_list_entries_per_node: u32,
-        num_list_nodes: u64,
+        num_list_entries_per_block: u64,
+        num_list_blocks: u64,
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(pm).inv(),
@@ -149,7 +149,7 @@ where
             }
     {
         UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, kvstore_id,
-            num_keys, num_list_entries_per_node, num_list_nodes)?;
+            num_keys, num_list_entries_per_block, num_list_blocks)?;
         Ok(())
     }
 

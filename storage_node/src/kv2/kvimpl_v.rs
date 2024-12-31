@@ -73,8 +73,8 @@ where
         pm: &mut PM,
         kvstore_id: u128,
         num_keys: u64, 
-        num_list_entries_per_node: u32,
-        num_list_nodes: u64,
+        num_list_entries_per_block: u64,
+        num_list_blocks: u64,
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(pm).inv(),

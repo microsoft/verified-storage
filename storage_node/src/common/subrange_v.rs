@@ -80,6 +80,28 @@ pub open spec fn recover_cdb(s: Seq<u8>, addr: int) -> Option<bool>
     }
 }
 
+pub open spec fn pm_views_match_in_range(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    start: int,
+    end: int,
+) -> bool
+{
+    &&& seqs_match_in_range(v1.durable_state, v2.durable_state, start, end)
+    &&& seqs_match_in_range(v1.read_state, v2.read_state, start, end)
+}
+
+pub open spec fn pm_views_match_except_in_range(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    start: int,
+    end: int,
+) -> bool
+{
+    &&& seqs_match_except_in_range(v1.durable_state, v2.durable_state, start, end)
+    &&& seqs_match_except_in_range(v1.read_state, v2.read_state, start, end)
+}
+
 pub proof fn lemma_can_result_from_partial_write_effect_on_match(
     s2: Seq<u8>,
     s1: Seq<u8>,
