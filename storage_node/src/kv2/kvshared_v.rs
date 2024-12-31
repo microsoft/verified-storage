@@ -57,21 +57,43 @@ pub struct KvConfiguration
     pub list_entry_size: u64,
     pub key_table_row_size: u64,
     pub item_table_row_size: u64,
-    pub list_table_block_size: u64,
     pub list_table_row_size: u64,
-    pub key_row_metadata_start: u64,
-    pub key_row_metadata_end: u64,
-    pub key_row_metadata_crc_start: u64,
-    pub key_row_key_start: u64,
-    pub key_row_key_end: u64,
-    pub item_row_crc_start: u64,
-    pub item_row_item_start: u64,
-    pub item_row_item_end: u64,
-    pub list_row_metadata_start: u64,
-    pub list_row_metadata_end: u64,
-    pub list_row_crc_start: u64,
-    pub list_row_list_entry_start: u64,
-    pub list_row_list_entry_end: u64,
+    pub list_block_element_size: u64,
+    pub key_table_row_metadata_start: u64,
+    pub key_table_row_metadata_end: u64,
+    pub key_table_row_metadata_crc_start: u64,
+    pub key_table_row_key_start: u64,
+    pub key_table_row_key_end: u64,
+    pub item_table_row_item_start: u64,
+    pub item_table_row_item_end: u64,
+    pub item_table_row_item_crc_start: u64,
+    pub list_table_row_metadata_start: u64,
+    pub list_table_row_metadata_end: u64,
+    pub list_table_row_metadata_crc_start: u64,
+    pub list_table_row_block_start: u64,
+    pub list_table_row_block_end: u64,
+    pub list_block_element_list_entry_start: u64,
+    pub list_block_element_list_entry_end: u64,
+    pub list_block_element_crc_start: u64,
+}
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+#[verifier::ext_equal]
+pub struct KeyTableRowMetadata
+{
+    pub item_start: u64,
+    pub list_start: u64,
+}
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+#[verifier::ext_equal]
+pub struct ListTableRowMetadata
+{
+    pub next_row_start: u64,
+    pub num_block_elements: u64,
+    pub num_trimmed_elements: u64,
 }
 
 impl KvConfiguration
@@ -91,15 +113,25 @@ impl KvConfiguration
         &&& self.list_table_start <= self.list_table_end
         &&& self.list_table_end <= self.journal_constants.app_area_end
         &&& self.key_size > 0
-        &&& opaque_mul(self.num_keys as int, self.key_table_row_size as int)
-            <= self.key_table_end - self.key_table_start
-        &&& opaque_mul(self.num_keys as int, self.item_table_row_size as int)
-            <= self.item_table_end - self.item_table_start
-        &&& opaque_mul(self.num_list_blocks as int, self.list_table_block_size as int)
+        &&& opaque_mul(self.num_keys as int, self.key_table_row_size as int) <= self.key_table_end - self.key_table_start
+        &&& self.key_table_row_metadata_end - self.key_table_row_metadata_start == KeyTableRowMetadata::spec_size_of()
+        &&& self.key_table_row_metadata_end <= self.key_table_row_metadata_crc_start
+        &&& self.key_table_row_metadata_crc_start + u64::spec_size_of() <= self.key_table_row_size
+        &&& opaque_mul(self.num_keys as int, self.item_table_row_size as int) <= self.item_table_end - self.item_table_start
+        &&& self.item_table_row_item_end - self.item_table_row_item_start == self.item_size
+        &&& self.item_table_row_item_end <= self.item_table_row_item_crc_start
+        &&& self.item_table_row_item_crc_start + u64::spec_size_of() <= self.item_table_row_size
+        &&& opaque_mul(self.num_list_blocks as int, self.list_table_row_size as int)
             <= self.list_table_end - self.list_table_start
-        &&& self.key_row_metadata_start <= self.key_row_metadata_end
+        &&& self.list_table_row_metadata_end - self.list_table_row_metadata_start == ListTableRowMetadata::spec_size_of()
+        &&& self.list_table_row_metadata_end <= self.list_table_row_block_start
+        &&& opaque_mul(self.num_list_entries_per_block as int, self.list_block_element_size as int)
+            <= self.list_table_row_block_end - self.list_table_row_block_start
+        &&& self.list_block_element_list_entry_end - self.list_block_element_list_entry_start == self.list_entry_size
+        &&& self.list_block_element_list_entry_end <= self.list_block_element_crc_start
+        &&& self.list_block_element_crc_start + u64::spec_size_of() <= self.list_block_element_size
     }
-    
+
     pub open spec fn consistent_with_types<K, I, L>(self) -> bool
         where
             K: PmCopy,
