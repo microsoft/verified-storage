@@ -40,6 +40,7 @@ pub struct KeyEntryMetadata
 pub struct KvConfiguration
 {
     pub journal_constants: JournalConstants,
+    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub static_metadata_start: u64,
     pub static_metadata_end: u64,
     pub key_table_start: u64,
@@ -49,28 +50,28 @@ pub struct KvConfiguration
     pub list_table_start: u64,
     pub list_table_end: u64,
     pub num_keys: u64,
-    pub num_list_elements_per_block: u64,
+    pub num_list_entries_per_block: u64,
     pub num_list_blocks: u64,
     pub key_size: u64,
     pub item_size: u64,
-    pub list_element_size: u64,
-    pub key_table_entry_size: u64,
-    pub item_table_entry_size: u64,
+    pub list_entry_size: u64,
+    pub key_table_row_size: u64,
+    pub item_table_row_size: u64,
     pub list_table_block_size: u64,
-    pub list_table_entry_size: u64,
-    pub key_entry_metadata_start: u64,
-    pub key_entry_metadata_end: u64,
-    pub key_entry_metadata_crc_start: u64,
-    pub key_entry_key_start: u64,
-    pub key_entry_key_end: u64,
-    pub item_entry_crc_start: u64,
-    pub item_entry_item_start: u64,
-    pub item_entry_item_end: u64,
-    pub list_entry_metadata_start: u64,
-    pub list_entry_metadata_end: u64,
-    pub list_entry_crc_start: u64,
-    pub list_entry_element_start: u64,
-    pub list_entry_element_end: u64,
+    pub list_table_row_size: u64,
+    pub key_row_metadata_start: u64,
+    pub key_row_metadata_end: u64,
+    pub key_row_metadata_crc_start: u64,
+    pub key_row_key_start: u64,
+    pub key_row_key_end: u64,
+    pub item_row_crc_start: u64,
+    pub item_row_item_start: u64,
+    pub item_row_item_end: u64,
+    pub list_row_metadata_start: u64,
+    pub list_row_metadata_end: u64,
+    pub list_row_crc_start: u64,
+    pub list_row_list_entry_start: u64,
+    pub list_row_list_entry_end: u64,
 }
 
 impl KvConfiguration
@@ -90,13 +91,13 @@ impl KvConfiguration
         &&& self.list_table_start <= self.list_table_end
         &&& self.list_table_end <= self.journal_constants.app_area_end
         &&& self.key_size > 0
-        &&& opaque_mul(self.num_keys as int, self.key_table_entry_size as int)
+        &&& opaque_mul(self.num_keys as int, self.key_table_row_size as int)
             <= self.key_table_end - self.key_table_start
-        &&& opaque_mul(self.num_keys as int, self.item_table_entry_size as int)
+        &&& opaque_mul(self.num_keys as int, self.item_table_row_size as int)
             <= self.item_table_end - self.item_table_start
         &&& opaque_mul(self.num_list_blocks as int, self.list_table_block_size as int)
             <= self.list_table_end - self.list_table_start
-        &&& self.key_entry_metadata_start <= self.key_entry_metadata_end
+        &&& self.key_row_metadata_start <= self.key_row_metadata_end
     }
     
     pub open spec fn consistent_with_types<K, I, L>(self) -> bool
@@ -107,7 +108,7 @@ impl KvConfiguration
     {
         &&& self.key_size == K::spec_size_of()
         &&& self.item_size == I::spec_size_of()
-        &&& self.list_element_size == L::spec_size_of()
+        &&& self.list_entry_size == L::spec_size_of()
     }
 }
 

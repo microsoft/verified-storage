@@ -32,7 +32,7 @@ where
     IndexOutOfRange{ upper_bound: usize },
     KeySizeTooBig,
     ItemSizeTooBig,
-    ListElementSizeTooBig,
+    ListEntrySizeTooBig,
     TooFewKeys,
     TooManyListEntriesPerNode,
     TooManyKeys,
@@ -51,7 +51,43 @@ where
     EntryIsNotValid,
     InvalidLogEntryType,
     NoCurrentTransaction,
+    LogicalRangeHasBeenTrimmed{ logical_trim_position: usize },
+    LogicalRangeHasBeenPartiallyTrimmed{ logical_trim_position: usize },
+    LogicalRangePartiallyBeyondEOF{ end_of_valid_range: usize },
+    LogicalRangeBeyondEOF{ end_of_valid_range: usize },
+    PageOutOfLogicalRangeOrder{ end_of_valid_range: usize },
+    PageLeavesLogicalRangeGap{ end_of_valid_range: usize },
+    LogicalRangeUpdateNotAllowed{ old_start: usize, old_end: usize, new_start: usize, new_end: usize },
     PmemErr { pmem_err: PmemError },
+}
+
+pub enum LogicalRangeGapsPolicy {
+    LogicalRangeGapsForbidden,
+    LogicalRangeGapsPermitted,
+}
+
+// The page type must satisfy the `LogicalRange` trait, giving it a
+// logical range with a `start` and `end`.
+pub trait LogicalRange {
+    spec fn spec_start(&self) -> usize;
+    spec fn spec_end(&self) -> usize;
+
+    #[verifier::when_used_as_spec(spec_start)]
+    fn start(&self) -> usize;
+    #[verifier::when_used_as_spec(spec_end)]
+    fn end(&self) -> usize;
+}
+
+pub open spec fn end_of_range<L>(list_entries: Seq<L>) -> usize
+    where
+        L: LogicalRange
+{
+    if list_entries.len() == 0 {
+        0
+    }
+    else {
+        list_entries.last().end()
+    }
 }
 
 /// An `AbstractKvStoreState` is an abstraction of
@@ -62,16 +98,18 @@ where
 pub struct AbstractKvStoreState<K, I, L>
 {
     pub id: u128,
+    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub contents: Map<K, (I, Seq<L>)>,
 }
 
 impl<K, I, L> AbstractKvStoreState<K, I, L>
 where
     K: std::fmt::Debug,
+    L: LogicalRange,
 {
-    pub open spec fn init(id: u128) -> Self
+    pub open spec fn init(id: u128, logical_range_gaps_policy: LogicalRangeGapsPolicy) -> Self
     {
-        Self{ id, contents: Map::<K, (I, Seq<L>)>::empty() }
+        Self{ id, logical_range_gaps_policy, contents: Map::<K, (I, Seq<L>)>::empty() }
     }
 
     pub open spec fn empty(self) -> bool
@@ -99,8 +137,8 @@ where
             Err(KvError::KeyAlreadyExists)
         } else {
             Ok(Self {
-                id: self.id,
                 contents: self.contents.insert(key, (item, Seq::empty())),
+                ..self
             })
         }
 
@@ -140,12 +178,11 @@ where
 
     pub open spec fn update_item(self, key: K, new_item: I) -> Result<Self, KvError<K>>
     {
-        let val = self.read_item_and_list(key);
-        match val {
+        match self.read_item_and_list(key) {
             Ok((old_item, pages)) => {
                 Ok(Self {
-                    id: self.id,
                     contents: self.contents.insert(key, (new_item, pages)),
+                    ..self
                 })
             },
             Err(e) => Err(e),
@@ -157,8 +194,8 @@ where
     {
         if self.contents.contains_key(key) {
             Ok(Self {
-                id: self.id,
                 contents: self.contents.remove(key),
+                ..self
             })
         } else {
             Err(KvError::KeyNotFound)
@@ -169,11 +206,24 @@ where
     pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) =>
-                Ok(Self {
-                    id: self.id,
-                    contents: self.contents.insert(key, (item, pages.push(new_list_entry))),
-                }),
+            Ok((item, list_entries)) => {
+                let end_of_valid_range = end_of_range(list_entries);
+                if new_list_entry.start() < end_of_valid_range {
+                    Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
+                }
+                else if {
+                    &&& self.logical_range_gaps_policy is LogicalRangeGapsForbidden
+                    &&& new_list_entry.start() > end_of_valid_range
+                } {
+                    Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
+                }
+                else {
+                    Ok(Self {
+                        contents: self.contents.insert(key, (item, list_entries.push(new_list_entry))),
+                        ..self
+                    })
+                }
+            },
             Err(e) => Err(e),
         }
     }
@@ -182,11 +232,23 @@ where
                                                     -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) => {
-                Ok(Self {
-                    id: self.id,
-                    contents: self.contents.insert(key, (new_item, pages.push(new_list_entry))),
-                })
+            Ok((item, list_entries)) => {
+                let end_of_valid_range = end_of_range(list_entries);
+                if new_list_entry.start() < end_of_valid_range {
+                    Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
+                }
+                else if {
+                    &&& self.logical_range_gaps_policy is LogicalRangeGapsForbidden
+                    &&& new_list_entry.start() > end_of_valid_range
+                } {
+                    Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
+                }
+                else {
+                    Ok(Self {
+                        contents: self.contents.insert(key, (new_item, list_entries.push(new_list_entry))),
+                        ..self
+                    })
+                }
             },
             Err(e) => Err(e),
         }
@@ -195,16 +257,25 @@ where
     pub open spec fn update_list_entry_at_index(self, key: K, idx: nat, new_list_entry: L) -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) =>
-                if idx >= pages.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: pages.len() as usize })
+            Ok((item, list_entries)) =>
+                if idx >= list_entries.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
                 }
                 else {
-                    let new_pages = pages.update(idx as int, new_list_entry);
-                    Ok(Self {
-                        id: self.id,
-                        contents: self.contents.insert(key, (item, new_pages)),
-                    })
+                    let old_list_entry = list_entries[idx as int];
+                    if old_list_entry.start() != new_list_entry.start() || old_list_entry.end() != new_list_entry.end() {
+                        Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_entry.start(),
+                                                                   old_end: old_list_entry.end(),
+                                                                   new_start: new_list_entry.start(),
+                                                                   new_end: new_list_entry.end() })
+                    }
+                    else {
+                        let new_list_entries = list_entries.update(idx as int, new_list_entry);
+                        Ok(Self {
+                            contents: self.contents.insert(key, (item, new_list_entries)),
+                            ..self
+                        })
+                    }
                 },
             Err(e) => Err(e),
         }
@@ -214,12 +285,26 @@ where
                                                          -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) => {
-                let new_pages = pages.update(idx as int, new_list_entry);
-                Ok(Self {
-                    id: self.id,
-                    contents: self.contents.insert(key, (new_item, new_pages)),
-                })
+            Ok((item, list_entries)) => {
+                if idx >= list_entries.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
+                }
+                else {
+                    let old_list_entry = list_entries[idx as int];
+                    if old_list_entry.start() != new_list_entry.start() || old_list_entry.end() != new_list_entry.end() {
+                        Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_entry.start(),
+                                                                   old_end: old_list_entry.end(),
+                                                                   new_start: new_list_entry.start(),
+                                                                   new_end: new_list_entry.end() })
+                    }
+                    else {
+                        let new_list_entries = list_entries.update(idx as int, new_list_entry);
+                        Ok(Self {
+                            contents: self.contents.insert(key, (new_item, new_list_entries)),
+                            ..self
+                        })
+                    }
+                }
             },
             Err(e) => Err(e),
         }
@@ -228,15 +313,15 @@ where
     pub open spec fn trim_list(self, key: K, trim_length: nat) -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) =>
-                if trim_length > pages.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: pages.len() as usize })
+            Ok((item, list_entries)) =>
+                if trim_length > list_entries.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
                 }
                 else {
-                    let new_pages = pages.subrange(trim_length as int, pages.len() as int);
+                    let new_list_entries = list_entries.subrange(trim_length as int, list_entries.len() as int);
                     Ok(Self {
-                        id: self.id,
-                        contents: self.contents.insert(key, (item, pages)),
+                        contents: self.contents.insert(key, (item, list_entries)),
+                        ..self
                     })
                 },
             Err(e) => Err(e),
@@ -246,15 +331,15 @@ where
     pub open spec fn trim_list_and_update_item(self, key: K, trim_length: nat, new_item: I) -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) =>
-                if trim_length > pages.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: pages.len() as usize })
+            Ok((item, list_entries)) =>
+                if trim_length > list_entries.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
                 }
                 else {
-                    let new_pages = pages.subrange(trim_length as int, pages.len() as int);
+                    let new_list_entries = list_entries.subrange(trim_length as int, list_entries.len() as int);
                     Ok(Self {
-                        id: self.id,
-                        contents: self.contents.insert(key, (new_item, pages)),
+                        contents: self.contents.insert(key, (new_item, list_entries)),
+                        ..self
                     })
                 },
             Err(e) => Err(e),
@@ -280,12 +365,18 @@ where
 {
     pub open spec fn valid(self) -> bool
     {
-        self.durable.id == self.tentative.id
+        &&& self.durable.id == self.tentative.id
+        &&& self.durable.logical_range_gaps_policy == self.tentative.logical_range_gaps_policy
     }
 
     pub open spec fn id(self) -> u128
     {
         self.durable.id
+    }
+
+    pub open spec fn logical_range_gaps_policy(self) -> LogicalRangeGapsPolicy
+    {
+        self.durable.logical_range_gaps_policy
     }
 
     pub open spec fn abort(self) -> Self
@@ -308,6 +399,8 @@ where
     {
         &&& self.durable.id == other.durable.id
         &&& self.tentative.id == other.tentative.id
+        &&& self.durable.logical_range_gaps_policy == other.durable.logical_range_gaps_policy
+        &&& self.tentative.logical_range_gaps_policy == other.tentative.logical_range_gaps_policy
     }
 }
 

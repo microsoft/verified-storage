@@ -33,7 +33,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
-    L: PmCopy + std::fmt::Debug + Copy,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     id: u128,
     journal: Journal<TrustedKvPermission, PM>,
@@ -48,7 +48,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + std::fmt::Debug + Copy,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     type V = AbstractKvState<K, I, L>;
 
@@ -63,7 +63,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + std::fmt::Debug + Copy,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub closed spec fn pm_constants(self) -> PersistentMemoryConstants
     {
@@ -83,6 +83,7 @@ where
     pub exec fn untrusted_setup(
         pm: &mut PM,
         kvstore_id: u128,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy,
         num_keys: u64, 
         num_list_entries_per_block: u64,
         num_list_blocks: u64,
@@ -96,7 +97,7 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& Self::untrusted_recover(pm@.durable_state)
-                        == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id))
+                        == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id, logical_range_gaps_policy))
                 },
                 Err(_) => true,
             }
@@ -343,9 +344,9 @@ where
             self.valid()
         ensures
             match result {
-                Ok(element) => {
+                Ok(list_entry) => {
                     &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
-                    &&& *element == e
+                    &&& *list_entry == e
                 },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {

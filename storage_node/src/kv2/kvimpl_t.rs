@@ -31,7 +31,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + std::fmt::Debug + Copy,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L>,
 }
@@ -60,7 +60,7 @@ impl TrustedKvPermission
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
             I: PmCopy + std::fmt::Debug,
-            L: PmCopy + std::fmt::Debug + Copy,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
             forall |s| #[trigger] perm.check_permission(s) <==>
                 UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(s) == Some(state),
@@ -83,7 +83,7 @@ impl TrustedKvPermission
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
             I: PmCopy + std::fmt::Debug,
-            L: PmCopy + std::fmt::Debug + Copy,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 ||| UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(s) == Some(state1)
@@ -104,7 +104,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + std::fmt::Debug + Copy,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     type V = AbstractKvState<K, I, L>;
 
@@ -119,7 +119,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + std::fmt::Debug + Copy,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub closed spec fn valid(self) -> bool
     {
@@ -134,6 +134,7 @@ where
     pub exec fn setup(
         pm: &mut PM,
         kvstore_id: u128,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy,
         num_keys: u64, 
         num_list_entries_per_block: u64,
         num_list_blocks: u64,
@@ -146,12 +147,12 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.durable_state)
-                        == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id))
+                        == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id, logical_range_gaps_policy))
                 }
                 Err(_) => true
             }
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, kvstore_id,
+        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, kvstore_id, logical_range_gaps_policy,
             num_keys, num_list_entries_per_block, num_list_blocks)?;
         Ok(())
     }
@@ -387,9 +388,9 @@ where
             self.valid(),
         ensures
             match result {
-                Ok(element) => {
+                Ok(list_entry) => {
                     &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
-                    &&& *element == e
+                    &&& *list_entry == e
                 },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {

@@ -51,7 +51,7 @@ impl<L> ListTableView<L>
 pub struct ListTable<PM, L>
     where
         PM: PersistentMemoryRegion,
-        L: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     m: Map<u64, Vec<L>>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
@@ -60,7 +60,7 @@ pub struct ListTable<PM, L>
 impl<PM, L> ListTable<PM, L>
     where
         PM: PersistentMemoryRegion,
-        L: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     pub open spec fn recover(
         s: Seq<u8>,
