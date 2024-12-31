@@ -81,8 +81,8 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             pm@.valid(),
             Self::recover(pm@.read_state, *config) == Some(KeyTableView::<K>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.key_table_start as int,
-                                       config.key_table_end as int),
+            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.sm.key_table_start as int,
+                                       config.sm.key_table_end as int),
     {
         assume(false);
     }

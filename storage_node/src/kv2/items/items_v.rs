@@ -79,8 +79,8 @@ impl<PM, I> ItemTable<PM, I>
         ensures
             pm@.valid(),
             Self::recover(pm@.read_state, *config) == Some(ItemTableView::<I>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.item_table_start as int,
-                                       config.item_table_end as int),
+            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.sm.item_table_start as int,
+                                       config.sm.item_table_end as int),
     {
         assume(false);
     }

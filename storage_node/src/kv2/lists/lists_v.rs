@@ -77,8 +77,8 @@ impl<PM, L> ListTable<PM, L>
         ensures
             pm@.valid(),
             Self::recover(pm@.read_state, *config) == Some(ListTableView::<L>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.list_table_start as int,
-                                       config.list_table_end as int),
+            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.sm.list_table_start as int,
+                                       config.sm.list_table_end as int),
     {
         assume(false);
     }
