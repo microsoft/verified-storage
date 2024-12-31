@@ -29,7 +29,7 @@ where
     KeyNotFound,
     KeyAlreadyExists,
     InvalidKey{ key: K },
-    IndexOutOfRange,
+    IndexOutOfRange{ upper_bound: usize },
     KeySizeTooBig,
     ItemSizeTooBig,
     ListElementSizeTooBig,
@@ -131,7 +131,7 @@ where
             if idx < list.len() {
                 Ok(list[idx as int])
             } else {
-                Err(KvError::IndexOutOfRange)
+                Err(KvError::IndexOutOfRange{ upper_bound: list.len() as usize })
             }
         } else {
             Err(KvError::KeyNotFound)
@@ -192,21 +192,25 @@ where
         }
     }
 
-    pub open spec fn update_list_entry_at_index(self, key: K, idx: usize, new_list_entry: L) -> Result<Self, KvError<K>>
+    pub open spec fn update_list_entry_at_index(self, key: K, idx: nat, new_list_entry: L) -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
-            Ok((item, pages)) => {
-                let new_pages = pages.update(idx as int, new_list_entry);
-                Ok(Self {
-                    id: self.id,
-                    contents: self.contents.insert(key, (item, new_pages)),
-                })
-            },
+            Ok((item, pages)) =>
+                if idx >= pages.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: pages.len() as usize })
+                }
+                else {
+                    let new_pages = pages.update(idx as int, new_list_entry);
+                    Ok(Self {
+                        id: self.id,
+                        contents: self.contents.insert(key, (item, new_pages)),
+                    })
+                },
             Err(e) => Err(e),
         }
     }
 
-    pub open spec fn update_list_entry_at_index_and_item(self, key: K, idx: usize, new_list_entry: L, new_item: I)
+    pub open spec fn update_list_entry_at_index_and_item(self, key: K, idx: nat, new_list_entry: L, new_item: I)
                                                          -> Result<Self, KvError<K>>
     {
         match self.read_item_and_list(key) {
@@ -221,35 +225,41 @@ where
         }
     }
 
-    // pub open spec fn trim_list(self, key: K, trim_length: int) -> Result<Self, KvError<K>>
-    // {
-    //     let result = self.read_item_and_list(key);
-    //     match result {
-    //         Some((item, pages)) => {
-    //             let pages = pages.subrange(trim_length, pages.len() as int);
-    //             Ok(Self {
-    //                 id: self.id,
-    //                 contents: self.contents.insert(key, (item, pages)),
-    //             })
-    //         }
-    //         None => Err(KvError::KeyNotFound)
-    //     }
-    // }
+    pub open spec fn trim_list(self, key: K, trim_length: nat) -> Result<Self, KvError<K>>
+    {
+        match self.read_item_and_list(key) {
+            Ok((item, pages)) =>
+                if trim_length > pages.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: pages.len() as usize })
+                }
+                else {
+                    let new_pages = pages.subrange(trim_length as int, pages.len() as int);
+                    Ok(Self {
+                        id: self.id,
+                        contents: self.contents.insert(key, (item, pages)),
+                    })
+                },
+            Err(e) => Err(e),
+        }
+    }
 
-    // pub open spec fn trim_list_and_update_item(self, key: K, trim_length: int, new_item: I) -> Result<Self, KvError<K>>
-    // {
-    //     let result = self.read_item_and_list(key);
-    //     match result {
-    //         Some((item, pages)) => {
-    //             let pages = pages.subrange(trim_length, pages.len() as int);
-    //             Ok(Self {
-    //                 id: self.id,
-    //                 contents: self.contents.insert(key, (new_item, pages)),
-    //             })
-    //         }
-    //         None => Err(KvError::KeyNotFound)
-    //     }
-    // }
+    pub open spec fn trim_list_and_update_item(self, key: K, trim_length: nat, new_item: I) -> Result<Self, KvError<K>>
+    {
+        match self.read_item_and_list(key) {
+            Ok((item, pages)) =>
+                if trim_length > pages.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: pages.len() as usize })
+                }
+                else {
+                    let new_pages = pages.subrange(trim_length as int, pages.len() as int);
+                    Ok(Self {
+                        id: self.id,
+                        contents: self.contents.insert(key, (new_item, pages)),
+                    })
+                },
+            Err(e) => Err(e),
+        }
+    }
 
     pub open spec fn get_keys(self) -> Set<K>
     {

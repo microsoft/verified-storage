@@ -421,12 +421,14 @@ where
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx, new_list_entry) matches Ok(new_self)
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                        matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx, new_list_entry) matches Err(e_spec)
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                        matches Err(e_spec)
                     &&& e == e_spec
                 },
             },
@@ -451,13 +453,13 @@ where
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -467,100 +469,64 @@ where
         Err(KvError::NotImplemented)
     }
 
-    // pub fn untrusted_trim_list(
-    //     &mut self,
-    //     key: &K,
-    //     trim_length: usize,
-    //     Tracked(perm): Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self.valid()
-    //                 &&& self@ == old(self)@.trim_list(*key, trim_length as int).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             Err(_) => false
-    //         }
-    //     {
-    //     // use the volatile index to figure out which physical offsets should be removed
-    //     // from the list, then use that information to trim the list on the durable side
-    //     // TODO: trim_length is in terms of list entries, not bytes, right? Check Jay's impl
-    //     // note: we trim from the beginning of the list, not the end
-    //     assume(false);
-    //     let item_offset = match self.volatile_index.get(key) {
-    //         Some(header_addr) => header_addr,
-    //         None => return Err(KvError::KeyNotFound),
-    //     };
-    //     if trim_length == 0 {
-    //         return Ok(());
-    //     }
-    //     let first_location_trimmed = self.volatile_index.get_entry_location_by_index(key, 0);
-    //     let last_location_trimmed = self.volatile_index.get_entry_location_by_index(key, trim_length - 1);
-    //     self.volatile_index.trim_list(key, trim_length)?;
-    //     match (first_location_trimmed, last_location_trimmed) {
-    //         (Ok((first_trimmed_list_node_addr, first_trimmed_offset_within_list_node)),
-    //          Ok((last_trimmed_list_node_addr, last_trimmed_offset_within_list_node))) =>
-    //             // TODO: The interface to `DurableKvStore::trim_list` might
-    //             // need to change, to also take
-    //             // `first_trimmed_offset_within_list_node` and
-    //             // `last_trimmed_offset_within_list_node`.
-    //             self.durable_store.trim_list(item_offset, first_trimmed_list_node_addr, last_trimmed_list_node_addr, trim_length, perm),
-    //         (Err(e), _) => Err(e),
-    //         (_, Err(e)) => Err(e),
-    //     }
-    // }
+    pub fn untrusted_trim_list(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        Tracked(perm): Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
-    // pub fn untrusted_trim_list_and_update_item(
-    //     &mut self,
-    //     key: &K,
-    //     trim_length: usize,
-    //     new_item: I,
-    //     Tracked(perm): Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self.valid()
-    //                 &&& self@ == old(self)@.trim_list_and_update_item(*key, trim_length as int, new_item).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     let item_offset = match self.volatile_index.get(key) {
-    //         Some(header_addr) => header_addr,
-    //         None => return Err(KvError::KeyNotFound),
-    //     };
-    //     if trim_length == 0 {
-    //         return Ok(());
-    //     }
-    //     let first_location_trimmed = self.volatile_index.get_entry_location_by_index(key, 0);
-    //     let last_location_trimmed = self.volatile_index.get_entry_location_by_index(key, trim_length - 1);
-    //     self.volatile_index.trim_list(key, trim_length)?;
-    //     match (first_location_trimmed, last_location_trimmed) {
-    //         (Ok((first_trimmed_list_node_addr, first_trimmed_offset_within_list_node)),
-    //          Ok((last_trimmed_list_node_addr, last_trimmed_offset_within_list_node))) =>
-    //             // TODO: The interface to `DurableKvStore::trim_list` might
-    //             // need to change, to also take
-    //             // `first_trimmed_offset_within_list_node` and
-    //             // `last_trimmed_offset_within_list_node`.
-    //             self.durable_store.trim_list_and_update_item(item_offset, first_trimmed_list_node_addr, last_trimmed_list_node_addr, trim_length, new_item, perm),
-    //         (Err(e), _) => Err(e),
-    //         (_, Err(e)) => Err(e),
-    //     }
-    // }
+    pub fn untrusted_trim_list_and_update_item(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        new_item: I,
+        Tracked(perm): Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                        matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                        matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
     // pub fn untrusted_get_keys(&self) -> (result: Vec<K>)
     //     requires

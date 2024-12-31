@@ -450,12 +450,14 @@ where
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx, new_list_entry) matches Ok(new_self)
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                        matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx, new_list_entry) matches Err(e_spec)
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                        matches Err(e_spec)
                     &&& e == e_spec
                 },
             },
@@ -478,13 +480,13 @@ where
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
                 Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -493,6 +495,61 @@ where
         let tracked perm = TrustedKvPermission::new_one_possibility(self@.durable);
         self.untrusted_kv_impl.untrusted_update_list_entry_at_index_and_item(key, idx, new_list_entry, new_item,
                                                                              Tracked(&perm))
+    }
+
+    pub exec fn trim_list(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        let tracked perm = TrustedKvPermission::new_one_possibility(self@.durable);
+        self.untrusted_kv_impl.untrusted_trim_list(key, trim_length, Tracked(&perm))
+    }
+
+    pub exec fn trim_list_and_update_item(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        new_item: I,
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                        matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                        matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        let tracked perm = TrustedKvPermission::new_one_possibility(self@.durable);
+        self.untrusted_kv_impl.untrusted_trim_list_and_update_item(key, trim_length, new_item, Tracked(&perm))
     }
 
 }
