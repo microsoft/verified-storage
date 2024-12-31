@@ -48,15 +48,18 @@ impl<L> ListTableView<L>
 }
 
 #[verifier::ext_equal]
-pub struct ListTable<L>
+pub struct ListTable<PM, L>
     where
+        PM: PersistentMemoryRegion,
         L: PmCopy + Sized + std::fmt::Debug,
 {
     m: Map<u64, Vec<L>>,
+    phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<L> ListTable<L>
+impl<PM, L> ListTable<PM, L>
     where
+        PM: PersistentMemoryRegion,
         L: PmCopy + Sized + std::fmt::Debug,
 {
     pub open spec fn recover(
@@ -67,12 +70,10 @@ impl<L> ListTable<L>
         None
     }
 
-    pub exec fn setup<PM>(
+    pub exec fn setup(
         pm: &mut PM,
         config: &KvConfiguration,
     )
-        where
-            PM: PersistentMemoryRegion,
         ensures
             pm@.valid(),
             Self::recover(pm@.read_state, *config) == Some(ListTableView::<L>::init()),

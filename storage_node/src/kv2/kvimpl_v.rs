@@ -36,15 +36,10 @@ where
     L: PmCopy + std::fmt::Debug + Copy,
 {
     id: u128,
-    phantom_pm: core::marker::PhantomData<PM>,
+    journal: Journal<TrustedKvPermission, PM>,
     phantom_k: core::marker::PhantomData<K>,
     phantom_i: core::marker::PhantomData<I>,
     phantom_l: core::marker::PhantomData<L>,
-}
-
-pub open spec fn untrusted_recover<K, I, L>(mem: Seq<u8>) -> Option<AbstractKvStoreState<K, I, L>>
-{
-    None
 }
 
 impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
@@ -62,6 +57,11 @@ where
     pub closed spec fn view(&self) -> AbstractKvState<K, I, L>
     {
         arbitrary()
+    }
+
+    pub open spec fn untrusted_recover(mem: Seq<u8>) -> Option<AbstractKvStoreState<K, I, L>>
+    {
+        None
     }
 
     pub closed spec fn valid(self) -> bool
@@ -84,7 +84,7 @@ where
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
-                    &&& untrusted_recover::<K, I, L>(pm@.durable_state)
+                    &&& Self::untrusted_recover(pm@.durable_state)
                         == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id))
                 },
                 Err(_) => true,
@@ -105,8 +105,8 @@ where
         requires 
             wrpm.inv(),
             wrpm@.flush_predicted(),
-            untrusted_recover::<K, I, L>(wrpm@.durable_state) == Some(state),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(state),
+            Self::untrusted_recover(wrpm@.durable_state) == Some(state),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(state),
         ensures
             match result {
                 Ok(kv) => {
@@ -162,7 +162,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             self@.constants_match(old(self)@),
@@ -198,8 +198,8 @@ where
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable)
-                ||| untrusted_recover::<K, I, L>(s) == Some(old(self)@.tentative)
+                ||| Self::untrusted_recover(s) == Some(old(self)@.durable)
+                ||| Self::untrusted_recover(s) == Some(old(self)@.tentative)
             },
         ensures 
             self.valid(),
@@ -221,7 +221,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             self@.constants_match(old(self)@),
@@ -257,7 +257,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             self@.constants_match(old(self)@),
@@ -355,7 +355,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -384,7 +384,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -415,7 +415,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -447,7 +447,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -477,7 +477,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),
@@ -506,7 +506,7 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> untrusted_recover::<K, I, L>(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             self@.constants_match(old(self)@),

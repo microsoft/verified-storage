@@ -49,39 +49,38 @@ impl<K> KeyTableView<K>
         }
     }
 }
-
-pub open spec fn key_table_recover<K>(
-    s: Seq<u8>,
-    config: KvConfiguration
-) -> Option<KeyTableView<K>>
-    where
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
-{
-    None
-}
     
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
-pub struct KeyTable<K>
+pub struct KeyTable<PM, K>
     where
+        PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     m: HashMap<K, u64>,
+    phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<K> KeyTable<K>
+impl<PM, K> KeyTable<PM, K>
     where
+        PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn setup<PM>(
+    pub open spec fn recover(
+        s: Seq<u8>,
+        config: KvConfiguration
+    ) -> Option<KeyTableView<K>>
+    {
+        None
+    }
+
+    pub exec fn setup(
         pm: &mut PM,
         config: &KvConfiguration,
     )
-        where
-            PM: PersistentMemoryRegion,
         ensures
             pm@.valid(),
-            key_table_recover::<K>(pm@.read_state, *config) == Some(KeyTableView::<K>::init()),
+            Self::recover(pm@.read_state, *config) == Some(KeyTableView::<K>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.key_table_start as int,
                                        config.key_table_end as int),
     {

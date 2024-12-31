@@ -50,15 +50,18 @@ impl<I> ItemTableView<I>
 
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(I)]
-pub struct ItemTable<I>
+pub struct ItemTable<PM, I>
     where
+        PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
     m: HashMap<u64, I>,
+    phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<I> ItemTable<I>
+impl<PM, I> ItemTable<PM, I>
     where
+        PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
     pub open spec fn recover(
@@ -69,12 +72,10 @@ impl<I> ItemTable<I>
         None
     }
 
-    pub exec fn setup<PM>(
+    pub exec fn setup(
         pm: &mut PM,
         config: &KvConfiguration,
     )
-        where
-            PM: PersistentMemoryRegion,
         ensures
             pm@.valid(),
             Self::recover(pm@.read_state, *config) == Some(ItemTableView::<I>::init()),
