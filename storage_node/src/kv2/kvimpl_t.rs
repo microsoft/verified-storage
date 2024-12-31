@@ -197,7 +197,7 @@ where
                     &&& self@.tentative.read_item(*key) matches Err(e_spec)
                     &&& e == e_spec
                 },
-            }
+            },
     {
         self.untrusted_kv_impl.untrusted_read_item(key)
     }
@@ -234,8 +234,7 @@ where
             }
     {
         let tracked perm = TrustedKvPermission::new_one_possibility(self@.durable);
-        let result = self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm));
-        result
+        self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm))
     }
 
     pub exec fn update_item(
@@ -381,6 +380,61 @@ where
             },
     {
         self.untrusted_kv_impl.untrusted_read_list_entry_at_index(key, idx)
+    }
+
+    pub fn untrusted_append_to_list(
+        &mut self,
+        key: &K,
+        new_list_entry: L,
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        let tracked perm = TrustedKvPermission::new_one_possibility(self@.durable);
+        self.untrusted_kv_impl.untrusted_append_to_list(key, new_list_entry, Tracked(&perm))
+    }
+
+    pub fn untrusted_append_to_list_and_update_item(
+        &mut self,
+        key: &K,
+        new_list_entry: L,
+        new_item: I,
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                        matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                        matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        let tracked perm = TrustedKvPermission::new_one_possibility(self@.durable);
+        self.untrusted_kv_impl.untrusted_append_to_list_and_update_item(key, new_list_entry, new_item, Tracked(&perm))
     }
 
 }

@@ -347,101 +347,62 @@ where
         Err(KvError::NotImplemented)
     }
 
-    // pub fn untrusted_delete(
-    //     &mut self,
-    //     key: &K,
-    //     kvstore_id: u128,
-    //     perm: Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         self.valid(),
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self@ == old(self)@.delete(*key).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     // Remove the entry from the volatile index, obtaining the physical offset as the return value
-    //     let offset = self.volatile_index.remove(key)?;
-    //     self.durable_store.delete(offset, perm)
-    // }
+    pub fn untrusted_append_to_list(
+        &mut self,
+        key: &K,
+        new_list_entry: L,
+        perm: Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid()
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
-    // pub fn untrusted_append_to_list(
-    //     &mut self,
-    //     key: &K,
-    //     new_list_entry: L,
-    //     perm: Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         self.valid(),
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self@ == old(self)@.append_to_list(*key, new_list_entry).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             // TODO: case for if we run out of space to append to the list
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     return Err(KvError::InternalError);
-    //     // let offset = self.volatile_index.get(key);
-    //     append a page to the list rooted at this offset
-    //     // let page_offset = match offset {
-    //     //     Some(offset) => self.durable_store.append(offset, new_list_entry, perm)?,
-    //     //     None => return Err(KvError::KeyNotFound)
-    //     // };
-    //     add the durable location of the page to the in-memory list
-    //     // self.volatile_index.append_offset_to_list(key, page_offset)
-    // }
-
-    // pub fn untrusted_append_to_list_and_update_item(
-    //     &mut self,
-    //     key: &K,
-    //     new_list_entry: L,
-    //     new_item: I,
-    //     perm: Tracked<&TrustedKvPermission>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid()
-    //     ensures
-    //         self.valid(),
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             // TODO: case for if we run out of space to append to the list
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     let offset = self.volatile_index.get(key);
-    //     // update the header at this offset append a page to the list rooted there
-    //     let page_offset = match offset {
-    //         Some(offset) => self.durable_store.update_item_and_append(offset, new_list_entry, new_item, perm)?,
-    //         None => return Err(KvError::KeyNotFound)
-    //     };
-
-    //     // TODO: use append_node_offset or append_to_list depending on whether you need to allocate or not?
-    //     self.volatile_index.append_to_list(key)
-    // }
+    pub fn untrusted_append_to_list_and_update_item(
+        &mut self,
+        key: &K,
+        new_list_entry: L,
+        new_item: I,
+        perm: Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid()
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                        matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(e) => {
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                        matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 
     // pub fn untrusted_update_list_entry_at_index(
     //     &mut self,

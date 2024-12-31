@@ -166,33 +166,33 @@ where
 
     }
 
-    // pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError<K>>
-    // {
-    //     let result = self.read_item_and_list(key);
-    //     match result {
-    //         Some((item, pages)) => {
-    //             Ok(Self {
-    //                 id: self.id,
-    //                 contents: self.contents.insert(key, (item, pages.push(new_list_entry))),
-    //             })
-    //         }
-    //         None => Err(KvError::KeyNotFound)
-    //     }
-    // }
+    pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError<K>>
+    {
+        let result = self.read_item_and_list(key);
+        match result {
+            Ok((item, pages)) =>
+                Ok(Self {
+                    id: self.id,
+                    contents: self.contents.insert(key, (item, pages.push(new_list_entry))),
+                }),
+            Err(e) => Err(e),
+        }
+    }
 
-    // pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I) -> Result<Self, KvError<K>>
-    // {
-    //     let result = self.read_item_and_list(key);
-    //     match result {
-    //         Some((item, pages)) => {
-    //             Ok(Self {
-    //                 id: self.id,
-    //                 contents: self.contents.insert(key, (new_item, pages.push(new_list_entry))),
-    //             })
-    //         }
-    //         None => Err(KvError::KeyNotFound)
-    //     }
-    // }
+    pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I)
+                                                    -> Result<Self, KvError<K>>
+    {
+        let result = self.read_item_and_list(key);
+        match result {
+            Ok((item, pages)) => {
+                Ok(Self {
+                    id: self.id,
+                    contents: self.contents.insert(key, (new_item, pages.push(new_list_entry))),
+                })
+            },
+            Err(e) => Err(e),
+        }
+    }
 
     // pub open spec fn update_list_entry_at_index(self, key: K, idx: usize, new_list_entry: L) -> Result<Self, KvError<K>>
     // {
