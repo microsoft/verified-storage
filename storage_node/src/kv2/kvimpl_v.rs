@@ -67,7 +67,7 @@ where
 {
     pub closed spec fn pm_constants(self) -> PersistentMemoryConstants
     {
-        arbitrary()
+        self.journal@.pm_constants
     }
 
     pub open spec fn untrusted_recover(mem: Seq<u8>) -> Option<AbstractKvStoreState<K, I, L>>
@@ -112,8 +112,8 @@ where
     ) -> (result: Result<Self, KvError<K>>)
         requires 
             wrpm.inv(),
-            wrpm@.flush_predicted(),
             Self::untrusted_recover(wrpm@.durable_state) == Some(state),
+            vstd::std_specs::hash::obeys_key_model::<K>(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(state),
         ensures
             match result {
@@ -130,6 +130,7 @@ where
                    &&& requested_id == kvstore_id
                    &&& actual_id == state.id
                 },
+                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(_) => false,
             }
     {        
@@ -173,6 +174,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -211,6 +213,7 @@ where
             },
         ensures 
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => self@ == old(self)@.commit(),
@@ -232,6 +235,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -268,6 +272,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -366,6 +371,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -395,6 +401,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -426,6 +433,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -458,6 +466,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -488,6 +497,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -517,6 +527,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
+            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {

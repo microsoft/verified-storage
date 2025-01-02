@@ -30,6 +30,7 @@ where
     KeyAlreadyExists,
     InvalidKey{ key: K },
     IndexOutOfRange{ upper_bound: usize },
+    KeySizeTooSmall,
     KeySizeTooBig,
     ItemSizeTooBig,
     ListEntrySizeTooBig,

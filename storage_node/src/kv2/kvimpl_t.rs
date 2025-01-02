@@ -153,8 +153,6 @@ where
         requires 
             pm.inv(),
             UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.read_state) is Some,
-            K::spec_size_of() > 0,
-            I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
             vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures
         ({
@@ -173,6 +171,7 @@ where
                    &&& requested_id == kvstore_id
                    &&& actual_id == state.id
                 },
+                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(_) => false,
             }
         }),
