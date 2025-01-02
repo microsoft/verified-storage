@@ -10,7 +10,7 @@ use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::super::kvimpl_t::*;
+use super::keyrecover_v::*;
 use super::super::kvshared_v::*;
 use super::super::kvspec_t::*;
 
@@ -68,21 +68,20 @@ impl<PM, K> KeyTable<PM, K>
 {
     pub open spec fn recover(
         s: Seq<u8>,
-        config: KvConfiguration
+        sm: KeyTableStaticMetadata,
     ) -> Option<KeyTableView<K>>
     {
-        None
+        arbitrary()
     }
 
     pub exec fn setup(
         pm: &mut PM,
-        config: &KvConfiguration,
+        sm: &KeyTableStaticMetadata,
     )
         ensures
             pm@.valid(),
-            Self::recover(pm@.read_state, *config) == Some(KeyTableView::<K>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.sm.key_table_start as int,
-                                       config.sm.key_table_end as int),
+            Self::recover(pm@.read_state, *sm) == Some(KeyTableView::<K>::init()),
+            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
         assume(false);
     }

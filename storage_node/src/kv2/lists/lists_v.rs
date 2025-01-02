@@ -9,7 +9,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
-use super::super::kvimpl_t::*;
+use super::listrecover_v::*;
 use super::super::kvshared_v::*;
 use super::super::kvspec_t::*;
 
@@ -64,21 +64,20 @@ impl<PM, L> ListTable<PM, L>
 {
     pub open spec fn recover(
         s: Seq<u8>,
-        config: KvConfiguration
+        sm: ListTableStaticMetadata,
     ) -> Option<ListTableView<L>>
     {
-        None
+        arbitrary()
     }
 
     pub exec fn setup(
         pm: &mut PM,
-        config: &KvConfiguration,
+        sm: &ListTableStaticMetadata,
     )
         ensures
             pm@.valid(),
-            Self::recover(pm@.read_state, *config) == Some(ListTableView::<L>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, config.sm.list_table_start as int,
-                                       config.sm.list_table_end as int),
+            Self::recover(pm@.read_state, *sm) == Some(ListTableView::<L>::init()),
+            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
         assume(false);
     }

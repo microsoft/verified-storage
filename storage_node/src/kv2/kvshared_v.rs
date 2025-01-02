@@ -14,161 +14,141 @@ use deps_hack::PmCopy;
 use std::hash::Hash;
 use super::kvimpl_t::*;
 use super::kvspec_t::*;
+use vstd::arithmetic::div_mod::{lemma_div_of0, lemma_div_plus_one};
+use vstd::arithmetic::mul::{lemma_mul_basics, lemma_mul_inequality, lemma_mul_is_distributive_add_other_way};
 
 verus! {
 
-// This GUID was generated randomly and is meant to describe the
-// journal module, even if it has future versions.
-
-pub const KVSTORE_PROGRAM_GUID: u128 = 0x256e549674024fd4880381d8010e6f54;
-
-// The current version number, and the only one whose contents
-// this program can read, is the following:
-
-pub const KVSTORE_PROGRAM_VERSION_NUMBER: u64 = 1;
-
-pub open spec fn encode_policies(logical_range_gaps_policy: LogicalRangeGapsPolicy) -> u64
-{
-    match logical_range_gaps_policy {
-        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden => 0,
-        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => 1,
-    }
-}
-
 #[repr(C)]
 #[derive(PmCopy, Copy)]
 #[verifier::ext_equal]
-pub struct KvStaticMetadata
+pub struct TableMetadata
 {
-    pub key_table_start: u64,
-    pub key_table_end: u64,
-    pub item_table_start: u64,
-    pub item_table_end: u64,
-    pub list_table_start: u64,
-    pub list_table_end: u64,
-    pub encoded_policies: u64,
-    pub num_keys: u64,
-    pub num_list_entries_per_block: u64,
-    pub num_list_blocks: u64,
-    pub key_size: u64,
-    pub item_size: u64,
-    pub list_entry_size: u64,
-    pub key_table_row_size: u64,
-    pub item_table_row_size: u64,
-    pub list_table_row_size: u64,
-    pub list_block_element_size: u64,
-    pub key_table_row_metadata_start: u64,
-    pub key_table_row_metadata_end: u64,
-    pub key_table_row_metadata_crc_start: u64,
-    pub key_table_row_key_start: u64,
-    pub key_table_row_key_end: u64,
-    pub item_table_row_item_start: u64,
-    pub item_table_row_item_end: u64,
-    pub item_table_row_item_crc_start: u64,
-    pub list_table_row_metadata_start: u64,
-    pub list_table_row_metadata_end: u64,
-    pub list_table_row_metadata_crc_start: u64,
-    pub list_table_row_block_start: u64,
-    pub list_table_row_block_end: u64,
-    pub list_block_element_list_entry_start: u64,
-    pub list_block_element_list_entry_end: u64,
-    pub list_block_element_crc_start: u64,
+    pub start: u64,
+    pub end: u64,
+    pub num_rows: u64,
+    pub row_size: u64,
 }
 
-impl KvStaticMetadata
+impl TableMetadata
 {
-    pub open spec fn valid(self) -> bool
+    pub closed spec fn valid(self) -> bool
     {
-        &&& self.key_table_start <= self.key_table_end
-        &&& self.key_table_end <= self.item_table_start
-        &&& self.item_table_start <= self.item_table_end
-        &&& self.item_table_end <= self.list_table_start
-        &&& self.list_table_start <= self.list_table_end
-        &&& self.key_size > 0
-        &&& opaque_mul(self.num_keys as int, self.key_table_row_size as int) <= self.key_table_end - self.key_table_start
-        &&& self.key_table_row_metadata_end - self.key_table_row_metadata_start == KeyTableRowMetadata::spec_size_of()
-        &&& self.key_table_row_metadata_end <= self.key_table_row_metadata_crc_start
-        &&& self.key_table_row_metadata_crc_start + u64::spec_size_of() <= self.key_table_row_size
-        &&& opaque_mul(self.num_keys as int, self.item_table_row_size as int) <= self.item_table_end - self.item_table_start
-        &&& self.item_table_row_item_end - self.item_table_row_item_start == self.item_size
-        &&& self.item_table_row_item_end <= self.item_table_row_item_crc_start
-        &&& self.item_table_row_item_crc_start + u64::spec_size_of() <= self.item_table_row_size
-        &&& opaque_mul(self.num_list_blocks as int, self.list_table_row_size as int)
-            <= self.list_table_end - self.list_table_start
-        &&& self.list_table_row_metadata_end - self.list_table_row_metadata_start == ListTableRowMetadata::spec_size_of()
-        &&& self.list_table_row_metadata_end <= self.list_table_row_block_start
-        &&& opaque_mul(self.num_list_entries_per_block as int, self.list_block_element_size as int)
-            <= self.list_table_row_block_end - self.list_table_row_block_start
-        &&& self.list_block_element_list_entry_end - self.list_block_element_list_entry_start == self.list_entry_size
-        &&& self.list_block_element_list_entry_end <= self.list_block_element_crc_start
-        &&& self.list_block_element_crc_start + u64::spec_size_of() <= self.list_block_element_size
+        &&& 0 < self.row_size
+        &&& opaque_mul(self.num_rows as int, self.row_size as int) <= self.end - self.start
     }
 
-    pub open spec fn consistent_with_types<K, I, L>(self) -> bool
-        where
-            K: PmCopy,
-            I: PmCopy,
-            L: PmCopy,
+    pub exec fn new(start: u64, end: u64, num_rows: u64, row_size: u64) -> (result: Self)
+        requires
+            0 < row_size,
+            opaque_mul(num_rows as int, row_size as int) <= end - start,
+        ensures
+            result == (Self{ start, end, num_rows, row_size }),
+            result.valid()
     {
-        &&& self.key_size == K::spec_size_of()
-        &&& self.item_size == I::spec_size_of()
-        &&& self.list_entry_size == L::spec_size_of()
+        Self{ start, end, num_rows, row_size }
     }
 }
 
-#[verifier::ext_equal]
-pub struct KvConfiguration
+pub closed spec fn row_addr_to_which_row(addr: u64, tm: TableMetadata) -> int
 {
-    pub journal_constants: JournalConstants,
-    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    pub static_metadata_start: u64,
-    pub static_metadata_end: u64,
-    pub sm: KvStaticMetadata,
+    opaque_div(addr - tm.start, tm.row_size as int)
 }
 
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-#[verifier::ext_equal]
-pub struct KeyTableRowMetadata
+pub closed spec fn is_valid_row_addr(addr: u64, tm: TableMetadata) -> bool
 {
-    pub item_start: u64,
-    pub list_start: u64,
+    let which_row = row_addr_to_which_row(addr, tm);
+    &&& 0 <= which_row < tm.num_rows
+    &&& addr == tm.start + which_row * tm.row_size
 }
 
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-#[verifier::ext_equal]
-pub struct ListTableRowMetadata
+pub broadcast proof fn broadcast_is_valid_row_addr_effects(addr: u64, tm: TableMetadata)
+    requires
+        tm.valid(),
+        #[trigger] is_valid_row_addr(addr, tm),
+    ensures
+        tm.start <= addr,
+        addr + tm.row_size <= tm.end,
 {
-    pub next_row_start: u64,
-    pub num_block_elements: u64,
-    pub num_trimmed_elements: u64,
-}
-
-impl KvConfiguration
-{
-    pub open spec fn valid(self) -> bool
-    {
-        &&& self.journal_constants.valid()
-        &&& self.journal_constants.app_version_number == KVSTORE_PROGRAM_VERSION_NUMBER
-        &&& self.journal_constants.app_program_guid == KVSTORE_PROGRAM_GUID
-        &&& self.journal_constants.app_area_start <= self.static_metadata_start
-        &&& self.static_metadata_end - self.static_metadata_start == KvStaticMetadata::spec_size_of()
-        &&& self.static_metadata_end <= self.sm.key_table_start
-        &&& self.sm.list_table_end <= self.journal_constants.app_area_end
-        &&& self.sm.valid()
-        &&& self.sm.encoded_policies == encode_policies(self.logical_range_gaps_policy)
-    }
-
-    pub open spec fn consistent_with_types<K, I, L>(self) -> bool
-        where
-            K: PmCopy,
-            I: PmCopy,
-            L: PmCopy,
-    {
-        self.sm.consistent_with_types::<K, I, L>()
+    let which_row = row_addr_to_which_row(addr, tm);
+    reveal(opaque_mul);
+    lemma_mul_inequality(which_row + 1, tm.num_rows as int, tm.row_size as int);
+    assert(addr + tm.row_size == tm.start + (which_row + 1) * tm.row_size) by {
+        lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row as int, 1);
+        lemma_mul_basics(tm.row_size as int);
     }
 }
 
+pub broadcast proof fn broadcast_is_valid_row_addr_nonoverlapping(addr1: u64, addr2: u64, tm: TableMetadata)
+    requires
+        tm.valid(),
+        #[trigger] is_valid_row_addr(addr1, tm),
+        #[trigger] is_valid_row_addr(addr2, tm),
+    ensures
+        addr1 != addr2 ==> {
+            ||| addr1 + tm.row_size <= addr2
+            ||| addr2 + tm.row_size <= addr1
+        },
+{
+    reveal(opaque_mul);
+
+    let which_row1 = row_addr_to_which_row(addr1, tm);
+    let which_row2 = row_addr_to_which_row(addr2, tm);
+    if which_row1 < which_row2 {
+        lemma_mul_inequality(which_row1 + 1, which_row2 as int, tm.row_size as int);
+    }
+    if which_row1 > which_row2 {
+        lemma_mul_inequality(which_row2 + 1, which_row1 as int, tm.row_size as int);
+    }
+
+    lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row1 as int, 1);
+    lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row2 as int, 1);
 }
 
+pub proof fn lemma_start_is_valid_row(tm: TableMetadata)
+    requires
+        tm.num_rows > 0,
+        tm.valid(),
+    ensures
+        row_addr_to_which_row(tm.start, tm) == 0,
+        tm.num_rows > 0 ==> is_valid_row_addr(tm.start, tm),
+{
+    reveal(opaque_div);
+    lemma_div_of0(tm.row_size as int);
+    assert(0int / tm.row_size as int == 0);
+}
+
+pub proof fn lemma_row_addr_successor_is_valid(addr: u64, which_row: int, tm: TableMetadata)
+    requires
+        tm.num_rows > 0,
+        tm.valid(),
+        row_addr_to_which_row(addr, tm) == which_row,
+        is_valid_row_addr(addr, tm),
+    ensures 
+        0 <= addr + tm.row_size <= u64::MAX,
+        ({
+            let new_addr = (addr + tm.row_size) as u64;
+            &&& row_addr_to_which_row(new_addr, tm) == which_row + 1
+            &&& which_row + 1 < tm.num_rows ==> is_valid_row_addr(new_addr, tm)
+        })
+{
+    reveal(opaque_mul);
+    reveal(opaque_div);
+    let new_addr = addr + tm.row_size;
+    let new_row = (new_addr - tm.start) / (tm.row_size as int);
+    lemma_mul_inequality(which_row + 1, tm.num_rows as int, tm.row_size as int);
+    assert(new_row == which_row + 1) by {
+        lemma_div_plus_one(addr - tm.start, tm.row_size as int);
+    }
+    assert(addr + tm.row_size == tm.start + (which_row + 1) * tm.row_size) by {
+        lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row as int, 1);
+        lemma_mul_basics(tm.row_size as int);
+    }
+}
+
+pub broadcast group group_is_valid_row_addr {
+    broadcast_is_valid_row_addr_effects,
+    broadcast_is_valid_row_addr_nonoverlapping,
+}
+
+}
