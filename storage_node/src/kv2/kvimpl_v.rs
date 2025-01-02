@@ -82,11 +82,7 @@ where
 
     pub exec fn untrusted_setup(
         pm: &mut PM,
-        kvstore_id: u128,
-        logical_range_gaps_policy: LogicalRangeGapsPolicy,
-        num_keys: u64, 
-        num_list_entries_per_block: u64,
-        num_list_blocks: u64,
+        ps: &SetupParameters,
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(pm).inv(),
@@ -97,7 +93,7 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& Self::untrusted_recover(pm@.durable_state)
-                        == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id, logical_range_gaps_policy))
+                        == Some(AbstractKvStoreState::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 },
                 Err(_) => true,
             }

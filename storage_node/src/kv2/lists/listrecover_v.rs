@@ -35,6 +35,7 @@ pub struct ListTableRowMetadata
 pub struct ListTableStaticMetadata
 {
     pub table: TableMetadata,
+    pub num_lists_to_cache: u64,
     pub list_entry_size: u64,
     pub num_elements_per_block: u64,
     pub num_list_blocks: u64,
@@ -54,6 +55,7 @@ impl ListTableStaticMetadata
 {
     pub open spec fn valid(self) -> bool
     {
+        &&& 0 < self.num_lists_to_cache
         &&& self.table.valid()
         &&& self.row_metadata_end - self.row_metadata_start == ListTableRowMetadata::spec_size_of()
         &&& self.row_metadata_end <= self.row_block_start

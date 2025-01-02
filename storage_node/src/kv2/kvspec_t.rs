@@ -66,6 +66,25 @@ pub enum LogicalRangeGapsPolicy {
     LogicalRangeGapsPermitted,
 }
 
+pub struct SetupParameters {
+    pub kvstore_id: u128,
+    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    pub num_keys: u64,
+    pub num_list_entries_per_block: u64,
+    pub num_list_blocks: u64,
+    pub num_lists_to_cache: u64,
+}
+
+impl SetupParameters {
+    pub open spec fn valid(self) -> bool
+    {
+        &&& 0 < self.num_keys
+        &&& 0 < self.num_list_entries_per_block
+        &&& 0 < self.num_list_blocks
+        &&& 0 < self.num_lists_to_cache
+    }
+}
+
 // The page type must satisfy the `LogicalRange` trait, giving it a
 // logical range with a `start` and `end`.
 pub trait LogicalRange {

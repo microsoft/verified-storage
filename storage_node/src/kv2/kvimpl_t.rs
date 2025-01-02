@@ -131,14 +131,7 @@ where
         self.untrusted_kv_impl.pm_constants()
     }
 
-    pub exec fn setup(
-        pm: &mut PM,
-        kvstore_id: u128,
-        logical_range_gaps_policy: LogicalRangeGapsPolicy,
-        num_keys: u64, 
-        num_list_entries_per_block: u64,
-        num_list_blocks: u64,
-    ) -> (result: Result<(), KvError<K>>)
+    pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
         requires 
             old(pm).inv(),
         ensures
@@ -147,32 +140,42 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.durable_state)
-                        == Some(AbstractKvStoreState::<K, I, L>::init(kvstore_id, logical_range_gaps_policy))
+                        == Some(AbstractKvStoreState::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 }
                 Err(_) => true
             }
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, kvstore_id, logical_range_gaps_policy,
-            num_keys, num_list_entries_per_block, num_list_blocks)?;
+        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, ps)?;
         Ok(())
     }
 
-    pub exec fn start(
-        mut pm: PM,
-        kvstore_id: u128,
-    ) -> (result: Result<Self, KvError<K>>)
+    pub exec fn start(mut pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError<K>>)
         requires 
             pm.inv(),
             UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.read_state) is Some,
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
             vstd::std_specs::hash::obeys_key_model::<K>(),
-        ensures 
+        ensures
+        ({
+            let state = UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.read_state).unwrap();
             match result {
-                Ok(kvstore) => kvstore.valid(),
+                Ok(kv) => {
+                    &&& kv.valid()
+                    &&& kv.pm_constants() == pm.constants()
+                    &&& kv@.valid()
+                    &&& kv@.id() == state.id == kvstore_id
+                    &&& kv@.durable == state
+                    &&& kv@.tentative == state
+                },
                 Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption(),
+                Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
+                   &&& requested_id == kvstore_id
+                   &&& actual_id == state.id
+                },
                 Err(_) => false,
             }
+        }),
     {
         let mut wrpm = WriteRestrictedPersistentMemoryRegion::new(pm);
         wrpm.flush(); // ensure there are no outstanding writes
