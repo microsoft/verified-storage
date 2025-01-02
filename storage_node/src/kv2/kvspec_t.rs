@@ -412,6 +412,8 @@ where
 
     pub open spec fn constants_match(self, other: Self) -> bool
     {
+        &&& self.valid()
+        &&& other.valid()
         &&& self.id == other.id
         &&& self.logical_range_gaps_policy == other.logical_range_gaps_policy
         &&& self.pm_constants == other.pm_constants
