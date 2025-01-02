@@ -50,9 +50,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type V = AbstractKvState<K, I, L>;
+    type V = KvStoreView<K, I, L>;
 
-    closed spec fn view(&self) -> AbstractKvState<K, I, L>
+    closed spec fn view(&self) -> KvStoreView<K, I, L>
     {
         arbitrary()
     }
@@ -70,7 +70,7 @@ where
         self.journal@.pm_constants
     }
 
-    pub open spec fn untrusted_recover(mem: Seq<u8>) -> Option<AbstractKvStoreState<K, I, L>>
+    pub open spec fn untrusted_recover(mem: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
     {
         None
     }
@@ -93,7 +93,7 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& Self::untrusted_recover(pm@.durable_state)
-                        == Some(AbstractKvStoreState::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
+                        == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 },
                 Err(_) => true,
             }
@@ -107,7 +107,7 @@ where
     pub fn untrusted_start(
         wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission, PM>,
         kvstore_id: u128,
-        Ghost(state): Ghost<AbstractKvStoreState<K, I, L>>,
+        Ghost(state): Ghost<AtomicKvStore<K, I, L>>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<Self, KvError<K>>)
         requires 
@@ -119,9 +119,10 @@ where
             match result {
                 Ok(kv) => {
                     &&& kv.valid()
-                    &&& kv.pm_constants() == wrpm.constants()
                     &&& kv@.valid()
-                    &&& kv@.id() == state.id == kvstore_id
+                    &&& kv@.id == state.id == kvstore_id
+                    &&& kv@.logical_range_gaps_policy == state.logical_range_gaps_policy
+                    &&& kv@.pm_constants == wrpm.constants()
                     &&& kv@.durable == state
                     &&& kv@.tentative == state
                 }
@@ -150,7 +151,7 @@ where
                     &&& self@.tentative.read_item(*key) matches Ok(i)
                     &&& item == i
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item(*key) matches Err(e_spec)
                     &&& e == e_spec
@@ -174,7 +175,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -184,7 +184,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
-                    &&& !self.pm_constants().impervious_to_corruption()
+                    &&& !self@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
@@ -213,7 +213,6 @@ where
             },
         ensures 
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => self@ == old(self)@.commit(),
@@ -235,7 +234,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -245,7 +243,7 @@ where
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
-                    &&& !self.pm_constants().impervious_to_corruption()
+                    &&& !self@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
@@ -272,7 +270,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -282,7 +279,7 @@ where
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
-                    &&& !self.pm_constants().impervious_to_corruption()
+                    &&& !self@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
@@ -309,7 +306,7 @@ where
                     &&& item == i
                     &&& lst@ == l
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
                     &&& e == e_spec
@@ -329,7 +326,7 @@ where
                     &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
                     &&& lst@ == l
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
                     &&& e == e_spec
@@ -349,7 +346,7 @@ where
                     &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
                     &&& *list_entry == e
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
                     &&& e == e_spec
@@ -371,14 +368,13 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Err(e_spec)
                     &&& e == e_spec
@@ -401,7 +397,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -409,7 +404,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
                         matches Err(e_spec)
@@ -433,7 +428,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -441,7 +435,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
                         matches Err(e_spec)
@@ -466,7 +460,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -474,7 +467,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
                         matches Err(e_spec)
@@ -497,14 +490,13 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
                     &&& e == e_spec
@@ -527,7 +519,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self.pm_constants() == old(self).pm_constants(),
             self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
@@ -535,7 +526,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
                         matches Err(e_spec)
@@ -556,7 +547,7 @@ where
                     &&& keys@.to_set() == self@.tentative.get_keys()
                     &&& keys@.no_duplicates()
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(_) => false,
             },
     {

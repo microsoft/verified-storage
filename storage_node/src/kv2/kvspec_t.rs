@@ -110,19 +110,20 @@ pub open spec fn end_of_range<L>(list_entries: Seq<L>) -> usize
     }
 }
 
-/// An `AbstractKvStoreState` is an abstraction of
-/// an entire `KvStoreStore`.
+/// An `AtomicKvStore` is an abstraction of an atomic key/value
+/// store, i.e., one that doesn't support tentative operations,
+/// aborts, and commits.
 /// TODO: Should this be generic over the key/header/page
 /// types used in the kv store, or over their views?
 #[verifier::reject_recursive_types(K)]
-pub struct AbstractKvStoreState<K, I, L>
+pub struct AtomicKvStore<K, I, L>
 {
     pub id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub contents: Map<K, (I, Seq<L>)>,
 }
 
-impl<K, I, L> AbstractKvStoreState<K, I, L>
+impl<K, I, L> AtomicKvStore<K, I, L>
 where
     K: std::fmt::Debug,
     L: LogicalRange,
@@ -373,30 +374,24 @@ where
 }
 
 #[verifier::reject_recursive_types(K)]
-pub struct AbstractKvState<K, I, L>
+pub struct KvStoreView<K, I, L>
 {
-    pub durable: AbstractKvStoreState<K, I, L>,
-    pub tentative: AbstractKvStoreState<K, I, L>,
+    pub id: u128,
+    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    pub pm_constants: PersistentMemoryConstants,
+    pub durable: AtomicKvStore<K, I, L>,
+    pub tentative: AtomicKvStore<K, I, L>,
 }
 
-impl <K, I, L> AbstractKvState<K, I, L>
+impl <K, I, L> KvStoreView<K, I, L>
 where
     K: Hash + Eq,
 {
     pub open spec fn valid(self) -> bool
     {
-        &&& self.durable.id == self.tentative.id
-        &&& self.durable.logical_range_gaps_policy == self.tentative.logical_range_gaps_policy
-    }
-
-    pub open spec fn id(self) -> u128
-    {
-        self.durable.id
-    }
-
-    pub open spec fn logical_range_gaps_policy(self) -> LogicalRangeGapsPolicy
-    {
-        self.durable.logical_range_gaps_policy
+        &&& self.id == self.durable.id == self.tentative.id
+        &&& self.logical_range_gaps_policy == self.durable.logical_range_gaps_policy
+        &&& self.logical_range_gaps_policy == self.tentative.logical_range_gaps_policy
     }
 
     pub open spec fn abort(self) -> Self
@@ -417,10 +412,9 @@ where
 
     pub open spec fn constants_match(self, other: Self) -> bool
     {
-        &&& self.durable.id == other.durable.id
-        &&& self.tentative.id == other.tentative.id
-        &&& self.durable.logical_range_gaps_policy == other.durable.logical_range_gaps_policy
-        &&& self.tentative.logical_range_gaps_policy == other.tentative.logical_range_gaps_policy
+        &&& self.id == other.id
+        &&& self.logical_range_gaps_policy == other.logical_range_gaps_policy
+        &&& self.pm_constants == other.pm_constants
     }
 }
 

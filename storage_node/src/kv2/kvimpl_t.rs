@@ -55,7 +55,7 @@ impl TrustedKvPermission
     // It conveys permission to do any update as long as a
     // subsequent crash and recovery can only lead to given
     // abstract state `state`.
-    proof fn new_one_possibility<PM, K, I, L>(state: AbstractKvStoreState<K, I, L>) -> (tracked perm: Self)
+    proof fn new_one_possibility<PM, K, I, L>(state: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
@@ -76,8 +76,8 @@ impl TrustedKvPermission
     // lead to one of two given abstract states `state1` and
     // `state2`.
     proof fn new_two_possibilities<PM, K, I, L>(
-        state1: AbstractKvStoreState<K, I, L>,
-        state2: AbstractKvStoreState<K, I, L>
+        state1: AtomicKvStore<K, I, L>,
+        state2: AtomicKvStore<K, I, L>
     ) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
@@ -106,9 +106,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type V = AbstractKvState<K, I, L>;
+    type V = KvStoreView<K, I, L>;
 
-    closed spec fn view(&self) -> AbstractKvState<K, I, L>
+    closed spec fn view(&self) -> KvStoreView<K, I, L>
     {
         self.untrusted_kv_impl@
     }
@@ -140,7 +140,7 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.durable_state)
-                        == Some(AbstractKvStoreState::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
+                        == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 }
                 Err(_) => true
             }
@@ -160,9 +160,10 @@ where
             match result {
                 Ok(kv) => {
                     &&& kv.valid()
-                    &&& kv.pm_constants() == pm.constants()
                     &&& kv@.valid()
-                    &&& kv@.id() == state.id == kvstore_id
+                    &&& kv@.id == state.id == kvstore_id
+                    &&& kv@.logical_range_gaps_policy == state.logical_range_gaps_policy
+                    &&& kv@.pm_constants == pm.constants()
                     &&& kv@.durable == state
                     &&& kv@.tentative == state
                 },
@@ -198,7 +199,7 @@ where
                     &&& self@.tentative.read_item(*key) matches Ok(i)
                     &&& item == i
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item(*key) matches Err(e_spec)
                     &&& e == e_spec
@@ -226,7 +227,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
-                    &&& !self.pm_constants().impervious_to_corruption()
+                    &&& !self@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
@@ -261,7 +262,7 @@ where
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
-                    &&& !self.pm_constants().impervious_to_corruption()
+                    &&& !self@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
@@ -295,7 +296,7 @@ where
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
-                    &&& !self.pm_constants().impervious_to_corruption()
+                    &&& !self@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
@@ -336,7 +337,7 @@ where
                     &&& keys@.to_set() == self@.tentative.get_keys()
                     &&& keys@.no_duplicates()
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(_) => false,
             },
     {
@@ -356,7 +357,7 @@ where
                     &&& item == i
                     &&& lst@ == l
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
                     &&& e == e_spec
@@ -375,7 +376,7 @@ where
                     &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
                     &&& lst@ == l
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
                     &&& e == e_spec
@@ -394,7 +395,7 @@ where
                     &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
                     &&& *list_entry == e
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
                     &&& e == e_spec
@@ -419,7 +420,7 @@ where
                     &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Err(e_spec)
                     &&& e == e_spec
@@ -447,7 +448,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
                         matches Err(e_spec)
@@ -476,7 +477,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
                         matches Err(e_spec)
@@ -506,7 +507,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
                         matches Err(e_spec)
@@ -534,7 +535,7 @@ where
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
                     &&& e == e_spec
@@ -562,7 +563,7 @@ where
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
-                Err(KvError::CRCMismatch) => !self.pm_constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
                 Err(e) => {
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
                         matches Err(e_spec)
