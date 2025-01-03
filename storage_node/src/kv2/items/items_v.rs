@@ -54,19 +54,24 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub open spec fn recover(
+    pub closed spec fn recover(
         s: Seq<u8>,
         addrs: Set<u64>,
         sm: ItemTableStaticMetadata,
     ) -> Option<ItemTableSnapshot<I>>
     {
-        arbitrary()
+        recover_items::<I>(s, addrs, sm)
     }
 
     pub exec fn setup(
         pm: &mut PM,
         sm: &ItemTableStaticMetadata,
     )
+        requires
+            old(pm).inv(),
+            sm.valid(),
+            sm.consistent_with_type::<I>(),
+            sm.table.end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),

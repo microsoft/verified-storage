@@ -5,6 +5,7 @@ use vstd::prelude::*;
 
 use crate::common::nonlinear_v::*;
 use crate::common::subrange_v::*;
+use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -14,7 +15,7 @@ use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
-use crate::common::table_v::*;
+use super::lists_v::*;
 use super::super::kvspec_t::*;
 
 verus! {
@@ -75,5 +76,35 @@ impl ListTableStaticMetadata
     }
 }
 
+pub(super) open spec fn recover_lists<L>(
+    s: Seq<u8>,
+    addrs: Set<u64>,
+    sm: ListTableStaticMetadata,
+) -> Option<ListTableSnapshot<L>>
+    where
+        L: PmCopy,
+{
+    arbitrary()
+}
+
+pub(super) proof fn lemma_recover_lists_depends_only_on_list_area<L>(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    addrs: Set<u64>,
+    sm: ListTableStaticMetadata,
+)
+    where
+        L: PmCopy,
+    requires
+        sm.valid(),
+        sm.consistent_with_type::<L>(),
+        sm.table.end <= s1.len(),
+        seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
+        recover_lists::<L>(s1, addrs, sm) is Some,
+    ensures
+        recover_lists::<L>(s1, addrs, sm) == recover_lists::<L>(s2, addrs, sm),
+{
+    assume(false);
+}
 
 }

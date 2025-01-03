@@ -25,6 +25,7 @@ use super::items::*;
 use super::keys::*;
 use super::lists::*;
 use super::kvimpl_t::*;
+use super::kvrecover_v::*;
 use super::kvspec_t::*;
 
 verus! {
@@ -73,9 +74,12 @@ where
         self.journal@.pm_constants
     }
 
-    pub open spec fn untrusted_recover(mem: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
+    pub closed spec fn untrusted_recover(mem: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
     {
-        None
+        match Journal::<TrustedKvPermission, PM>::recover(mem) {
+            None => None,
+            Some(RecoveredJournal{ constants, state }) => recover_kv::<PM, K, I, L>(state, constants),
+        }
     }
 
     pub closed spec fn valid(self) -> bool

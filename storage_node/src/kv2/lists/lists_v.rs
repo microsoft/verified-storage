@@ -51,19 +51,24 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub open spec fn recover(
+    pub closed spec fn recover(
         s: Seq<u8>,
         addrs: Set<u64>,
         sm: ListTableStaticMetadata,
     ) -> Option<ListTableSnapshot<L>>
     {
-        arbitrary()
+        recover_lists::<L>(s, addrs, sm)
     }
 
     pub exec fn setup(
         pm: &mut PM,
         sm: &ListTableStaticMetadata,
     )
+        requires
+            old(pm).inv(),
+            sm.valid(),
+            sm.consistent_with_type::<L>(),
+            sm.table.end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
