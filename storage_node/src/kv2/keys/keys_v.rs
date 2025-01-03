@@ -123,6 +123,7 @@ impl<PM, K> KeyTable<PM, K>
         requires
             old(pm).inv(),
             sm.valid(),
+            sm.consistent_with_type::<K>(),
             sm.table.end <= old(pm)@.len(),
         ensures
             pm.inv(),

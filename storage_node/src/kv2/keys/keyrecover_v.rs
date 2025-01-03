@@ -4,6 +4,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::recover_v::*;
+use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::pmem::pmemspec_t::*;
@@ -121,9 +122,10 @@ impl<K> KeyRecoveryMapping<K>
                     None => cdb == Some(false),
                     Some((k, rm)) => {
                         &&& cdb == Some(true)
-                        &&& recover_object::<K>(s, row_addr + sm.row_key_start, sm.row_key_crc_start as int) == Some(k)
+                        &&& recover_object::<K>(s, row_addr + sm.row_key_start,
+                                                row_addr + sm.row_key_crc_start as int) == Some(k)
                         &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
-                                                                 sm.row_metadata_crc_start as int) == Some(rm)
+                                                                  row_addr + sm.row_metadata_crc_start as int) == Some(rm)
                         &&& self.key_info.contains_key(k)
                         &&& self.key_info[k] == row_addr
                         &&& self.item_info.contains_key(rm.item_addr)
@@ -228,6 +230,30 @@ pub(super) open spec fn recover_keys<K>(
         None => None,
         Some(mapping) => Some(recover_keys_from_mapping::<K>(mapping)),
     }
+}
+
+pub(super) proof fn lemma_recover_keys_depends_only_on_key_area<K>(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    sm: KeyTableStaticMetadata,
+)
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    requires
+        sm.valid(),
+        sm.consistent_with_type::<K>(),
+        sm.table.end <= s1.len(),
+        seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
+        recover_keys::<K>(s1, sm) is Some,
+    ensures
+        recover_keys::<K>(s1, sm) == recover_keys::<K>(s2, sm),
+{
+    let mapping1 = KeyRecoveryMapping::<K>::new(s1, sm).unwrap();
+    assert(mapping1.corresponds(s2, sm)) by {
+        broadcast use group_match_in_range;
+        broadcast use group_validate_row_addr;
+    }
+    mapping1.lemma_corresponds_implies_equals_new(s2, sm);
 }
 
 }

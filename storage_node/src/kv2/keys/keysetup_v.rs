@@ -32,11 +32,11 @@ pub(super) exec fn exec_setup<PM, K>(
     requires
         old(pm).inv(),
         sm.valid(),
+        sm.consistent_with_type::<K>(),
         sm.table.end <= old(pm)@.len(),
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
-        sm.valid(),
         recover_keys::<K>(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
         seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
 {
@@ -54,6 +54,7 @@ pub(super) exec fn exec_setup<PM, K>(
             pm.constants() == old(pm).constants(),
             pm@.len() == old(pm)@.len(),
             sm.valid(),
+            sm.consistent_with_type::<K>(),
             sm.table.end <= pm@.len(),
             cdb_false == CDB_FALSE,
             0 <= row_index <= sm.table.num_rows,
