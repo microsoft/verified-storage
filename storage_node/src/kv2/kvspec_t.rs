@@ -120,7 +120,7 @@ pub struct AtomicKvStore<K, I, L>
 {
     pub id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    pub contents: Map<K, (I, Seq<L>)>,
+    pub m: Map<K, (I, Seq<L>)>,
 }
 
 impl<K, I, L> AtomicKvStore<K, I, L>
@@ -130,23 +130,23 @@ where
 {
     pub open spec fn init(id: u128, logical_range_gaps_policy: LogicalRangeGapsPolicy) -> Self
     {
-        Self{ id, logical_range_gaps_policy, contents: Map::<K, (I, Seq<L>)>::empty() }
+        Self{ id, logical_range_gaps_policy, m: Map::<K, (I, Seq<L>)>::empty() }
     }
 
     pub open spec fn empty(self) -> bool
     {
-        self.contents.is_empty()
+        self.m.is_empty()
     }
 
     pub open spec fn contains_key(&self, key: K) -> bool
     {
-        self.contents.contains_key(key)
+        self.m.contains_key(key)
     }
 
     pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>
     {
-        if self.contents.contains_key(key) {
-            Some(self.contents[key])
+        if self.m.contains_key(key) {
+            Some(self.m[key])
         } else {
             None
         }
@@ -154,11 +154,11 @@ where
 
     pub open spec fn create(self, key: K, item: I) -> Result<Self, KvError<K>>
     {
-        if self.contents.contains_key(key) {
+        if self.m.contains_key(key) {
             Err(KvError::KeyAlreadyExists)
         } else {
             Ok(Self {
-                contents: self.contents.insert(key, (item, Seq::empty())),
+                m: self.m.insert(key, (item, Seq::empty())),
                 ..self
             })
         }
@@ -167,8 +167,8 @@ where
 
     pub open spec fn read_item(self, key: K) -> Result<I, KvError<K>>
     {
-        if self.contents.contains_key(key) {
-            Ok(self.contents[key].0)
+        if self.m.contains_key(key) {
+            Ok(self.m[key].0)
         } else {
             Err(KvError::KeyNotFound)
         }
@@ -176,8 +176,8 @@ where
 
     pub open spec fn read_item_and_list(self, key: K) -> Result<(I, Seq<L>), KvError<K>>
     {
-        if self.contents.contains_key(key) {
-            Ok(self.contents[key])
+        if self.m.contains_key(key) {
+            Ok(self.m[key])
         } else {
             Err(KvError::KeyNotFound)
         }
@@ -185,8 +185,8 @@ where
 
     pub open spec fn read_list_entry_at_index(self, key: K, idx: nat) -> Result<L, KvError<K>>
     {
-        if self.contents.contains_key(key) {
-            let (offset, list) = self.contents[key];
+        if self.m.contains_key(key) {
+            let (offset, list) = self.m[key];
             if idx < list.len() {
                 Ok(list[idx as int])
             } else {
@@ -202,7 +202,7 @@ where
         match self.read_item_and_list(key) {
             Ok((old_item, pages)) => {
                 Ok(Self {
-                    contents: self.contents.insert(key, (new_item, pages)),
+                    m: self.m.insert(key, (new_item, pages)),
                     ..self
                 })
             },
@@ -213,9 +213,9 @@ where
 
     pub open spec fn delete(self, key: K) -> Result<Self, KvError<K>>
     {
-        if self.contents.contains_key(key) {
+        if self.m.contains_key(key) {
             Ok(Self {
-                contents: self.contents.remove(key),
+                m: self.m.remove(key),
                 ..self
             })
         } else {
@@ -240,7 +240,7 @@ where
                 }
                 else {
                     Ok(Self {
-                        contents: self.contents.insert(key, (item, list_entries.push(new_list_entry))),
+                        m: self.m.insert(key, (item, list_entries.push(new_list_entry))),
                         ..self
                     })
                 }
@@ -266,7 +266,7 @@ where
                 }
                 else {
                     Ok(Self {
-                        contents: self.contents.insert(key, (new_item, list_entries.push(new_list_entry))),
+                        m: self.m.insert(key, (new_item, list_entries.push(new_list_entry))),
                         ..self
                     })
                 }
@@ -293,7 +293,7 @@ where
                     else {
                         let new_list_entries = list_entries.update(idx as int, new_list_entry);
                         Ok(Self {
-                            contents: self.contents.insert(key, (item, new_list_entries)),
+                            m: self.m.insert(key, (item, new_list_entries)),
                             ..self
                         })
                     }
@@ -321,7 +321,7 @@ where
                     else {
                         let new_list_entries = list_entries.update(idx as int, new_list_entry);
                         Ok(Self {
-                            contents: self.contents.insert(key, (new_item, new_list_entries)),
+                            m: self.m.insert(key, (new_item, new_list_entries)),
                             ..self
                         })
                     }
@@ -341,7 +341,7 @@ where
                 else {
                     let new_list_entries = list_entries.subrange(trim_length as int, list_entries.len() as int);
                     Ok(Self {
-                        contents: self.contents.insert(key, (item, list_entries)),
+                        m: self.m.insert(key, (item, list_entries)),
                         ..self
                     })
                 },
@@ -359,7 +359,7 @@ where
                 else {
                     let new_list_entries = list_entries.subrange(trim_length as int, list_entries.len() as int);
                     Ok(Self {
-                        contents: self.contents.insert(key, (new_item, list_entries)),
+                        m: self.m.insert(key, (new_item, list_entries)),
                         ..self
                     })
                 },
@@ -369,7 +369,7 @@ where
 
     pub open spec fn get_keys(self) -> Set<K>
     {
-        self.contents.dom()
+        self.m.dom()
     }
 }
 

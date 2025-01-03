@@ -20,14 +20,29 @@ verus! {
 #[verifier::ext_equal]
 pub struct KeyTableSnapshot<K>
 {
-    pub m: Map<K, int>,
+    pub m: Map<K, (u64, u64)>,
 }
 
 impl<K> KeyTableSnapshot<K>
 {
     pub open spec fn init() -> Self
     {
-        Self{ m: Map::<K, int>::empty() }
+        Self{ m: Map::<K, (u64, u64)>::empty() }
+    }
+
+    pub open spec fn values(self) -> Set<(u64, u64)>
+    {
+        self.m.values()
+    }
+
+    pub open spec fn item_addrs(self) -> Set<u64>
+    {
+        self.values().map(|v: (u64, u64)| v.0)
+    }
+
+    pub open spec fn list_addrs(self) -> Set<u64>
+    {
+        self.values().map(|v: (u64, u64)| v.1)
     }
 }
 
@@ -37,17 +52,6 @@ pub struct KeyTableView<K>
 {
     pub durable: KeyTableSnapshot<K>,
     pub tentative: KeyTableSnapshot<K>,
-}
-
-impl<K> KeyTableView<K>
-{
-    pub open spec fn init() -> Self
-    {
-        Self {
-            durable: KeyTableSnapshot::<K>::init(),
-            tentative: KeyTableSnapshot::<K>::init(),
-        }
-    }
 }
     
 #[verifier::reject_recursive_types(K)]
@@ -69,7 +73,7 @@ impl<PM, K> KeyTable<PM, K>
     pub open spec fn recover(
         s: Seq<u8>,
         sm: KeyTableStaticMetadata,
-    ) -> Option<KeyTableView<K>>
+    ) -> Option<KeyTableSnapshot<K>>
     {
         arbitrary()
     }
@@ -80,7 +84,7 @@ impl<PM, K> KeyTable<PM, K>
     )
         ensures
             pm@.valid(),
-            Self::recover(pm@.read_state, *sm) == Some(KeyTableView::<K>::init()),
+            Self::recover(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
         assume(false);

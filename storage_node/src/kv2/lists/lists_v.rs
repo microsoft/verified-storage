@@ -18,14 +18,14 @@ verus! {
 #[verifier::ext_equal]
 pub struct ListTableSnapshot<L>
 {
-    pub m: Map<int, L>,
+    pub m: Map<u64, Seq<L>>, // always maps the null address (0) to the empty sequence
 }
 
 impl<L> ListTableSnapshot<L>
 {
     pub open spec fn init() -> Self
     {
-        Self{ m: Map::<int, L>::empty() }
+        Self{ m: Map::<u64, Seq<L>>::empty() }
     }
 }
 
@@ -34,17 +34,6 @@ pub struct ListTableView<L>
 {
     pub durable: ListTableSnapshot<L>,
     pub tentative: ListTableSnapshot<L>,
-}
-
-impl<L> ListTableView<L>
-{
-    pub open spec fn init() -> Self
-    {
-        Self {
-            durable: ListTableSnapshot::<L>::init(),
-            tentative: ListTableSnapshot::<L>::init(),
-        }
-    }
 }
 
 #[verifier::ext_equal]
@@ -64,8 +53,9 @@ impl<PM, L> ListTable<PM, L>
 {
     pub open spec fn recover(
         s: Seq<u8>,
+        addrs: Set<u64>,
         sm: ListTableStaticMetadata,
-    ) -> Option<ListTableView<L>>
+    ) -> Option<ListTableSnapshot<L>>
     {
         arbitrary()
     }
@@ -76,7 +66,7 @@ impl<PM, L> ListTable<PM, L>
     )
         ensures
             pm@.valid(),
-            Self::recover(pm@.read_state, *sm) == Some(ListTableView::<L>::init()),
+            Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ListTableSnapshot::<L>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
         assume(false);

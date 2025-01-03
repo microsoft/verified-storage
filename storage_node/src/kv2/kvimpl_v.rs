@@ -21,6 +21,9 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
+use super::items::*;
+use super::keys::*;
+use super::lists::*;
 use super::kvimpl_t::*;
 use super::kvspec_t::*;
 
@@ -37,9 +40,9 @@ where
 {
     id: u128,
     journal: Journal<TrustedKvPermission, PM>,
-    phantom_k: core::marker::PhantomData<K>,
-    phantom_i: core::marker::PhantomData<I>,
-    phantom_l: core::marker::PhantomData<L>,
+    keys: KeyTable<PM, K>,
+    items: ItemTable<PM, I>,
+    lists: ListTable<PM, L>,
 }
 
 

@@ -20,14 +20,14 @@ verus! {
 #[verifier::ext_equal]
 pub struct ItemTableSnapshot<I>
 {
-    pub m: Map<int, I>,
+    pub m: Map<u64, I>,
 }
 
 impl<I> ItemTableSnapshot<I>
 {
     pub open spec fn init() -> Self
     {
-        Self{ m: Map::<int, I>::empty() }
+        Self{ m: Map::<u64, I>::empty() }
     }
 }
 
@@ -36,17 +36,6 @@ pub struct ItemTableView<I>
 {
     pub durable: ItemTableSnapshot<I>,
     pub tentative: ItemTableSnapshot<I>,
-}
-
-impl<I> ItemTableView<I>
-{
-    pub open spec fn init() -> Self
-    {
-        Self {
-            durable: ItemTableSnapshot::<I>::init(),
-            tentative: ItemTableSnapshot::<I>::init(),
-        }
-    }
 }
 
 #[verifier::ext_equal]
@@ -67,8 +56,9 @@ impl<PM, I> ItemTable<PM, I>
 {
     pub open spec fn recover(
         s: Seq<u8>,
+        addrs: Set<u64>,
         sm: ItemTableStaticMetadata,
-    ) -> Option<ItemTableView<I>>
+    ) -> Option<ItemTableSnapshot<I>>
     {
         arbitrary()
     }
@@ -79,7 +69,7 @@ impl<PM, I> ItemTable<PM, I>
     )
         ensures
             pm@.valid(),
-            Self::recover(pm@.read_state, *sm) == Some(ItemTableView::<I>::init()),
+            Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
         assume(false);
