@@ -70,7 +70,7 @@ impl KeyTableStaticMetadata
 
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
-pub struct KeyGhostMapping<K>
+pub struct KeyRecoveryMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
@@ -80,14 +80,14 @@ pub struct KeyGhostMapping<K>
     pub list_info: Map<u64, int>,
 }
 
-impl<K> KeyGhostMapping<K>
+impl<K> KeyRecoveryMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
     pub(super) open spec fn new(s: Seq<u8>, sm: KeyTableStaticMetadata) -> Option<Self>
     {
         if exists|mapping: Self| mapping.corresponds(s, sm) {
-            Some(choose|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm))
+            Some(choose|mapping: KeyRecoveryMapping<K>| mapping.corresponds(s, sm))
         }
         else {
             None
@@ -182,7 +182,7 @@ impl<K> KeyGhostMapping<K>
     }
 }
 
-pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyGhostMapping<K>) -> KeyTableSnapshot<K>
+pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyRecoveryMapping<K>) -> KeyTableSnapshot<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
@@ -201,7 +201,7 @@ pub(super) open spec fn recover_keys<K>(
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    match KeyGhostMapping::<K>::new(s, sm) {
+    match KeyRecoveryMapping::<K>::new(s, sm) {
         None => None,
         Some(mapping) => Some(recover_keys_from_mapping::<K>(mapping)),
     }
