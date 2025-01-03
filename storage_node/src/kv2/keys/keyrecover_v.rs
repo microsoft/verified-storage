@@ -102,8 +102,8 @@ impl<K> KeyGhostMapping<K>
                         &&& self.key_info[k] == row_index
                         &&& self.item_info.contains_key(rm.item_addr)
                         &&& self.item_info[rm.item_addr] == row_index
-                        &&& self.list_info.contains_key(rm.list_addr)
-                        &&& self.list_info[rm.list_addr] == row_index
+                        &&& rm.list_addr != 0 ==> self.list_info.contains_key(rm.list_addr)
+                        &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == row_index
                     },
                 }
             }
@@ -133,13 +133,14 @@ impl<K> KeyGhostMapping<K>
 
     pub open spec fn valid_list_info(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
-        {
-            let row_index = self.list_info[list_addr];
-            &&& 0 <= row_index < sm.table.num_rows
-            &&& self.row_info[row_index] matches Some((_, rm))
-            &&& rm.list_addr == list_addr
-        }
+        &&& !self.list_info.contains_key(0)
+        &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
+            {
+                let row_index = self.list_info[list_addr];
+                &&& 0 <= row_index < sm.table.num_rows
+                &&& self.row_info[row_index] matches Some((_, rm))
+                &&& rm.list_addr == list_addr
+            }
     }
 
     pub open spec fn valid(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
