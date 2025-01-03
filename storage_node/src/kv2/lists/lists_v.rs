@@ -10,7 +10,7 @@ use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
 use super::listrecover_v::*;
-use super::super::kvshared_v::*;
+use crate::common::table_v::*;
 use super::super::kvspec_t::*;
 
 verus! {

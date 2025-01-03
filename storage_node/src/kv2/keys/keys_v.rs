@@ -11,7 +11,7 @@ use crate::pmem::pmemutil_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 use super::keyrecover_v::*;
-use super::super::kvshared_v::*;
+use crate::common::table_v::*;
 use super::super::kvspec_t::*;
 
 verus! {

@@ -5,15 +5,9 @@ use vstd::prelude::*;
 
 use crate::common::nonlinear_v::*;
 use crate::common::util_v::*;
-use crate::journal::*;
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
-use std::hash::Hash;
-use super::kvimpl_t::*;
-use super::kvspec_t::*;
 use vstd::arithmetic::div_mod::{lemma_div_of0, lemma_div_plus_one, lemma_fundamental_div_mod_converse};
 use vstd::arithmetic::mul::{lemma_mul_basics, lemma_mul_inequality, lemma_mul_is_distributive_add_other_way};
 

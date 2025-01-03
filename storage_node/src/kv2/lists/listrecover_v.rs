@@ -14,7 +14,7 @@ use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::super::kvshared_v::*;
+use crate::common::table_v::*;
 use super::super::kvspec_t::*;
 
 verus! {
