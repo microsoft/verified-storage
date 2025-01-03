@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use super::keyrecover_v::*;
 use crate::common::table_v::*;
+use super::keysetup_v::*;
 use super::super::kvspec_t::*;
 
 verus! {
@@ -82,12 +83,17 @@ impl<PM, K> KeyTable<PM, K>
         pm: &mut PM,
         sm: &KeyTableStaticMetadata,
     )
+        requires
+            old(pm).inv(),
+            sm.valid(),
+            sm.table.end <= old(pm)@.len(),
         ensures
-            pm@.valid(),
+            pm.inv(),
+            pm.constants() == old(pm).constants(),
             Self::recover(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
-        assume(false);
+        exec_setup::<PM, K>(pm, sm)
     }
 }
 

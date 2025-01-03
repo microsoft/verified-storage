@@ -59,6 +59,46 @@ impl TableMetadata
     {
         Self{ start, end, num_rows, row_size }
     }
+
+    pub proof fn lemma_start_is_valid_row(self)
+        requires
+            self.valid(),
+        ensures
+            self.row_addr_to_index(self.start as int) == 0,
+            self.num_rows > 0 ==> self.validate_row_addr(self.start as int),
+    {
+        reveal(opaque_mul);
+        reveal(opaque_div);
+        lemma_div_of0(self.row_size as int);
+        assert(0int / self.row_size as int == 0);
+    }
+    
+    pub proof fn lemma_row_addr_successor_is_valid(self, addr: int)
+        requires
+            self.valid(),
+            self.validate_row_addr(addr),
+        ensures 
+            ({
+                let row_index = self.row_addr_to_index(addr);
+                let new_addr = addr + self.row_size;
+                &&& self.row_addr_to_index(new_addr) == row_index + 1
+                &&& row_index + 1 < self.num_rows ==> self.validate_row_addr(new_addr)
+            })
+    {
+        reveal(opaque_mul);
+        reveal(opaque_div);
+        let new_addr = addr + self.row_size;
+        let row_index = self.row_addr_to_index(addr);
+        let new_row = (new_addr - self.start) / (self.row_size as int);
+        lemma_mul_inequality(row_index + 1, self.num_rows as int, self.row_size as int);
+        assert(new_row == row_index + 1) by {
+            lemma_div_plus_one(addr - self.start, self.row_size as int);
+        }
+        assert(addr + self.row_size == self.start + (row_index + 1) * self.row_size) by {
+            lemma_mul_is_distributive_add_other_way(self.row_size as int, row_index as int, 1);
+            lemma_mul_basics(self.row_size as int);
+        }
+    }
 }
 
 pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, addr: int)
@@ -88,6 +128,7 @@ pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetad
             ||| addr1 + tm.row_size <= addr2
             ||| addr2 + tm.row_size <= addr1
         },
+        addr1 != addr2 ==> tm.row_addr_to_index(addr1) != tm.row_addr_to_index(addr2),
 {
     reveal(opaque_mul);
 
@@ -104,54 +145,13 @@ pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetad
     lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index2 as int, 1);
 }
 
-pub proof fn lemma_start_is_valid_row(tm: TableMetadata)
-    requires
-        tm.num_rows > 0,
-        tm.valid(),
-    ensures
-        tm.row_addr_to_index(tm.start as int) == 0,
-        tm.num_rows > 0 ==> tm.validate_row_addr(tm.start as int),
-{
-    reveal(opaque_mul);
-    reveal(opaque_div);
-    lemma_div_of0(tm.row_size as int);
-    assert(0int / tm.row_size as int == 0);
-}
-
-pub proof fn lemma_row_addr_successor_is_valid(tm: TableMetadata, addr: int)
-    requires
-        tm.num_rows > 0,
-        tm.valid(),
-        tm.validate_row_addr(addr),
-    ensures 
-        ({
-            let row_index = tm.row_addr_to_index(addr);
-            let new_addr = addr + tm.row_size;
-            &&& tm.row_addr_to_index(new_addr) == row_index + 1
-            &&& row_index + 1 < tm.num_rows ==> tm.validate_row_addr(new_addr)
-        })
-{
-    reveal(opaque_mul);
-    reveal(opaque_div);
-    let new_addr = addr + tm.row_size;
-    let row_index = tm.row_addr_to_index(addr);
-    let new_row = (new_addr - tm.start) / (tm.row_size as int);
-    lemma_mul_inequality(row_index + 1, tm.num_rows as int, tm.row_size as int);
-    assert(new_row == row_index + 1) by {
-        lemma_div_plus_one(addr - tm.start, tm.row_size as int);
-    }
-    assert(addr + tm.row_size == tm.start + (row_index + 1) * tm.row_size) by {
-        lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index as int, 1);
-        lemma_mul_basics(tm.row_size as int);
-    }
-}
-
 pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_index: int)
     requires
         tm.valid(),
         0 <= row_index < tm.num_rows,
     ensures
-        tm.validate_row_addr(#[trigger] tm.row_index_to_addr(row_index))
+        tm.validate_row_addr(#[trigger] tm.row_index_to_addr(row_index)),
+        tm.row_addr_to_index(tm.row_index_to_addr(row_index)) == row_index,
 {
     reveal(opaque_mul);
     reveal(opaque_div);

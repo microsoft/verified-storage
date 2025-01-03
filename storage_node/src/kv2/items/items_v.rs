@@ -68,7 +68,8 @@ impl<PM, I> ItemTable<PM, I>
         sm: &ItemTableStaticMetadata,
     )
         ensures
-            pm@.valid(),
+            pm.inv(),
+            pm.constants() == old(pm).constants(),
             Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {

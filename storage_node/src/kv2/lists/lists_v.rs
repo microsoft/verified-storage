@@ -65,7 +65,8 @@ impl<PM, L> ListTable<PM, L>
         sm: &ListTableStaticMetadata,
     )
         ensures
-            pm@.valid(),
+            pm.inv(),
+            pm.constants() == old(pm).constants(),
             Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ListTableSnapshot::<L>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
