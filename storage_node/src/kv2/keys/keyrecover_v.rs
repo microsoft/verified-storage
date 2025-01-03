@@ -187,10 +187,18 @@ pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyRecoveryMapping
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
     KeyTableSnapshot::<K>{
-        m: Map::<K, KeyTableRowMetadata>::new(
+        key_info: Map::<K, KeyTableRowMetadata>::new(
             |k: K| mapping.key_info.contains_key(k),
             |k: K| mapping.row_info[mapping.key_info[k]].unwrap().1,
-        )
+        ),
+        item_info: Map::<u64, K>::new(
+            |item_addr: u64| mapping.item_info.contains_key(item_addr),
+            |item_addr: u64| mapping.row_info[mapping.item_info[item_addr]].unwrap().0,
+        ),
+        list_info: Map::<u64, K>::new(
+            |list_addr: u64| mapping.list_info.contains_key(list_addr),
+            |list_addr: u64| mapping.row_info[mapping.list_info[list_addr]].unwrap().0,
+        ),
     }
 }
 

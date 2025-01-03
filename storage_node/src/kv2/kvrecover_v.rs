@@ -190,7 +190,7 @@ pub(super) open spec fn recover_kv_from_static_metadata<PM, K, I, L>(bytes: Seq<
                             match decode_policies(sm.encoded_policies) {
                                 None => None,
                                 Some(policy) => recover_kv_from_keys_items_and_lists::<PM, K, I, L>(
-                                    sm.id, policy, keys.m, items.m, lists.m
+                                    sm.id, policy, keys.key_info, items.m, lists.m
                                 ),
                             }
                         },
