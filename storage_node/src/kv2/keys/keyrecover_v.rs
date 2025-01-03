@@ -51,6 +51,7 @@ impl KeyTableStaticMetadata
     {
         &&& self.table.valid()
         &&& self.key_size > 0
+        &&& self.table.start <= self.table.end
         &&& self.row_cdb_start + u64::spec_size_of() <= self.row_metadata_start
         &&& self.row_metadata_end - self.row_metadata_start == KeyTableRowMetadata::spec_size_of()
         &&& self.row_metadata_end <= self.row_metadata_crc_start
@@ -91,6 +92,20 @@ impl<K> KeyRecoveryMapping<K>
         }
         else {
             None
+        }
+    }
+
+    pub(super) open spec fn new_empty(tm: TableMetadata) -> Self
+    {
+        let row_info = Map::<int, Option<(K, KeyTableRowMetadata)>>::new(
+            |addr: int| tm.validate_row_addr(addr),
+            |addr: int| None,
+        );
+        Self{
+            row_info,
+            key_info: Map::<K, int>::empty(),
+            item_info: Map::<u64, int>::empty(),
+            list_info: Map::<u64, int>::empty(),
         }
     }
     

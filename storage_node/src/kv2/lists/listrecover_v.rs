@@ -57,6 +57,7 @@ impl ListTableStaticMetadata
     {
         &&& 0 < self.num_lists_to_cache
         &&& self.table.valid()
+        &&& self.table.start <= self.table.end
         &&& self.row_metadata_end - self.row_metadata_start == ListTableRowMetadata::spec_size_of()
         &&& self.row_metadata_end <= self.row_block_start
         &&& opaque_mul(self.num_elements_per_block as int, self.block_element_size as int)

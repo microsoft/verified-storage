@@ -36,6 +36,7 @@ impl ItemTableStaticMetadata
     pub open spec fn valid(self) -> bool
     {
         &&& self.table.valid()
+        &&& self.table.start <= self.table.end
         &&& self.row_item_end - self.row_item_start == self.item_size
         &&& self.row_item_end <= self.row_item_crc_start
         &&& self.row_item_crc_start + u64::spec_size_of() <= self.table.row_size

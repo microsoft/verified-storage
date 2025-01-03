@@ -82,6 +82,7 @@ impl TableMetadata
                 let row_index = self.row_addr_to_index(addr);
                 let new_addr = addr + self.row_size;
                 &&& self.row_addr_to_index(new_addr) == row_index + 1
+                &&& row_index + 1 <= self.num_rows
                 &&& row_index + 1 < self.num_rows ==> self.validate_row_addr(new_addr)
             })
     {
@@ -108,6 +109,7 @@ pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, ad
     ensures
         tm.start <= addr,
         addr + tm.row_size <= tm.end,
+        0 <= tm.row_addr_to_index(addr) < tm.num_rows,
 {
     let row_index = tm.row_addr_to_index(addr);
     reveal(opaque_mul);
