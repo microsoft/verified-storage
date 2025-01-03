@@ -74,7 +74,7 @@ pub struct KeyGhostMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub row_info: Seq<Option<(K, KeyTableRowMetadata)>>,
+    pub row_info: Map<int, Option<(K, KeyTableRowMetadata)>>,
     pub key_info: Map<K, int>,
     pub item_info: Map<u64, int>,
     pub list_info: Map<u64, int>,
@@ -86,12 +86,13 @@ impl<K> KeyGhostMapping<K>
 {
     pub open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.row_info.len() == sm.table.num_rows
-        &&& forall|row_index: int| 0 <= row_index < sm.table.num_rows ==>
+        &&& forall|row_addr: int| #[trigger] sm.table.validate_row_addr(row_addr) ==>
+                self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: int| #[trigger] self.row_info.contains_key(row_addr) ==>
             {
-                let row_addr = sm.table.row_index_to_addr(row_index);
                 let cdb = recover_cdb(s, row_addr + sm.row_cdb_start);
-                match #[trigger] self.row_info[row_index] {
+                &&& sm.table.validate_row_addr(row_addr)
+                &&& match self.row_info[row_addr] {
                     None => cdb == Some(false),
                     Some((k, rm)) => {
                         &&& cdb == Some(true)
@@ -99,11 +100,11 @@ impl<K> KeyGhostMapping<K>
                         &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
                                                                  sm.row_metadata_crc_start as int) == Some(rm)
                         &&& self.key_info.contains_key(k)
-                        &&& self.key_info[k] == row_index
+                        &&& self.key_info[k] == row_addr
                         &&& self.item_info.contains_key(rm.item_addr)
-                        &&& self.item_info[rm.item_addr] == row_index
+                        &&& self.item_info[rm.item_addr] == row_addr
                         &&& rm.list_addr != 0 ==> self.list_info.contains_key(rm.list_addr)
-                        &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == row_index
+                        &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == row_addr
                     },
                 }
             }
@@ -113,9 +114,9 @@ impl<K> KeyGhostMapping<K>
     {
         forall|k: K| #[trigger] self.key_info.contains_key(k) ==>
         {
-            let row_index = self.key_info[k];
-            &&& 0 <= row_index < sm.table.num_rows
-            &&& self.row_info[row_index] matches Some((k2, _))
+            let row_addr = self.key_info[k];
+            &&& sm.table.validate_row_addr(row_addr)
+            &&& self.row_info[row_addr] matches Some((k2, _))
             &&& k2 == k
         }
     }
@@ -124,9 +125,9 @@ impl<K> KeyGhostMapping<K>
     {
         forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==>
         {
-            let row_index = self.item_info[item_addr];
-            &&& 0 <= row_index < sm.table.num_rows
-            &&& self.row_info[row_index] matches Some((_, rm))
+            let row_addr = self.item_info[item_addr];
+            &&& sm.table.validate_row_addr(row_addr)
+            &&& self.row_info[row_addr] matches Some((_, rm))
             &&& rm.item_addr == item_addr
         }
     }
@@ -136,9 +137,9 @@ impl<K> KeyGhostMapping<K>
         &&& !self.list_info.contains_key(0)
         &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
             {
-                let row_index = self.list_info[list_addr];
-                &&& 0 <= row_index < sm.table.num_rows
-                &&& self.row_info[row_index] matches Some((_, rm))
+                let row_addr = self.list_info[list_addr];
+                &&& sm.table.validate_row_addr(row_addr)
+                &&& self.row_info[row_addr] matches Some((_, rm))
                 &&& rm.list_addr == list_addr
             }
     }
@@ -158,8 +159,6 @@ impl<K> KeyGhostMapping<K>
         ensures
             self == other,
     { 
-        assert(forall|row_index: int| 0 <= row_index < sm.table.num_rows ==>
-               self.row_info[row_index] == other.row_info[row_index]);
         assert(self =~= other);
     }
 }
@@ -196,7 +195,5 @@ pub(super) open spec fn recover_keys<K>(
         None
     }
 }
-
-
 
 }
