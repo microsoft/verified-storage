@@ -20,29 +20,29 @@ verus! {
 #[verifier::ext_equal]
 pub struct KeyTableSnapshot<K>
 {
-    pub m: Map<K, (u64, u64)>,
+    pub m: Map<K, KeyTableRowMetadata>,
 }
 
 impl<K> KeyTableSnapshot<K>
 {
     pub open spec fn init() -> Self
     {
-        Self{ m: Map::<K, (u64, u64)>::empty() }
+        Self{ m: Map::<K, KeyTableRowMetadata>::empty() }
     }
 
-    pub open spec fn values(self) -> Set<(u64, u64)>
+    pub open spec fn values(self) -> Set<KeyTableRowMetadata>
     {
         self.m.values()
     }
 
     pub open spec fn item_addrs(self) -> Set<u64>
     {
-        self.values().map(|v: (u64, u64)| v.0)
+        self.values().map(|v: KeyTableRowMetadata| v.item_start)
     }
 
     pub open spec fn list_addrs(self) -> Set<u64>
     {
-        self.values().map(|v: (u64, u64)| v.1)
+        self.values().map(|v: KeyTableRowMetadata| v.list_start)
     }
 }
 

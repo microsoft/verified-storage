@@ -5,20 +5,20 @@ use vstd::prelude::*;
 
 use crate::common::nonlinear_v::*;
 use crate::common::subrange_v::*;
+use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::journal::*;
-use crate::kv2::items::*;
-use crate::kv2::keys::*;
-use crate::kv2::lists::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use std::hash::Hash;
+use super::keys::*;
+use super::items::*;
 use super::kvimpl_t::*;
-use crate::common::table_v::*;
 use super::kvspec_t::*;
+use super::lists::*;
 
 verus! {
 
@@ -148,7 +148,7 @@ pub(super) open spec fn recover_static_metadata(bytes: Seq<u8>, jc: JournalConst
 pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
     id: u128,
     logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    keys: Map<K, (u64, u64)>,
+    keys: Map<K, KeyTableRowMetadata>,
     items: Map<u64, I>,
     lists: Map<u64, Seq<L>>,
 ) -> Option<AtomicKvStore<K, I, L>>
@@ -164,7 +164,7 @@ pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
             logical_range_gaps_policy,
             m: Map::<K, (I, Seq<L>)>::new(
                 |k: K| keys.dom().contains(k),
-                |k: K| (items[keys[k].0], lists[keys[k].1]),
+                |k: K| (items[keys[k].item_start], lists[keys[k].list_start]),
             )
         }
     )

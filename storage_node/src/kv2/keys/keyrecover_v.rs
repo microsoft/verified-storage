@@ -175,13 +175,9 @@ pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyGhostMapping<K>
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
     KeyTableSnapshot::<K>{
-        m: Map::<K, (u64, u64)>::new(
+        m: Map::<K, KeyTableRowMetadata>::new(
             |k: K| mapping.key_info.contains_key(k),
-            |k: K| {
-                let row_index = mapping.key_info[k];
-                let (_, rm) = mapping.row_info[row_index].unwrap();
-                (rm.item_start, rm.list_start)
-            },
+            |k: K| mapping.row_info[mapping.key_info[k]].unwrap().1,
         )
     }
 }
