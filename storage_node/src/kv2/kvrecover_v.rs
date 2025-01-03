@@ -164,7 +164,7 @@ pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
             logical_range_gaps_policy,
             m: Map::<K, (I, Seq<L>)>::new(
                 |k: K| keys.dom().contains(k),
-                |k: K| (items[keys[k].item_start], lists[keys[k].list_start]),
+                |k: K| (items[keys[k].item_addr], lists[keys[k].list_addr]),
             )
         }
     )

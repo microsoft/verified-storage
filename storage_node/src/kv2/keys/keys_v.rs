@@ -37,12 +37,12 @@ impl<K> KeyTableSnapshot<K>
 
     pub open spec fn item_addrs(self) -> Set<u64>
     {
-        self.values().map(|v: KeyTableRowMetadata| v.item_start)
+        self.values().map(|v: KeyTableRowMetadata| v.item_addr)
     }
 
     pub open spec fn list_addrs(self) -> Set<u64>
     {
-        self.values().map(|v: KeyTableRowMetadata| v.list_start)
+        self.values().map(|v: KeyTableRowMetadata| v.list_addr)
     }
 }
 

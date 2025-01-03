@@ -25,8 +25,8 @@ verus! {
 #[verifier::ext_equal]
 pub struct KeyTableRowMetadata
 {
-    pub item_start: u64,
-    pub list_start: u64,
+    pub item_addr: u64,
+    pub list_addr: u64,
 }
 
 #[repr(C)]
@@ -100,10 +100,10 @@ impl<K> KeyGhostMapping<K>
                                                                   sm.row_metadata_crc_start as int) == Some(rm)
                         &&& self.key_info.contains_key(k)
                         &&& self.key_info[k] == row_index
-                        &&& self.item_info.contains_key(rm.item_start)
-                        &&& self.item_info[rm.item_start] == row_index
-                        &&& self.list_info.contains_key(rm.list_start)
-                        &&& self.list_info[rm.list_start] == row_index
+                        &&& self.item_info.contains_key(rm.item_addr)
+                        &&& self.item_info[rm.item_addr] == row_index
+                        &&& self.list_info.contains_key(rm.list_addr)
+                        &&& self.list_info[rm.list_addr] == row_index
                     },
                 }
             }
@@ -127,7 +127,7 @@ impl<K> KeyGhostMapping<K>
             let row_index = self.item_info[item_addr];
             &&& 0 <= row_index < sm.table.num_rows
             &&& self.row_info[row_index] matches Some((_, rm))
-            &&& rm.item_start == item_addr
+            &&& rm.item_addr == item_addr
         }
     }
 
@@ -138,7 +138,7 @@ impl<K> KeyGhostMapping<K>
             let row_index = self.list_info[list_addr];
             &&& 0 <= row_index < sm.table.num_rows
             &&& self.row_info[row_index] matches Some((_, rm))
-            &&& rm.list_start == list_addr
+            &&& rm.list_addr == list_addr
         }
     }
 
