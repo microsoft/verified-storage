@@ -84,16 +84,14 @@ impl<K> KeyGhostMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub(super) open spec fn correspondence_exists(s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn new(s: Seq<u8>, sm: KeyTableStaticMetadata) -> Option<Self>
     {
-        exists|mapping: Self| mapping.corresponds(s, sm)
-    }
-    
-    pub(super) open spec fn choose_corresponding(s: Seq<u8>, sm: KeyTableStaticMetadata) -> Self
-        recommends
-            Self::correspondence_exists(s, sm),
-    {
-        choose|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm)
+        if exists|mapping: Self| mapping.corresponds(s, sm) {
+            Some(choose|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm))
+        }
+        else {
+            None
+        }
     }
     
     pub(super) open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
@@ -174,14 +172,13 @@ impl<K> KeyGhostMapping<K>
         assert(self =~= other);
     }
 
-    pub(super) proof fn lemma_corresponds_implies_equals_choose_corresponding(self, s: Seq<u8>,
-                                                                              sm: KeyTableStaticMetadata)
+    pub(super) proof fn lemma_corresponds_implies_equals_new(self, s: Seq<u8>, sm: KeyTableStaticMetadata)
         requires
             self.corresponds(s, sm),
         ensures
-            self == Self::choose_corresponding(s, sm),
+            Self::new(s, sm) == Some(self),
     {
-        self.lemma_uniqueness(Self::choose_corresponding(s, sm), s, sm);
+        self.lemma_uniqueness(Self::new(s, sm).unwrap(), s, sm);
     }
 }
 
@@ -204,11 +201,9 @@ pub(super) open spec fn recover_keys<K>(
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    if KeyGhostMapping::<K>::correspondence_exists(s, sm) {
-        let mapping = KeyGhostMapping::<K>::choose_corresponding(s, sm);
-        Some(recover_keys_from_mapping::<K>(mapping))
-    } else {
-        None
+    match KeyGhostMapping::<K>::new(s, sm) {
+        None => None,
+        Some(mapping) => Some(recover_keys_from_mapping::<K>(mapping)),
     }
 }
 
