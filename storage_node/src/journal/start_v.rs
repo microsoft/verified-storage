@@ -7,6 +7,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::pmem::wrpm_t::*;
 use crate::common::align_v::*;
+use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use deps_hack::PmCopy;
 use super::entry_v::*;
@@ -35,29 +36,7 @@ pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<Journal
     let journal_version_metadata_crc_addr = exec_round_up_to_alignment::<u64>(journal_version_metadata_end);
 
     assert(spec_journal_version_metadata_start() == 0);
-    let ghost true_vm_bytes = extract_section(pm@.read_state, 0, JournalVersionMetadata::spec_size_of());
-    let ghost true_vm = JournalVersionMetadata::spec_from_bytes(true_vm_bytes);
-    let maybe_corrupted_vm = match pm.read_aligned::<JournalVersionMetadata>(0) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    assert(journal_version_metadata_crc_addr == spec_journal_version_metadata_crc_start());
-    let maybe_corrupted_vm_crc = match pm.read_aligned::<u64>(journal_version_metadata_crc_addr) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    if !check_crc(maybe_corrupted_vm.as_slice(), maybe_corrupted_vm_crc.as_slice(),
-        Ghost(true_vm_bytes),
-        Ghost(pm.constants()),
-        Ghost(spec_journal_version_metadata_start()),
-        Ghost(spec_journal_version_metadata_crc_start()),
-    ) {
-        return None;
-    }
-
-    Some(*maybe_corrupted_vm.extract_init_val(Ghost(true_vm)))
+    exec_recover_object(pm, 0, journal_version_metadata_crc_addr)
 }
 
 pub(super) exec fn read_static_metadata<PM>(pm: &PM, vm: &JournalVersionMetadata)
@@ -98,29 +77,7 @@ pub(super) exec fn read_static_metadata<PM>(pm: &PM, vm: &JournalVersionMetadata
     let journal_static_metadata_crc_start = exec_round_up_to_alignment::<u64>(journal_static_metadata_end);
     assert(journal_static_metadata_crc_start == spec_journal_static_metadata_crc_start());
 
-    let ghost true_sm_bytes = pm@.read_state.subrange(journal_static_metadata_start as int,
-                                                      journal_static_metadata_end as int);
-    let ghost true_sm = JournalStaticMetadata::spec_from_bytes(true_sm_bytes);
-    let maybe_corrupted_sm = match pm.read_aligned::<JournalStaticMetadata>(journal_static_metadata_start) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    let maybe_corrupted_sm_crc = match pm.read_aligned::<u64>(journal_static_metadata_crc_start) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    if !check_crc(maybe_corrupted_sm.as_slice(), maybe_corrupted_sm_crc.as_slice(),
-        Ghost(true_sm_bytes),
-        Ghost(pm.constants()),
-        Ghost(spec_journal_static_metadata_start()),
-        Ghost(spec_journal_static_metadata_crc_start()),
-    ) {
-        return None;
-    }
-
-    Some(*maybe_corrupted_sm.extract_init_val(Ghost(true_sm)))
+    exec_recover_object(pm, journal_static_metadata_start, journal_static_metadata_crc_start)
 }
 
 pub(super) exec fn read_committed_cdb<PM>(pm: &PM, vm: &JournalVersionMetadata, sm: &JournalStaticMetadata)
@@ -138,19 +95,7 @@ pub(super) exec fn read_committed_cdb<PM>(pm: &PM, vm: &JournalVersionMetadata, 
             Some(b) => recover_committed_cdb(pm@.read_state, *sm) == Some(b),
         }
 {
-    let ghost true_cdb_bytes = pm@.read_state.subrange(sm.committed_cdb_start as int,
-                                                       sm.committed_cdb_start as int + u64::spec_size_of() as int);
-    let cdb_bytes = match pm.read_aligned::<u64>(sm.committed_cdb_start) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    check_cdb(
-        cdb_bytes,
-        Ghost(true_cdb_bytes),
-        Ghost(pm.constants()),
-        Ghost(sm.committed_cdb_start as int)
-    )
+    exec_recover_cdb(pm, sm.committed_cdb_start)
 }
 
 pub(super) exec fn read_journal_length<PM>(
@@ -171,31 +116,7 @@ pub(super) exec fn read_journal_length<PM>(
             Some(journal_length) => recover_journal_length(pm@.read_state, *sm) == Some(journal_length),
         }
 {
-    let ghost true_journal_length_bytes =
-         extract_section(pm@.read_state, sm.journal_length_start as int, u64::spec_size_of());
-    let ghost true_journal_length = u64::spec_from_bytes(true_journal_length_bytes);
-    let maybe_corrupted_journal_length = match pm.read_aligned::<u64>(sm.journal_length_start) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    let maybe_corrupted_journal_length_crc = match pm.read_aligned::<u64>(sm.journal_length_crc_start) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    if !check_crc(
-        maybe_corrupted_journal_length.as_slice(),
-        maybe_corrupted_journal_length_crc.as_slice(),
-        Ghost(true_journal_length_bytes),
-        Ghost(pm.constants()),
-        Ghost(sm.journal_length_start as int),
-        Ghost(sm.journal_length_crc_start as int),
-    ) {
-        return None;
-    }
-
-    Some(*maybe_corrupted_journal_length.extract_init_val(Ghost(true_journal_length)))
+    exec_recover_object(pm, sm.journal_length_start, sm.journal_length_crc_start)
 }
 
 pub(super) exec fn read_journal_entries_bytes<PM>(
@@ -221,30 +142,7 @@ pub(super) exec fn read_journal_entries_bytes<PM>(
             },
         }
 {
-    let ghost true_journal_entries_bytes =
-         extract_section(pm@.read_state, sm.journal_entries_start as int, journal_length as nat);
-    let maybe_corrupted_journal_entries = match pm.read_unaligned(sm.journal_entries_start, journal_length) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    let maybe_corrupted_journal_entries_crc = match pm.read_aligned::<u64>(sm.journal_entries_crc_start) {
-        Ok(bytes) => bytes,
-        Err(_) => { assert(false); return None; }
-    };
-
-    if !check_crc(
-        maybe_corrupted_journal_entries.as_slice(),
-        maybe_corrupted_journal_entries_crc.as_slice(),
-        Ghost(true_journal_entries_bytes),
-        Ghost(pm.constants()),
-        Ghost(sm.journal_entries_start as int),
-        Ghost(sm.journal_entries_crc_start as int),
-    ) {
-        return None;
-    }
-
-    Some(maybe_corrupted_journal_entries)
+    exec_recover_bytes(pm, sm.journal_entries_start, journal_length, sm.journal_entries_crc_start)
 }
 
 exec fn install_journal_entry_during_start<Perm, PM>(

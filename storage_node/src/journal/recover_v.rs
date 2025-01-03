@@ -163,34 +163,22 @@ pub(super) open spec fn validate_metadata(vm: JournalVersionMetadata, sm: Journa
 
 pub(super) open spec fn recover_journal_length(bytes: Seq<u8>, sm: JournalStaticMetadata) -> Option<u64>
 {
-    recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int)
+    match recover_object::<u64>(bytes, sm.journal_length_start as int, sm.journal_length_crc_start as int) {
+        None => None,
+        Some(journal_length) =>
+            if sm.journal_entries_start + journal_length <= sm.journal_entries_end {
+                Some(journal_length)
+            }
+            else {
+                None
+            },
+    }
 }
 
 pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: JournalStaticMetadata, journal_length: u64)
     -> Option<Seq<u8>>
 {
-    if {
-        &&& 0 <= sm.journal_entries_start
-        &&& sm.journal_entries_start + journal_length <= sm.journal_entries_end
-        &&& sm.journal_entries_end <= bytes.len()
-        &&& 0 <= sm.journal_entries_crc_start
-        &&& sm.journal_entries_crc_start + u64::spec_size_of() <= bytes.len()
-    } {
-        let journal_entries = extract_section(bytes, sm.journal_entries_start as int, journal_length as nat);
-        let journal_entries_crc_bytes = extract_section(bytes, sm.journal_entries_crc_start as int, u64::spec_size_of());
-        if {
-            &&& u64::bytes_parseable(journal_entries_crc_bytes)
-            &&& journal_entries_crc_bytes == spec_crc_bytes(journal_entries)
-        } {
-            Some(journal_entries)
-        }
-        else {
-            None
-        }
-    }
-    else {
-        None
-    }
+    recover_bytes(bytes, sm.journal_entries_start as int, journal_length as nat, sm.journal_entries_crc_start as int)
 }
 
 pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>) -> Option<(JournalEntry, int)>
