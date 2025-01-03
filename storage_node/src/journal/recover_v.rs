@@ -5,6 +5,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::*;
 use crate::common::align_v::*;
+use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use deps_hack::PmCopy;

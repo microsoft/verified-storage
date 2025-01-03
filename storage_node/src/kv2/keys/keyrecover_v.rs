@@ -3,7 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::subrange_v::*;
+use crate::common::recover_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::pmem::pmemspec_t::*;
