@@ -84,7 +84,7 @@ impl<K> KeyGhostMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub open spec fn valid_row_info(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& self.row_info.len() == sm.table.num_rows
         &&& forall|row_index: int| 0 <= row_index < sm.table.num_rows ==>
@@ -97,7 +97,7 @@ impl<K> KeyGhostMapping<K>
                         &&& cdb == Some(true)
                         &&& recover_object::<K>(s, row_addr + sm.row_key_start, sm.row_key_crc_start as int) == Some(k)
                         &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
-                                                                  sm.row_metadata_crc_start as int) == Some(rm)
+                                                                 sm.row_metadata_crc_start as int) == Some(rm)
                         &&& self.key_info.contains_key(k)
                         &&& self.key_info[k] == row_index
                         &&& self.item_info.contains_key(rm.item_addr)
@@ -109,7 +109,7 @@ impl<K> KeyGhostMapping<K>
             }
     }
 
-    pub open spec fn valid_key_info(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub open spec fn key_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         forall|k: K| #[trigger] self.key_info.contains_key(k) ==>
         {
@@ -120,7 +120,7 @@ impl<K> KeyGhostMapping<K>
         }
     }
 
-    pub open spec fn valid_item_info(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub open spec fn item_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==>
         {
@@ -131,7 +131,7 @@ impl<K> KeyGhostMapping<K>
         }
     }
 
-    pub open spec fn valid_list_info(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub open spec fn list_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& !self.list_info.contains_key(0)
         &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
@@ -143,18 +143,18 @@ impl<K> KeyGhostMapping<K>
             }
     }
 
-    pub open spec fn valid(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub open spec fn corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.valid_row_info(s, sm)
-        &&& self.valid_key_info(s, sm)
-        &&& self.valid_item_info(s, sm)
-        &&& self.valid_list_info(s, sm)
+        &&& self.row_info_corresponds(s, sm)
+        &&& self.key_info_corresponds(s, sm)
+        &&& self.item_info_corresponds(s, sm)
+        &&& self.list_info_corresponds(s, sm)
     }
 
     pub proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>, sm: KeyTableStaticMetadata)
         requires
-            self.valid(s, sm),
-            other.valid(s, sm),
+            self.corresponds(s, sm),
+            other.corresponds(s, sm),
         ensures
             self == other,
     { 
@@ -168,7 +168,7 @@ pub(super) open spec fn choose_mapping<K>(s: Seq<u8>, sm: KeyTableStaticMetadata
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    choose|mapping: KeyGhostMapping<K>| mapping.valid(s, sm)
+    choose|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm)
 }
 
 pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyGhostMapping<K>) -> KeyTableSnapshot<K>
@@ -190,7 +190,7 @@ pub(super) open spec fn recover_keys<K>(
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    if exists|mapping: KeyGhostMapping<K>| mapping.valid(s, sm) {
+    if exists|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm) {
         Some(recover_keys_from_mapping::<K>(choose_mapping::<K>(s, sm)))
     } else {
         None
