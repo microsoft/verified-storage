@@ -38,9 +38,21 @@ impl TableMetadata
         &&& opaque_mul(self.num_rows as int, self.row_size as int) <= self.end - self.start
     }
 
-    pub closed spec fn which_row_to_row_addr(self, which_row: int) -> int
+    pub closed spec fn row_index_to_addr(self, row_index: int) -> int
     {
-        self.start + opaque_mul(which_row, self.row_size as int)
+        self.start + opaque_mul(row_index, self.row_size as int)
+    }
+
+    pub closed spec fn row_addr_to_index(self, addr: int) -> int
+    {
+        opaque_div(addr - self.start, self.row_size as int)
+    }
+
+    pub closed spec fn validate_row_addr(self, addr: int) -> bool
+    {
+        let row_index = self.row_addr_to_index(addr);
+        &&& 0 <= row_index < self.num_rows
+        &&& addr == self.start + opaque_mul(row_index, self.row_size as int)
     }
 
     pub exec fn new(start: u64, end: u64, num_rows: u64, row_size: u64) -> (result: Self)
@@ -55,40 +67,28 @@ impl TableMetadata
     }
 }
 
-pub closed spec fn row_addr_to_which_row(addr: int, tm: TableMetadata) -> int
-{
-    opaque_div(addr - tm.start, tm.row_size as int)
-}
-
-pub closed spec fn is_valid_row_addr(addr: int, tm: TableMetadata) -> bool
-{
-    let which_row = row_addr_to_which_row(addr, tm);
-    &&& 0 <= which_row < tm.num_rows
-    &&& addr == tm.start + opaque_mul(which_row, tm.row_size as int)
-}
-
-pub broadcast proof fn broadcast_is_valid_row_addr_effects(addr: int, tm: TableMetadata)
+pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, addr: int)
     requires
         tm.valid(),
-        #[trigger] is_valid_row_addr(addr, tm),
+        #[trigger] tm.validate_row_addr(addr),
     ensures
         tm.start <= addr,
         addr + tm.row_size <= tm.end,
 {
-    let which_row = row_addr_to_which_row(addr, tm);
+    let row_index = tm.row_addr_to_index(addr);
     reveal(opaque_mul);
-    lemma_mul_inequality(which_row + 1, tm.num_rows as int, tm.row_size as int);
-    assert(addr + tm.row_size == tm.start + (which_row + 1) * tm.row_size) by {
-        lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row as int, 1);
+    lemma_mul_inequality(row_index + 1, tm.num_rows as int, tm.row_size as int);
+    assert(addr + tm.row_size == tm.start + (row_index + 1) * tm.row_size) by {
+        lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index as int, 1);
         lemma_mul_basics(tm.row_size as int);
     }
 }
 
-pub broadcast proof fn broadcast_is_valid_row_addr_nonoverlapping(addr1: int, addr2: int, tm: TableMetadata)
+pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetadata, addr1: int, addr2: int)
     requires
         tm.valid(),
-        #[trigger] is_valid_row_addr(addr1, tm),
-        #[trigger] is_valid_row_addr(addr2, tm),
+        #[trigger] tm.validate_row_addr(addr1),
+        #[trigger] tm.validate_row_addr(addr2),
     ensures
         addr1 != addr2 ==> {
             ||| addr1 + tm.row_size <= addr2
@@ -97,17 +97,17 @@ pub broadcast proof fn broadcast_is_valid_row_addr_nonoverlapping(addr1: int, ad
 {
     reveal(opaque_mul);
 
-    let which_row1 = row_addr_to_which_row(addr1, tm);
-    let which_row2 = row_addr_to_which_row(addr2, tm);
-    if which_row1 < which_row2 {
-        lemma_mul_inequality(which_row1 + 1, which_row2 as int, tm.row_size as int);
+    let row_index1 = tm.row_addr_to_index(addr1);
+    let row_index2 = tm.row_addr_to_index(addr2);
+    if row_index1 < row_index2 {
+        lemma_mul_inequality(row_index1 + 1, row_index2 as int, tm.row_size as int);
     }
-    if which_row1 > which_row2 {
-        lemma_mul_inequality(which_row2 + 1, which_row1 as int, tm.row_size as int);
+    if row_index1 > row_index2 {
+        lemma_mul_inequality(row_index2 + 1, row_index1 as int, tm.row_size as int);
     }
 
-    lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row1 as int, 1);
-    lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row2 as int, 1);
+    lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index1 as int, 1);
+    lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index2 as int, 1);
 }
 
 pub proof fn lemma_start_is_valid_row(tm: TableMetadata)
@@ -115,8 +115,8 @@ pub proof fn lemma_start_is_valid_row(tm: TableMetadata)
         tm.num_rows > 0,
         tm.valid(),
     ensures
-        row_addr_to_which_row(tm.start as int, tm) == 0,
-        tm.num_rows > 0 ==> is_valid_row_addr(tm.start as int, tm),
+        tm.row_addr_to_index(tm.start as int) == 0,
+        tm.num_rows > 0 ==> tm.validate_row_addr(tm.start as int),
 {
     reveal(opaque_mul);
     reveal(opaque_div);
@@ -124,52 +124,52 @@ pub proof fn lemma_start_is_valid_row(tm: TableMetadata)
     assert(0int / tm.row_size as int == 0);
 }
 
-pub proof fn lemma_row_addr_successor_is_valid(addr: int, tm: TableMetadata)
+pub proof fn lemma_row_addr_successor_is_valid(tm: TableMetadata, addr: int)
     requires
         tm.num_rows > 0,
         tm.valid(),
-        is_valid_row_addr(addr, tm),
+        tm.validate_row_addr(addr),
     ensures 
         ({
-            let which_row = row_addr_to_which_row(addr, tm);
+            let row_index = tm.row_addr_to_index(addr);
             let new_addr = addr + tm.row_size;
-            &&& row_addr_to_which_row(new_addr, tm) == which_row + 1
-            &&& which_row + 1 < tm.num_rows ==> is_valid_row_addr(new_addr, tm)
+            &&& tm.row_addr_to_index(new_addr) == row_index + 1
+            &&& row_index + 1 < tm.num_rows ==> tm.validate_row_addr(new_addr)
         })
 {
     reveal(opaque_mul);
     reveal(opaque_div);
     let new_addr = addr + tm.row_size;
-    let which_row = row_addr_to_which_row(addr, tm);
+    let row_index = tm.row_addr_to_index(addr);
     let new_row = (new_addr - tm.start) / (tm.row_size as int);
-    lemma_mul_inequality(which_row + 1, tm.num_rows as int, tm.row_size as int);
-    assert(new_row == which_row + 1) by {
+    lemma_mul_inequality(row_index + 1, tm.num_rows as int, tm.row_size as int);
+    assert(new_row == row_index + 1) by {
         lemma_div_plus_one(addr - tm.start, tm.row_size as int);
     }
-    assert(addr + tm.row_size == tm.start + (which_row + 1) * tm.row_size) by {
-        lemma_mul_is_distributive_add_other_way(tm.row_size as int, which_row as int, 1);
+    assert(addr + tm.row_size == tm.start + (row_index + 1) * tm.row_size) by {
+        lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index as int, 1);
         lemma_mul_basics(tm.row_size as int);
     }
 }
 
-pub proof fn lemma_which_row_to_row_addr_is_valid(which_row: int, tm: TableMetadata)
+pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_index: int)
     requires
         tm.valid(),
-        0 <= which_row < tm.num_rows,
+        0 <= row_index < tm.num_rows,
     ensures
-        is_valid_row_addr(tm.which_row_to_row_addr(which_row), tm)
+        tm.validate_row_addr(#[trigger] tm.row_index_to_addr(row_index))
 {
     reveal(opaque_mul);
     reveal(opaque_div);
-    let addr = tm.which_row_to_row_addr(which_row);
-    assert(which_row == row_addr_to_which_row(addr, tm)) by {
-       lemma_fundamental_div_mod_converse(addr - tm.start, tm.row_size as int, which_row, 0);
+    let addr = tm.row_index_to_addr(row_index);
+    assert(row_index == tm.row_addr_to_index(addr)) by {
+       lemma_fundamental_div_mod_converse(addr - tm.start, tm.row_size as int, row_index, 0);
    }
 }
 
-pub broadcast group group_is_valid_row_addr {
-    broadcast_is_valid_row_addr_effects,
-    broadcast_is_valid_row_addr_nonoverlapping,
+pub broadcast group group_validate_row_addr {
+    broadcast_validate_row_addr_effects,
+    broadcast_validate_row_addr_nonoverlapping,
 }
 
 }
