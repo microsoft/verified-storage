@@ -84,7 +84,19 @@ impl<K> KeyGhostMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn correspondence_exists(s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    {
+        exists|mapping: Self| mapping.corresponds(s, sm)
+    }
+    
+    pub(super) open spec fn choose_corresponding(s: Seq<u8>, sm: KeyTableStaticMetadata) -> Self
+        recommends
+            Self::correspondence_exists(s, sm),
+    {
+        choose|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm)
+    }
+    
+    pub(super) open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: int| #[trigger] sm.table.validate_row_addr(row_addr) ==>
                 self.row_info.contains_key(row_addr)
@@ -110,7 +122,7 @@ impl<K> KeyGhostMapping<K>
             }
     }
 
-    pub open spec fn key_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn key_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         forall|k: K| #[trigger] self.key_info.contains_key(k) ==>
         {
@@ -121,7 +133,7 @@ impl<K> KeyGhostMapping<K>
         }
     }
 
-    pub open spec fn item_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn item_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==>
         {
@@ -132,7 +144,7 @@ impl<K> KeyGhostMapping<K>
         }
     }
 
-    pub open spec fn list_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn list_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& !self.list_info.contains_key(0)
         &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
@@ -144,7 +156,7 @@ impl<K> KeyGhostMapping<K>
             }
     }
 
-    pub open spec fn corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& self.row_info_corresponds(s, sm)
         &&& self.key_info_corresponds(s, sm)
@@ -152,7 +164,7 @@ impl<K> KeyGhostMapping<K>
         &&& self.list_info_corresponds(s, sm)
     }
 
-    pub proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>, sm: KeyTableStaticMetadata)
+    pub(super) proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>, sm: KeyTableStaticMetadata)
         requires
             self.corresponds(s, sm),
             other.corresponds(s, sm),
@@ -161,13 +173,16 @@ impl<K> KeyGhostMapping<K>
     { 
         assert(self =~= other);
     }
-}
 
-pub(super) open spec fn choose_mapping<K>(s: Seq<u8>, sm: KeyTableStaticMetadata) -> KeyGhostMapping<K>
-    where
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-{
-    choose|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm)
+    pub(super) proof fn lemma_corresponds_implies_equals_choose_corresponding(self, s: Seq<u8>,
+                                                                              sm: KeyTableStaticMetadata)
+        requires
+            self.corresponds(s, sm),
+        ensures
+            self == Self::choose_corresponding(s, sm),
+    {
+        self.lemma_uniqueness(Self::choose_corresponding(s, sm), s, sm);
+    }
 }
 
 pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyGhostMapping<K>) -> KeyTableSnapshot<K>
@@ -189,8 +204,9 @@ pub(super) open spec fn recover_keys<K>(
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    if exists|mapping: KeyGhostMapping<K>| mapping.corresponds(s, sm) {
-        Some(recover_keys_from_mapping::<K>(choose_mapping::<K>(s, sm)))
+    if KeyGhostMapping::<K>::correspondence_exists(s, sm) {
+        let mapping = KeyGhostMapping::<K>::choose_corresponding(s, sm);
+        Some(recover_keys_from_mapping::<K>(mapping))
     } else {
         None
     }
