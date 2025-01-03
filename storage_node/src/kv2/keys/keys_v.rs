@@ -70,14 +70,14 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub open spec fn recover(
+    pub closed spec fn recover(
         s: Seq<u8>,
         sm: KeyTableStaticMetadata,
     ) -> Option<KeyTableSnapshot<K>>
     {
-        arbitrary()
+        recover_keys(s, sm)
     }
-
+    
     pub exec fn setup(
         pm: &mut PM,
         sm: &KeyTableStaticMetadata,
