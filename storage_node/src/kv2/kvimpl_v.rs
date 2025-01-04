@@ -117,6 +117,7 @@ where
                     &&& Self::untrusted_recover(pm@.durable_state)
                         == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 },
+                Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(KvError::OutOfSpace) => {
                     &&& pm@ == old(pm)@

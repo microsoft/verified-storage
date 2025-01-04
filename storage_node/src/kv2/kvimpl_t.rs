@@ -131,6 +131,25 @@ where
         self.untrusted_kv_impl.pm_constants()
     }
 
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+        recommends
+            ps.valid(),
+    {
+        UntrustedKvStoreImpl::<PM, K, I, L>::space_needed_for_setup(ps)
+    }
+
+    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
+        ensures
+            match result {
+                Ok(v) => v == Self::space_needed_for_setup(*ps),
+                Err(KvError::InvalidParameter) => !ps.valid(),
+                Err(KvError::OutOfSpace) => Self::space_needed_for_setup(*ps) > u64::MAX,
+                Err(_) => false,
+            },
+    {
+        UntrustedKvStoreImpl::<PM, K, I, L>::get_space_needed_for_setup(ps)
+    }
+
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
         requires 
             old(pm).inv(),
@@ -142,7 +161,13 @@ where
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.durable_state)
                         == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 }
-                Err(_) => true
+                Err(KvError::InvalidParameter) => !ps.valid(),
+                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
+                Err(KvError::OutOfSpace) => {
+                    &&& pm@ == old(pm)@
+                    &&& pm@.len() < Self::space_needed_for_setup(*ps)
+                },
+                Err(_) => false,
             }
     {
         UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, ps)?;
