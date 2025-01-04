@@ -76,12 +76,9 @@ where
         self.journal@.pm_constants
     }
 
-    pub closed spec fn untrusted_recover(mem: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
+    pub closed spec fn untrusted_recover(bytes: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
     {
-        match Journal::<TrustedKvPermission, PM>::recover(mem) {
-            None => None,
-            Some(RecoveredJournal{ constants, state }) => recover_kv::<PM, K, I, L>(state, constants),
-        }
+        recover_journal_then_kv::<PM, K, I, L>(bytes)
     }
 
     pub closed spec fn valid(self) -> bool
@@ -108,10 +105,7 @@ where
         exec_get_space_needed_for_setup::<PM, K, I, L>(ps)
     }
 
-    pub exec fn untrusted_setup(
-        pm: &mut PM,
-        ps: &SetupParameters,
-    ) -> (result: Result<(), KvError<K>>)
+    pub exec fn untrusted_setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
         requires 
             old(pm).inv(),
         ensures
@@ -123,13 +117,15 @@ where
                     &&& Self::untrusted_recover(pm@.durable_state)
                         == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 },
-                Err(_) => true,
-            }
+                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
+                Err(KvError::OutOfSpace) => {
+                    &&& pm@ == old(pm)@
+                    &&& pm@.len() < Self::space_needed_for_setup(*ps)
+                },
+                Err(_) => false,
+            },
     {
-        // 1. flush the pm to ensure there are no outstanding writes
-        pm.flush();
-        assume(false);
-        Ok(())
+        setup_kv::<PM, K, I, L>(pm, ps)
     }
 
     pub fn untrusted_start(

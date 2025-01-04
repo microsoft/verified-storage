@@ -222,5 +222,18 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
     }
 }
 
+pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        I: PmCopy + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    match Journal::<TrustedKvPermission, PM>::recover(bytes) {
+        None => None,
+        Some(RecoveredJournal{ constants, state }) => recover_kv::<PM, K, I, L>(state, constants),
+    }
+}
+
 }
 
