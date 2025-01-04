@@ -61,7 +61,7 @@ impl<PM, L> ListTable<PM, L>
         recover_lists::<L>(s, addrs, sm)
     }
 
-    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> nat
     {
         arbitrary()
     }

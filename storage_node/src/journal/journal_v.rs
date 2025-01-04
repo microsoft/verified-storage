@@ -87,7 +87,7 @@ impl <Perm, PM> Journal<Perm, PM>
                == j2.state.subrange(j2.constants.app_area_start as int, j2.constants.app_area_end as int)
     }
 
-    pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> int
+    pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> nat
         recommends
             ps.valid(),
     {

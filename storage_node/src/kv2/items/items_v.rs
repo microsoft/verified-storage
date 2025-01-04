@@ -64,7 +64,7 @@ impl<PM, I> ItemTable<PM, I>
         recover_items::<I>(s, addrs, sm)
     }
 
-    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> nat
     {
         arbitrary()
     }

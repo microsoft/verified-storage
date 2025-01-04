@@ -28,7 +28,7 @@ pub(super) exec fn get_space_needed_for_journal_entries(
     num_journaled_bytes.add_overflowing_u64(&num_header_bytes)
 }
 
-pub(super) closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> int
+pub(super) closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> nat
     recommends
         ps.valid(),
 {
@@ -49,7 +49,7 @@ pub(super) closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters
         spec_allocate_specified_space(journal_entries_crc_end, journal_size, u64::spec_size_of() as int);
     let (app_area_start, min_app_area_end) =
         spec_allocate_specified_space(journal_entries_end, ps.app_area_size as int, ps.app_area_alignment as int);
-    min_app_area_end
+    min_app_area_end as nat
 }
 
 #[verifier::ext_equal]

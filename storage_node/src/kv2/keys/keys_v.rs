@@ -117,7 +117,7 @@ impl<PM, K> KeyTable<PM, K>
         recover_keys(s, sm)
     }
 
-    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> nat
     {
         spec_space_needed_for_key_table_setup::<K>(ps)
     }

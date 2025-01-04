@@ -24,7 +24,7 @@ use super::super::kvspec_t::*;
 
 verus! {
 
-pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParameters) -> int
+pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParameters) -> nat
     where
         K: PmCopy,
     recommends
@@ -40,7 +40,7 @@ pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParame
     let row_key_crc_end = row_key_crc_start + u64::spec_size_of();
     let row_size = row_key_crc_end;
     let num_rows = ps.num_keys;
-    opaque_mul(num_rows as int, row_size as int)
+    opaque_mul(num_rows as int, row_size as int) as nat
 }
 
 pub(super) exec fn get_space_needed_for_key_table_setup<K>(ps: &SetupParameters) -> (result: OverflowingU64)
