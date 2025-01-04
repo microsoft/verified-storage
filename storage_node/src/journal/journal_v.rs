@@ -107,7 +107,7 @@ impl <Perm, PM> Journal<Perm, PM>
             ps.valid(),
         ensures
             ({
-                let space_needed = spec_space_needed_for_setup(*ps);
+                let space_needed = Self::space_needed_for_setup(*ps);
                 match result {
                     Some(v) => v == space_needed,
                     None => space_needed > u64::MAX,
@@ -623,7 +623,6 @@ impl <Perm, PM> Journal<Perm, PM>
             crc_digest.bytes_in_digest() ==
                 self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int, next_pos as int),
     {
-        broadcast use pmcopy_axioms;
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
         let num_bytes: u64 = entry.bytes_to_write.len() as u64;
 
@@ -655,6 +654,7 @@ impl <Perm, PM> Journal<Perm, PM>
         // First, write the `start` field of the entry, which is the address that the entry
         // is referring to, to the next position in the journal.
     
+        broadcast use pmcopy_axioms;
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
         assert(crc_digest.bytes_in_digest() ==

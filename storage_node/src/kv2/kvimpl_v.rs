@@ -15,6 +15,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::seq::*;
 
+use crate::common::overflow_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -85,6 +86,71 @@ where
     pub closed spec fn valid(self) -> bool
     {
         true
+    }
+
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+    {
+        let key_table_size = KeyTable::<PM, K>::space_needed_for_setup(ps);
+        let item_table_size = ItemTable::<PM, I>::space_needed_for_setup(ps);
+        let list_table_size = ListTable::<PM, L>::space_needed_for_setup(ps);
+        let app_area_size = key_table_size + item_table_size + list_table_size;
+        if app_area_size > u64::MAX {
+            app_area_size
+        }
+        else {
+            let max_journal_entries = ps.max_operations_per_transaction
+                                    + ps.max_operations_per_transaction
+                                    + ps.max_operations_per_transaction
+                                    + ps.max_operations_per_transaction;
+            if max_journal_entries > u64::MAX {
+                max_journal_entries
+            }
+            else {
+                let jsp = JournalSetupParameters {
+                    app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
+                    app_program_guid: KVSTORE_PROGRAM_GUID,
+                    max_journal_entries: max_journal_entries as u64,
+                    max_journaled_bytes: ps.max_data_bytes_per_transaction,
+                    app_area_size: app_area_size as u64,
+                    app_area_alignment: 256,
+                };
+                Journal::<TrustedKvPermission, PM>::space_needed_for_setup(jsp)
+            }
+        }
+    }
+
+    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: Option<u64>)
+        ensures
+            match result {
+                Some(v) => v == Self::space_needed_for_setup(*ps),
+                None => Self::space_needed_for_setup(*ps) > u64::MAX,
+            },
+    {
+        let key_table_size = KeyTable::<PM, K>::get_space_needed_for_setup(ps);
+        let item_table_size = ItemTable::<PM, I>::get_space_needed_for_setup(ps);
+        let list_table_size = ListTable::<PM, L>::get_space_needed_for_setup(ps);
+        let app_area_size = key_table_size.add_overflowing_u64(&item_table_size).add_overflowing_u64(&list_table_size);
+        if app_area_size.is_overflowed() {
+            return None;
+        }
+
+        let max_journal_entries = OverflowingU64::new(ps.max_operations_per_transaction)
+                                      .add(ps.max_operations_per_transaction)
+                                      .add(ps.max_operations_per_transaction)
+                                      .add(ps.max_operations_per_transaction);
+        if max_journal_entries.is_overflowed() {
+            return None;
+        }
+
+        let jsp = JournalSetupParameters {
+            app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
+            app_program_guid: KVSTORE_PROGRAM_GUID,
+            max_journal_entries: max_journal_entries.unwrap(),
+            max_journaled_bytes: ps.max_data_bytes_per_transaction,
+            app_area_size: app_area_size.unwrap(),
+            app_area_alignment: 256,
+        };
+        Journal::<TrustedKvPermission, PM>::get_space_needed_for_setup(&jsp)
     }
 
     pub exec fn untrusted_setup(

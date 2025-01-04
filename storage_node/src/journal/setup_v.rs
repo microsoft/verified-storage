@@ -28,7 +28,7 @@ pub(super) exec fn get_space_needed_for_journal_entries(
     num_journaled_bytes.add_overflowing_u64(&num_header_bytes)
 }
 
-pub closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> int
+pub(super) closed spec fn spec_space_needed_for_setup(ps: JournalSetupParameters) -> int
     recommends
         ps.valid(),
 {

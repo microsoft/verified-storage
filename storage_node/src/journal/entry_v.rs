@@ -184,7 +184,7 @@ impl ConcreteJournalEntry
     }
 }
 
-pub struct ConcreteJournalEntries
+pub(super) struct ConcreteJournalEntries
 {
     pub entries: Vec<ConcreteJournalEntry>,
 }
