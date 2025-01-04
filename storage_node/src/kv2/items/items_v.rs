@@ -47,7 +47,7 @@ pub struct ItemTable<PM, I>
         I: PmCopy + Sized + std::fmt::Debug,
 {
     m: HashMap<u64, I>,
-    phantom: Ghost<core::marker::PhantomData<PM>>,
+    phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
 impl<PM, I> ItemTable<PM, I>
@@ -77,22 +77,39 @@ impl<PM, I> ItemTable<PM, I>
         OverflowingU64::new(0)
     }
 
-    pub exec fn setup(
+    pub exec fn setup<K>(
         pm: &mut PM,
-        sm: &ItemTableStaticMetadata,
-    )
+        ps: &SetupParameters,
+        start: u64,
+        max_end: u64,
+    ) -> (result: Result<ItemTableStaticMetadata, KvError<K>>)
+        where
+            K: std::fmt::Debug,
         requires
             old(pm).inv(),
-            sm.valid(),
-            sm.consistent_with_type::<I>(),
-            sm.table.end <= old(pm)@.len(),
+            ps.valid(),
+            start <= max_end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
-            Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
+            match result {
+                Ok(sm) => {
+                    &&& Self::recover(pm@.read_state, Set::<u64>::empty(), sm) == Some(ItemTableSnapshot::<I>::init())
+                    &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int,
+                                                 sm.table.end as int)
+                    &&& sm.valid()
+                    &&& sm.consistent_with_type::<I>()
+                    &&& sm.table.start == start
+                    &&& sm.table.end <= max_end
+                    &&& sm.table.end - sm.table.start <= Self::space_needed_for_setup(*ps)
+                    &&& sm.table.num_rows == ps.num_keys
+                },
+                Err(KvError::OutOfSpace) => max_end - start < Self::space_needed_for_setup(*ps),
+                _ => false,
+            },
     {
         assume(false);
+        Err(KvError::NotImplemented)
     }
 }
 

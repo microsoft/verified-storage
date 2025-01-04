@@ -161,12 +161,15 @@ where
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.durable_state)
                         == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 }
-                Err(KvError::InvalidParameter) => !ps.valid(),
-                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
-                Err(KvError::OutOfSpace) => {
+                Err(KvError::InvalidParameter) => {
                     &&& pm@ == old(pm)@
-                    &&& pm@.len() < Self::space_needed_for_setup(*ps)
+                    &&& !ps.valid()
                 },
+                Err(KvError::KeySizeTooSmall) => {
+                    &&& pm@ == old(pm)@
+                    &&& K::spec_size_of() == 0
+                },
+                Err(KvError::OutOfSpace) => pm@.len() < Self::space_needed_for_setup(*ps),
                 Err(_) => false,
             }
     {

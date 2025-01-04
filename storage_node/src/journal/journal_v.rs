@@ -130,6 +130,7 @@ impl <Perm, PM> Journal<Perm, PM>
             old(pm).inv(),
         ensures
             pm.inv(),
+            pm.constants() == old(pm).constants(),
             match result {
                 Ok(constants) => {
                     &&& ps.valid()
@@ -143,8 +144,15 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& constants.app_area_end == pm@.len()
                     &&& Self::ready_for_app_setup(pm@.read_state, constants)
                 },
-                Err(JournalError::InvalidAlignment) => !ps.valid(),
-                Err(JournalError::NotEnoughSpace) => ps.valid() && Self::space_needed_for_setup(*ps) > pm@.len(),
+                Err(JournalError::InvalidAlignment) => {
+                    &&& !ps.valid()
+                    &&& pm@ == old(pm)@
+                },
+                Err(JournalError::NotEnoughSpace) => {
+                    &&& ps.valid()
+                    &&& pm@ == old(pm)@
+                    &&& Self::space_needed_for_setup(*ps) > pm@.len()
+                },
                 Err(_) => false,
             }
     {
