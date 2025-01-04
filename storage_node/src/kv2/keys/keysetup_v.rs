@@ -3,6 +3,8 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::common::nonlinear_v::*;
+use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
@@ -22,7 +24,42 @@ use super::super::kvspec_t::*;
 
 verus! {
 
-pub(super) exec fn exec_setup<PM, K>(
+pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParameters) -> int
+    where
+        K: PmCopy,
+{
+    let row_metadata_start = u64::spec_size_of();
+    let row_metadata_end = row_metadata_start + KeyTableRowMetadata::spec_size_of();
+    let row_metadata_crc_start = row_metadata_end;
+    let row_metadata_crc_end = row_metadata_crc_start + u64::spec_size_of();
+    let row_key_start = row_metadata_crc_end;
+    let row_key_end = row_key_start + K::spec_size_of();
+    let row_key_crc_start = row_key_end;
+    let row_key_crc_end = row_key_crc_start + u64::spec_size_of();
+    let row_size = row_key_crc_end;
+    let num_rows = if ps.num_keys == 0 { 1 } else { ps.num_keys };
+    opaque_mul(num_rows as int, row_size as int)
+}
+
+pub(super) exec fn get_space_needed_for_key_table_setup<K>(ps: &SetupParameters) -> (result: OverflowingU64)
+    where
+        K: PmCopy,
+    ensures
+        result@ == spec_space_needed_for_key_table_setup::<K>(*ps),
+{
+    broadcast use pmcopy_axioms;
+
+    let row_cdb_start = OverflowingU64::new(0);
+    let row_metadata_start = row_cdb_start.add_usize(size_of::<u64>());
+    let row_metadata_end = row_metadata_start.add_usize(size_of::<KeyTableRowMetadata>());
+    let row_metadata_crc_end = row_metadata_end.add_usize(size_of::<u64>());
+    let row_key_end = row_metadata_crc_end.add_usize(size_of::<K>());
+    let row_key_crc_end = row_key_end.add_usize(size_of::<u64>());
+    let num_rows = OverflowingU64::new(if ps.num_keys == 0 { 1 } else { ps.num_keys });
+    num_rows.mul_overflowing_u64(&row_key_crc_end)
+}
+
+pub(super) exec fn exec_setup_given_metadata<PM, K>(
     pm: &mut PM,
     sm: &KeyTableStaticMetadata,
 )
@@ -93,6 +130,94 @@ pub(super) exec fn exec_setup<PM, K>(
         mapping.lemma_corresponds_implies_equals_new(pm@.read_state, *sm);
     }
     assert(recover_keys_from_mapping::<K>(mapping) =~= KeyTableSnapshot::<K>::init());
+}
+
+pub(super) exec fn exec_setup<PM, K>(
+    pm: &mut PM,
+    ps: &SetupParameters,
+    start: u64,
+    max_end: u64,
+) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+    requires
+        old(pm).inv(),
+        start <= max_end <= old(pm)@.len(),
+    ensures
+        pm.inv(),
+        pm.constants() == old(pm).constants(),
+        match result {
+            Ok(sm) => {
+                &&& recover_keys::<K>(pm@.read_state, sm) == Some(KeyTableSnapshot::<K>::init())
+                &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int,
+                                             sm.table.end as int)
+                &&& sm.valid()
+                &&& sm.consistent_with_type::<K>()
+                &&& sm.table.start == start
+                &&& sm.table.end <= max_end
+                &&& sm.table.end - sm.table.start <= spec_space_needed_for_key_table_setup::<K>(*ps)
+                &&& sm.table.num_rows == (if ps.num_keys == 0 { 1 } else { ps.num_keys })
+            },
+            Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
+            Err(KvError::OutOfSpace) => {
+                &&& pm@ == old(pm)@
+                &&& max_end - start < spec_space_needed_for_key_table_setup::<K>(*ps)
+            },
+            _ => false,
+        }
+{
+    broadcast use pmcopy_axioms;
+
+    let key_size = size_of::<K>();
+    if key_size == 0 {
+        return Err(KvError::KeySizeTooSmall);
+    }
+
+    let row_cdb_start = OverflowingU64::new(0);
+    let row_metadata_start = row_cdb_start.add_usize(size_of::<u64>());
+    let row_metadata_end = row_metadata_start.add_usize(size_of::<KeyTableRowMetadata>());
+    let row_metadata_crc_end = row_metadata_end.add_usize(size_of::<u64>());
+    let row_key_end = row_metadata_crc_end.add_usize(key_size);
+    let row_key_crc_end = row_key_end.add_usize(size_of::<u64>());
+    let num_rows = if ps.num_keys == 0 { 1 } else { ps.num_keys };
+    let space_required = OverflowingU64::new(num_rows).mul_overflowing_u64(&row_key_crc_end);
+
+    assert(space_required@ == spec_space_needed_for_key_table_setup::<K>(*ps));
+    assert(space_required@ >= row_key_crc_end@) by {
+        reveal(opaque_mul);
+        vstd::arithmetic::mul::lemma_mul_ordering(num_rows as int, row_key_crc_end@);
+    }
+
+    if space_required.is_overflowed() {
+        return Err(KvError::OutOfSpace);
+    }
+
+    let space_required = space_required.unwrap();
+    if space_required > max_end - start {
+        return Err(KvError::OutOfSpace);
+    }
+
+    let table = TableMetadata::new(
+        start,
+        start + space_required,
+        num_rows,
+        row_key_crc_end.unwrap(),
+    );
+    let sm = KeyTableStaticMetadata {
+        table,
+        key_size: key_size as u64,
+        row_cdb_start: 0,
+        row_metadata_start: row_metadata_start.unwrap(),
+        row_metadata_end: row_metadata_end.unwrap(),
+        row_metadata_crc_start: row_metadata_end.unwrap(),
+        row_key_start: row_metadata_crc_end.unwrap(),
+        row_key_end: row_key_end.unwrap(),
+        row_key_crc_start: row_key_end.unwrap(),
+    };
+
+    exec_setup_given_metadata::<PM, K>(pm, &sm);
+    Ok(sm)
 }
 
 }

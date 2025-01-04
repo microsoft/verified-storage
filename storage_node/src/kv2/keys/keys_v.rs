@@ -3,8 +3,9 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::table_v::*;
+use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
+use crate::common::table_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
@@ -115,23 +116,52 @@ impl<PM, K> KeyTable<PM, K>
     {
         recover_keys(s, sm)
     }
+
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+    {
+        spec_space_needed_for_key_table_setup::<K>(ps)
+    }
+
+    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: OverflowingU64)
+        ensures
+            result@ == Self::space_needed_for_setup(*ps),
+    {
+        get_space_needed_for_key_table_setup::<K>(ps)
+    }
     
     pub exec fn setup(
         pm: &mut PM,
-        sm: &KeyTableStaticMetadata,
-    )
+        ps: &SetupParameters,
+        start: u64,
+        max_end: u64,
+    ) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
         requires
             old(pm).inv(),
-            sm.valid(),
-            sm.consistent_with_type::<K>(),
-            sm.table.end <= old(pm)@.len(),
+            start <= max_end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
-            Self::recover(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
+            match result {
+                Ok(sm) => {
+                    &&& Self::recover(pm@.read_state, sm) == Some(KeyTableSnapshot::<K>::init())
+                    &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int,
+                                                 sm.table.end as int)
+                    &&& sm.valid()
+                    &&& sm.consistent_with_type::<K>()
+                    &&& sm.table.start == start
+                    &&& sm.table.end <= max_end
+                    &&& sm.table.end - sm.table.start <= Self::space_needed_for_setup(*ps)
+                    &&& sm.table.num_rows == (if ps.num_keys == 0 { 1 } else { ps.num_keys })
+                },
+                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
+                Err(KvError::OutOfSpace) => {
+                    &&& pm@ == old(pm)@
+                    &&& max_end - start < Self::space_needed_for_setup(*ps)
+                },
+                _ => false,
+            },
     {
-        exec_setup::<PM, K>(pm, sm)
+        exec_setup::<PM, K>(pm, ps, start, max_end)
     }
 }
 

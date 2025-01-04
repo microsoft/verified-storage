@@ -2,6 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use crate::common::align_v::{get_space_needed_for_alignment, lemma_space_needed_for_alignment_works,
                              opaque_aligned, round_up_to_alignment};
+use crate::common::nonlinear_v::opaque_mul;
 use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
 use crate::pmem::traits_t::{size_of, align_of};
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
@@ -196,9 +197,10 @@ impl OverflowingU64 {
     #[inline]
     pub exec fn mul(&self, v2: u64) -> (result: Self)
         ensures
-            result@ == self@ * v2,
+            result@ == opaque_mul(self@, v2 as int),
     {
         proof {
+            reveal(opaque_mul);
             use_type_invariant(self);
         }
         let i: Ghost<int> = Ghost(self@ * v2);
@@ -255,9 +257,10 @@ impl OverflowingU64 {
     #[inline]
     pub exec fn mul_overflowing_u64(&self, v2: &Self) -> (result: Self)
         ensures
-            result@ == self@ * v2@,
+            result@ == opaque_mul(self@, v2@),
     {
         proof {
+            reveal(opaque_mul);
             use_type_invariant(self);
             use_type_invariant(v2);
         }

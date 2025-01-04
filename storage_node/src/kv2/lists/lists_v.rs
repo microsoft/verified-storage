@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -58,6 +59,19 @@ impl<PM, L> ListTable<PM, L>
     ) -> Option<ListTableSnapshot<L>>
     {
         recover_lists::<L>(s, addrs, sm)
+    }
+
+    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> int
+    {
+        arbitrary()
+    }
+
+    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: OverflowingU64)
+        ensures
+            result@ == Self::space_needed_for_setup(*ps),
+    {
+        assume(false);
+        OverflowingU64::new(0)
     }
 
     pub exec fn setup(
