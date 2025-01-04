@@ -123,6 +123,8 @@ impl<PM, K> KeyTable<PM, K>
     }
 
     pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: OverflowingU64)
+        requires
+            ps.valid(),
         ensures
             result@ == Self::space_needed_for_setup(*ps),
     {
@@ -137,6 +139,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
         requires
             old(pm).inv(),
+            ps.valid(),
             start <= max_end <= old(pm)@.len(),
         ensures
             pm.inv(),

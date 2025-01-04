@@ -27,6 +27,8 @@ verus! {
 pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParameters) -> int
     where
         K: PmCopy,
+    recommends
+        ps.valid(),
 {
     let row_metadata_start = u64::spec_size_of();
     let row_metadata_end = row_metadata_start + KeyTableRowMetadata::spec_size_of();
@@ -37,13 +39,15 @@ pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParame
     let row_key_crc_start = row_key_end;
     let row_key_crc_end = row_key_crc_start + u64::spec_size_of();
     let row_size = row_key_crc_end;
-    let num_rows = if ps.num_keys == 0 { 1 } else { ps.num_keys };
+    let num_rows = ps.num_keys;
     opaque_mul(num_rows as int, row_size as int)
 }
 
 pub(super) exec fn get_space_needed_for_key_table_setup<K>(ps: &SetupParameters) -> (result: OverflowingU64)
     where
         K: PmCopy,
+    requires
+        ps.valid(),
     ensures
         result@ == spec_space_needed_for_key_table_setup::<K>(*ps),
 {
@@ -55,7 +59,7 @@ pub(super) exec fn get_space_needed_for_key_table_setup<K>(ps: &SetupParameters)
     let row_metadata_crc_end = row_metadata_end.add_usize(size_of::<u64>());
     let row_key_end = row_metadata_crc_end.add_usize(size_of::<K>());
     let row_key_crc_end = row_key_end.add_usize(size_of::<u64>());
-    let num_rows = OverflowingU64::new(if ps.num_keys == 0 { 1 } else { ps.num_keys });
+    let num_rows = OverflowingU64::new(ps.num_keys);
     num_rows.mul_overflowing_u64(&row_key_crc_end)
 }
 
@@ -143,6 +147,7 @@ pub(super) exec fn exec_setup<PM, K>(
         K: Hash + PmCopy + Sized + std::fmt::Debug,
     requires
         old(pm).inv(),
+        ps.valid(),
         start <= max_end <= old(pm)@.len(),
     ensures
         pm.inv(),
@@ -157,7 +162,7 @@ pub(super) exec fn exec_setup<PM, K>(
                 &&& sm.table.start == start
                 &&& sm.table.end <= max_end
                 &&& sm.table.end - sm.table.start <= spec_space_needed_for_key_table_setup::<K>(*ps)
-                &&& sm.table.num_rows == (if ps.num_keys == 0 { 1 } else { ps.num_keys })
+                &&& sm.table.num_rows == ps.num_keys
             },
             Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
             Err(KvError::OutOfSpace) => {
@@ -180,7 +185,7 @@ pub(super) exec fn exec_setup<PM, K>(
     let row_metadata_crc_end = row_metadata_end.add_usize(size_of::<u64>());
     let row_key_end = row_metadata_crc_end.add_usize(key_size);
     let row_key_crc_end = row_key_end.add_usize(size_of::<u64>());
-    let num_rows = if ps.num_keys == 0 { 1 } else { ps.num_keys };
+    let num_rows = ps.num_keys;
     let space_required = OverflowingU64::new(num_rows).mul_overflowing_u64(&row_key_crc_end);
 
     assert(space_required@ == spec_space_needed_for_key_table_setup::<K>(*ps));

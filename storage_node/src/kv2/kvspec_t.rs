@@ -85,6 +85,8 @@ impl SetupParameters {
         &&& 0 < self.num_list_entries_per_block
         &&& 0 < self.num_list_blocks
         &&& 0 < self.num_lists_to_cache
+        &&& 0 < self.max_operations_per_transaction
+        &&& 0 < self.max_data_bytes_per_transaction
     }
 }
 
