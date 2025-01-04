@@ -13,15 +13,15 @@ use vstd::prelude::*;
 verus! {
 
 pub struct OverflowingU64 {
-    i: Ghost<int>,
+    i: Ghost<nat>,
     v: Option<u64>,
 }
 
 impl View for OverflowingU64
 {
-    type V = int;
+    type V = nat;
 
-    closed spec fn view(&self) -> int
+    closed spec fn view(&self) -> nat
     {
         self.i@
     }
@@ -49,7 +49,7 @@ impl OverflowingU64 {
 
     pub closed spec fn spec_new(v: u64) -> OverflowingU64
     {
-        OverflowingU64{ i: Ghost(v as int), v: Some(v) }
+        OverflowingU64{ i: Ghost(v as nat), v: Some(v) }
     }
 
     #[verifier::when_used_as_spec(spec_new)]
@@ -57,7 +57,7 @@ impl OverflowingU64 {
         ensures
             result@ == v
     {
-        Self{ i: Ghost(v as int), v: Some(v) }
+        Self{ i: Ghost(v as nat), v: Some(v) }
     }
 
     pub open spec fn spec_is_overflowed(&self) -> bool
@@ -103,7 +103,7 @@ impl OverflowingU64 {
         proof {
             use_type_invariant(&self);
         }
-        let i: Ghost<int> = Ghost(&self@ + v2);
+        let i: Ghost<nat> = Ghost((&self@ + v2) as nat);
         if self.v.is_none() || v2 > u64::MAX - self.v.unwrap() {
             assert(i@ > u64::MAX);
             Self{ i, v: None }
@@ -128,17 +128,17 @@ impl OverflowingU64 {
         ensures
             self@ <= result@,
             result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@, alignment as int),
-            opaque_aligned(result@, alignment as int),
+            result@ == round_up_to_alignment(self@ as int, alignment as int),
+            opaque_aligned(result@ as int, alignment as int),
     {
         proof {
             use_type_invariant(self);
-            lemma_space_needed_for_alignment_works(self@, alignment as int);
+            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
         }
 
         match self.v {
             None => Self{
-                i: Ghost(round_up_to_alignment(self.i@, alignment as int)),
+                i: Ghost(round_up_to_alignment(self.i@ as int, alignment as int) as nat),
                 v: None,
             },
             Some(v) => {
@@ -155,17 +155,17 @@ impl OverflowingU64 {
         ensures
             self@ <= result@,
             result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@, alignment as int),
-            opaque_aligned(result@, alignment as int),
+            result@ == round_up_to_alignment(self@ as int, alignment as int),
+            opaque_aligned(result@ as int, alignment as int),
     {
         proof {
             use_type_invariant(self);
-            lemma_space_needed_for_alignment_works(self@, alignment as int);
+            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
         }
 
         match self.v {
             None => Self{
-                i: Ghost(round_up_to_alignment(self.i@, alignment as int)),
+                i: Ghost(round_up_to_alignment(self.i@ as int, alignment as int) as nat),
                 v: None,
             },
             Some(v) => {
@@ -184,7 +184,7 @@ impl OverflowingU64 {
             use_type_invariant(self);
             use_type_invariant(v2);
         }
-        let i: Ghost<int> = Ghost(self@ + v2@);
+        let i: Ghost<nat> = Ghost((self@ + v2@) as nat);
         if self.is_overflowed() || v2.is_overflowed() || self.v.unwrap() > u64::MAX - v2.v.unwrap() {
             assert(i@ > u64::MAX);
             Self{ i, v: None }
@@ -197,23 +197,23 @@ impl OverflowingU64 {
     #[inline]
     pub exec fn mul(&self, v2: u64) -> (result: Self)
         ensures
-            result@ == opaque_mul(self@, v2 as int),
+            result@ == opaque_mul(self@ as int, v2 as int),
     {
         proof {
             reveal(opaque_mul);
             use_type_invariant(self);
         }
-        let i: Ghost<int> = Ghost(self@ * v2);
+        let i: Ghost<nat> = Ghost((self@ * v2) as nat);
         if v2 == 0 {
             assert(i@ == 0) by {
-                lemma_mul_by_zero_is_zero(self@);
+                lemma_mul_by_zero_is_zero(self@ as int);
             }
             Self{ i, v: Some(0) }
         }
         else if self.is_overflowed() {
             assert(self@ * v2 >= self@ * 1 == self@) by {
-                lemma_mul_inequality(1, v2 as int, self@);
-                lemma_mul_is_commutative(self@, v2 as int);
+                lemma_mul_inequality(1, v2 as int, self@ as int);
+                lemma_mul_is_commutative(self@ as int, v2 as int);
             }
             Self{ i, v: None }
         }
@@ -232,7 +232,7 @@ impl OverflowingU64 {
                     }
                 }
                 assert(self@ * v2 >= ((u64::MAX + v2) / (v2 as int)) * v2) by {
-                    lemma_mul_inequality((u64::MAX + v2) / (v2 as int), self@, v2 as int);
+                    lemma_mul_inequality((u64::MAX + v2) / (v2 as int), self@ as int, v2 as int);
                 }
                 assert(self@ * v2 > u64::MAX);
             }
@@ -257,24 +257,24 @@ impl OverflowingU64 {
     #[inline]
     pub exec fn mul_overflowing_u64(&self, v2: &Self) -> (result: Self)
         ensures
-            result@ == opaque_mul(self@, v2@),
+            result@ == opaque_mul(self@ as int, v2@ as int),
     {
         proof {
             reveal(opaque_mul);
             use_type_invariant(self);
             use_type_invariant(v2);
         }
-        let i: Ghost<int> = Ghost(self@ * v2@);
+        let i: Ghost<nat> = Ghost(self@ * v2@);
         if v2.is_overflowed() {
             if self.v.is_some() && self.v.unwrap() == 0 {
                 assert(i@ == 0) by {
-                    lemma_mul_by_zero_is_zero(v2@);
+                    lemma_mul_by_zero_is_zero(v2@ as int);
                 }
                 Self{ i, v: Some(0) }
             }
             else {
                 assert(i@ > u64::MAX) by {
-                    lemma_mul_inequality(1, self@, v2@);
+                    lemma_mul_inequality(1, self@ as int, v2@ as int);
                 }
                 Self{ i, v: None }
             }
@@ -295,8 +295,8 @@ pub exec fn allocate_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU
         ({
             let (start, end) = bounds;
             &&& offset@ <= start@ < offset@ + T::spec_align_of()
-            &&& start@ == round_up_to_alignment(offset@, T::spec_align_of() as int)
-            &&& opaque_aligned(start@, T::spec_align_of() as int)
+            &&& start@ == round_up_to_alignment(offset@ as int, T::spec_align_of() as int)
+            &&& opaque_aligned(start@ as int, T::spec_align_of() as int)
             &&& end@ - start@ == T::spec_size_of()
         })
 {
@@ -314,8 +314,8 @@ pub exec fn allocate_specified_space(offset: &OverflowingU64, size: u64, alignme
         ({
             let (start, end) = bounds;
             &&& offset@ <= start@ < offset@ + alignment
-            &&& start@ == round_up_to_alignment(offset@, alignment as int)
-            &&& opaque_aligned(start@, alignment as int)
+            &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
+            &&& opaque_aligned(start@ as int, alignment as int)
             &&& end@ - start@ == size
         })
 {
@@ -333,8 +333,8 @@ pub exec fn allocate_specified_space_overflowing_u64(offset: &OverflowingU64, si
         ({
             let (start, end) = bounds;
             &&& offset@ <= start@ < offset@ + alignment
-            &&& start@ == round_up_to_alignment(offset@, alignment as int)
-            &&& opaque_aligned(start@, alignment as int)
+            &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
+            &&& opaque_aligned(start@ as int, alignment as int)
             &&& end@ - start@ == size@
         })
 {

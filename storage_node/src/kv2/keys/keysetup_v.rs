@@ -184,7 +184,7 @@ pub(super) exec fn exec_setup<PM, K>(
     assert(space_required@ == spec_space_needed_for_key_table_setup::<K>(*ps));
     assert(space_required@ >= row_key_crc_end@) by {
         reveal(opaque_mul);
-        vstd::arithmetic::mul::lemma_mul_ordering(num_rows as int, row_key_crc_end@);
+        vstd::arithmetic::mul::lemma_mul_ordering(num_rows as int, row_key_crc_end@ as int);
     }
 
     if space_required.is_overflowed() {
