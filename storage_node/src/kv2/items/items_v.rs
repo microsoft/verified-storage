@@ -12,6 +12,7 @@ use crate::pmem::pmemutil_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 use super::itemrecover_v::*;
+use super::itemsetup_v::*;
 use super::super::kvimpl_t::*;
 use super::super::kvrecover_v::*;
 use super::super::kvspec_t::*;
@@ -66,16 +67,17 @@ impl<PM, I> ItemTable<PM, I>
 
     pub closed spec fn spec_setup_end(ps: SetupParameters, min_start: nat) -> nat
     {
-        arbitrary()
+        local_spec_setup_end::<I>(ps, min_start)
     }
 
     pub exec fn setup_end(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
+        requires
+            ps.valid(),
         ensures
             result@ == Self::spec_setup_end(*ps, min_start@),
             min_start@ <= result@,
     {
-        assume(false);
-        OverflowingU64::new(0)
+        local_setup_end::<I>(ps, min_start)
     }
 
     pub exec fn setup<K>(
@@ -110,8 +112,7 @@ impl<PM, I> ItemTable<PM, I>
                 _ => false,
             },
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        local_setup::<PM, I, K>(pm, ps, min_start, max_end)
     }
 
     pub proof fn lemma_recover_depends_only_on_my_area(

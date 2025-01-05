@@ -28,8 +28,6 @@ verus! {
 pub(super) open spec fn local_spec_setup_end<K>(ps: SetupParameters, min_start: nat) -> nat
     where
         K: PmCopy,
-    recommends
-        ps.valid(),
 {
     // let row_cdb_start = 0;
     let row_metadata_start = u64::spec_size_of();
@@ -50,16 +48,13 @@ pub(super) open spec fn local_spec_setup_end<K>(ps: SetupParameters, min_start: 
 pub(super) exec fn local_setup_end<K>(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
     where
         K: PmCopy,
-    requires
-        ps.valid(),
     ensures
         result@ == local_spec_setup_end::<K>(*ps, min_start@),
         min_start@ <= result@,
 {
     broadcast use pmcopy_axioms;
 
-    let row_cdb_start = OverflowingU64::new(0);
-    let row_metadata_start = row_cdb_start.add_usize(size_of::<u64>());
+    let row_metadata_start = OverflowingU64::new(size_of::<u64>() as u64);
     let row_metadata_end = row_metadata_start.add_usize(size_of::<KeyTableRowMetadata>());
     let row_metadata_crc_end = row_metadata_end.add_usize(size_of::<u64>());
     let row_key_end = row_metadata_crc_end.add_usize(size_of::<K>());
