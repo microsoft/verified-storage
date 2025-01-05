@@ -87,43 +87,36 @@ impl <Perm, PM> Journal<Perm, PM>
                == j2.state.subrange(j2.constants.app_area_start as int, j2.constants.app_area_end as int)
     }
 
-    pub closed spec fn space_needed_for_setup(ps: JournalSetupParameters) -> nat
-        recommends
-            ps.valid(),
+    pub closed spec fn spec_journal_entry_overhead() -> nat
     {
-        spec_space_needed_for_setup(ps)
+        (u64::spec_size_of() + u64::spec_size_of()) as nat
     }
 
-    pub closed spec fn ready_for_app_setup(
-        bytes: Seq<u8>,
-        constants: JournalConstants,
-    ) -> bool
-    {
-        spec_ready_for_app_setup(bytes, constants)
-    }
-
-    pub exec fn get_space_needed_for_setup(ps: &JournalSetupParameters) -> (result: Option<u64>)
-        requires
-            ps.valid(),
+    pub exec fn journal_entry_overhead() -> (result: u64)
         ensures
-            ({
-                let space_needed = Self::space_needed_for_setup(*ps);
-                match result {
-                    Some(v) => v == space_needed,
-                    None => space_needed > u64::MAX,
-                }
-            })
+            result == Self::spec_journal_entry_overhead()
     {
-        match get_addresses_for_setup(ps) {
-            Some(addrs) => Some(addrs.min_app_area_end),
-            None => None
-        }
+        broadcast use pmcopy_axioms;
+        (size_of::<u64>() + size_of::<u64>()) as u64
     }
 
-    pub exec fn begin_setup(
+    pub closed spec fn spec_space_needed_for_setup(journal_capacity: nat) -> nat
+    {
+        local_spec_space_needed_for_setup(journal_capacity)
+    }
+
+    pub exec fn space_needed_for_setup(journal_capacity: &OverflowingU64) -> (result: OverflowingU64)
+        ensures
+            result@ == Self::spec_space_needed_for_setup(journal_capacity@),
+            journal_capacity@ <= result@,
+    {
+        local_space_needed_for_setup(journal_capacity)
+    }
+
+    pub exec fn setup(
         pm: &mut PM,
-        ps: &JournalSetupParameters,
-    ) -> (result: Result<JournalConstants, JournalError>)
+        jc: &JournalConstants,
+    ) -> (result: Result<(), JournalError>)
         where
             PM: PersistentMemoryRegion
         requires
@@ -133,123 +126,29 @@ impl <Perm, PM> Journal<Perm, PM>
             pm.constants() == old(pm).constants(),
             match result {
                 Ok(constants) => {
-                    &&& ps.valid()
-                    &&& Self::recover(pm@.read_state) == Some(RecoveredJournal{ constants, state: pm@.read_state })
-                    &&& constants.app_version_number == ps.app_version_number
-                    &&& constants.app_program_guid == ps.app_program_guid
-                    &&& constants.journal_capacity
-                           >= space_needed_for_journal_entries(ps.max_journal_entries as int, ps.max_journaled_bytes as int)
-                    &&& opaque_aligned(constants.app_area_start as int, ps.app_area_alignment as int)
-                    &&& constants.app_area_end >= constants.app_area_start + ps.app_area_size
-                    &&& constants.app_area_end == pm@.len()
-                    &&& Self::ready_for_app_setup(pm@.read_state, constants)
+                    &&& pm@.flush_predicted()
+                    &&& Self::recover(pm@.durable_state)
+                        == Some(RecoveredJournal{ constants: *jc, state: pm@.durable_state })
+                    &&& jc.app_area_start <= jc.app_area_end
+                    &&& jc.app_area_end == pm@.len()
+                    &&& seqs_match_in_range(old(pm)@.read_state, pm@.read_state, jc.app_area_start as int,
+                                           jc.app_area_end as int)
                 },
-                Err(JournalError::InvalidAlignment) => {
-                    &&& !ps.valid()
+                Err(JournalError::InvalidSetupParameters) => {
                     &&& pm@ == old(pm)@
+                    &&& {
+                           ||| jc.app_area_start > jc.app_area_end
+                           ||| jc.app_area_end != pm@.len()
+                       }
                 },
                 Err(JournalError::NotEnoughSpace) => {
-                    &&& ps.valid()
                     &&& pm@ == old(pm)@
-                    &&& Self::space_needed_for_setup(*ps) > pm@.len()
+                    &&& jc.app_area_start < Self::spec_space_needed_for_setup(jc.journal_capacity as nat)
                 },
                 Err(_) => false,
             }
     {
-        if ps.app_area_alignment == 0 {
-            return Err(JournalError::InvalidAlignment);
-        }
-    
-        // Compute the region size so we can see if we have enough space.
-        // This also establishes that the region size fits in a u64, so
-        // if it turns out we need more than u64::MAX bytes we're justified
-        // in returning `JournalError::NotEnoughSpace`.
-        let pm_size = pm.get_region_size();
-    
-        let addrs = match get_addresses_for_setup(ps) {
-            Some(addrs) => addrs,
-            None => { return Err(JournalError::NotEnoughSpace); }, // space needed > u64::MAX
-        };
-    
-        if addrs.min_app_area_end > pm_size {
-            return Err(JournalError::NotEnoughSpace);
-        }
-    
-        proof {
-            assert(pm@.valid()) by { pm.lemma_inv_implies_view_valid(); }
-            broadcast use pmcopy_axioms;
-            assert(addrs.valid(*ps));
-        }
-    
-        // We now know we have enough space, and we know the addresses to store things.
-    
-        let vm = JournalVersionMetadata{
-            version_number: JOURNAL_PROGRAM_VERSION_NUMBER,
-            program_guid: JOURNAL_PROGRAM_GUID,
-        };
-        pm.serialize_and_write(addrs.journal_version_metadata_start, &vm);
-    
-        let vm_crc = calculate_crc(&vm);
-        pm.serialize_and_write(addrs.journal_version_metadata_crc_start, &vm_crc);
-        
-        let sm = JournalStaticMetadata{
-            app_version_number: ps.app_version_number,
-            app_program_guid: ps.app_program_guid,
-            committed_cdb_start: addrs.committed_cdb_start,
-            journal_length_start: addrs.journal_length_start,
-            journal_length_crc_start: addrs.journal_length_crc_start,
-            journal_entries_crc_start: addrs.journal_entries_crc_start,
-            journal_entries_start: addrs.journal_entries_start,
-            journal_entries_end: addrs.journal_entries_end,
-            app_area_start: addrs.app_area_start,
-            app_area_end: pm_size,
-        };
-        pm.serialize_and_write(addrs.journal_static_metadata_start, &sm);
-        let sm_crc = calculate_crc(&sm);
-        pm.serialize_and_write(addrs.journal_static_metadata_crc_start, &sm_crc);
-    
-        let committed_cdb = CDB_FALSE;
-        pm.serialize_and_write(addrs.committed_cdb_start, &committed_cdb);
-    
-        proof {
-            lemma_setup_works(pm@.read_state, *ps, addrs, vm, sm);
-        }
-    
-        let journal_constants = JournalConstants {
-            app_version_number: ps.app_version_number,
-            app_program_guid: ps.app_program_guid,
-            journal_capacity: addrs.journal_entries_end - addrs.journal_entries_start,
-            app_area_start: addrs.app_area_start,
-            app_area_end: pm_size,
-        };
-    
-        Ok(journal_constants)
-    }
-
-    pub exec fn end_setup(
-        pm: &mut PM,
-        journal_constants: &JournalConstants,
-        Ghost(state_after_begin_setup): Ghost<Seq<u8>>, // the state after calling `begin_setup` and
-                                                        // before initializing the application state
-    )
-        where
-            PM: PersistentMemoryRegion
-        requires
-            old(pm).inv(),
-            Self::ready_for_app_setup(state_after_begin_setup, *journal_constants),
-            old(pm)@.len() == state_after_begin_setup.len(),
-            seqs_match_in_range(state_after_begin_setup, old(pm)@.read_state, 0, journal_constants.app_area_start as int),
-        ensures
-            pm.inv(),
-            pm@.flush_predicted(),
-            Self::recover(pm@.durable_state) ==
-                Some(RecoveredJournal{ constants: *journal_constants, state: old(pm)@.read_state }),
-    {
-        pm.flush();
-        proof {
-            lemma_auto_subrange_subrange(state_after_begin_setup, 0, journal_constants.app_area_start as int);
-            lemma_auto_subrange_subrange(pm@.read_state, 0, journal_constants.app_area_start as int);
-        }
+        local_setup(pm, jc)
     }
 
     pub exec fn start(
@@ -499,7 +398,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self@.valid(),
             self.recover_successful(),
             ({
-                let space_needed = space_needed_for_journal_entry(bytes_to_write@.len());
+                let space_needed = Self::spec_journal_entry_overhead() + bytes_to_write@.len();
                 match result {
                     Ok(_) => {
                         &&& space_needed <= old(self)@.remaining_capacity
@@ -526,19 +425,19 @@ impl <Perm, PM> Journal<Perm, PM>
         // if there isn't enough space. Do this before doing anything else so that
         // we can ensure `self` hasn't changed if we return this error.
         
-        let space_needed = get_space_needed_for_journal_entry(bytes_to_write.len());
-        if space_needed.is_overflowed() {
+        let overhead = Self::journal_entry_overhead();
+        if self.sm.journal_entries_end - self.sm.journal_entries_start - self.journal_length < overhead {
             return Err(JournalError::NotEnoughSpace);
         }
-        let space_needed = space_needed.unwrap();
-        if space_needed > self.sm.journal_entries_end - self.sm.journal_entries_start - self.journal_length {
+        if bytes_to_write.len() as u64 >
+           self.sm.journal_entries_end - self.sm.journal_entries_start - self.journal_length - overhead {
             return Err(JournalError::NotEnoughSpace);
         }
 
         // Update the relevant in-memory fields of `self`:
         // `journal_length`, `journaled_addrs`, and `entries`.
         
-        self.journal_length = self.journal_length + space_needed;
+        self.journal_length = self.journal_length + overhead + bytes_to_write.len() as u64;
         self.journaled_addrs = Ghost(self.journaled_addrs@ +
                                      Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
         let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
@@ -573,6 +472,7 @@ impl <Perm, PM> Journal<Perm, PM>
         proof {
             lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
         }
+
         Ok(())
     }
 

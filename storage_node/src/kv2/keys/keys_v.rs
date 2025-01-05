@@ -117,30 +117,31 @@ impl<PM, K> KeyTable<PM, K>
         recover_keys(s, sm)
     }
 
-    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> nat
+    pub closed spec fn spec_setup_end(ps: SetupParameters, min_start: nat) -> nat
     {
-        spec_space_needed_for_key_table_setup::<K>(ps)
+        local_spec_setup_end::<K>(ps, min_start)
     }
 
-    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: OverflowingU64)
+    pub exec fn setup_end(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
         requires
             ps.valid(),
         ensures
-            result@ == Self::space_needed_for_setup(*ps),
+            result@ == Self::spec_setup_end(*ps, min_start@),
+            min_start@ <= result@,
     {
-        get_space_needed_for_key_table_setup::<K>(ps)
+        local_setup_end::<K>(ps, min_start)
     }
     
     pub exec fn setup(
         pm: &mut PM,
         ps: &SetupParameters,
-        start: u64,
+        min_start: u64,
         max_end: u64,
     ) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
         requires
             old(pm).inv(),
             ps.valid(),
-            start <= max_end <= old(pm)@.len(),
+            min_start <= max_end <= old(pm)@.len(),
             0 < K::spec_size_of(),
         ensures
             pm.inv(),
@@ -152,16 +153,17 @@ impl<PM, K> KeyTable<PM, K>
                                                  sm.table.end as int)
                     &&& sm.valid()
                     &&& sm.consistent_with_type::<K>()
-                    &&& sm.table.start == start
+                    &&& min_start <= sm.table.start
+                    &&& sm.table.start <= sm.table.end
                     &&& sm.table.end <= max_end
-                    &&& sm.table.end - sm.table.start <= Self::space_needed_for_setup(*ps)
+                    &&& sm.table.end == Self::spec_setup_end(*ps, min_start as nat)
                     &&& sm.table.num_rows == ps.num_keys
                 },
-                Err(KvError::OutOfSpace) => max_end - start < Self::space_needed_for_setup(*ps),
+                Err(KvError::OutOfSpace) => max_end < Self::spec_setup_end(*ps, min_start as nat),
                 _ => false,
             },
     {
-        exec_setup::<PM, K>(pm, ps, start, max_end)
+        exec_setup::<PM, K>(pm, ps, min_start, max_end)
     }
 }
 

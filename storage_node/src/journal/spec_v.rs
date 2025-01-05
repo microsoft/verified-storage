@@ -108,7 +108,7 @@ pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(
 
 pub enum JournalError {
     CRCError,
-    InvalidAlignment,
+    InvalidSetupParameters,
     NotEnoughSpace,
 }
 
@@ -116,34 +116,6 @@ pub enum JournalError {
 pub struct RecoveredJournal {
     pub constants: JournalConstants,
     pub state: Seq<u8>,
-}
-
-#[verifier::ext_equal]
-pub struct JournalSetupParameters {
-    pub app_version_number: u64,
-    pub app_program_guid: u128,
-    pub max_journal_entries: u64,
-    pub max_journaled_bytes: u64,
-    pub app_area_size: u64,
-    pub app_area_alignment: u64,
-}
-
-impl JournalSetupParameters {
-    pub open spec fn valid(&self) -> bool
-    {
-        0 < self.app_area_alignment
-    }
-}
-
-pub open spec fn space_needed_for_journal_entry(num_bytes: nat) -> int
-{
-    num_bytes + u64::spec_size_of() as int + u64::spec_size_of() as int
-}
-
-pub open spec fn space_needed_for_journal_entries(max_journal_entries: int, max_journaled_bytes: int) -> int
-{
-    max_journaled_bytes + // journal data
-    opaque_mul(max_journal_entries, (u64::spec_size_of() + u64::spec_size_of()) as int) // entry headers
 }
 
 pub broadcast group broadcast_journal_view_matches_in_range {

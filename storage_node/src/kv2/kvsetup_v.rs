@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::common::align_v::*;
 use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
@@ -24,44 +25,6 @@ use super::lists::*;
 
 verus! {
 
-pub(super) open spec fn spec_space_needed_for_setup<PM, K, I, L>(ps: SetupParameters) -> nat
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-    recommends
-        ps.valid(),
-{
-    let key_table_size = KeyTable::<PM, K>::space_needed_for_setup(ps);
-    let item_table_size = ItemTable::<PM, I>::space_needed_for_setup(ps);
-    let list_table_size = ListTable::<PM, L>::space_needed_for_setup(ps);
-    let app_area_size = (key_table_size + item_table_size + list_table_size) as nat;
-    if app_area_size > u64::MAX {
-        app_area_size
-    }
-    else {
-        let max_journal_entries = (ps.max_operations_per_transaction
-                                   + ps.max_operations_per_transaction
-                                   + ps.max_operations_per_transaction
-                                   + ps.max_operations_per_transaction) as nat;
-        if max_journal_entries > u64::MAX {
-            max_journal_entries
-        }
-        else {
-            let jsp = JournalSetupParameters {
-                app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
-                app_program_guid: KVSTORE_PROGRAM_GUID,
-                max_journal_entries: max_journal_entries as u64,
-                max_journaled_bytes: ps.max_data_bytes_per_transaction,
-                app_area_size: app_area_size as u64,
-                app_area_alignment: 256,
-            };
-            Journal::<TrustedKvPermission, PM>::space_needed_for_setup(jsp)
-        }
-    }
-}
-
 exec fn exec_check_setup_parameters(ps: &SetupParameters) -> (result: bool)
     ensures
         result == ps.valid(),
@@ -71,12 +34,59 @@ exec fn exec_check_setup_parameters(ps: &SetupParameters) -> (result: bool)
     else if ps.num_list_blocks == 0 { false }
     else if ps.num_lists_to_cache == 0 { false }
     else if ps.max_operations_per_transaction == 0 { false }
-    else if ps.max_data_bytes_per_transaction == 0 { false }
     else { true }
 }
 
-pub(super) exec fn exec_get_space_needed_for_setup<PM, K, I, L>(ps: &SetupParameters)
-                                                                -> (result: Result<u64, KvError<K>>)
+pub(super) open spec fn spec_space_needed_for_journal_capacity<PM, K, I, L>(ps: SetupParameters) -> nat
+    where
+        PM: PersistentMemoryRegion,
+        L: PmCopy,
+{
+    let bytes_per_operation =
+        Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() * 4
+        + L::spec_size_of()
+        + u64::spec_size_of() * 8;
+    opaque_mul(ps.max_operations_per_transaction as int, bytes_per_operation as int) as nat
+}
+
+pub(super) exec fn space_needed_for_journal_capacity<PM, K, I, L>(ps: &SetupParameters) -> (result: OverflowingU64)
+    where
+        PM: PersistentMemoryRegion,
+        L: PmCopy,
+    ensures
+        result@ == spec_space_needed_for_journal_capacity::<PM, K, I, L>(*ps),
+{
+    broadcast use pmcopy_axioms;
+    reveal(opaque_mul);
+
+    let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
+    let overhead_times_four = OverflowingU64::new(overhead).mul(4);
+    let eight_u64_size = size_of::<u64>() * 8;
+    let bytes_per_operation = overhead_times_four.add_usize(size_of::<L>()).add_usize(eight_u64_size);
+    OverflowingU64::new(ps.max_operations_per_transaction).mul_overflowing_u64(&bytes_per_operation)
+}
+
+pub(super) open spec fn local_spec_space_needed_for_setup<PM, K, I, L>(ps: SetupParameters) -> nat
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + std::fmt::Debug,
+        I: PmCopy + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+    recommends
+        ps.valid(),
+{
+    let journal_capacity = spec_space_needed_for_journal_capacity::<PM, K, I, L>(ps);
+    let journal_end = Journal::<TrustedKvPermission, PM>::spec_space_needed_for_setup(journal_capacity);
+    let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
+    let sm_end = sm_start + KvStaticMetadata::spec_size_of();
+    let key_table_end = KeyTable::<PM, K>::spec_setup_end(ps, sm_end as nat);
+    let item_table_end = ItemTable::<PM, I>::spec_setup_end(ps, key_table_end);
+    let list_table_end = ListTable::<PM, L>::spec_setup_end(ps, item_table_end);
+    list_table_end as nat
+}
+
+pub(super) exec fn local_space_needed_for_setup<PM, K, I, L>(ps: &SetupParameters)
+                                                            -> (result: Result<u64, KvError<K>>)
     where
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + std::fmt::Debug,
@@ -84,9 +94,9 @@ pub(super) exec fn exec_get_space_needed_for_setup<PM, K, I, L>(ps: &SetupParame
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
     ensures
         match result {
-            Ok(v) => v == spec_space_needed_for_setup::<PM, K, I, L>(*ps),
+            Ok(v) => v == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps),
             Err(KvError::InvalidParameter) => !ps.valid(),
-            Err(KvError::OutOfSpace) => spec_space_needed_for_setup::<PM, K, I, L>(*ps) > u64::MAX,
+            Err(KvError::OutOfSpace) => local_spec_space_needed_for_setup::<PM, K, I, L>(*ps) > u64::MAX,
             Err(_) => false,
         },
 {
@@ -94,37 +104,23 @@ pub(super) exec fn exec_get_space_needed_for_setup<PM, K, I, L>(ps: &SetupParame
         return Err(KvError::InvalidParameter);
     }
 
-    let key_table_size = KeyTable::<PM, K>::get_space_needed_for_setup(ps);
-    let item_table_size = ItemTable::<PM, I>::get_space_needed_for_setup(ps);
-    let list_table_size = ListTable::<PM, L>::get_space_needed_for_setup(ps);
-    let app_area_size = key_table_size.add_overflowing_u64(&item_table_size).add_overflowing_u64(&list_table_size);
-    if app_area_size.is_overflowed() {
-        return Err(KvError::OutOfSpace);
+    let journal_capacity = space_needed_for_journal_capacity::<PM, K, I, L>(ps);
+    let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
+    let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
+    let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
+    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_end);
+    let item_table_end = ItemTable::<PM, I>::setup_end(ps, &key_table_end);
+    let list_table_end = ListTable::<PM, L>::setup_end(ps, &item_table_end);
+    assert(list_table_end@ == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps));
+    if list_table_end.is_overflowed() {
+        Err(KvError::OutOfSpace)
     }
-
-    let max_journal_entries = OverflowingU64::new(ps.max_operations_per_transaction)
-                                  .add(ps.max_operations_per_transaction)
-                                  .add(ps.max_operations_per_transaction)
-                                  .add(ps.max_operations_per_transaction);
-    if max_journal_entries.is_overflowed() {
-        return Err(KvError::OutOfSpace);
-    }
-
-    let jsp = JournalSetupParameters {
-        app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
-        app_program_guid: KVSTORE_PROGRAM_GUID,
-        max_journal_entries: max_journal_entries.unwrap(),
-        max_journaled_bytes: ps.max_data_bytes_per_transaction,
-        app_area_size: app_area_size.unwrap(),
-        app_area_alignment: 256,
-    };
-    match Journal::<TrustedKvPermission, PM>::get_space_needed_for_setup(&jsp) {
-        None => Err(KvError::OutOfSpace),
-        Some(v) => Ok(v),
+    else {
+        Ok(list_table_end.unwrap())
     }
 }
 
-pub(super) exec fn setup_kv<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
+pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
     where
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + std::fmt::Debug,
@@ -149,44 +145,13 @@ pub(super) exec fn setup_kv<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -> (
                 &&& pm@ == old(pm)@
                 &&& K::spec_size_of() == 0
             },
-            Err(KvError::OutOfSpace) => pm@.len() < spec_space_needed_for_setup::<PM, K, I, L>(*ps),
+            Err(KvError::OutOfSpace) => pm@.len() < local_spec_space_needed_for_setup::<PM, K, I, L>(*ps),
             Err(_) => false,
         },
 {
     if !exec_check_setup_parameters(ps) {
         return Err(KvError::InvalidParameter);
     }
-
-    proof {
-        pm.lemma_inv_implies_view_valid();
-    }
-
-    let pm_size = pm.get_region_size();
-
-    let key_table_size = KeyTable::<PM, K>::get_space_needed_for_setup(ps);
-    let item_table_size = ItemTable::<PM, I>::get_space_needed_for_setup(ps);
-    let list_table_size = ListTable::<PM, L>::get_space_needed_for_setup(ps);
-    let app_area_size = key_table_size.add_overflowing_u64(&item_table_size).add_overflowing_u64(&list_table_size);
-    if app_area_size.is_overflowed() {
-        return Err(KvError::OutOfSpace);
-    }
-
-    let max_journal_entries = OverflowingU64::new(ps.max_operations_per_transaction)
-                                  .add(ps.max_operations_per_transaction)
-                                  .add(ps.max_operations_per_transaction)
-                                  .add(ps.max_operations_per_transaction);
-    if max_journal_entries.is_overflowed() {
-        return Err(KvError::OutOfSpace);
-    }
-
-    let jsp = JournalSetupParameters {
-        app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
-        app_program_guid: KVSTORE_PROGRAM_GUID,
-        max_journal_entries: max_journal_entries.unwrap(),
-        max_journaled_bytes: ps.max_data_bytes_per_transaction,
-        app_area_size: app_area_size.unwrap(),
-        app_area_alignment: 256,
-    };
 
     let key_size = size_of::<K>();
     assert(key_size == K::spec_size_of()) by {
@@ -196,20 +161,59 @@ pub(super) exec fn setup_kv<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -> (
         return Err(KvError::KeySizeTooSmall);
     }
 
-    let jc = match Journal::<TrustedKvPermission, PM>::begin_setup(pm, &jsp) {
-        Ok(jc) => jc,
-        Err(JournalError::InvalidAlignment) => { assert(false); return Err(KvError::OutOfSpace); },
-        Err(JournalError::NotEnoughSpace) => { return Err(KvError::OutOfSpace); },
-        Err(_) => { assert(false); return Err(KvError::OutOfSpace); },
+    proof {
+        pm.lemma_inv_implies_view_valid();
+    }
+
+    let pm_size = pm.get_region_size();
+
+    let journal_capacity = space_needed_for_journal_capacity::<PM, K, I, L>(ps);
+    let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
+    let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
+    let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
+    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_end);
+    let item_table_end = ItemTable::<PM, I>::setup_end(ps, &key_table_end);
+    let list_table_end = ListTable::<PM, L>::setup_end(ps, &item_table_end);
+    assert(list_table_end@ == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps));
+    if list_table_end.is_overflowed() {
+        return Err(KvError::OutOfSpace);
+    }
+    if list_table_end.unwrap() > pm_size {
+        return Err(KvError::OutOfSpace);
+    }
+
+    let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_end.unwrap(), key_table_end.unwrap()) {
+        Ok(key_sm) => key_sm,
+        Err(e) => { assert(false); return Err(KvError::InternalError); },
+    };
+    assert(key_sm.table.end == key_table_end@);
+
+    let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_table_end.unwrap(), item_table_end.unwrap()) {
+        Ok(item_sm) => item_sm,
+        Err(e) => { assert(false); return Err(KvError::InternalError); },
+    };
+    assert(item_sm.table.end == item_table_end@);
+
+    let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_table_end.unwrap(), list_table_end.unwrap()) {
+        Ok(list_sm) => list_sm,
+        Err(e) => { assert(false); return Err(KvError::InternalError); },
+    };
+    assert(list_sm.table.end == list_table_end@);
+
+    let jc = JournalConstants {
+        app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
+        app_program_guid: KVSTORE_PROGRAM_GUID,
+        journal_capacity: journal_capacity.unwrap(),
+        app_area_start: sm_start.unwrap(),
+        app_area_end: pm_size,
     };
 
-    /*
-    let key_sm = match KeyTable::<PM, K>::setup(pm, ps, jc.app_area_start, jc.app_area_end) {
-        Ok(key_sm) => key_sm,
-        Err(e) => return Err(e),
+    match Journal::<TrustedKvPermission, PM>::setup(pm, &jc) {
+        Ok(jc) => {},
+        Err(JournalError::InvalidSetupParameters) => { assert(false); return Err(KvError::OutOfSpace); },
+        Err(JournalError::NotEnoughSpace) => { assert(false); return Err(KvError::OutOfSpace); },
+        Err(_) => { assert(false); return Err(KvError::OutOfSpace); },
     };
-    let item_sm = ItemTable::<PM, I>::setup::<K>(pm, ps, key_sm.table.end, jc.app_area_end);
-    */
 
     assume(false);
     Ok(())

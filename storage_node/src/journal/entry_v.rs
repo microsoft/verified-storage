@@ -14,16 +14,6 @@ verus! {
 
 broadcast use group_auto_subrange;
 
-#[inline]
-pub(super) exec fn get_space_needed_for_journal_entry(num_bytes: usize) -> (result: OverflowingU64)
-    ensures
-        0 <= result@,
-        result@ == space_needed_for_journal_entry(num_bytes as nat),
-{
-    let journal_entry_size = OverflowingU64::new(size_of::<u64>() as u64).add_usize(size_of::<u64>());
-    journal_entry_size.add_usize(num_bytes)
-}
-
 #[verifier::ext_equal]
 pub struct JournalEntry
 {
@@ -49,9 +39,9 @@ impl JournalEntry
         &&& self.end() <= sm.app_area_end
     }
 
-    pub(super) open spec fn space_needed(self) -> int
+    pub(super) open spec fn space_needed(self) -> nat
     {
-        space_needed_for_journal_entry(self.bytes_to_write.len())
+        u64::spec_size_of() + u64::spec_size_of() + self.bytes_to_write.len()
     }
 }
 

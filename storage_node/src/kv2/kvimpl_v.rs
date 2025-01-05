@@ -86,23 +86,23 @@ where
         true
     }
 
-    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> nat
+    pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
         recommends
             ps.valid(),
     {
-        spec_space_needed_for_setup::<PM, K, I, L>(ps)
+        local_spec_space_needed_for_setup::<PM, K, I, L>(ps)
     }
 
-    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
         ensures
             match result {
-                Ok(v) => v == Self::space_needed_for_setup(*ps),
+                Ok(v) => v == Self::spec_space_needed_for_setup(*ps),
                 Err(KvError::InvalidParameter) => !ps.valid(),
-                Err(KvError::OutOfSpace) => Self::space_needed_for_setup(*ps) > u64::MAX,
+                Err(KvError::OutOfSpace) => Self::spec_space_needed_for_setup(*ps) > u64::MAX,
                 Err(_) => false,
             },
     {
-        exec_get_space_needed_for_setup::<PM, K, I, L>(ps)
+        local_space_needed_for_setup::<PM, K, I, L>(ps)
     }
 
     pub exec fn untrusted_setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
@@ -125,11 +125,11 @@ where
                     &&& pm@ == old(pm)@
                     &&& K::spec_size_of() == 0
                 },
-                Err(KvError::OutOfSpace) => pm@.len() < Self::space_needed_for_setup(*ps),
+                Err(KvError::OutOfSpace) => pm@.len() < Self::spec_space_needed_for_setup(*ps),
                 Err(_) => false,
             },
     {
-        setup_kv::<PM, K, I, L>(pm, ps)
+        local_setup::<PM, K, I, L>(pm, ps)
     }
 
     pub fn untrusted_start(

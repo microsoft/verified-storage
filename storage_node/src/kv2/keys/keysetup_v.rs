@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::common::align_v::*;
 use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
@@ -24,12 +25,13 @@ use super::super::kvspec_t::*;
 
 verus! {
 
-pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParameters) -> nat
+pub(super) open spec fn local_spec_setup_end<K>(ps: SetupParameters, min_start: nat) -> nat
     where
         K: PmCopy,
     recommends
         ps.valid(),
 {
+    // let row_cdb_start = 0;
     let row_metadata_start = u64::spec_size_of();
     let row_metadata_end = row_metadata_start + KeyTableRowMetadata::spec_size_of();
     let row_metadata_crc_start = row_metadata_end;
@@ -40,16 +42,19 @@ pub(super) open spec fn spec_space_needed_for_key_table_setup<K>(ps: SetupParame
     let row_key_crc_end = row_key_crc_start + u64::spec_size_of();
     let row_size = row_key_crc_end;
     let num_rows = ps.num_keys;
-    opaque_mul(num_rows as int, row_size as int) as nat
+    let start = round_up_to_alignment(min_start as int, u64::spec_size_of() as int);
+    let table_size = opaque_mul(num_rows as int, row_size as int);
+    (start + table_size) as nat
 }
 
-pub(super) exec fn get_space_needed_for_key_table_setup<K>(ps: &SetupParameters) -> (result: OverflowingU64)
+pub(super) exec fn local_setup_end<K>(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
     where
         K: PmCopy,
     requires
         ps.valid(),
     ensures
-        result@ == spec_space_needed_for_key_table_setup::<K>(*ps),
+        result@ == local_spec_setup_end::<K>(*ps, min_start@),
+        min_start@ <= result@,
 {
     broadcast use pmcopy_axioms;
 
@@ -60,7 +65,9 @@ pub(super) exec fn get_space_needed_for_key_table_setup<K>(ps: &SetupParameters)
     let row_key_end = row_metadata_crc_end.add_usize(size_of::<K>());
     let row_key_crc_end = row_key_end.add_usize(size_of::<u64>());
     let num_rows = OverflowingU64::new(ps.num_keys);
-    num_rows.mul_overflowing_u64(&row_key_crc_end)
+    let start = min_start.align(size_of::<u64>());
+    let table_size = num_rows.mul_overflowing_u64(&row_key_crc_end);
+    start.add_overflowing_u64(&table_size)
 }
 
 pub(super) exec fn exec_setup_given_metadata<PM, K>(
@@ -139,7 +146,7 @@ pub(super) exec fn exec_setup_given_metadata<PM, K>(
 pub(super) exec fn exec_setup<PM, K>(
     pm: &mut PM,
     ps: &SetupParameters,
-    start: u64,
+    min_start: u64,
     max_end: u64,
 ) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
     where
@@ -148,7 +155,7 @@ pub(super) exec fn exec_setup<PM, K>(
     requires
         old(pm).inv(),
         ps.valid(),
-        start <= max_end <= old(pm)@.len(),
+        min_start <= max_end <= old(pm)@.len(),
         0 < K::spec_size_of(),
     ensures
         pm.inv(),
@@ -160,12 +167,13 @@ pub(super) exec fn exec_setup<PM, K>(
                                              sm.table.end as int)
                 &&& sm.valid()
                 &&& sm.consistent_with_type::<K>()
-                &&& sm.table.start == start
+                &&& min_start <= sm.table.start
+                &&& sm.table.start <= sm.table.end
                 &&& sm.table.end <= max_end
-                &&& sm.table.end - sm.table.start <= spec_space_needed_for_key_table_setup::<K>(*ps)
+                &&& sm.table.end == local_spec_setup_end::<K>(*ps, min_start as nat)
                 &&& sm.table.num_rows == ps.num_keys
             },
-            Err(KvError::OutOfSpace) => max_end - start < spec_space_needed_for_key_table_setup::<K>(*ps),
+            Err(KvError::OutOfSpace) => max_end < local_spec_setup_end::<K>(*ps, min_start as nat),
             _ => false,
         }
 {
@@ -178,27 +186,28 @@ pub(super) exec fn exec_setup<PM, K>(
     let row_metadata_crc_end = row_metadata_end.add_usize(size_of::<u64>());
     let row_key_end = row_metadata_crc_end.add_usize(key_size);
     let row_key_crc_end = row_key_end.add_usize(size_of::<u64>());
+    let start = OverflowingU64::new(min_start).align(size_of::<u64>());
     let num_rows = ps.num_keys;
     let space_required = OverflowingU64::new(num_rows).mul_overflowing_u64(&row_key_crc_end);
+    let end = start.add_overflowing_u64(&space_required);
 
-    assert(space_required@ == spec_space_needed_for_key_table_setup::<K>(*ps));
+    assert(end@ == local_spec_setup_end::<K>(*ps, min_start as nat));
     assert(space_required@ >= row_key_crc_end@) by {
         reveal(opaque_mul);
         vstd::arithmetic::mul::lemma_mul_ordering(num_rows as int, row_key_crc_end@ as int);
     }
 
-    if space_required.is_overflowed() {
+    if end.is_overflowed() {
         return Err(KvError::OutOfSpace);
     }
 
-    let space_required = space_required.unwrap();
-    if space_required > max_end - start {
+    if end.unwrap() > max_end {
         return Err(KvError::OutOfSpace);
     }
 
     let table = TableMetadata::new(
-        start,
-        start + space_required,
+        start.unwrap(),
+        end.unwrap(),
         num_rows,
         row_key_crc_end.unwrap(),
     );

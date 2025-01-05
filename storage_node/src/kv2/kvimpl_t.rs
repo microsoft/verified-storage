@@ -131,23 +131,21 @@ where
         self.untrusted_kv_impl.pm_constants()
     }
 
-    pub closed spec fn space_needed_for_setup(ps: SetupParameters) -> nat
-        recommends
-            ps.valid(),
+    pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
-    pub exec fn get_space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
         ensures
             match result {
-                Ok(v) => v == Self::space_needed_for_setup(*ps),
+                Ok(v) => v == Self::spec_space_needed_for_setup(*ps),
                 Err(KvError::InvalidParameter) => !ps.valid(),
-                Err(KvError::OutOfSpace) => Self::space_needed_for_setup(*ps) > u64::MAX,
+                Err(KvError::OutOfSpace) => Self::spec_space_needed_for_setup(*ps) > u64::MAX,
                 Err(_) => false,
             },
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::get_space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<PM, K, I, L>::space_needed_for_setup(ps)
     }
 
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
@@ -155,6 +153,7 @@ where
             old(pm).inv(),
         ensures
             pm.inv(),
+            pm.constants() == old(pm).constants(),
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
@@ -169,12 +168,11 @@ where
                     &&& pm@ == old(pm)@
                     &&& K::spec_size_of() == 0
                 },
-                Err(KvError::OutOfSpace) => pm@.len() < Self::space_needed_for_setup(*ps),
+                Err(KvError::OutOfSpace) => pm@.len() < Self::spec_space_needed_for_setup(*ps),
                 Err(_) => false,
             }
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, ps)?;
-        Ok(())
+        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, ps)
     }
 
     pub exec fn start(mut pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError<K>>)

@@ -75,7 +75,6 @@ pub struct SetupParameters {
     pub num_list_blocks: u64,
     pub num_lists_to_cache: u64,
     pub max_operations_per_transaction: u64,
-    pub max_data_bytes_per_transaction: u64,
 }
 
 impl SetupParameters {
@@ -86,7 +85,6 @@ impl SetupParameters {
         &&& 0 < self.num_list_blocks
         &&& 0 < self.num_lists_to_cache
         &&& 0 < self.max_operations_per_transaction
-        &&& 0 < self.max_data_bytes_per_transaction
     }
 }
 
