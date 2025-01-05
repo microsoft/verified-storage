@@ -61,7 +61,7 @@ impl<PM, I> ItemTable<PM, I>
         sm: ItemTableStaticMetadata,
     ) -> Option<ItemTableSnapshot<I>>
     {
-        recover_items::<I>(s, addrs, sm)
+        local_recover::<I>(s, addrs, sm)
     }
 
     pub closed spec fn spec_setup_end(ps: SetupParameters, min_start: nat) -> nat
@@ -129,7 +129,7 @@ impl<PM, I> ItemTable<PM, I>
         ensures
             Self::recover(s1, addrs, sm) == Self::recover(s2, addrs, sm),
     {
-        assume(false);
+        lemma_local_recover_depends_only_on_item_area::<I>(s1, s2, addrs, sm);
     }
 
 }
