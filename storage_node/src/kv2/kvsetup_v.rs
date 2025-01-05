@@ -200,6 +200,15 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     };
     assert(list_sm.table.end == list_table_end@);
 
+    let kv_sm = KvStaticMetadata {
+        encoded_policies: encode_policies(&ps.logical_range_gaps_policy),
+        keys: key_sm,
+        items: item_sm,
+        lists: list_sm,
+        id: ps.kvstore_id,
+    };
+    pm.serialize_and_write(sm_start.unwrap(), &kv_sm);
+
     let jc = JournalConstants {
         app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
         app_program_guid: KVSTORE_PROGRAM_GUID,

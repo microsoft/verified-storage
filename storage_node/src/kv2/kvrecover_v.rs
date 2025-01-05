@@ -32,7 +32,7 @@ pub const KVSTORE_PROGRAM_GUID: u128 = 0x256e549674024fd4880381d8010e6f54;
 
 pub const KVSTORE_PROGRAM_VERSION_NUMBER: u64 = 1;
 
-pub open spec fn encode_policies(logical_range_gaps_policy: LogicalRangeGapsPolicy) -> u64
+pub open spec fn spec_encode_policies(logical_range_gaps_policy: LogicalRangeGapsPolicy) -> u64
 {
     match logical_range_gaps_policy {
         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden => 0,
@@ -40,7 +40,33 @@ pub open spec fn encode_policies(logical_range_gaps_policy: LogicalRangeGapsPoli
     }
 }
 
-pub open spec fn decode_policies(encoded_policy: u64) -> Option<LogicalRangeGapsPolicy>
+pub open spec fn spec_decode_policies(encoded_policy: u64) -> Option<LogicalRangeGapsPolicy>
+{
+    if encoded_policy == 0 {
+        Some(LogicalRangeGapsPolicy::LogicalRangeGapsForbidden)
+    }
+    else if encoded_policy == 1 {
+        Some(LogicalRangeGapsPolicy::LogicalRangeGapsPermitted)
+    }
+    else {
+        None
+    }
+}
+
+pub exec fn encode_policies(logical_range_gaps_policy: &LogicalRangeGapsPolicy) -> (result: u64)
+    ensures
+        result == spec_encode_policies(*logical_range_gaps_policy),
+{
+    match logical_range_gaps_policy {
+        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden => 0,
+        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => 1,
+    }
+}
+
+#[verifier::when_used_as_spec(spec_decode_policies)]
+pub exec fn decode_policies(encoded_policy: u64) -> (result: Option<LogicalRangeGapsPolicy>)
+    ensures
+        result == spec_decode_policies(encoded_policy),
 {
     if encoded_policy == 0 {
         Some(LogicalRangeGapsPolicy::LogicalRangeGapsForbidden)
@@ -86,41 +112,6 @@ impl KvStaticMetadata
         &&& self.keys.consistent_with_type::<K>()
         &&& self.items.consistent_with_type::<I>()
         &&& self.lists.consistent_with_type::<L>()
-    }
-}
-
-#[verifier::ext_equal]
-pub struct KvConfiguration
-{
-    pub journal_constants: JournalConstants,
-    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    pub static_metadata_start: u64,
-    pub static_metadata_end: u64,
-    pub sm: KvStaticMetadata,
-}
-
-impl KvConfiguration
-{
-    pub open spec fn valid(self) -> bool
-    {
-        &&& self.journal_constants.valid()
-        &&& self.journal_constants.app_version_number == KVSTORE_PROGRAM_VERSION_NUMBER
-        &&& self.journal_constants.app_program_guid == KVSTORE_PROGRAM_GUID
-        &&& self.journal_constants.app_area_start <= self.static_metadata_start
-        &&& self.static_metadata_end - self.static_metadata_start == KvStaticMetadata::spec_size_of()
-        &&& self.static_metadata_end <= self.sm.keys.table.start
-        &&& self.sm.lists.table.end <= self.journal_constants.app_area_end
-        &&& self.sm.valid()
-        &&& self.sm.encoded_policies == encode_policies(self.logical_range_gaps_policy)
-    }
-
-    pub open spec fn consistent_with_types<K, I, L>(self) -> bool
-        where
-            K: PmCopy,
-            I: PmCopy,
-            L: PmCopy,
-    {
-        self.sm.consistent_with_types::<K, I, L>()
     }
 }
 
