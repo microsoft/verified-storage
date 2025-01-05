@@ -232,7 +232,7 @@ pub(super) open spec fn recover_keys<K>(
     }
 }
 
-pub(super) proof fn lemma_recover_keys_depends_only_on_key_area<K>(
+pub(super) proof fn local_lemma_recover_depends_only_on_my_area<K>(
     s1: Seq<u8>,
     s2: Seq<u8>,
     sm: KeyTableStaticMetadata,

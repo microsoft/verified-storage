@@ -110,6 +110,24 @@ impl<PM, L> ListTable<PM, L>
         assume(false);
         Err(KvError::OutOfSpace)
     }
+
+    pub proof fn lemma_recover_depends_only_on_my_area(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        addrs: Set<u64>,
+        sm: ListTableStaticMetadata,
+    )
+        requires
+            sm.valid(),
+            sm.consistent_with_type::<L>(),
+            sm.table.end <= s1.len(),
+            seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
+            Self::recover(s1, addrs, sm) is Some,
+        ensures
+            Self::recover(s1, addrs, sm) == Self::recover(s2, addrs, sm),
+    {
+        assume(false);
+    }
 }
 
 }

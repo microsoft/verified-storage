@@ -118,6 +118,7 @@ pub open spec fn end_of_range<L>(list_entries: Seq<L>) -> usize
 /// TODO: Should this be generic over the key/header/page
 /// types used in the kv store, or over their views?
 #[verifier::reject_recursive_types(K)]
+#[verifier::ext_equal]
 pub struct AtomicKvStore<K, I, L>
 {
     pub id: u128,

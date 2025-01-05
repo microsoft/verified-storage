@@ -7,6 +7,7 @@ use crate::common::align_v::*;
 use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
+use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::journal::*;
@@ -79,7 +80,8 @@ pub(super) open spec fn local_spec_space_needed_for_setup<PM, K, I, L>(ps: Setup
     let journal_end = Journal::<TrustedKvPermission, PM>::spec_space_needed_for_setup(journal_capacity);
     let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
     let sm_end = sm_start + KvStaticMetadata::spec_size_of();
-    let key_table_end = KeyTable::<PM, K>::spec_setup_end(ps, sm_end as nat);
+    let sm_crc_end = sm_end + u64::spec_size_of();
+    let key_table_end = KeyTable::<PM, K>::spec_setup_end(ps, sm_crc_end as nat);
     let item_table_end = ItemTable::<PM, I>::spec_setup_end(ps, key_table_end);
     let list_table_end = ListTable::<PM, L>::spec_setup_end(ps, item_table_end);
     list_table_end as nat
@@ -108,7 +110,8 @@ pub(super) exec fn local_space_needed_for_setup<PM, K, I, L>(ps: &SetupParameter
     let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
     let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
     let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
-    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_end);
+    let sm_crc_end = sm_end.add_usize(size_of::<u64>());
+    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_crc_end);
     let item_table_end = ItemTable::<PM, I>::setup_end(ps, &key_table_end);
     let list_table_end = ListTable::<PM, L>::setup_end(ps, &item_table_end);
     assert(list_table_end@ == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps));
@@ -171,7 +174,8 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
     let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
     let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
-    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_end);
+    let sm_crc_end = sm_end.add_usize(size_of::<u64>());
+    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_crc_end);
     let item_table_end = ItemTable::<PM, I>::setup_end(ps, &key_table_end);
     let list_table_end = ListTable::<PM, L>::setup_end(ps, &item_table_end);
     assert(list_table_end@ == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps));
@@ -182,22 +186,26 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
         return Err(KvError::OutOfSpace);
     }
 
-    let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_end.unwrap(), key_table_end.unwrap()) {
+    let ghost empty_keys = KeyTableSnapshot::<K>::init();
+    let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), key_table_end.unwrap()) {
         Ok(key_sm) => key_sm,
         Err(e) => { assert(false); return Err(KvError::InternalError); },
     };
     assert(key_sm.table.end == key_table_end@);
+    let ghost state_after_key_init = pm@.read_state;
 
     let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_table_end.unwrap(), item_table_end.unwrap()) {
         Ok(item_sm) => item_sm,
         Err(e) => { assert(false); return Err(KvError::InternalError); },
     };
+    let ghost state_after_item_init = pm@.read_state;
     assert(item_sm.table.end == item_table_end@);
 
     let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_table_end.unwrap(), list_table_end.unwrap()) {
         Ok(list_sm) => list_sm,
         Err(e) => { assert(false); return Err(KvError::InternalError); },
     };
+    let ghost state_after_list_init = pm@.read_state;
     assert(list_sm.table.end == list_table_end@);
 
     let kv_sm = KvStaticMetadata {
@@ -207,7 +215,9 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
         lists: list_sm,
         id: ps.kvstore_id,
     };
+    let kv_sm_crc = calculate_crc(&kv_sm);
     pm.serialize_and_write(sm_start.unwrap(), &kv_sm);
+    pm.serialize_and_write(sm_end.unwrap(), &kv_sm_crc);
 
     let jc = JournalConstants {
         app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
@@ -217,14 +227,36 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
         app_area_end: pm_size,
     };
 
+    proof {
+        broadcast use group_match_in_range;
+        broadcast use group_update_bytes_effect;
+    }
+    assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm)) by {
+        broadcast use pmcopy_axioms;
+    }
+    
     match Journal::<TrustedKvPermission, PM>::setup(pm, &jc) {
         Ok(jc) => {},
-        Err(JournalError::InvalidSetupParameters) => { assert(false); return Err(KvError::OutOfSpace); },
-        Err(JournalError::NotEnoughSpace) => { assert(false); return Err(KvError::OutOfSpace); },
         Err(_) => { assert(false); return Err(KvError::OutOfSpace); },
     };
 
-    assume(false);
+    assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm));
+    assert(KeyTable::<PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
+        KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state, key_sm);
+    }
+    assert(ItemTable::<PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
+           == Some(ItemTableSnapshot::<I>::init())) by {
+        ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
+                                                                  empty_keys.item_addrs(), item_sm);
+    }
+    assert(ListTable::<PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
+           == Some(ListTableSnapshot::<L>::init())) by {
+        ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,
+                                                                  empty_keys.list_addrs(), list_sm);
+    }
+
+    assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc)
+           =~= Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy)));
     Ok(())
 }
 

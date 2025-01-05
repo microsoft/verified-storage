@@ -165,6 +165,24 @@ impl<PM, K> KeyTable<PM, K>
     {
         exec_setup::<PM, K>(pm, ps, min_start, max_end)
     }
+
+    pub proof fn lemma_recover_depends_only_on_my_area(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+    )
+        requires
+            sm.valid(),
+            sm.consistent_with_type::<K>(),
+            sm.table.end <= s1.len(),
+            seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
+            Self::recover(s1, sm) is Some,
+        ensures
+            Self::recover(s1, sm) == Self::recover(s2, sm),
+    {
+        local_lemma_recover_depends_only_on_my_area::<K>(s1, s2, sm);
+    }
+
 }
 
 }
