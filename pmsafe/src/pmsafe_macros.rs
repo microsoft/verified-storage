@@ -198,6 +198,10 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
         };
         exec_tokens_vec.push(new_tokens);
     }
+    let final_token = quote! {
+        let offset: usize = offset + padding_needed(offset, <#name>::ALIGN);
+    };
+    exec_tokens_vec.push(final_token);
 
     // We generate the size of a repr(C) struct in spec code using the same approach as in exec code, except we use 
     // spec functions to obtain the size, alignment, and padding needed. 
@@ -208,6 +212,10 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
         };
         spec_tokens_vec.push(new_tokens);
     }
+    let final_token = quote! {
+        let offset: ::builtin::nat = offset + spec_padding_needed(offset, <#name>::spec_align_of());
+    };
+    spec_tokens_vec.push(final_token);
 
     // The alignment of a repr(C) struct is the alignment of the most-aligned field in it (i.e. the field with the largest
     // alignment). We currently unroll all of the fields and check which has the largest alignment without using a loop;

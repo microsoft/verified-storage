@@ -378,9 +378,8 @@ pub proof fn lemma_same_log_bytes_recover_to_same_state(
             let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
         let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
         let crc_pos = metadata_pos + LogMetadata::spec_size_of();
-        assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
-            reveal(spec_padding_needed);
-        }
+        lemma_log_area_pos_greater_than_log_header_area_size();
+
         // Proves that metadata, CRC, and log area are the same
         lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos,
                                               log_size, LogMetadata::spec_size_of());
@@ -435,9 +434,11 @@ pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
         metadata_types_set(mem1, log_start_addr) ==> metadata_types_set(mem2, log_start_addr),
         !metadata_types_set(mem1, log_start_addr) ==> !metadata_types_set(mem2, log_start_addr),
 {
-    assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
-        reveal(spec_padding_needed);
-    }
+    // assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+    //     reveal(spec_padding_needed);
+    //     assert(spec_log_header_area_size() <= spec_log_area_pos()) by (compute_only);
+    // }
+    lemma_log_area_pos_greater_than_log_header_area_size();
     
     lemma_establish_extract_bytes_equivalence(mem1, mem2);
 
@@ -754,10 +755,6 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
             &&& metadata_types_set(pm_region_view.read_state, log_start_addr)
         },
 {
-    assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
-        reveal(spec_padding_needed);
-    }
-
     assert(memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb)) by {
         assert(extract_bytes(pm_region_view.durable_state, log_start_addr, u64::spec_size_of()) == 
             extract_bytes(pm_region_view.durable_state, log_start_addr, u64::spec_size_of()));

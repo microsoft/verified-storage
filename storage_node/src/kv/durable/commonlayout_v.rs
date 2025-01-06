@@ -1,11 +1,13 @@
 use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmemspec_t::*;
-use deps_hack::{PmCopy};
+use deps_hack::PmCopy;
 use vstd::prelude::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::*;
+use crate::nat_seq_max;
 
 verus! {
-
     #[derive(Copy, Clone)]
     pub enum EntryStatus 
     {
