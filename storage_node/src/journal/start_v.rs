@@ -327,7 +327,6 @@ pub(super) exec fn install_journal_entries_during_start<Perm, PM>(
             apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed), *sm)
                 == Some(commit_state),
     {
-        broadcast use pmcopy_axioms;
         let ghost durable_state_at_start_of_loop = wrpm@.durable_state;
 
         assert(start + twice_u64_size <= end);
@@ -338,11 +337,14 @@ pub(super) exec fn install_journal_entries_during_start<Perm, PM>(
         let len = u64_from_le_bytes(slice_subrange(entries_bytes_slice, start + u64_size, start + twice_u64_size));
         assert(entries_bytes_slice@.subrange(start as int, (start + u64_size) as int) ==
                extract_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of()));
-        assert(addr == u64::spec_from_bytes(extract_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())));
+        assert(addr == u64::spec_from_bytes(extract_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())))
+            by { axiom_u64_from_le_bytes(extract_section(entries_bytes@.skip(start as int), 0, u64::spec_size_of())); }
         assert(entries_bytes_slice@.subrange((start + u64_size) as int, (start + u64_size + u64_size) as int) ==
                extract_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int, u64::spec_size_of()));
         assert(len == u64::spec_from_bytes(extract_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int,
-                                                          u64::spec_size_of())));
+                                                          u64::spec_size_of())))
+            by { axiom_u64_from_le_bytes(extract_section(entries_bytes@.skip(start as int), u64::spec_size_of() as int,
+                                                          u64::spec_size_of())); }
         assert(start + twice_u64_size + len as usize <= end);
         let bytes_to_write = slice_subrange(entries_bytes_slice, start + twice_u64_size,
                                             start + twice_u64_size + len as usize);

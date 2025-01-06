@@ -158,10 +158,10 @@ pub(super) proof fn lemma_setup_works(
         addrs.valid(jc.journal_capacity),
         addrs.journal_entries_end <= jc.app_area_start <= jc.app_area_end <= bytes.len(),
         validate_metadata(vm, sm, bytes.len()),
-        vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER,
         vm.program_guid == JOURNAL_PROGRAM_GUID,
-        sm.app_version_number == jc.app_version_number,
+        vm.version_number == JOURNAL_PROGRAM_VERSION_NUMBER,
         sm.app_program_guid == jc.app_program_guid,
+        sm.app_version_number == jc.app_version_number,
         sm.committed_cdb_start == addrs.committed_cdb_start,
         sm.journal_length_start == addrs.journal_length_start,
         sm.journal_length_crc_start == addrs.journal_length_crc_start,
@@ -261,16 +261,16 @@ pub(super) exec fn local_setup<PM>(
     broadcast use group_auto_subrange;
 
     let vm = JournalVersionMetadata{
-        version_number: JOURNAL_PROGRAM_VERSION_NUMBER,
         program_guid: JOURNAL_PROGRAM_GUID,
+        version_number: JOURNAL_PROGRAM_VERSION_NUMBER,
     };
     pm.serialize_and_write(addrs.journal_version_metadata_start, &vm);
     let vm_crc = calculate_crc(&vm);
     pm.serialize_and_write(addrs.journal_version_metadata_crc_start, &vm_crc);
     
     let sm = JournalStaticMetadata{
-        app_version_number: jc.app_version_number,
         app_program_guid: jc.app_program_guid,
+        app_version_number: jc.app_version_number,
         committed_cdb_start: addrs.committed_cdb_start,
         journal_length_start: addrs.journal_length_start,
         journal_length_crc_start: addrs.journal_length_crc_start,

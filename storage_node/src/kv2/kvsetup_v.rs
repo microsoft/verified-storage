@@ -123,6 +123,37 @@ pub(super) exec fn local_space_needed_for_setup<PM, K, I, L>(ps: &SetupParameter
     }
 }
 
+pub(super) exec fn write_static_metadata<PM>(
+    pm: &mut PM,
+    sm: &KvStaticMetadata,
+    jc: &JournalConstants,
+)
+    where
+        PM: PersistentMemoryRegion,
+    requires
+        old(pm).inv(),
+        validate_static_metadata(*sm, *jc),
+        jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= jc.app_area_end,
+        jc.app_area_end <= old(pm)@.len(),
+    ensures
+        pm.inv(),
+        pm.constants() == old(pm).constants(),
+        seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, jc.app_area_start as int,
+                                   jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
+        recover_static_metadata(pm@.read_state, *jc) == Some(*sm),
+{
+    broadcast use axiom_bytes_len, axiom_to_from_bytes; //pmcopy_axioms;
+    broadcast use group_update_bytes_effect;
+
+    let sm_addr = jc.app_area_start;
+    let sm_crc_addr = jc.app_area_start + size_of::<KvStaticMetadata>() as u64;
+    let sm_crc = calculate_crc(sm);
+    pm.serialize_and_write(sm_addr, sm);
+    pm.serialize_and_write(sm_crc_addr, &sm_crc);
+    assert(recover_static_metadata(pm@.read_state, *jc) =~= Some(*sm));
+}
+
+#[verifier::rlimit(20)]
 pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
     where
         PM: PersistentMemoryRegion,
@@ -157,9 +188,7 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     }
 
     let key_size = size_of::<K>();
-    assert(key_size == K::spec_size_of()) by {
-        broadcast use pmcopy_axioms;
-    }
+    assert(key_size == K::spec_size_of());
     if key_size == 0 {
         return Err(KvError::KeySizeTooSmall);
     }
@@ -184,6 +213,11 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     }
     if list_table_end.unwrap() > pm_size {
         return Err(KvError::OutOfSpace);
+    }
+
+    proof {
+        broadcast use group_match_in_range;
+        broadcast use group_update_bytes_effect;
     }
 
     let ghost empty_keys = KeyTableSnapshot::<K>::init();
@@ -215,42 +249,49 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
         lists: list_sm,
         id: ps.kvstore_id,
     };
-    let kv_sm_crc = calculate_crc(&kv_sm);
-    pm.serialize_and_write(sm_start.unwrap(), &kv_sm);
-    pm.serialize_and_write(sm_end.unwrap(), &kv_sm_crc);
 
     let jc = JournalConstants {
-        app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
         app_program_guid: KVSTORE_PROGRAM_GUID,
+        app_version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
         journal_capacity: journal_capacity.unwrap(),
         app_area_start: sm_start.unwrap(),
         app_area_end: pm_size,
     };
 
-    proof {
-        broadcast use group_match_in_range;
-        broadcast use group_update_bytes_effect;
-    }
-    assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm)) by {
-        broadcast use pmcopy_axioms;
-    }
+    write_static_metadata::<PM>(pm, &kv_sm, &jc);
+    let ghost state_after_sm_init = pm@.read_state;
     
     match Journal::<TrustedKvPermission, PM>::setup(pm, &jc) {
         Ok(jc) => {},
         Err(_) => { assert(false); return Err(KvError::OutOfSpace); },
     };
 
-    assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm));
+    assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm)) by {
+        assert(seqs_match_in_range(state_after_sm_init, pm@.read_state, jc.app_area_start as int,
+                                   jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()));
+    }
     assert(KeyTable::<PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
+        assert(seqs_match_in_range(state_after_key_init, state_after_item_init, key_sm.table.start as int,
+                                   key_sm.table.end as int));
+        assert(seqs_match_in_range(state_after_key_init, state_after_list_init, key_sm.table.start as int,
+                                   key_sm.table.end as int));
+        assert(seqs_match_in_range(state_after_key_init, state_after_sm_init, key_sm.table.start as int,
+                                   key_sm.table.end as int));
         KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state, key_sm);
     }
     assert(ItemTable::<PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
            == Some(ItemTableSnapshot::<I>::init())) by {
+        assert(seqs_match_in_range(state_after_item_init, state_after_list_init, item_sm.table.start as int,
+                                   item_sm.table.end as int));
+        assert(seqs_match_in_range(state_after_item_init, state_after_sm_init, item_sm.table.start as int,
+                                   item_sm.table.end as int));
         ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
                                                                   empty_keys.item_addrs(), item_sm);
     }
     assert(ListTable::<PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
            == Some(ListTableSnapshot::<L>::init())) by {
+        assert(seqs_match_in_range(state_after_list_init, state_after_sm_init, list_sm.table.start as int,
+                                   list_sm.table.end as int));
         ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,
                                                                   empty_keys.list_addrs(), list_sm);
     }

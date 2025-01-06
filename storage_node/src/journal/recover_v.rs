@@ -30,14 +30,15 @@ pub const JOURNAL_PROGRAM_VERSION_NUMBER: u64 = 1;
 #[derive(PmCopy, Copy, Default)]
 #[verifier::ext_equal]
 pub struct JournalVersionMetadata {
+    pub program_guid: u128,
     pub version_number: u64,
-    pub program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Default, Debug)]
 #[verifier::ext_equal]
 pub(super) struct JournalStaticMetadata {
+    pub(super) app_program_guid: u128,
     pub(super) app_version_number: u64,
     pub(super) committed_cdb_start: u64,
     pub(super) journal_length_start: u64,
@@ -47,7 +48,6 @@ pub(super) struct JournalStaticMetadata {
     pub(super) journal_entries_end: u64,
     pub(super) app_area_start: u64,
     pub(super) app_area_end: u64,
-    pub(super) app_program_guid: u128, // TODO: Move to more natural position after pmcopy bug fix
 }
 
 pub(super) open spec fn spec_journal_version_metadata_start() -> int
@@ -272,8 +272,8 @@ pub(super) open spec fn recover_journal(bytes: Seq<u8>) -> Option<RecoveredJourn
                         Some(state) =>
                             Some(RecoveredJournal {
                                 constants: JournalConstants {
-                                    app_version_number: sm.app_version_number,
                                     app_program_guid: sm.app_program_guid,
+                                    app_version_number: sm.app_version_number,
                                     journal_capacity: (sm.journal_entries_end - sm.journal_entries_start) as u64,
                                     app_area_start: sm.app_area_start,
                                     app_area_end: sm.app_area_end,

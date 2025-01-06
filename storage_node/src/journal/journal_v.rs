@@ -562,7 +562,7 @@ impl <Perm, PM> Journal<Perm, PM>
         // First, write the `start` field of the entry, which is the address that the entry
         // is referring to, to the next position in the journal.
     
-        broadcast use pmcopy_axioms;
+        broadcast use axiom_bytes_len;
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
         assert(crc_digest.bytes_in_digest() ==
