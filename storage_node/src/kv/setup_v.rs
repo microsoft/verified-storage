@@ -180,7 +180,10 @@ pub fn initialize_overall_metadata<K, I, L> (
     }
     let key_size = size_of::<K>() as u32;
     assert(u64::spec_size_of() == 8) by { reveal(spec_padding_needed); }
-    assert(ListEntryMetadata::spec_size_of() < 10000) by { reveal(spec_padding_needed); }
+    assert(ListEntryMetadata::spec_size_of() < 10000) by { 
+        reveal(spec_padding_needed); 
+        assert(ListEntryMetadata::spec_size_of() < 10000) by (compute_only);
+    }
     let list_entry_metadata_size = size_of::<ListEntryMetadata>() as u32;
     if key_size > u32::MAX - 2 * size_of::<u64>() as u32 - list_entry_metadata_size {
         return Err(KvError::KeySizeTooBig)
@@ -479,7 +482,10 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
         }
     };
 
-    assert(VersionMetadata::spec_size_of() == 32) by { reveal(spec_padding_needed); };
+    assert(VersionMetadata::spec_size_of() == 32) by { 
+        reveal(spec_padding_needed);
+        assert(VersionMetadata::spec_size_of() == 32) by (compute_only);
+    };
     if !check_crc(maybe_corrupted_version_metadata.as_slice(), maybe_corrupted_crc.as_slice(),
                   Ghost(true_version_metadata_bytes),
                   Ghost(pm.constants()),

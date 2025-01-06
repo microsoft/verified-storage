@@ -97,7 +97,23 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
     {
         let ghost mem = pm_region@.durable_state;
         let ghost state = recover_given_cdb(pm_region@.durable_state, log_start_addr as nat, log_size as nat, cdb);
+        
         reveal(spec_padding_needed);
+        assert({
+            &&& spec_get_active_log_metadata_pos(cdb) <= spec_log_area_pos() 
+            &&& spec_get_active_log_crc_pos(cdb) <= spec_log_area_pos()
+            &&& spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < spec_log_area_pos()
+        }) by {
+            if cdb {
+                assert(spec_log_header_pos_cdb_true() <= spec_log_area_pos()) by (compute_only);
+                assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+                assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() < spec_log_area_pos()) by (compute_only);
+            } else {
+                assert(spec_log_header_pos_cdb_false() <= spec_log_area_pos()) by (compute_only);
+                assert(spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+                assert(spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of() + u64::spec_size_of() < spec_log_area_pos()) by (compute_only);
+            }
+        }
 
         let log_metadata_pos = get_active_log_metadata_pos(cdb) + log_start_addr;
         let log_crc_pos = get_active_log_crc_pos(cdb) + log_start_addr;

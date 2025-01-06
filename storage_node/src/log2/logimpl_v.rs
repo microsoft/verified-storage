@@ -1084,9 +1084,7 @@ impl UntrustedLogImpl {
         let log_crc = calculate_crc(&log_metadata);
         let log_cdb = CDB_FALSE;
 
-        assert(spec_log_area_pos() >= spec_log_header_area_size()) by {
-            reveal(spec_padding_needed);
-        }
+        proof { lemma_log_area_pos_greater_than_log_header_area_size(); }
 
         // Write the CDB, metadata, and CRC to PM. Since PM isn't write restricted right now,
         // we don't have to prove that these updates are crash safe.
@@ -1557,7 +1555,8 @@ impl UntrustedLogImpl {
         // about anything but the log area and so it doesn't have to reason about
         // the overall recovery view to perform writes.
         let ghost old_wrpm_region = wrpm_region@;
-        assert(spec_log_header_area_size() < spec_log_area_pos()) by { reveal(spec_padding_needed); }
+        proof { lemma_log_area_pos_greater_than_log_header_area_size(); }
+
         let result = self.tentatively_append_to_log(wrpm_region, log_start_addr, log_size, bytes_to_append,
                                                     Ghost(crash_pred), Tracked(perm),
                                                     Ghost(is_writable_absolute_addr_fn));
@@ -2280,7 +2279,7 @@ impl UntrustedLogImpl {
 
         assert(Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) ==
                Some(prev_state.drop_pending_appends()));
-        assert(spec_log_header_area_size() < spec_log_area_pos()) by (compute);
+        proof { lemma_log_area_pos_greater_than_log_header_area_size(); }
 
         self.update_inactive_log_metadata(wrpm_region, log_start_addr, log_size, 
             Ghost(prev_info), Ghost(prev_state), Ghost(crash_pred), Tracked(perm));

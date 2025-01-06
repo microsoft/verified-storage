@@ -3,8 +3,18 @@ use builtin_macros::*;
 use crate::pmem::pmemspec_t::*;
 use deps_hack::PmCopy;
 use vstd::prelude::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::*;
+use crate::nat_seq_max;
 
 verus! {
+
+    #[repr(C)]
+    #[derive(PmCopy, Copy)]
+    pub struct Test {
+        pub a: u128,
+        pub b: u64,
+    }
 
     #[derive(Copy, Clone)]
     pub enum EntryStatus 

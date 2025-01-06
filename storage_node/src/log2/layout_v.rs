@@ -67,7 +67,9 @@ verus! {
         ensures 
             out == spec_log_header_pos_cdb_true()
     {
-        proof { reveal(spec_padding_needed); }
+        reveal(spec_padding_needed); 
+        assert(u64::spec_size_of() * 2 + LogMetadata::spec_size_of() <= u64::MAX) by (compute_only);
+        
         (size_of::<u64>() + size_of::<LogMetadata>() + size_of::<u64>()) as u64
     }
 
@@ -179,11 +181,26 @@ verus! {
     {
         proof { reveal(spec_padding_needed); }
         if cdb { 
+            assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() <= u64::MAX) by (compute_only);
             log_header_pos_cdb_true() + size_of::<LogMetadata>() as u64
         } else { 
+            assert(spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of() <= u64::MAX) by (compute_only);
             log_header_pos_cdb_false() + size_of::<LogMetadata>() as u64
         }
     }
+
+    // We frequently need to know that the log area pos is greater than the 
+    // size of the log's header area. Both are known statically but Verus needs
+    // to see spec_padding_needed and assert by compute to establish this,
+    // so this lemma ensures we don't do more work than necessary for these proofs.
+    pub proof fn lemma_log_area_pos_greater_than_log_header_area_size() 
+        ensures 
+            spec_log_area_pos() > spec_log_header_area_size()
+    {
+        reveal(spec_padding_needed);
+        assert(spec_log_area_pos() > spec_log_header_area_size()) by (compute_only);
+    }
+
 
     // This function converts a virtual log position (given relative
     // to the virtual log's head) to a memory location (given relative
