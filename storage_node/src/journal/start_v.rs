@@ -17,8 +17,6 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-broadcast use group_auto_subrange;
-
 pub(super) exec fn read_version_metadata<PM>(pm: &PM) -> (result: Option<JournalVersionMetadata>)
     where
         PM: PersistentMemoryRegion,
@@ -189,10 +187,8 @@ exec fn install_journal_entry_during_start<Perm, PM>(
         wrpm@.valid(),
         recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
         apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
-        wrpm@.durable_state.subrange(0, sm.app_area_start as int) ==
-            old(wrpm)@.durable_state.subrange(0, sm.app_area_start as int),
-        wrpm@.read_state.subrange(0, sm.app_area_start as int) ==
-            old(wrpm)@.read_state.subrange(0, sm.app_area_start as int),
+        seqs_match_in_range(old(wrpm)@.durable_state, wrpm@.durable_state, 0, sm.app_area_start as int),
+        seqs_match_in_range(old(wrpm)@.read_state, wrpm@.read_state, 0, sm.app_area_start as int),
 {
     proof {
         lemma_addresses_in_entry_dont_affect_recovery(wrpm@.durable_state, vm, *sm,
@@ -212,6 +208,7 @@ exec fn install_journal_entry_during_start<Perm, PM>(
     }
     wrpm.write(write_addr, bytes_to_write, Tracked(perm));
     proof {
+        broadcast use group_can_result_from_write_effect;
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state)) by {
             lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
                 wrpm@.durable_state, old(wrpm)@.durable_state, write_addr as int, bytes_to_write@,
@@ -221,12 +218,8 @@ exec fn install_journal_entry_during_start<Perm, PM>(
         }
         assert(Some(wrpm@.read_state) ==
                apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm));
-        lemma_auto_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
-        lemma_auto_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
         assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
-        lemma_auto_subrange_subrange(wrpm@.read_state, 0, write_addr as int);
-        lemma_auto_subrange_subrange(old(wrpm)@.read_state, 0, write_addr as int);
 
         assert(entries.skip(num_entries_installed)[0] =~= entries[num_entries_installed]);
         assert(entries.skip(num_entries_installed).skip(1) =~= entries.skip(num_entries_installed + 1));
@@ -318,10 +311,8 @@ pub(super) exec fn install_journal_entries_during_start<Perm, PM>(
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
             parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
-            wrpm@.durable_state.subrange(0, sm.app_area_start as int) ==
-                old(wrpm)@.durable_state.subrange(0, sm.app_area_start as int),
-            wrpm@.read_state.subrange(0, sm.app_area_start as int) ==
-                old(wrpm)@.read_state.subrange(0, sm.app_area_start as int),
+            seqs_match_in_range(old(wrpm)@.durable_state, wrpm@.durable_state, 0, sm.app_area_start as int),
+            seqs_match_in_range(old(wrpm)@.read_state, wrpm@.read_state, 0, sm.app_area_start as int),
             apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed), *sm)
                 == Some(commit_state),
     {
@@ -371,8 +362,7 @@ pub(super) exec fn install_journal_entries_during_start<Perm, PM>(
     wrpm.flush();
 
     proof {
-        lemma_auto_subrange_subrange(wrpm@.read_state, 0, sm.app_area_start as int);
-        lemma_auto_subrange_subrange(old(wrpm)@.read_state, 0, sm.app_area_start as int);
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     }
 }
 
@@ -413,6 +403,7 @@ pub(super) exec fn clear_log<Perm, PM>(
         new_cdb.spec_to_bytes());
     proof {
         broadcast use pmcopy_axioms;
+        broadcast use group_update_bytes_effect;
         assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
         assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
         assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
