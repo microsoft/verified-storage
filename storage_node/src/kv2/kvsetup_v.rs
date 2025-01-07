@@ -259,27 +259,15 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
                                    jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()));
     }
     assert(KeyTable::<PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
-        assert(seqs_match_in_range(state_after_key_init, state_after_item_init, key_sm.table.start as int,
-                                   key_sm.table.end as int));
-        assert(seqs_match_in_range(state_after_key_init, state_after_list_init, key_sm.table.start as int,
-                                   key_sm.table.end as int));
-        assert(seqs_match_in_range(state_after_key_init, state_after_sm_init, key_sm.table.start as int,
-                                   key_sm.table.end as int));
         KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state, key_sm);
     }
     assert(ItemTable::<PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
            == Some(ItemTableSnapshot::<I>::init())) by {
-        assert(seqs_match_in_range(state_after_item_init, state_after_list_init, item_sm.table.start as int,
-                                   item_sm.table.end as int));
-        assert(seqs_match_in_range(state_after_item_init, state_after_sm_init, item_sm.table.start as int,
-                                   item_sm.table.end as int));
         ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
                                                                   empty_keys.item_addrs(), item_sm);
     }
     assert(ListTable::<PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
            == Some(ListTableSnapshot::<L>::init())) by {
-        assert(seqs_match_in_range(state_after_list_init, state_after_sm_init, list_sm.table.start as int,
-                                   list_sm.table.end as int));
         ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,
                                                                   empty_keys.list_addrs(), list_sm);
     }
