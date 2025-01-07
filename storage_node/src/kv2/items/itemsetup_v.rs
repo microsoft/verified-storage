@@ -73,8 +73,8 @@ pub(super) exec fn exec_setup_given_metadata<PM, I>(
     requires
         old(pm).inv(),
         old(pm)@.valid(),
-        sm.valid(),
-        sm.consistent_with_type::<I>(),
+        sm.valid_internal(),
+        sm.item_size == I::spec_size_of(),
         sm.table.end <= old(pm)@.len(),
     ensures
         pm.inv(),
@@ -112,8 +112,8 @@ pub(super) exec fn local_setup<PM, I, K>(
                 &&& local_recover::<I>(pm@.read_state, Set::<u64>::empty(), sm) == Some(ItemTableSnapshot::<I>::init())
                 &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int,
                                               sm.table.end as int)
-                &&& sm.valid()
-                &&& sm.consistent_with_type::<I>()
+                &&& sm.valid_internal()
+                &&& sm.item_size == I::spec_size_of()
                 &&& min_start <= sm.table.start <= sm.table.end <= max_end
                 &&& sm.table.end - min_start == local_spec_space_needed_for_setup::<I>(*ps, min_start as nat)
                 &&& sm.table.num_rows == ps.num_keys

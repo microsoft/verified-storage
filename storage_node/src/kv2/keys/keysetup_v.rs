@@ -79,8 +79,8 @@ pub(super) exec fn exec_setup_given_metadata<PM, K>(
     requires
         old(pm).inv(),
         old(pm)@.valid(),
-        sm.valid(),
-        sm.consistent_with_type::<K>(),
+        sm.valid_internal(),
+        sm.key_size == K::spec_size_of(),
         sm.table.end <= old(pm)@.len(),
     ensures
         pm.inv(),
@@ -104,8 +104,8 @@ pub(super) exec fn exec_setup_given_metadata<PM, K>(
             pm.constants() == old(pm).constants(),
             pm@.valid(),
             pm@.len() == old(pm)@.len(),
-            sm.valid(),
-            sm.consistent_with_type::<K>(),
+            sm.valid_internal(),
+            sm.key_size == K::spec_size_of(),
             sm.table.end <= pm@.len(),
             cdb_false == CDB_FALSE,
             0 <= row_index <= sm.table.num_rows,
@@ -170,8 +170,8 @@ pub(super) exec fn exec_setup<PM, K>(
                 &&& recover_keys::<K>(pm@.read_state, sm) == Some(KeyTableSnapshot::<K>::init())
                 &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int,
                                              sm.table.end as int)
-                &&& sm.valid()
-                &&& sm.consistent_with_type::<K>()
+                &&& sm.valid_internal()
+                &&& sm.key_size == K::spec_size_of()
                 &&& min_start <= sm.table.start <= sm.table.end <= max_end
                 &&& sm.table.end - min_start == local_spec_space_needed_for_setup::<K>(*ps, min_start as nat)
                 &&& sm.table.num_rows == ps.num_keys

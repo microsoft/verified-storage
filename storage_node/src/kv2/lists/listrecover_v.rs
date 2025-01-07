@@ -53,7 +53,7 @@ pub struct ListTableStaticMetadata
 
 impl ListTableStaticMetadata
 {
-    pub open spec fn valid(self) -> bool
+    pub(super) open spec fn valid_internal(self) -> bool
     {
         &&& 0 < self.num_lists_to_cache
         &&& self.table.valid()
@@ -66,11 +66,47 @@ impl ListTableStaticMetadata
         &&& self.block_element_crc_start + u64::spec_size_of() <= self.block_element_size
     }
 
-    pub open spec fn consistent_with_type<L>(self) -> bool
+    pub closed spec fn valid(self) -> bool
+    {
+        self.valid_internal()
+    }
+    
+    pub closed spec fn consistent_with_type<L>(self) -> bool
         where
             L: PmCopy,
     {
-        &&& self.list_entry_size == L::spec_size_of()
+        self.list_entry_size == L::spec_size_of()
+    }
+
+    pub closed spec fn spec_start(self) -> u64
+    {
+        self.table.start
+    }
+
+    #[verifier::when_used_as_spec(spec_start)]
+    pub exec fn start(self) -> (result: u64)
+        ensures
+            result == self.spec_start(),
+    {
+        self.table.start
+    }
+
+    pub closed spec fn spec_end(self) -> u64
+    {
+        self.table.end
+    }
+
+    #[verifier::when_used_as_spec(spec_end)]
+    pub exec fn end(self) -> (result: u64)
+        ensures
+            result == self.spec_end(),
+    {
+        self.table.end
+    }
+
+    pub closed spec fn num_rows(self) -> u64
+    {
+        self.table.num_rows
     }
 }
 

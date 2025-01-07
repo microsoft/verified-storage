@@ -30,46 +30,6 @@ pub struct KeyTableRowMetadata
     pub list_addr: u64,
 }
 
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-#[verifier::ext_equal]
-pub struct KeyTableStaticMetadata
-{
-    pub table: TableMetadata,
-    pub key_size: u64,
-    pub row_cdb_start: u64,
-    pub row_metadata_start: u64,
-    pub row_metadata_end: u64,
-    pub row_metadata_crc_start: u64,
-    pub row_key_start: u64,
-    pub row_key_end: u64,
-    pub row_key_crc_start: u64,
-}
-
-impl KeyTableStaticMetadata
-{
-    pub open spec fn valid(self) -> bool
-    {
-        &&& self.table.valid()
-        &&& self.key_size > 0
-        &&& self.table.start <= self.table.end
-        &&& self.row_cdb_start + u64::spec_size_of() <= self.row_metadata_start
-        &&& self.row_metadata_end - self.row_metadata_start == KeyTableRowMetadata::spec_size_of()
-        &&& self.row_metadata_end <= self.row_metadata_crc_start
-        &&& self.row_metadata_crc_start + u64::spec_size_of() <= self.row_key_start
-        &&& self.row_key_start + self.key_size <= self.row_key_end
-        &&& self.row_key_end <= self.row_key_crc_start
-        &&& self.row_key_crc_start + u64::spec_size_of() <= self.table.row_size
-    }
-
-    pub open spec fn consistent_with_type<K>(self) -> bool
-        where
-            K: PmCopy,
-    {
-        &&& self.key_size == K::spec_size_of()
-    }
-}
-
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub struct KeyRecoveryMapping<K>
@@ -240,8 +200,8 @@ pub(super) proof fn local_lemma_recover_depends_only_on_my_area<K>(
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
     requires
-        sm.valid(),
-        sm.consistent_with_type::<K>(),
+        sm.valid_internal(),
+        sm.key_size == K::spec_size_of(),
         sm.table.end <= s1.len(),
         seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
         recover_keys::<K>(s1, sm) is Some,

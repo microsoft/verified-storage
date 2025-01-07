@@ -211,13 +211,13 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     };
     let ghost state_after_key_init = pm@.read_state;
 
-    let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_sm.table.end, pm_size) {
+    let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_sm.end(), pm_size) {
         Ok(item_sm) => item_sm,
         Err(e) => { return Err(e); },
     };
     let ghost state_after_item_init = pm@.read_state;
 
-    let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_sm.table.end, pm_size) {
+    let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_sm.end(), pm_size) {
         Ok(list_sm) => list_sm,
         Err(e) => { return Err(e); },
     };

@@ -98,9 +98,9 @@ impl KvStaticMetadata
         &&& self.keys.valid()
         &&& self.items.valid()
         &&& self.lists.valid()
-        &&& self.keys.table.num_rows == self.items.table.num_rows
-        &&& self.keys.table.end <= self.items.table.start
-        &&& self.items.table.end <= self.lists.table.start
+        &&& self.keys.num_rows() == self.items.num_rows()
+        &&& self.keys.end() <= self.items.start()
+        &&& self.items.end() <= self.lists.table.start
     }
 
     pub open spec fn consistent_with_types<K, I, L>(self) -> bool
@@ -118,7 +118,7 @@ impl KvStaticMetadata
 pub(super) open spec fn validate_static_metadata(sm: KvStaticMetadata, jc: JournalConstants) -> bool
 {
     &&& sm.valid()
-    &&& jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= sm.keys.table.start
+    &&& jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= sm.keys.start()
     &&& sm.lists.table.end <= jc.app_area_end
 }
 
