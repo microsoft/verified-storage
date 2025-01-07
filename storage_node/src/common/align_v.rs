@@ -1,6 +1,6 @@
 use builtin::*;
 use builtin_macros::*;
-use crate::pmem::pmcopy_t::{PmCopy, pmcopy_axioms};
+use crate::pmem::pmcopy_t::PmCopy;
 use crate::pmem::traits_t::align_of;
 use vstd::prelude::*;
 use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish};
@@ -66,7 +66,6 @@ pub exec fn exec_round_up_to_alignment<T>(addr: u64) -> (result: u64)
     ensures
         result == round_up_to_alignment(addr as int, T::spec_align_of() as int),
 {
-    broadcast use pmcopy_axioms;
     let alignment_needed = get_space_needed_for_alignment_usize(addr, align_of::<T>());
     addr + (alignment_needed as u64)
 }
