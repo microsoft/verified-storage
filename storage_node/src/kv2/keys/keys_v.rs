@@ -141,7 +141,6 @@ impl<PM, K> KeyTable<PM, K>
             old(pm).inv(),
             ps.valid(),
             min_start <= max_end <= old(pm)@.len(),
-            0 < K::spec_size_of(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
@@ -157,6 +156,7 @@ impl<PM, K> KeyTable<PM, K>
                     &&& sm.table.end - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)
                     &&& sm.table.num_rows == ps.num_keys
                 },
+                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(KvError::OutOfSpace) =>
                     max_end - min_start < Self::spec_space_needed_for_setup(*ps, min_start as nat),
                 _ => false,

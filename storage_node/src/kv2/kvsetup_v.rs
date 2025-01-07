@@ -174,26 +174,14 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
                 &&& recover_journal_then_kv::<PM, K, I, L>(pm@.durable_state)
                     == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
             },
-            Err(KvError::InvalidParameter) => {
-                &&& pm@ == old(pm)@
-                &&& !ps.valid()
-            },
-            Err(KvError::KeySizeTooSmall) => {
-                &&& pm@ == old(pm)@
-                &&& K::spec_size_of() == 0
-            },
+            Err(KvError::InvalidParameter) => !ps.valid(),
+            Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
             Err(KvError::OutOfSpace) => pm@.len() < local_spec_space_needed_for_setup::<PM, K, I, L>(*ps),
             Err(_) => false,
         },
 {
     if !exec_check_setup_parameters(ps) {
         return Err(KvError::InvalidParameter);
-    }
-
-    let key_size = size_of::<K>();
-    assert(key_size == K::spec_size_of());
-    if key_size == 0 {
-        return Err(KvError::KeySizeTooSmall);
     }
 
     proof {
@@ -222,6 +210,7 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     let ghost empty_keys = KeyTableSnapshot::<K>::init();
     let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
         Ok(key_sm) => key_sm,
+        Err(KvError::KeySizeTooSmall) => { return Err(KvError::KeySizeTooSmall); },
         Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
         Err(_) => { assert(false); return Err(KvError::InternalError); },
     };
