@@ -12,8 +12,6 @@ use super::spec_v::*;
 
 verus! {
 
-broadcast use group_auto_subrange;
-
 #[verifier::ext_equal]
 pub struct JournalEntry
 {
@@ -244,6 +242,8 @@ pub(super) proof fn lemma_apply_journal_entries_only_affects_app_area(
     decreases
         entries.len()
 {
+    broadcast use group_update_bytes_effect;
+
     if 0 < entries.len() {
         let state_next = apply_journal_entry(state, entries[0], sm).unwrap();
         assert(seqs_match_except_in_range(state, state_next, sm.app_area_start as int, sm.app_area_end as int));
@@ -274,6 +274,8 @@ pub(super) proof fn lemma_apply_journal_entries_maintains_matching_app_areas(
     decreases
         entries.len()
 {
+    broadcast use group_update_bytes_effect;
+
     if 0 < entries.len() {
         let entry = entries[0];
         let state1_next = apply_journal_entry(state1, entry, sm).unwrap();
@@ -491,7 +493,9 @@ pub(super) proof fn lemma_parse_journal_entries_append(
     decreases
         entries.len(),
 {
-    broadcast use pmcopy_axioms;
+    broadcast use axiom_bytes_len;
+    broadcast use axiom_to_from_bytes;
+
     let new_entries_bytes = entries_bytes
                           + (new_entry.start as u64).spec_to_bytes()
                           + (new_entry.bytes_to_write.len() as u64).spec_to_bytes()
@@ -626,6 +630,8 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
     decreases
         entries.len(),
 {
+    broadcast use group_update_bytes_effect;
+
     if 0 < entries.len() {
         let entry = entries[0];
         let s1_next = apply_journal_entry(s1, entry, sm).unwrap();
