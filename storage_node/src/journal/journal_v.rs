@@ -19,8 +19,6 @@ use super::start_v::*;
 
 verus! {
 
-broadcast use group_auto_subrange;
-
 pub struct Journal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
@@ -258,21 +256,17 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
+        broadcast use broadcast_update_bytes_effect;
+        broadcast use group_can_result_from_write_effect;
+        
         proof {
             assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, addr as int, bytes_to_write@)
                 implies #[trigger] perm.check_permission(s) by {
                 assert(seqs_match_except_in_range(s, self.wrpm@.durable_state, addr as int,
                                                     addr + bytes_to_write@.len()));
-                lemma_auto_subrange_subrange(s, 0, addr as int);
-                lemma_auto_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
             }
         }
         self.wrpm.write(addr, bytes_to_write, Tracked(perm));
-        reveal(update_bytes);
-        proof {
-            lemma_auto_subrange_subrange(self.wrpm@.durable_state, 0, addr as int);
-            lemma_auto_subrange_subrange(old(self).wrpm@.durable_state, 0, addr as int);
-        }
         assert({
             &&& apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
             &&& self@.commit_state == update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
@@ -289,8 +283,7 @@ impl <Perm, PM> Journal<Perm, PM>
             );
         }
 
-        assert(old(self)@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len())) by {
-        }
+        assert(old(self)@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len()));
     }
 
     pub exec fn write_vec(
@@ -420,6 +413,7 @@ impl <Perm, PM> Journal<Perm, PM>
             }),
     {
         broadcast use pmcopy_axioms;
+        broadcast use broadcast_update_bytes_effect;
 
         // Compute how much space is needed for this entry, and return an error
         // if there isn't enough space. Do this before doing anything else so that
@@ -519,7 +513,7 @@ impl <Perm, PM> Journal<Perm, PM>
             seqs_match_in_range(original_durable_state, self.wrpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
             seqs_match_in_range(original_read_state, self.wrpm@.read_state,
-                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
+                                self.sm.app_area_start as int, self.sm.app_area_end as int),
             parse_journal_entries(self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int,
                                                                  next_pos as int))
                 == Some(self.entries@.take(current_entry_index + 1)),
@@ -531,6 +525,9 @@ impl <Perm, PM> Journal<Perm, PM>
             crc_digest.bytes_in_digest() ==
                 self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int, next_pos as int),
     {
+        broadcast use axiom_bytes_len;
+        broadcast use group_can_result_from_write_effect;
+        
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
         let num_bytes: u64 = entry.bytes_to_write.len() as u64;
 
@@ -562,12 +559,11 @@ impl <Perm, PM> Journal<Perm, PM>
         // First, write the `start` field of the entry, which is the address that the entry
         // is referring to, to the next position in the journal.
     
-        broadcast use axiom_bytes_len;
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
         assert(crc_digest.bytes_in_digest() ==
-                  self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int,
-                                                 current_pos + u64::spec_size_of())) by {
+               self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int,
+                                              current_pos + u64::spec_size_of())) by {
             lemma_concatenate_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                         current_pos as int, current_pos + u64::spec_size_of());
         }
@@ -578,8 +574,8 @@ impl <Perm, PM> Journal<Perm, PM>
         self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
         crc_digest.write(&num_bytes);
         assert(crc_digest.bytes_in_digest() ==
-                  self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int,
-                                                 num_bytes_addr + u64::spec_size_of())) by {
+               self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int,
+                                              num_bytes_addr + u64::spec_size_of())) by {
             lemma_concatenate_subranges(self.wrpm@.read_state, self.sm.journal_entries_start as int,
                                         num_bytes_addr as int, num_bytes_addr + u64::spec_size_of());
         }
@@ -729,12 +725,13 @@ impl <Perm, PM> Journal<Perm, PM>
             }),
             self.wrpm@.flush_predicted(),
             seqs_match_in_range(old(self).wrpm@.durable_state, self.wrpm@.durable_state,
-                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
+                                self.sm.app_area_start as int, self.sm.app_area_end as int),
             seqs_match_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
-                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
+                                self.sm.app_area_start as int, self.sm.app_area_end as int),
             recover_journal_length(self.wrpm@.read_state, self.sm) == Some(self.journal_length),
             recover_journal_entries(self.wrpm@.read_state, self.sm, self.journal_length) == Some(self.entries@),
     {
+        broadcast use group_can_result_from_write_effect;
         broadcast use pmcopy_axioms;
 
         let journal_length_crc = {

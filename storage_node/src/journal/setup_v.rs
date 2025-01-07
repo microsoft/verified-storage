@@ -257,7 +257,7 @@ pub(super) exec fn local_setup<PM>(
 
     // We now know we have enough space, and we know the addresses to store things.
 
-    broadcast use group_auto_subrange;
+    broadcast use group_can_result_from_write_effect;
 
     let vm = JournalVersionMetadata{
         program_guid: JOURNAL_PROGRAM_GUID,

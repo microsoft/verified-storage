@@ -399,8 +399,8 @@ pub(super) proof fn lemma_addresses_in_entry_dont_affect_recovery(
         lemma_apply_journal_entries_success_implies_bounded_addrs_for_entry(sm, state, entries, which_entry);
         assert(forall|i| 0 <= i < sm.app_area_start ==> !addrs.contains(i));
         assert(state.subrange(0, sm.app_area_start as int) =~= s2.subrange(0, sm.app_area_start as int));
-        lemma_auto_subrange_subrange(state, 0, sm.app_area_start as int);
-        lemma_auto_subrange_subrange(s2, 0, sm.app_area_start as int);
+        assert(seqs_match_in_range(state, s2, 0, sm.app_area_start as int));
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     }
 }
 
@@ -617,26 +617,23 @@ pub(super) proof fn lemma_updating_journal_area_doesnt_affect_apply_journal_entr
         validate_metadata(vm, sm, s1.len()),
         s1.len() == s2.len(),
         apply_journal_entries(s1, entries, sm) is Some,
-        s1.subrange(sm.app_area_start as int, sm.app_area_end as int)
-            == s2.subrange(sm.app_area_start as int, sm.app_area_end as int),
+        seqs_match_in_range(s1, s2, sm.app_area_start as int, sm.app_area_end as int),
     ensures ({
         let s1_updated = apply_journal_entries(s1, entries, sm);
         let s2_updated = apply_journal_entries(s2, entries, sm);
         &&& s2_updated is Some
-        &&& s1_updated.unwrap().subrange(sm.app_area_start as int, sm.app_area_end as int)
-            == s2_updated.unwrap().subrange(sm.app_area_start as int, sm.app_area_end as int)
+        &&& seqs_match_in_range(s1_updated.unwrap(), s2_updated.unwrap(), sm.app_area_start as int, sm.app_area_end as int)
     }),
     decreases
         entries.len(),
 {
     broadcast use group_update_bytes_effect;
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 
     if 0 < entries.len() {
         let entry = entries[0];
         let s1_next = apply_journal_entry(s1, entry, sm).unwrap();
         let s2_next = apply_journal_entry(s2, entry, sm).unwrap();
-        lemma_auto_subrange_subrange(s1, sm.app_area_start as int, sm.app_area_end as int);
-        lemma_auto_subrange_subrange(s2, sm.app_area_start as int, sm.app_area_end as int);
         assert(s1_next.subrange(sm.app_area_start as int, sm.app_area_end as int)
                == s2_next.subrange(sm.app_area_start as int, sm.app_area_end as int)) by {
             lemma_concatenate_three_subranges(s1_next, sm.app_area_start as int, entry.start as int,
