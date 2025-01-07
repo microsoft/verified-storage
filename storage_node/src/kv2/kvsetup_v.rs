@@ -215,8 +215,8 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     }
 
     proof {
-        broadcast use group_match_in_range;
         broadcast use group_update_bytes_effect;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     }
 
     let ghost empty_keys = KeyTableSnapshot::<K>::init();
