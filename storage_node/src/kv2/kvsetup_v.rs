@@ -207,26 +207,21 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     }
 
-    let ghost empty_keys = KeyTableSnapshot::<K>::init();
     let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
         Ok(key_sm) => key_sm,
-        Err(KvError::KeySizeTooSmall) => { return Err(KvError::KeySizeTooSmall); },
-        Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
-        Err(_) => { assert(false); return Err(KvError::InternalError); },
+        Err(e) => { return Err(e); },
     };
     let ghost state_after_key_init = pm@.read_state;
 
     let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_sm.table.end, pm_size) {
         Ok(item_sm) => item_sm,
-        Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
-        Err(e) => { assert(false); return Err(KvError::InternalError); },
+        Err(e) => { return Err(e); },
     };
     let ghost state_after_item_init = pm@.read_state;
 
     let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_sm.table.end, pm_size) {
         Ok(list_sm) => list_sm,
-        Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
-        Err(e) => { assert(false); return Err(KvError::InternalError); },
+        Err(e) => { return Err(e); },
     };
     let ghost state_after_list_init = pm@.read_state;
 
@@ -251,9 +246,10 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     
     match Journal::<TrustedKvPermission, PM>::setup(pm, &jc) {
         Ok(jc) => {},
-        Err(_) => { assert(false); return Err(KvError::OutOfSpace); },
+        Err(_) => { assert(false); return Err(KvError::InternalError); },
     };
 
+    let ghost empty_keys = KeyTableSnapshot::<K>::init();
     assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm)) by {
         assert(seqs_match_in_range(state_after_sm_init, pm@.read_state, jc.app_area_start as int,
                                    jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()));
@@ -278,4 +274,3 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
 }
 
 }
-
