@@ -337,6 +337,25 @@ pub broadcast proof fn broadcast_seqs_match_in_range_can_narrow_range<T>(
     broadcast use broadcast_subrange_subrange_dangerous;
 }
 
+pub broadcast proof fn broadcast_seqs_match_in_range_transitive<T>(
+    s1: Seq<T>,
+    s2: Seq<T>,
+    s3: Seq<T>,
+    outer_start: int,
+    outer_end: int,
+    inner_start: int,
+    inner_end: int,
+)
+    requires
+        seqs_match_in_range(s1, s2, inner_start, inner_end),
+        0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len(),
+        #[trigger] seqs_match_in_range(s2, s3, outer_start, outer_end),
+    ensures
+        #[trigger] seqs_match_in_range(s1, s3, inner_start, inner_end),
+{
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+}
+
 pub broadcast group group_can_result_from_write_effect {
     broadcast_can_result_from_partial_write_effect_on_match,
     broadcast_can_result_from_partial_write_effect_on_subranges,

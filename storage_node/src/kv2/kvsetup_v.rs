@@ -145,8 +145,10 @@ pub(super) exec fn write_static_metadata<PM>(
                                    jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
         recover_static_metadata(pm@.read_state, *jc) == Some(*sm),
 {
-    broadcast use axiom_bytes_len, axiom_to_from_bytes; //pmcopy_axioms;
+    broadcast use axiom_bytes_len;
+    broadcast use axiom_to_from_bytes;
     broadcast use group_update_bytes_effect;
+    reveal(recover_static_metadata);
 
     let sm_addr = jc.app_area_start;
     let sm_crc_addr = jc.app_area_start + size_of::<KvStaticMetadata>() as u64;
@@ -203,8 +205,8 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     }
 
     proof {
-        broadcast use group_update_bytes_effect;
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use broadcast_update_bytes_effect_on_match;
+        broadcast use broadcast_seqs_match_in_range_transitive;
     }
 
     let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
@@ -251,8 +253,7 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
 
     let ghost empty_keys = KeyTableSnapshot::<K>::init();
     assert(recover_static_metadata(pm@.read_state, jc) == Some(kv_sm)) by {
-        assert(seqs_match_in_range(state_after_sm_init, pm@.read_state, jc.app_area_start as int,
-                                   jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()));
+        lemma_recover_static_metadata_depends_only_on_its_area(state_after_sm_init, pm@.read_state, kv_sm, jc);
     }
     assert(KeyTable::<PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
         KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state, key_sm);

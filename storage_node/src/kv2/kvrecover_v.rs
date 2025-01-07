@@ -5,6 +5,7 @@ use vstd::prelude::*;
 
 use crate::common::nonlinear_v::*;
 use crate::common::recover_v::*;
+use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::journal::*;
@@ -122,6 +123,7 @@ pub(super) open spec fn validate_static_metadata(sm: KvStaticMetadata, jc: Journ
     &&& sm.lists.table.end <= jc.app_area_end
 }
 
+#[verifier::opaque]
 pub(super) open spec fn recover_static_metadata(bytes: Seq<u8>, jc: JournalConstants) -> Option<KvStaticMetadata>
 {
     if jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() > jc.app_area_end {
@@ -225,6 +227,26 @@ pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> 
         Some(RecoveredJournal{ constants, state }) => recover_kv::<PM, K, I, L>(state, constants),
     }
 }
+
+pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    sm: KvStaticMetadata,
+    jc: JournalConstants,
+)
+    requires
+        validate_static_metadata(sm, jc),
+        seqs_match_in_range(s1, s2, jc.app_area_start as int,
+                            jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
+        recover_static_metadata(s1, jc) == Some(sm),
+    ensures
+        recover_static_metadata(s2, jc) == Some(sm),
+{
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+    reveal(recover_static_metadata);
+    assert(recover_static_metadata(s2, jc) =~= Some(sm));
+}
+
 
 }
 
