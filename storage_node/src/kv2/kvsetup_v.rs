@@ -205,7 +205,7 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
 
     proof {
         broadcast use broadcast_update_bytes_effect_on_match;
-        broadcast use broadcast_seqs_match_in_range_transitive;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     }
 
     let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
