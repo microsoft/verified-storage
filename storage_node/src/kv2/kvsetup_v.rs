@@ -135,6 +135,7 @@ pub(super) exec fn write_static_metadata<PM>(
         PM: PersistentMemoryRegion,
     requires
         old(pm).inv(),
+        old(pm)@.valid(),
         validate_static_metadata(*sm, *jc),
         jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= jc.app_area_end,
         jc.app_area_end <= old(pm)@.len(),
@@ -147,7 +148,8 @@ pub(super) exec fn write_static_metadata<PM>(
 {
     broadcast use axiom_bytes_len;
     broadcast use axiom_to_from_bytes;
-    broadcast use group_update_bytes_effect;
+    broadcast use broadcast_can_result_from_write_effect_on_read_state;
+    broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
     reveal(recover_static_metadata);
 
     let sm_addr = jc.app_area_start;
@@ -204,7 +206,6 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     }
 
     proof {
-        broadcast use broadcast_update_bytes_effect_on_match;
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     }
 

@@ -84,11 +84,13 @@ impl<PM, L> ListTable<PM, L>
             K: std::fmt::Debug,
         requires
             old(pm).inv(),
+            old(pm)@.valid(),
             ps.valid(),
             min_start <= max_end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
+            pm@.valid(),
             pm@.len() == old(pm)@.len(),
             match result {
                 Ok(sm) => {

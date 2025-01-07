@@ -253,7 +253,7 @@ pub broadcast proof fn broadcast_subrange_subrange_dangerous<T>(
     lemma_subrange_subrange(s, outer_start, outer_end, inner_start, inner_end);
 }
 
-pub broadcast proof fn broadcast_update_bytes_effect_on_match(s1: Seq<u8>, addr: int, bytes: Seq<u8>)
+pub broadcast proof fn broadcast_update_bytes_effect(s1: Seq<u8>, addr: int, bytes: Seq<u8>)
     requires
         0 <= addr,
         addr + bytes.len() <= s1.len(),
@@ -283,7 +283,7 @@ pub broadcast proof fn broadcast_update_bytes_effect_on_subranges(
         #[trigger] update_bytes(s1, addr, bytes).subrange(inner_start, inner_end) ==
             s1.subrange(inner_start, inner_end),
 {
-    broadcast use broadcast_update_bytes_effect_on_match;
+    broadcast use broadcast_update_bytes_effect;
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 }
 
@@ -364,7 +364,7 @@ pub broadcast group group_can_result_from_write_effect {
 }
 
 pub broadcast group group_update_bytes_effect {
-    broadcast_update_bytes_effect_on_match,
+    broadcast_update_bytes_effect,
     broadcast_update_bytes_effect_on_subranges,
 }
 

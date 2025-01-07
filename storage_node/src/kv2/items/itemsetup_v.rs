@@ -73,12 +73,14 @@ pub(super) exec fn exec_setup_given_metadata<PM, I>(
         I: PmCopy + Sized + std::fmt::Debug,
     requires
         old(pm).inv(),
+        old(pm)@.valid(),
         sm.valid(),
         sm.consistent_with_type::<I>(),
         sm.table.end <= old(pm)@.len(),
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.valid(),
         pm@.len() == old(pm)@.len(),
         local_recover::<I>(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
         seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
@@ -98,11 +100,13 @@ pub(super) exec fn local_setup<PM, I, K>(
         K: std::fmt::Debug,
     requires
         old(pm).inv(),
+        old(pm)@.valid(),
         ps.valid(),
         min_start <= max_end <= old(pm)@.len(),
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.valid(),
         pm@.len() == old(pm)@.len(),
         match result {
             Ok(sm) => {

@@ -139,11 +139,13 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
         requires
             old(pm).inv(),
+            old(pm)@.valid(),
             ps.valid(),
             min_start <= max_end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
+            pm@.valid(),
             pm@.len() == old(pm)@.len(),
             match result {
                 Ok(sm) => {

@@ -79,12 +79,14 @@ pub(super) exec fn exec_setup_given_metadata<PM, K>(
         K: Hash + PmCopy + Sized + std::fmt::Debug,
     requires
         old(pm).inv(),
+        old(pm)@.valid(),
         sm.valid(),
         sm.consistent_with_type::<K>(),
         sm.table.end <= old(pm)@.len(),
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.valid(),
         pm@.len() == old(pm)@.len(),
         recover_keys::<K>(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
         seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
@@ -101,6 +103,7 @@ pub(super) exec fn exec_setup_given_metadata<PM, K>(
         invariant
             pm.inv(),
             pm.constants() == old(pm).constants(),
+            pm@.valid(),
             pm@.len() == old(pm)@.len(),
             sm.valid(),
             sm.consistent_with_type::<K>(),
@@ -155,11 +158,13 @@ pub(super) exec fn exec_setup<PM, K>(
         K: Hash + PmCopy + Sized + std::fmt::Debug,
     requires
         old(pm).inv(),
+        old(pm)@.valid(),
         ps.valid(),
         min_start <= max_end <= old(pm)@.len(),
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.valid(),
         pm@.len() == old(pm)@.len(),
         match result {
             Ok(sm) => {
