@@ -493,8 +493,7 @@ pub(super) proof fn lemma_parse_journal_entries_append(
     decreases
         entries.len(),
 {
-    broadcast use axiom_bytes_len;
-    broadcast use axiom_to_from_bytes;
+    broadcast use pmcopy_axioms;
 
     let new_entries_bytes = entries_bytes
                           + (new_entry.start as u64).spec_to_bytes()

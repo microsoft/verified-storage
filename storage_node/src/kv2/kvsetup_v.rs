@@ -142,8 +142,7 @@ pub(super) exec fn write_static_metadata<PM>(
                                    jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
         recover_static_metadata(pm@.read_state, *jc) == Some(*sm),
 {
-    broadcast use axiom_bytes_len;
-    broadcast use axiom_to_from_bytes;
+    broadcast use pmcopy_axioms;
     broadcast use broadcast_can_result_from_write_effect_on_read_state;
     broadcast use broadcast_can_result_from_write_effect_on_read_state_subranges;
     reveal(recover_static_metadata);

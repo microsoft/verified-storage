@@ -220,9 +220,7 @@ exec fn install_journal_entry_during_start<Perm, PM>(
             );
         }
         assert(Some(wrpm@.read_state) ==
-               apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm)) by {
-            reveal(update_bytes);
-        }
+               apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm));
         lemma_auto_subrange_subrange(wrpm@.durable_state, 0, write_addr as int);
         lemma_auto_subrange_subrange(old(wrpm)@.durable_state, 0, write_addr as int);
         assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
@@ -414,7 +412,7 @@ pub(super) exec fn clear_log<Perm, PM>(
     let ghost new_state = update_bytes(wrpm@.durable_state, sm.committed_cdb_start as int,
         new_cdb.spec_to_bytes());
     proof {
-        broadcast use axiom_bytes_len, axiom_to_from_bytes;
+        broadcast use pmcopy_axioms;
         assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
         assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
         assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
