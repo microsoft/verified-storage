@@ -284,7 +284,7 @@ pub broadcast proof fn broadcast_update_bytes_effect_on_subranges(
             s1.subrange(inner_start, inner_end),
 {
     broadcast use broadcast_update_bytes_effect_on_match;
-    broadcast use group_match_in_range;
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 }
 
 pub broadcast proof fn lemma_concatenate_subranges<T>(s: Seq<T>, pos1: int, pos2: int, pos3: int)
@@ -320,23 +320,6 @@ pub proof fn lemma_concatenate_four_subranges<T>(s: Seq<T>, pos1: int, pos2: int
                + s.subrange(pos4, pos5));
 }
 
-pub broadcast proof fn broadcast_seqs_match_in_range_effect_on_subranges<T>(
-    s1: Seq<T>,
-    s2: Seq<T>,
-    outer_start: int,
-    outer_end: int,
-    inner_start: int,
-    inner_end: int,
-)
-    requires
-        #[trigger] seqs_match_in_range(s1, s2, outer_start, outer_end),
-        0 <= outer_start <= inner_start <= inner_end <= outer_end <= s1.len(),
-    ensures
-        #[trigger] s2.subrange(inner_start, inner_end) == s1.subrange(inner_start, inner_end),
-{
-    broadcast use broadcast_subrange_subrange_dangerous;
-}
-
 pub broadcast proof fn broadcast_seqs_match_in_range_can_narrow_range<T>(
     s1: Seq<T>,
     s2: Seq<T>,
@@ -364,11 +347,6 @@ pub broadcast group group_can_result_from_write_effect {
 pub broadcast group group_update_bytes_effect {
     broadcast_update_bytes_effect_on_match,
     broadcast_update_bytes_effect_on_subranges,
-}
-
-pub broadcast group group_match_in_range {
-    broadcast_seqs_match_in_range_effect_on_subranges,
-    broadcast_seqs_match_in_range_can_narrow_range,
 }
 
 pub broadcast group group_auto_subrange {

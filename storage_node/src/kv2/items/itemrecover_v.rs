@@ -137,7 +137,7 @@ pub(super) proof fn lemma_local_recover_depends_only_on_item_area<I>(
     ensures
         local_recover::<I>(s1, addrs, sm) == local_recover::<I>(s2, addrs, sm),
 {
-    broadcast use group_match_in_range;
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     broadcast use group_validate_row_addr;
     assert(local_recover::<I>(s1, addrs, sm) =~= local_recover::<I>(s2, addrs, sm));
 }

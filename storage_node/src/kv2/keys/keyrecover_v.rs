@@ -250,7 +250,7 @@ pub(super) proof fn local_lemma_recover_depends_only_on_my_area<K>(
 {
     let mapping1 = KeyRecoveryMapping::<K>::new(s1, sm).unwrap();
     assert(mapping1.corresponds(s2, sm)) by {
-        broadcast use group_match_in_range;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use group_validate_row_addr;
     }
     mapping1.lemma_corresponds_implies_equals_new(s2, sm);

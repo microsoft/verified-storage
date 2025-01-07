@@ -7,6 +7,6 @@ mod spec_v;
 mod start_v;
 
 pub use journal_v::Journal;
-pub use spec_v::{broadcast_journal_view_matches_in_range,
+pub use spec_v::{broadcast_journal_view_matches_in_range_can_narrow_range,
                  JournalConstants, JournalError, JournalView, RecoveredJournal};
 

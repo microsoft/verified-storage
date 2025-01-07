@@ -279,7 +279,7 @@ pub(super) proof fn lemma_apply_journal_entries_maintains_matching_app_areas(
         let state1_next = apply_journal_entry(state1, entry, sm).unwrap();
         let state2_next = apply_journal_entry(state2, entry, sm).unwrap();
         assert(seqs_match_in_range(state1_next, state2_next, sm.app_area_start as int, sm.app_area_end as int)) by {
-            broadcast use group_match_in_range;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             lemma_concatenate_three_subranges(state1_next, sm.app_area_start as int, entry.start, entry.end(),
                                               state1.len() as int);
             lemma_concatenate_three_subranges(state2_next, sm.app_area_start as int, entry.start, entry.end(),

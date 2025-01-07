@@ -1070,7 +1070,7 @@ impl <Perm, PM> Journal<Perm, PM>
             &&& recover_committed_cdb(self.wrpm@.read_state, self.sm) == Some(false)
             &&& recovers_to(self.wrpm@.read_state, self.vm@, self.sm, self.constants)
         }) by {
-            broadcast use group_match_in_range;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             assert(recover_version_metadata(self.wrpm@.durable_state) ==
                    recover_version_metadata(self.wrpm@.read_state));
             assert(recover_static_metadata(self.wrpm@.durable_state, self.vm@) ==
@@ -1081,7 +1081,7 @@ impl <Perm, PM> Journal<Perm, PM>
 
         assert(recovers_to(self@.commit_state, self.vm@, self.sm, self.constants)) by {
             lemma_apply_journal_entries_only_affects_app_area(self.wrpm@.read_state, self.vm@, self.sm, self.entries@);
-            broadcast use group_match_in_range;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             assert(recover_version_metadata(self.wrpm@.read_state) == recover_version_metadata(self@.commit_state));
             assert(recover_static_metadata(self.wrpm@.read_state, self.vm@) ==
                    recover_static_metadata(self@.commit_state, self.vm@));

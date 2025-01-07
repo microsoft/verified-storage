@@ -72,7 +72,7 @@ impl JournalView {
     }
 }
 
-pub broadcast proof fn broadcast_journal_view_matches_in_range_effect_on_subranges(
+pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(
     jv1: JournalView,
     jv2: JournalView,
     outer_start: int,
@@ -85,23 +85,6 @@ pub broadcast proof fn broadcast_journal_view_matches_in_range_effect_on_subrang
         0 <= outer_start <= inner_start <= inner_end <= outer_end <= jv1.len(),
     ensures
         #[trigger] jv1.matches_in_range(jv2, inner_start, inner_end),
-{
-    broadcast use broadcast_seqs_match_in_range_effect_on_subranges;
-}
-
-pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(
-    jv1: JournalView,
-    jv2: JournalView,
-    start: int,
-    end: int,
-    new_start: int,
-    new_end: int,
-)
-    requires
-        #[trigger] jv1.matches_in_range(jv2, start, end),
-        0 <= start <= new_start <= new_end <= end <= jv1.len(),
-    ensures
-        #[trigger] jv1.matches_in_range(jv2, new_start, new_end),
 {
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 }
@@ -116,11 +99,6 @@ pub enum JournalError {
 pub struct RecoveredJournal {
     pub constants: JournalConstants,
     pub state: Seq<u8>,
-}
-
-pub broadcast group broadcast_journal_view_matches_in_range {
-    broadcast_journal_view_matches_in_range_can_narrow_range,
-    broadcast_journal_view_matches_in_range_effect_on_subranges,
 }
 
 }
