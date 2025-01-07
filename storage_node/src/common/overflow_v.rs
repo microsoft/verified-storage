@@ -1,8 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use crate::common::align_v::{get_space_needed_for_alignment, lemma_space_needed_for_alignment_works,
-                             opaque_aligned, round_up_to_alignment};
-use crate::common::nonlinear_v::opaque_mul;
+                             is_aligned, round_up_to_alignment};
 use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
 use crate::pmem::traits_t::{size_of, align_of};
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
@@ -129,7 +128,7 @@ impl OverflowingU64 {
             self@ <= result@,
             result@ < self@ + alignment,
             result@ == round_up_to_alignment(self@ as int, alignment as int),
-            opaque_aligned(result@ as int, alignment as int),
+            is_aligned(result@ as int, alignment as int),
     {
         proof {
             use_type_invariant(self);
@@ -156,7 +155,7 @@ impl OverflowingU64 {
             self@ <= result@,
             result@ < self@ + alignment,
             result@ == round_up_to_alignment(self@ as int, alignment as int),
-            opaque_aligned(result@ as int, alignment as int),
+            is_aligned(result@ as int, alignment as int),
     {
         proof {
             use_type_invariant(self);
@@ -197,10 +196,9 @@ impl OverflowingU64 {
     #[inline]
     pub exec fn mul(&self, v2: u64) -> (result: Self)
         ensures
-            result@ == opaque_mul(self@ as int, v2 as int),
+            result@ == self@ as int * v2 as int,
     {
         proof {
-            reveal(opaque_mul);
             use_type_invariant(self);
         }
         let i: Ghost<nat> = Ghost((self@ * v2) as nat);
@@ -257,10 +255,9 @@ impl OverflowingU64 {
     #[inline]
     pub exec fn mul_overflowing_u64(&self, v2: &Self) -> (result: Self)
         ensures
-            result@ == opaque_mul(self@ as int, v2@ as int),
+            result@ == self@ as int * v2@ as int,
     {
         proof {
-            reveal(opaque_mul);
             use_type_invariant(self);
             use_type_invariant(v2);
         }
@@ -296,7 +293,7 @@ pub exec fn allocate_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU
             let (start, end) = bounds;
             &&& offset@ <= start@ < offset@ + T::spec_align_of()
             &&& start@ == round_up_to_alignment(offset@ as int, T::spec_align_of() as int)
-            &&& opaque_aligned(start@ as int, T::spec_align_of() as int)
+            &&& is_aligned(start@ as int, T::spec_align_of() as int)
             &&& end@ - start@ == T::spec_size_of()
         })
 {
@@ -315,7 +312,7 @@ pub exec fn allocate_specified_space(offset: &OverflowingU64, size: u64, alignme
             let (start, end) = bounds;
             &&& offset@ <= start@ < offset@ + alignment
             &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
-            &&& opaque_aligned(start@ as int, alignment as int)
+            &&& is_aligned(start@ as int, alignment as int)
             &&& end@ - start@ == size
         })
 {
@@ -334,7 +331,7 @@ pub exec fn allocate_specified_space_overflowing_u64(offset: &OverflowingU64, si
             let (start, end) = bounds;
             &&& offset@ <= start@ < offset@ + alignment
             &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
-            &&& opaque_aligned(start@ as int, alignment as int)
+            &&& is_aligned(start@ as int, alignment as int)
             &&& end@ - start@ == size@
         })
 {

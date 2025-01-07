@@ -6,7 +6,6 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::common::align_v::*;
-use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use super::recover_v::*;
@@ -79,21 +78,21 @@ impl AddressesForSetup
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()
                 <= self.journal_version_metadata_crc_start
         &&& self.journal_version_metadata_crc_start == spec_journal_version_metadata_crc_start()
-        &&& opaque_aligned(self.journal_version_metadata_crc_start as int, u64::spec_size_of() as int)
+        &&& is_aligned(self.journal_version_metadata_crc_start as int, u64::spec_size_of() as int)
         &&& self.journal_version_metadata_crc_start ==
             round_up_to_alignment(self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of(),
                                   u64::spec_align_of() as int)
         &&& self.journal_version_metadata_crc_start + u64::spec_size_of() <= self.journal_static_metadata_start
         &&& self.journal_static_metadata_start == spec_journal_static_metadata_start()
-        &&& opaque_aligned(self.journal_static_metadata_start as int, JournalStaticMetadata::spec_align_of() as int)
+        &&& is_aligned(self.journal_static_metadata_start as int, JournalStaticMetadata::spec_align_of() as int)
         &&& self.journal_static_metadata_start + JournalStaticMetadata::spec_size_of() ==
                self.journal_static_metadata_end
         &&& self.journal_static_metadata_end <= self.journal_static_metadata_crc_start
         &&& self.journal_static_metadata_crc_start == spec_journal_static_metadata_crc_start()
-        &&& opaque_aligned(self.journal_static_metadata_crc_start as int, u64::spec_size_of() as int)
+        &&& is_aligned(self.journal_static_metadata_crc_start as int, u64::spec_size_of() as int)
         &&& self.journal_static_metadata_crc_start + u64::spec_size_of() <= self.journal_dynamic_area_start
         &&& self.journal_dynamic_area_start <= self.committed_cdb_start
-        &&& opaque_aligned(self.committed_cdb_start as int, const_persistence_chunk_size() as int)
+        &&& is_aligned(self.committed_cdb_start as int, const_persistence_chunk_size() as int)
         &&& self.committed_cdb_start + u64::spec_size_of() <= self.journal_length_start
         &&& self.journal_length_start + u64::spec_size_of() <= self.journal_length_crc_start
         &&& self.journal_length_crc_start + u64::spec_size_of() <= self.journal_entries_crc_start

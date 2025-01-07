@@ -120,7 +120,7 @@ pub(super) open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: 
         &&& spec_journal_static_metadata_crc_start() + u64::spec_size_of() == spec_journal_static_metadata_crc_end()
         &&& spec_journal_static_metadata_crc_end() <= sm.committed_cdb_start
         &&& sm.committed_cdb_start + u64::spec_size_of() <= sm.journal_length_start
-        &&& opaque_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
+        &&& is_aligned(sm.committed_cdb_start as int, const_persistence_chunk_size() as int)
         &&& sm.journal_length_start + u64::spec_size_of() <= sm.journal_length_crc_start
         &&& sm.journal_length_crc_start + u64::spec_size_of() <= sm.journal_entries_crc_start
         &&& sm.journal_entries_crc_start + u64::spec_size_of() <= sm.journal_entries_start

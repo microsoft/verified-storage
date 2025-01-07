@@ -833,9 +833,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                                               cdb.spec_to_bytes())
             implies perm.check_permission(s) by {
             assert(s == self.wrpm@.durable_state || s == desired_state) by {
-                assert(self.sm.committed_cdb_start as int % const_persistence_chunk_size() == 0) by {
-                    reveal(opaque_aligned);
-                }
+                assert(self.sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
                 lemma_only_two_crash_states_introduced_by_aligned_chunk_write(s, self.wrpm@.durable_state,
                                                                               self.sm.committed_cdb_start as int,
                                                                               cdb.spec_to_bytes());

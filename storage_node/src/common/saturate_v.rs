@@ -2,7 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::common::align_v::{get_space_needed_for_alignment, get_space_needed_for_alignment_usize,
-                             lemma_space_needed_for_alignment_works, opaque_aligned, round_up_to_alignment};
+                             lemma_space_needed_for_alignment_works, is_aligned, round_up_to_alignment};
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
                                 lemma_mod_division_less_than_divisor};
 use vstd::arithmetic::mul::lemma_mul_inequality;
@@ -132,7 +132,7 @@ impl SaturatingU64 {
             self@ <= result@,
             result@ < self@ + alignment,
             result@ == round_up_to_alignment(self@, alignment as int),
-            opaque_aligned(result@, alignment as int),
+            is_aligned(result@, alignment as int),
     {
         proof {
             use_type_invariant(self);

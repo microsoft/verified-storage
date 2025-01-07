@@ -3,7 +3,6 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::nonlinear_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
@@ -61,8 +60,7 @@ impl ListTableStaticMetadata
         &&& self.table.start <= self.table.end
         &&& self.row_metadata_end - self.row_metadata_start == ListTableRowMetadata::spec_size_of()
         &&& self.row_metadata_end <= self.row_block_start
-        &&& opaque_mul(self.num_elements_per_block as int, self.block_element_size as int)
-            <= self.row_block_end - self.row_block_start
+        &&& self.num_elements_per_block * self.block_element_size <= self.row_block_end - self.row_block_start
         &&& self.block_element_list_entry_end - self.block_element_list_entry_start == self.list_entry_size
         &&& self.block_element_list_entry_end <= self.block_element_crc_start
         &&& self.block_element_crc_start + u64::spec_size_of() <= self.block_element_size

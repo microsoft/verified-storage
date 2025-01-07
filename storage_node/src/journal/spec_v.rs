@@ -3,7 +3,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::common::nonlinear_v::*;
 use crate::common::subrange_v::*;
 
 verus! {

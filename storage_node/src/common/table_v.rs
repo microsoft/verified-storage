@@ -3,7 +3,6 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::nonlinear_v::*;
 use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
@@ -29,30 +28,30 @@ impl TableMetadata
     pub closed spec fn valid(self) -> bool
     {
         &&& 0 < self.row_size
-        &&& opaque_mul(self.num_rows as int, self.row_size as int) <= self.end - self.start
+        &&& self.num_rows as int * self.row_size <= self.end - self.start
     }
 
     pub closed spec fn row_index_to_addr(self, row_index: int) -> int
     {
-        self.start + opaque_mul(row_index, self.row_size as int)
+        self.start + row_index * self.row_size
     }
 
     pub closed spec fn row_addr_to_index(self, addr: int) -> int
     {
-        opaque_div(addr - self.start, self.row_size as int)
+        (addr - self.start) / (self.row_size as int)
     }
 
     pub closed spec fn validate_row_addr(self, addr: int) -> bool
     {
         let row_index = self.row_addr_to_index(addr);
         &&& 0 <= row_index < self.num_rows
-        &&& addr == self.start + opaque_mul(row_index, self.row_size as int)
+        &&& addr == self.start + row_index * self.row_size
     }
 
     pub exec fn new(start: u64, end: u64, num_rows: u64, row_size: u64) -> (result: Self)
         requires
             0 < row_size,
-            opaque_mul(num_rows as int, row_size as int) <= end - start,
+            num_rows * row_size <= end - start,
         ensures
             result == (Self{ start, end, num_rows, row_size }),
             result.valid()
@@ -67,8 +66,6 @@ impl TableMetadata
             self.row_addr_to_index(self.start as int) == 0,
             self.num_rows > 0 ==> self.validate_row_addr(self.start as int),
     {
-        reveal(opaque_mul);
-        reveal(opaque_div);
         lemma_div_of0(self.row_size as int);
         assert(0int / self.row_size as int == 0);
     }
@@ -86,8 +83,6 @@ impl TableMetadata
                 &&& row_index + 1 < self.num_rows ==> self.validate_row_addr(new_addr)
             })
     {
-        reveal(opaque_mul);
-        reveal(opaque_div);
         let new_addr = addr + self.row_size;
         let row_index = self.row_addr_to_index(addr);
         let new_row = (new_addr - self.start) / (self.row_size as int);
@@ -112,7 +107,6 @@ pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, ad
         0 <= tm.row_addr_to_index(addr) < tm.num_rows,
 {
     let row_index = tm.row_addr_to_index(addr);
-    reveal(opaque_mul);
     lemma_mul_inequality(row_index + 1, tm.num_rows as int, tm.row_size as int);
     assert(addr + tm.row_size == tm.start + (row_index + 1) * tm.row_size) by {
         lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index as int, 1);
@@ -132,8 +126,6 @@ pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetad
         },
         addr1 != addr2 ==> tm.row_addr_to_index(addr1) != tm.row_addr_to_index(addr2),
 {
-    reveal(opaque_mul);
-
     let row_index1 = tm.row_addr_to_index(addr1);
     let row_index2 = tm.row_addr_to_index(addr2);
     if row_index1 < row_index2 {
@@ -155,8 +147,6 @@ pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_i
         tm.validate_row_addr(#[trigger] tm.row_index_to_addr(row_index)),
         tm.row_addr_to_index(tm.row_index_to_addr(row_index)) == row_index,
 {
-    reveal(opaque_mul);
-    reveal(opaque_div);
     let addr = tm.row_index_to_addr(row_index);
     assert(row_index == tm.row_addr_to_index(addr)) by {
        lemma_fundamental_div_mod_converse(addr - tm.start, tm.row_size as int, row_index, 0);

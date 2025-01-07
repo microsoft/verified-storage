@@ -4,7 +4,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
@@ -47,7 +46,7 @@ pub(super) open spec fn spec_space_needed_for_journal_capacity<PM, K, I, L>(ps: 
         Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() * 4
         + L::spec_size_of()
         + u64::spec_size_of() * 8;
-    opaque_mul(ps.max_operations_per_transaction as int, bytes_per_operation as int) as nat
+    (ps.max_operations_per_transaction * bytes_per_operation) as nat
 }
 
 pub(super) exec fn space_needed_for_journal_capacity<PM, K, I, L>(ps: &SetupParameters) -> (result: OverflowingU64)
@@ -57,8 +56,6 @@ pub(super) exec fn space_needed_for_journal_capacity<PM, K, I, L>(ps: &SetupPara
     ensures
         result@ == spec_space_needed_for_journal_capacity::<PM, K, I, L>(*ps),
 {
-    reveal(opaque_mul);
-
     let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
     let overhead_times_four = OverflowingU64::new(overhead).mul(4);
     let eight_u64_size = size_of::<u64>() * 8;

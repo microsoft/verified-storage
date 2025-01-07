@@ -3,7 +3,6 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::nonlinear_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;

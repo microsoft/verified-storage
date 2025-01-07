@@ -4,7 +4,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::nonlinear_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
@@ -36,7 +35,7 @@ pub(super) open spec fn local_spec_space_needed_for_setup<I>(ps: SetupParameters
     let row_item_crc_end = row_item_end + u64::spec_size_of();
     let row_size = row_item_crc_end;
     let num_rows = ps.num_keys;
-    let table_size = opaque_mul(num_rows as int, row_size as int);
+    let table_size = num_rows as int * row_size;
     let initial_space = if min_start > u64::MAX { 0 } else {
         space_needed_for_alignment(min_start as int, u64::spec_size_of() as int)
     };
@@ -140,7 +139,6 @@ pub(super) exec fn local_setup<PM, I, K>(
 
     assert(end@ - min_start == local_spec_space_needed_for_setup::<I>(*ps, min_start as nat));
     assert(table_size@ >= row_item_crc_end@) by {
-        reveal(opaque_mul);
         vstd::arithmetic::mul::lemma_mul_ordering(ps.num_keys as int, row_item_crc_end@ as int);
     }
 

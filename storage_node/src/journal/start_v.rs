@@ -414,10 +414,8 @@ pub(super) exec fn clear_log<Perm, PM>(
     let ghost new_state = update_bytes(wrpm@.durable_state, sm.committed_cdb_start as int,
         new_cdb.spec_to_bytes());
     proof {
-        broadcast use pmcopy_axioms;
-        assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0) by {
-            reveal(opaque_aligned);
-        }
+        broadcast use axiom_bytes_len, axiom_to_from_bytes;
+        assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
         assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
         assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
         assert(perm.check_permission(wrpm@.durable_state));

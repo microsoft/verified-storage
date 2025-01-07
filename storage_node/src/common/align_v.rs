@@ -7,8 +7,7 @@ use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_v
 
 verus! {
 
-#[verifier::opaque]
-pub open spec fn opaque_aligned(addr: int, alignment: int) -> bool
+pub open spec fn is_aligned(addr: int, alignment: int) -> bool
     recommends
         0 < alignment
 {
@@ -90,9 +89,8 @@ pub proof fn lemma_space_needed_for_alignment_works(addr: int, alignment: int)
         0 < alignment,
     ensures
         0 <= space_needed_for_alignment(addr, alignment) < alignment,
-        opaque_aligned(addr + space_needed_for_alignment(addr, alignment), alignment)
+        is_aligned(addr + space_needed_for_alignment(addr, alignment), alignment)
 {
-    reveal(opaque_aligned);
     let remainder = addr % alignment;
     if remainder != 0 {
         assert(addr == alignment * (addr / alignment) + (addr % alignment)) by {
