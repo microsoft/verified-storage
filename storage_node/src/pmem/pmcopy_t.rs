@@ -45,7 +45,7 @@ verus! {
         axiom_to_from_bytes,
         axiom_u64_to_le_bytes,
         axiom_u64_from_le_bytes,
-        axiom_from_bytes_equal,
+        // axiom_from_bytes_equal,
     }
 
     // PmCopy provides functions to help reason about copying data to and from persistent memory.
@@ -185,7 +185,7 @@ verus! {
 
     pub broadcast proof fn axiom_u64_to_le_bytes(v: u64)
         ensures 
-            #[trigger] v.spec_to_bytes() == spec_u64_to_le_bytes(v)
+            v.spec_to_bytes() == #[trigger] spec_u64_to_le_bytes(v)
     {
         admit();
     }
@@ -194,7 +194,7 @@ verus! {
         requires
             s.len() == 8
         ensures 
-            #[trigger] u64::spec_from_bytes(s) == spec_u64_from_le_bytes(s)
+            u64::spec_from_bytes(s) == #[trigger] spec_u64_from_le_bytes(s)
     {
         admit();
     }
