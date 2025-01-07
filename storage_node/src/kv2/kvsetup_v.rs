@@ -23,7 +23,6 @@ use super::kvimpl_t::*;
 use super::kvrecover_v::*;
 use super::kvspec_t::*;
 use super::lists::*;
-use vstd::math::max;
 
 verus! {
 
@@ -82,9 +81,9 @@ pub(super) open spec fn local_spec_space_needed_for_setup<PM, K, I, L>(ps: Setup
     let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
     let sm_end = sm_start + KvStaticMetadata::spec_size_of();
     let sm_crc_end = sm_end + u64::spec_size_of();
-    let key_table_end = max(sm_crc_end, KeyTable::<PM, K>::spec_setup_end(ps, sm_crc_end as nat) as int);
-    let item_table_end = max(key_table_end, ItemTable::<PM, I>::spec_setup_end(ps, key_table_end as nat) as int);
-    let list_table_end = max(item_table_end, ListTable::<PM, L>::spec_setup_end(ps, item_table_end as nat) as int);
+    let key_table_end = sm_crc_end + KeyTable::<PM, K>::spec_space_needed_for_setup(ps, sm_crc_end as nat);
+    let item_table_end = key_table_end + ItemTable::<PM, I>::spec_space_needed_for_setup(ps, key_table_end as nat);
+    let list_table_end = item_table_end + ListTable::<PM, L>::spec_space_needed_for_setup(ps, item_table_end as nat);
     list_table_end as nat
 }
 
@@ -112,9 +111,12 @@ pub(super) exec fn local_space_needed_for_setup<PM, K, I, L>(ps: &SetupParameter
     let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
     let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
     let sm_crc_end = sm_end.add_usize(size_of::<u64>());
-    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_crc_end);
-    let item_table_end = ItemTable::<PM, I>::setup_end(ps, &key_table_end);
-    let list_table_end = ListTable::<PM, L>::setup_end(ps, &item_table_end);
+    let key_table_size = KeyTable::<PM, K>::space_needed_for_setup(ps, &sm_crc_end);
+    let key_table_end = sm_crc_end.add_overflowing_u64(&key_table_size);
+    let item_table_size = ItemTable::<PM, I>::space_needed_for_setup(ps, &key_table_end);
+    let item_table_end = key_table_end.add_overflowing_u64(&item_table_size);
+    let list_table_size = ListTable::<PM, L>::space_needed_for_setup(ps, &item_table_end);
+    let list_table_end = item_table_end.add_overflowing_u64(&list_table_size);
     assert(list_table_end@ == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps));
     if list_table_end.is_overflowed() {
         Err(KvError::OutOfSpace)

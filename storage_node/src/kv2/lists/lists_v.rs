@@ -61,15 +61,14 @@ impl<PM, L> ListTable<PM, L>
         recover_lists::<L>(s, addrs, sm)
     }
 
-    pub closed spec fn spec_setup_end(ps: SetupParameters, min_start: nat) -> nat
+    pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters, min_start: nat) -> nat
     {
         arbitrary()
     }
 
-    pub exec fn setup_end(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
         ensures
-            result@ == Self::spec_setup_end(*ps, min_start@),
-            min_start@ <= result@,
+            result@ == Self::spec_space_needed_for_setup(*ps, min_start@),
     {
         assume(false);
         OverflowingU64::new(0)
@@ -98,13 +97,11 @@ impl<PM, L> ListTable<PM, L>
                                                  sm.table.end as int)
                     &&& sm.valid()
                     &&& sm.consistent_with_type::<L>()
-                    &&& min_start <= sm.table.start
-                    &&& sm.table.start <= sm.table.end
-                    &&& sm.table.end <= max_end
-                    &&& sm.table.end == Self::spec_setup_end(*ps, min_start as nat)
+                    &&& min_start <= sm.table.start <= sm.table.end <= max_end
+                    &&& sm.table.end - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)
                     &&& sm.table.num_rows == ps.num_keys
                 },
-                Err(KvError::OutOfSpace) => max_end < Self::spec_setup_end(*ps, min_start as nat),
+                Err(KvError::OutOfSpace) => max_end < Self::spec_space_needed_for_setup(*ps, min_start as nat),
                 _ => false,
             },
     {

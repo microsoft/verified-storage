@@ -25,7 +25,7 @@ use super::super::kvspec_t::*;
 
 verus! {
 
-pub(super) open spec fn local_spec_setup_end<I>(ps: SetupParameters, min_start: nat) -> nat
+pub(super) open spec fn local_spec_space_needed_for_setup<I>(ps: SetupParameters, min_start: nat) -> nat
     where
         I: PmCopy,
     recommends
@@ -36,28 +36,32 @@ pub(super) open spec fn local_spec_setup_end<I>(ps: SetupParameters, min_start: 
     let row_item_crc_end = row_item_end + u64::spec_size_of();
     let row_size = row_item_crc_end;
     let num_rows = ps.num_keys;
-    let start = round_up_to_alignment(min_start as int, u64::spec_size_of() as int);
     let table_size = opaque_mul(num_rows as int, row_size as int);
-    (start + table_size) as nat
+    let initial_space = if min_start > u64::MAX { 0 } else {
+        space_needed_for_alignment(min_start as int, u64::spec_size_of() as int)
+    };
+    (initial_space + table_size) as nat
 }
 
-pub(super) exec fn local_setup_end<I>(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
+pub(super) exec fn local_space_needed_for_setup<I>(ps: &SetupParameters, min_start: &OverflowingU64)
+                                                   -> (result: OverflowingU64)
     where
         I: PmCopy,
     requires
         ps.valid(),
     ensures
-        result@ == local_spec_setup_end::<I>(*ps, min_start@),
-        min_start@ <= result@,
+        result@ == local_spec_space_needed_for_setup::<I>(*ps, min_start@),
 {
     broadcast use pmcopy_axioms;
 
     let row_item_end = OverflowingU64::new(size_of::<I>() as u64);
     let row_item_crc_end = row_item_end.add_usize(size_of::<u64>());
     let num_rows = OverflowingU64::new(ps.num_keys);
-    let start = min_start.align(size_of::<u64>());
     let table_size = num_rows.mul_overflowing_u64(&row_item_crc_end);
-    start.add_overflowing_u64(&table_size)
+    let initial_space = if min_start.is_overflowed() { 0 } else {
+        get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
+    };
+    OverflowingU64::new(initial_space).add_overflowing_u64(&table_size)
 }
 
 pub(super) exec fn exec_setup_given_metadata<PM, I>(
@@ -107,13 +111,12 @@ pub(super) exec fn local_setup<PM, I, K>(
                                               sm.table.end as int)
                 &&& sm.valid()
                 &&& sm.consistent_with_type::<I>()
-                &&& min_start <= sm.table.start
-                &&& sm.table.start <= sm.table.end
-                &&& sm.table.end <= max_end
-                &&& sm.table.end == local_spec_setup_end::<I>(*ps, min_start as nat)
+                &&& min_start <= sm.table.start <= sm.table.end <= max_end
+                &&& sm.table.end - min_start == local_spec_space_needed_for_setup::<I>(*ps, min_start as nat)
                 &&& sm.table.num_rows == ps.num_keys
             },
-            Err(KvError::OutOfSpace) => max_end < local_spec_setup_end::<I>(*ps, min_start as nat),
+            Err(KvError::OutOfSpace) =>
+                max_end - min_start < local_spec_space_needed_for_setup::<I>(*ps, min_start as nat),
             _ => false,
         }
 {
@@ -131,7 +134,7 @@ pub(super) exec fn local_setup<PM, I, K>(
     let table_size = num_rows.mul_overflowing_u64(&row_item_crc_end);
     let end = start.add_overflowing_u64(&table_size);
 
-    assert(end@ == local_spec_setup_end::<I>(*ps, min_start as nat));
+    assert(end@ - min_start == local_spec_space_needed_for_setup::<I>(*ps, min_start as nat));
     assert(table_size@ >= row_item_crc_end@) by {
         reveal(opaque_mul);
         vstd::arithmetic::mul::lemma_mul_ordering(ps.num_keys as int, row_item_crc_end@ as int);
