@@ -57,7 +57,6 @@ pub(super) exec fn space_needed_for_journal_capacity<PM, K, I, L>(ps: &SetupPara
     ensures
         result@ == spec_space_needed_for_journal_capacity::<PM, K, I, L>(*ps),
 {
-    broadcast use pmcopy_axioms;
     reveal(opaque_mul);
 
     let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
