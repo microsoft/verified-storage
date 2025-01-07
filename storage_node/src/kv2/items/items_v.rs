@@ -95,6 +95,7 @@ impl<PM, I> ItemTable<PM, I>
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
+            pm@.len() == old(pm)@.len(),
             match result {
                 Ok(sm) => {
                     &&& Self::recover(pm@.read_state, Set::<u64>::empty(), sm) == Some(ItemTableSnapshot::<I>::init())

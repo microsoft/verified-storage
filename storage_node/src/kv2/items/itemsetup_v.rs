@@ -75,6 +75,7 @@ pub(super) exec fn exec_setup_given_metadata<PM, I>(
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.len() == old(pm)@.len(),
         local_recover::<I>(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
         seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
 {
@@ -98,6 +99,7 @@ pub(super) exec fn local_setup<PM, I, K>(
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.len() == old(pm)@.len(),
         match result {
             Ok(sm) => {
                 &&& local_recover::<I>(pm@.read_state, Set::<u64>::empty(), sm) == Some(ItemTableSnapshot::<I>::init())

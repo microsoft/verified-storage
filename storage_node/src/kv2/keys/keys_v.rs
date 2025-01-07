@@ -146,6 +146,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),
+            pm@.len() == old(pm)@.len(),
             match result {
                 Ok(sm) => {
                     &&& Self::recover(pm@.read_state, sm) == Some(KeyTableSnapshot::<K>::init())

@@ -23,6 +23,7 @@ use super::kvimpl_t::*;
 use super::kvrecover_v::*;
 use super::kvspec_t::*;
 use super::lists::*;
+use vstd::math::max;
 
 verus! {
 
@@ -81,9 +82,9 @@ pub(super) open spec fn local_spec_space_needed_for_setup<PM, K, I, L>(ps: Setup
     let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
     let sm_end = sm_start + KvStaticMetadata::spec_size_of();
     let sm_crc_end = sm_end + u64::spec_size_of();
-    let key_table_end = KeyTable::<PM, K>::spec_setup_end(ps, sm_crc_end as nat);
-    let item_table_end = ItemTable::<PM, I>::spec_setup_end(ps, key_table_end);
-    let list_table_end = ListTable::<PM, L>::spec_setup_end(ps, item_table_end);
+    let key_table_end = max(sm_crc_end, KeyTable::<PM, K>::spec_setup_end(ps, sm_crc_end as nat) as int);
+    let item_table_end = max(key_table_end, ItemTable::<PM, I>::spec_setup_end(ps, key_table_end as nat) as int);
+    let list_table_end = max(item_table_end, ListTable::<PM, L>::spec_setup_end(ps, item_table_end as nat) as int);
     list_table_end as nat
 }
 
@@ -204,14 +205,10 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
     let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
     let sm_crc_end = sm_end.add_usize(size_of::<u64>());
-    let key_table_end = KeyTable::<PM, K>::setup_end(ps, &sm_crc_end);
-    let item_table_end = ItemTable::<PM, I>::setup_end(ps, &key_table_end);
-    let list_table_end = ListTable::<PM, L>::setup_end(ps, &item_table_end);
-    assert(list_table_end@ == local_spec_space_needed_for_setup::<PM, K, I, L>(*ps));
-    if list_table_end.is_overflowed() {
+    if sm_crc_end.is_overflowed() {
         return Err(KvError::OutOfSpace);
     }
-    if list_table_end.unwrap() > pm_size {
+    if sm_crc_end.unwrap() > pm_size {
         return Err(KvError::OutOfSpace);
     }
 
@@ -221,26 +218,26 @@ pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -
     }
 
     let ghost empty_keys = KeyTableSnapshot::<K>::init();
-    let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), key_table_end.unwrap()) {
+    let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
         Ok(key_sm) => key_sm,
-        Err(e) => { assert(false); return Err(KvError::InternalError); },
+        Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
+        Err(_) => { assert(false); return Err(KvError::InternalError); },
     };
-    assert(key_sm.table.end == key_table_end@);
     let ghost state_after_key_init = pm@.read_state;
 
-    let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_table_end.unwrap(), item_table_end.unwrap()) {
+    let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_sm.table.end, pm_size) {
         Ok(item_sm) => item_sm,
+        Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
         Err(e) => { assert(false); return Err(KvError::InternalError); },
     };
     let ghost state_after_item_init = pm@.read_state;
-    assert(item_sm.table.end == item_table_end@);
 
-    let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_table_end.unwrap(), list_table_end.unwrap()) {
+    let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_sm.table.end, pm_size) {
         Ok(list_sm) => list_sm,
+        Err(KvError::OutOfSpace) => { return Err(KvError::OutOfSpace); },
         Err(e) => { assert(false); return Err(KvError::InternalError); },
     };
     let ghost state_after_list_init = pm@.read_state;
-    assert(list_sm.table.end == list_table_end@);
 
     let kv_sm = KvStaticMetadata {
         encoded_policies: encode_policies(&ps.logical_range_gaps_policy),
