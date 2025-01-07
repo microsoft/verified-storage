@@ -158,7 +158,6 @@ pub(super) exec fn write_static_metadata<PM>(
     assert(recover_static_metadata(pm@.read_state, *jc) =~= Some(*sm));
 }
 
-#[verifier::rlimit(20)]
 pub(super) exec fn local_setup<PM, K, I, L>(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
     where
         PM: PersistentMemoryRegion,
