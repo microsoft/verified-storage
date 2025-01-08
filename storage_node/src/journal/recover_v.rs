@@ -134,7 +134,7 @@ pub(super) open spec fn validate_static_metadata(sm: JournalStaticMetadata, vm: 
 }
 
 pub(super) open spec fn recover_static_metadata(bytes: Seq<u8>, vm: JournalVersionMetadata)
-                                         -> Option<JournalStaticMetadata>
+                                                -> Option<JournalStaticMetadata>
 {
     if spec_journal_static_metadata_crc_end() > bytes.len() {
         None

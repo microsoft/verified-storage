@@ -5,6 +5,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::common::subrange_v::*;
 use crate::pmem::wrpm_t::*;
 use super::entry_v::*;
+use super::internal_v::*;
 use super::journal_v::*;
 use super::recover_v::*;
 
@@ -16,7 +17,7 @@ pub(super) enum JournalStatus {
     Committed,
 }
 
-impl <Perm, PM> Journal<Perm, PM>
+impl <Perm, PM> JournalInternal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
@@ -54,12 +55,6 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& journaled_addrs_complete(self.entries@, self.journaled_addrs@)
         &&& self.journal_length <= self.constants.journal_capacity
         &&& self.journal_length == space_needed_for_journal_entries_list(self.entries@)
-    }
-
-    pub(super) open spec fn valid_internal(self) -> bool
-    {
-        &&& self.inv()
-        &&& self.status@ is Quiescent
     }
 }
 
