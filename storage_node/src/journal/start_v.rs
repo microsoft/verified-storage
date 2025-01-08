@@ -10,8 +10,8 @@ use crate::common::align_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use deps_hack::PmCopy;
+use super::*;
 use super::entry_v::*;
-use super::internal_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_v::*;
@@ -20,7 +20,7 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-impl <Perm, PM> JournalInternal<Perm, PM>
+impl <Perm, PM> Journal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
@@ -404,7 +404,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         assert(wrpm@.read_state == new_state);
     }
 
-    pub(super) exec fn start(
+    pub exec fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<Self, JournalError>)

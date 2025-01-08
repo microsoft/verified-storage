@@ -9,32 +9,32 @@ use crate::pmem::wrpm_t::*;
 use crate::common::align_v::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
-use super::internal_v::*;
+use super::*;
 use super::recover_v::*;
 use super::spec_v::*;
 
 verus! {
 
 #[verifier::ext_equal]
-pub(super) struct AddressesForSetup
+struct AddressesForSetup
 {
-    pub(super) journal_version_metadata_start: u64,
-    pub(super) journal_version_metadata_crc_start: u64,
-    pub(super) journal_static_metadata_start: u64,
-    pub(super) journal_static_metadata_end: u64,
-    pub(super) journal_static_metadata_crc_start: u64,
-    pub(super) journal_dynamic_area_start: u64,
-    pub(super) committed_cdb_start: u64,
-    pub(super) journal_length_start: u64,
-    pub(super) journal_length_crc_start: u64,
-    pub(super) journal_entries_crc_start: u64,
-    pub(super) journal_entries_start: u64,
-    pub(super) journal_entries_end: u64,
+    journal_version_metadata_start: u64,
+    journal_version_metadata_crc_start: u64,
+    journal_static_metadata_start: u64,
+    journal_static_metadata_end: u64,
+    journal_static_metadata_crc_start: u64,
+    journal_dynamic_area_start: u64,
+    committed_cdb_start: u64,
+    journal_length_start: u64,
+    journal_length_crc_start: u64,
+    journal_entries_crc_start: u64,
+    journal_entries_start: u64,
+    journal_entries_end: u64,
 }
 
 impl AddressesForSetup
 {
-    pub(super) open spec fn valid(&self, journal_capacity: u64) -> bool
+    spec fn valid(&self, journal_capacity: u64) -> bool
     {
         &&& self.journal_version_metadata_start == spec_journal_version_metadata_start()
         &&& self.journal_version_metadata_start + JournalVersionMetadata::spec_size_of()
@@ -63,12 +63,12 @@ impl AddressesForSetup
     }
 }
 
-impl <Perm, PM> JournalInternal<Perm, PM>
+impl <Perm, PM> Journal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
-    pub(super) closed spec fn spec_space_needed_for_setup(journal_capacity: nat) -> nat
+    pub closed spec fn spec_space_needed_for_setup(journal_capacity: nat) -> nat
     {
         let journal_version_metadata_start: int = 0;
         let journal_version_metadata_end = JournalVersionMetadata::spec_size_of() as int;
@@ -87,7 +87,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         journal_entries_end as nat
     }
     
-    pub(super) exec fn space_needed_for_setup(journal_capacity: &OverflowingU64) -> (result: OverflowingU64)
+    pub exec fn space_needed_for_setup(journal_capacity: &OverflowingU64) -> (result: OverflowingU64)
         ensures
             result@ == Self::spec_space_needed_for_setup(journal_capacity@),
             journal_capacity@ <= result@,
@@ -108,7 +108,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         journal_entries_end
     }
     
-    pub(super) exec fn get_addresses_for_setup(journal_capacity: u64) -> (result: Option<AddressesForSetup>)
+    exec fn get_addresses_for_setup(journal_capacity: u64) -> (result: Option<AddressesForSetup>)
         ensures
             match result {
                 Some(addrs) => {
@@ -153,7 +153,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         }
     }
     
-    pub(super) proof fn lemma_setup_works(
+    proof fn lemma_setup_works(
         bytes: Seq<u8>,
         jc: JournalConstants,
         addrs: AddressesForSetup,
@@ -199,7 +199,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         broadcast use pmcopy_axioms;
     }
     
-    pub(super) exec fn setup(
+    pub exec fn setup(
         pm: &mut PM,
         jc: &JournalConstants,
     ) -> (result: Result<(), JournalError>)
@@ -211,7 +211,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
             match result {
                 Ok(constants) => {
                     &&& pm@.flush_predicted()
-                    &&& recover_journal(pm@.durable_state)
+                    &&& Self::recover(pm@.durable_state)
                         == Some(RecoveredJournal{ constants: *jc, state: pm@.durable_state })
                     &&& jc.app_area_start <= jc.app_area_end
                     &&& jc.app_area_end == pm@.len()

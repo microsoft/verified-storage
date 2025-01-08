@@ -135,7 +135,7 @@ pub(super) open spec fn journaled_addrs_complete(entries: Seq<JournalEntry>, jou
         entries.contains(entry) && entry.start <= addr < entry.end() ==> journaled_addrs.contains(addr)
 }
 
-pub struct ConcreteJournalEntry
+pub(super) struct ConcreteJournalEntry
 {
     pub start: u64,
     pub bytes_to_write: Vec<u8>,

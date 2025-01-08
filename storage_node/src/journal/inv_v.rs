@@ -4,9 +4,8 @@ use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::common::subrange_v::*;
 use crate::pmem::wrpm_t::*;
+use super::*;
 use super::entry_v::*;
-use super::internal_v::*;
-use super::journal_v::*;
 use super::recover_v::*;
 
 verus! {
@@ -17,7 +16,7 @@ pub(super) enum JournalStatus {
     Committed,
 }
 
-impl <Perm, PM> JournalInternal<Perm, PM>
+impl <Perm, PM> Journal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,

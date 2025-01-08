@@ -11,7 +11,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::pmem::wrpm_t::*;
 use super::entry_v::*;
-use super::internal_v::*;
+use super::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::setup_v::*;
@@ -20,12 +20,12 @@ use super::start_v::*;
 
 verus! {
 
-impl <Perm, PM> JournalInternal<Perm, PM>
+impl <Perm, PM> Journal<Perm, PM>
     where
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
-    pub(super) open spec fn write_preconditions(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
+    pub open spec fn write_preconditions(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
     {
         &&& self.valid()
         &&& self@.constants.app_area_start <= addr
@@ -40,7 +40,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
             addr <= i < addr + bytes_to_write.len() ==> !self@.journaled_addrs.contains(i)
     }
 
-    pub(super) open spec fn write_postconditions(self, old_self: Self, addr: u64, bytes_to_write: Seq<u8>) -> bool
+    pub open spec fn write_postconditions(self, old_self: Self, addr: u64, bytes_to_write: Seq<u8>) -> bool
     {
         &&& self.valid()
         &&& self@.valid()
@@ -54,7 +54,7 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         &&& old_self@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len())
     }
 
-    pub(super) exec fn write_slice(
+    pub exec fn write_slice(
         &mut self,
         addr: u64,
         bytes_to_write: &[u8],
@@ -95,7 +95,38 @@ impl <Perm, PM> JournalInternal<Perm, PM>
         assert(old(self)@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len()));
     }
 
-    pub(super) exec fn journal_write(
+    pub exec fn write_vec(
+        &mut self,
+        addr: u64,
+        bytes_to_write: Vec<u8>,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        requires
+            old(self).write_preconditions(addr, bytes_to_write@, *perm),
+        ensures
+            self.write_postconditions(*old(self), addr, bytes_to_write@),
+    {
+        self.write_slice(addr, bytes_to_write.as_slice(), Tracked(perm))
+    }
+
+    pub exec fn write_object<S>(
+        &mut self,
+        addr: u64,
+        object: &S,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            S: PmCopy,
+        requires
+            old(self).write_preconditions(addr, object.spec_to_bytes(), *perm),
+        ensures
+            self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
+    {
+        broadcast use pmcopy_axioms;
+        self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
+    }
+
+    pub exec fn journal_write(
         &mut self,
         addr: u64,
         bytes_to_write: Vec<u8>,
