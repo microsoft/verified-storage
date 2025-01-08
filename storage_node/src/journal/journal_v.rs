@@ -806,6 +806,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                       self.sm.app_area_end as int)
             }),
     {
+        broadcast use group_update_bytes_effect;
         broadcast use pmcopy_axioms;
 
         let cdb = CDB_TRUE;
@@ -909,6 +910,8 @@ impl <Perm, PM> Journal<Perm, PM>
             apply_journal_entries(self.wrpm@.read_state, self.entries@.skip(num_entries_installed + 1), self.sm)
                 == Some(desired_commit_state),
     {
+        broadcast use group_can_result_from_write_effect;
+            
         let entry: &ConcreteJournalEntry = &self.entries.entries[num_entries_installed];
         let ghost entries_bytes = recover_journal_entries_bytes(self.wrpm@.durable_state, self.sm,
                                                                 self.journal_length).unwrap();
@@ -941,12 +944,8 @@ impl <Perm, PM> Journal<Perm, PM>
                 );
             }
             assert(Some(self.wrpm@.read_state) == apply_journal_entry(old(self).wrpm@.read_state, entry@, self.sm));
-            lemma_auto_subrange_subrange(self.wrpm@.durable_state, 0, entry.start as int);
-            lemma_auto_subrange_subrange(old(self).wrpm@.durable_state, 0, entry.start as int);
             assert(recover_journal(self.wrpm@.durable_state) == recover_journal(old(self).wrpm@.durable_state));
             assert(recover_journal_length(self.wrpm@.durable_state, self.sm) == Some(self.journal_length));
-            lemma_auto_subrange_subrange(self.wrpm@.read_state, 0, entry.start as int);
-            lemma_auto_subrange_subrange(old(self).wrpm@.read_state, 0, entry.start as int);
     
             assert(self.entries@.skip(num_entries_installed as int)[0] =~= self.entries@[num_entries_installed as int]);
             assert(self.entries@.skip(num_entries_installed as int).skip(1)
@@ -1060,12 +1059,13 @@ impl <Perm, PM> Journal<Perm, PM>
             recovers_to(self.wrpm@.read_state, self.vm@, self.sm, self.constants),
             recovers_to(self@.commit_state, self.vm@, self.sm, self.constants),
     {
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        
         lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
         assert({
             &&& recover_committed_cdb(self.wrpm@.read_state, self.sm) == Some(false)
             &&& recovers_to(self.wrpm@.read_state, self.vm@, self.sm, self.constants)
         }) by {
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             assert(recover_version_metadata(self.wrpm@.durable_state) ==
                    recover_version_metadata(self.wrpm@.read_state));
             assert(recover_static_metadata(self.wrpm@.durable_state, self.vm@) ==
@@ -1076,7 +1076,6 @@ impl <Perm, PM> Journal<Perm, PM>
 
         assert(recovers_to(self@.commit_state, self.vm@, self.sm, self.constants)) by {
             lemma_apply_journal_entries_only_affects_app_area(self.wrpm@.read_state, self.vm@, self.sm, self.entries@);
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             assert(recover_version_metadata(self.wrpm@.read_state) == recover_version_metadata(self@.commit_state));
             assert(recover_static_metadata(self.wrpm@.read_state, self.vm@) ==
                    recover_static_metadata(self@.commit_state, self.vm@));
