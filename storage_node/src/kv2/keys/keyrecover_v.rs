@@ -173,19 +173,6 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
     
-    pub(super) open spec fn recover_keys(
-        s: Seq<u8>,
-        sm: KeyTableStaticMetadata,
-    ) -> Option<KeyTableSnapshot<K>>
-        where
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-    {
-        match KeyRecoveryMapping::<K>::new(s, sm) {
-            None => None,
-            Some(mapping) => Some(Self::recover_keys_from_mapping(mapping)),
-        }
-    }
-    
     pub proof fn lemma_recover_depends_only_on_my_area(
         s1: Seq<u8>,
         s2: Seq<u8>,

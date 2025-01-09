@@ -212,7 +212,10 @@ impl<PM, K> KeyTable<PM, K>
         sm: KeyTableStaticMetadata,
     ) -> Option<KeyTableSnapshot<K>>
     {
-        Self::recover_keys(s, sm)
+        match KeyRecoveryMapping::<K>::new(s, sm) {
+            None => None,
+            Some(mapping) => Some(Self::recover_keys_from_mapping(mapping)),
+        }
     }
 
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters, min_start: nat) -> nat

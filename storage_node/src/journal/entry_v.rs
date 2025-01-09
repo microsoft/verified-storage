@@ -12,6 +12,9 @@ use super::spec_v::*;
 
 verus! {
 
+// We have to make this struct public, with all its fields public, so
+// that it can implement the View trait. We need it to do so to enable
+// `deep_view()` on the vector of concrete journal entries.
 #[verifier::ext_equal]
 pub struct JournalEntry
 {

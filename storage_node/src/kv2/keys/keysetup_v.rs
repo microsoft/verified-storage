@@ -65,7 +65,7 @@ impl<PM, K> KeyTable<PM, K>
             pm.constants() == old(pm).constants(),
             pm@.valid(),
             pm@.len() == old(pm)@.len(),
-            Self::recover_keys(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
+            Self::recover(pm@.read_state, *sm) == Some(KeyTableSnapshot::<K>::init()),
             seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
     {
         let mut row_index: u64 = 0;
