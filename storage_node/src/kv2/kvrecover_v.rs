@@ -93,37 +93,39 @@ pub struct KvStaticMetadata
 
 impl KvStaticMetadata
 {
-    pub open spec fn valid(self) -> bool
+    pub open spec fn valid<K, I, L>(self) -> bool
+        where
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
     {
-        &&& self.keys.valid()
-        &&& self.items.valid()
-        &&& self.lists.valid()
+        &&& self.keys.valid::<K>()
+        &&& self.items.valid::<I>()
+        &&& self.lists.valid::<L>()
         &&& self.keys.num_rows() == self.items.num_rows()
         &&& self.keys.end() <= self.items.start()
-        &&& self.items.end() <= self.lists.table.start
-    }
-
-    pub open spec fn consistent_with_types<K, I, L>(self) -> bool
-        where
-            K: PmCopy,
-            I: PmCopy,
-            L: PmCopy,
-    {
-        &&& self.keys.consistent_with_type::<K>()
-        &&& self.items.consistent_with_type::<I>()
-        &&& self.lists.consistent_with_type::<L>()
+        &&& self.items.end() <= self.lists.start()
     }
 }
 
-pub(super) open spec fn validate_static_metadata(sm: KvStaticMetadata, jc: JournalConstants) -> bool
+pub(super) open spec fn validate_static_metadata<K, I, L>(sm: KvStaticMetadata, jc: JournalConstants) -> bool
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        I: PmCopy + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    &&& sm.valid()
+    &&& sm.valid::<K, I, L>()
     &&& jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= sm.keys.start()
-    &&& sm.lists.table.end <= jc.app_area_end
+    &&& sm.lists.end() <= jc.app_area_end
 }
 
 #[verifier::opaque]
-pub(super) open spec fn recover_static_metadata(bytes: Seq<u8>, jc: JournalConstants) -> Option<KvStaticMetadata>
+pub(super) open spec fn recover_static_metadata<K, I, L>(bytes: Seq<u8>, jc: JournalConstants)
+                                                         -> Option<KvStaticMetadata>
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        I: PmCopy + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     if jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() > jc.app_area_end {
         None
@@ -132,7 +134,7 @@ pub(super) open spec fn recover_static_metadata(bytes: Seq<u8>, jc: JournalConst
         match recover_object::<KvStaticMetadata>(bytes, jc.app_area_start as int,
                                                  jc.app_area_start + KvStaticMetadata::spec_size_of()) {
             None => None,
-            Some(sm) => if validate_static_metadata(sm, jc) { Some(sm) } else { None },
+            Some(sm) => if validate_static_metadata::<K, I, L>(sm, jc) { Some(sm) } else { None },
         }
     }
 }
@@ -207,7 +209,7 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
         None
     }
     else {
-        match recover_static_metadata(bytes, jc) {
+        match recover_static_metadata::<K, I, L>(bytes, jc) {
             None => None,
             Some(sm) => recover_kv_from_static_metadata::<PM, K, I, L>(bytes, sm),
         }
@@ -227,23 +229,27 @@ pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> 
     }
 }
 
-pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area(
+pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I, L>(
     s1: Seq<u8>,
     s2: Seq<u8>,
     sm: KvStaticMetadata,
     jc: JournalConstants,
 )
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        I: PmCopy + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
     requires
-        validate_static_metadata(sm, jc),
+        validate_static_metadata::<K, I, L>(sm, jc),
         seqs_match_in_range(s1, s2, jc.app_area_start as int,
                             jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
-        recover_static_metadata(s1, jc) == Some(sm),
+        recover_static_metadata::<K, I, L>(s1, jc) == Some(sm),
     ensures
-        recover_static_metadata(s2, jc) == Some(sm),
+        recover_static_metadata::<K, I, L>(s2, jc) == Some(sm),
 {
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     reveal(recover_static_metadata);
-    assert(recover_static_metadata(s2, jc) =~= Some(sm));
+    assert(recover_static_metadata::<K, I, L>(s2, jc) =~= Some(sm));
 }
 
 

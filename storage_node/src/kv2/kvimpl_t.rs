@@ -19,7 +19,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
-use super::kvimpl_v::*;
+use super::*;
 use super::kvspec_t::*;
 
 verus! {

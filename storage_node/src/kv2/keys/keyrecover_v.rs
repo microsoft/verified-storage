@@ -15,20 +15,11 @@ use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::keys_v::*;
+use super::*;
 use super::super::kvimpl_t::*;
 use super::super::kvspec_t::*;
 
 verus! {
-
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-#[verifier::ext_equal]
-pub struct KeyTableRowMetadata
-{
-    pub item_addr: u64,
-    pub list_addr: u64,
-}
 
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
@@ -159,61 +150,63 @@ impl<K> KeyRecoveryMapping<K>
     }
 }
 
-pub(super) open spec fn recover_keys_from_mapping<K>(mapping: KeyRecoveryMapping<K>) -> KeyTableSnapshot<K>
+impl<PM, K> KeyTable<PM, K>
     where
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    KeyTableSnapshot::<K>{
-        key_info: Map::<K, KeyTableRowMetadata>::new(
-            |k: K| mapping.key_info.contains_key(k),
-            |k: K| mapping.row_info[mapping.key_info[k]].unwrap().1,
-        ),
-        item_info: Map::<u64, K>::new(
-            |item_addr: u64| mapping.item_info.contains_key(item_addr),
-            |item_addr: u64| mapping.row_info[mapping.item_info[item_addr]].unwrap().0,
-        ),
-        list_info: Map::<u64, K>::new(
-            |list_addr: u64| mapping.list_info.contains_key(list_addr),
-            |list_addr: u64| mapping.row_info[mapping.list_info[list_addr]].unwrap().0,
-        ),
+    pub(super) open spec fn recover_keys_from_mapping(mapping: KeyRecoveryMapping<K>) -> KeyTableSnapshot<K>
+    {
+        KeyTableSnapshot::<K>{
+            key_info: Map::<K, KeyTableRowMetadata>::new(
+                |k: K| mapping.key_info.contains_key(k),
+                |k: K| mapping.row_info[mapping.key_info[k]].unwrap().1,
+            ),
+            item_info: Map::<u64, K>::new(
+                |item_addr: u64| mapping.item_info.contains_key(item_addr),
+                |item_addr: u64| mapping.row_info[mapping.item_info[item_addr]].unwrap().0,
+            ),
+            list_info: Map::<u64, K>::new(
+                |list_addr: u64| mapping.list_info.contains_key(list_addr),
+                |list_addr: u64| mapping.row_info[mapping.list_info[list_addr]].unwrap().0,
+            ),
+        }
     }
-}
-
-pub(super) open spec fn recover_keys<K>(
-    s: Seq<u8>,
-    sm: KeyTableStaticMetadata,
-) -> Option<KeyTableSnapshot<K>>
-    where
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-{
-    match KeyRecoveryMapping::<K>::new(s, sm) {
-        None => None,
-        Some(mapping) => Some(recover_keys_from_mapping::<K>(mapping)),
+    
+    pub(super) open spec fn recover_keys(
+        s: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+    ) -> Option<KeyTableSnapshot<K>>
+        where
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    {
+        match KeyRecoveryMapping::<K>::new(s, sm) {
+            None => None,
+            Some(mapping) => Some(Self::recover_keys_from_mapping(mapping)),
+        }
     }
-}
-
-pub(super) proof fn local_lemma_recover_depends_only_on_my_area<K>(
-    s1: Seq<u8>,
-    s2: Seq<u8>,
-    sm: KeyTableStaticMetadata,
-)
-    where
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-    requires
-        sm.valid_internal(),
-        sm.key_size == K::spec_size_of(),
-        sm.table.end <= s1.len(),
-        seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
-        recover_keys::<K>(s1, sm) is Some,
-    ensures
-        recover_keys::<K>(s1, sm) == recover_keys::<K>(s2, sm),
-{
-    let mapping1 = KeyRecoveryMapping::<K>::new(s1, sm).unwrap();
-    assert(mapping1.corresponds(s2, sm)) by {
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        broadcast use group_validate_row_addr;
+    
+    pub proof fn lemma_recover_depends_only_on_my_area(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+    )
+        requires
+            sm.valid::<K>(),
+            sm.end() <= s1.len(),
+            seqs_match_in_range(s1, s2, sm.start() as int, sm.end() as int),
+            Self::recover(s1, sm) is Some,
+        ensures
+            Self::recover(s1, sm) == Self::recover(s2, sm),
+    {
+        let mapping1 = KeyRecoveryMapping::<K>::new(s1, sm).unwrap();
+        assert(mapping1.corresponds(s2, sm)) by {
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_validate_row_addr;
+        }
+        mapping1.lemma_corresponds_implies_equals_new(s2, sm);
     }
-    mapping1.lemma_corresponds_implies_equals_new(s2, sm);
+    
 }
 
 }

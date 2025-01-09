@@ -15,7 +15,7 @@ use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::items_v::*;
+use super::*;
 use super::super::kvimpl_t::*;
 use super::super::kvspec_t::*;
 
@@ -73,42 +73,29 @@ pub(super) open spec fn recover_items<I>(
     )
 }
 
-pub(super) open spec fn local_recover<I>(
-    s: Seq<u8>,
-    addrs: Set<u64>,
-    sm: ItemTableStaticMetadata,
-) -> Option<ItemTableSnapshot<I>>
+impl<PM, I> ItemTable<PM, I>
     where
-        I: PmCopy,
+        PM: PersistentMemoryRegion,
+        I: PmCopy + Sized + std::fmt::Debug,
 {
-    if items_recoverable::<I>(s, addrs, sm) {
-        Some(ItemTableSnapshot::<I>{ m: recover_items::<I>(s, addrs, sm) })
+    pub proof fn lemma_recover_depends_only_on_my_area(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        addrs: Set<u64>,
+        sm: ItemTableStaticMetadata,
+    )
+        requires
+            sm.valid::<I>(),
+            sm.end() <= s1.len(),
+            seqs_match_in_range(s1, s2, sm.start() as int, sm.end() as int),
+            Self::recover(s1, addrs, sm) is Some,
+        ensures
+            Self::recover(s1, addrs, sm) == Self::recover(s2, addrs, sm),
+    {
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use group_validate_row_addr;
+        assert(Self::recover(s1, addrs, sm) =~= Self::recover(s2, addrs, sm));
     }
-    else {
-        None
-    }
-}
-
-pub(super) proof fn lemma_local_recover_depends_only_on_item_area<I>(
-    s1: Seq<u8>,
-    s2: Seq<u8>,
-    addrs: Set<u64>,
-    sm: ItemTableStaticMetadata,
-)
-    where
-        I: PmCopy,
-    requires
-        sm.valid_internal(),
-        sm.item_size == I::spec_size_of(),
-        sm.table.end <= s1.len(),
-        seqs_match_in_range(s1, s2, sm.table.start as int, sm.table.end as int),
-        local_recover::<I>(s1, addrs, sm) is Some,
-    ensures
-        local_recover::<I>(s1, addrs, sm) == local_recover::<I>(s2, addrs, sm),
-{
-    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-    broadcast use group_validate_row_addr;
-    assert(local_recover::<I>(s1, addrs, sm) =~= local_recover::<I>(s2, addrs, sm));
 }
 
 }
