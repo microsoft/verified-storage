@@ -26,6 +26,47 @@ impl <Perm, PM> Journal<Perm, PM>
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
+    proof fn lemma_write_journal_entry_initial_conditions(
+        self,
+        current_entry_index: usize,
+        current_pos: u64,
+        entry: JournalEntry,
+    )
+        requires
+            self.inv(),
+            self.status@ is WritingJournal,
+            self.sm.journal_entries_start <= current_pos <= self.wrpm@.read_state.len(),
+            entry == self.entries.entries[current_entry_index as int]@,
+            parse_journal_entries(
+                self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int)
+            ) == Some(self.entries@.take(current_entry_index as int)),
+            0 <= current_entry_index < self.entries@.len(),
+            current_pos == self.sm.journal_entries_start +
+                           space_needed_for_journal_entries_list(self.entries@.take(current_entry_index as int)),
+        ensures
+            current_pos + entry.space_needed() ==
+                self.sm.journal_entries_start +
+                space_needed_for_journal_entries_list(self.entries@.take(current_entry_index + 1)),
+            0 <= current_pos,
+            current_pos + entry.space_needed() <= self.sm.journal_entries_start + self.journal_length,
+            current_pos + entry.space_needed() == self.sm.journal_entries_start + self.journal_length <==>
+                 current_entry_index == self.entries@.len() - 1,
+    {
+        lemma_space_needed_for_journal_entries_list_increases(self.entries@, current_entry_index as int);
+        lemma_space_needed_for_journal_entries_list_at_least_num_entries(self.entries@.take(current_entry_index as int));
+        lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 1,
+                                                              self.entries@.len() as int);
+        if current_entry_index < self.entries@.len() - 1 {
+            lemma_space_needed_for_journal_entries_list_increases(self.entries@, current_entry_index + 1);
+            lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 1,
+                                                                  current_entry_index + 2);
+            lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 2,
+                                                                  self.entries@.len() as int);
+        }
+        assert(self.entries@ =~= self.entries@.take(self.entries@.len() as int));
+        assert(entry == self.entries@[current_entry_index as int]);
+    }
+
     #[inline]
     exec fn write_journal_entry(
         &mut self,
@@ -36,9 +77,6 @@ impl <Perm, PM> Journal<Perm, PM>
         current_pos: u64,
         crc_digest: &mut CrcDigest,
     ) -> (next_pos: u64)
-        where
-            PM: PersistentMemoryRegion,
-            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
@@ -87,29 +125,8 @@ impl <Perm, PM> Journal<Perm, PM>
         let entry: &ConcreteJournalEntry = &self.entries.entries[current_entry_index];
         let num_bytes: u64 = entry.bytes_to_write.len() as u64;
 
-        assert({
-            &&& current_pos + entry@.space_needed() ==
-                self.sm.journal_entries_start +
-                space_needed_for_journal_entries_list(self.entries@.take(current_entry_index + 1))
-            &&& 0 <= current_pos
-            &&& current_pos + entry@.space_needed() <= self.sm.journal_entries_start + self.journal_length
-            &&& current_pos + entry@.space_needed() == self.sm.journal_entries_start + self.journal_length <==>
-                 current_entry_index == self.entries@.len() - 1
-        }) by {
-            lemma_space_needed_for_journal_entries_list_increases(self.entries@, current_entry_index as int);
-            lemma_space_needed_for_journal_entries_list_at_least_num_entries(
-                self.entries@.take(current_entry_index as int));
-            lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 1,
-                                                             self.entries@.len() as int);
-            if current_entry_index < self.entries@.len() - 1 {
-                lemma_space_needed_for_journal_entries_list_increases(self.entries@, current_entry_index + 1);
-                lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 1,
-                                                                 current_entry_index + 2);
-                lemma_space_needed_for_journal_entries_list_monotonic(self.entries@, current_entry_index + 2,
-                                                                 self.entries@.len() as int);
-            }
-            assert(self.entries@ =~= self.entries@.take(self.entries@.len() as int));
-            assert(entry@ == self.entries@[current_entry_index as int]);
+        proof {
+            self.lemma_write_journal_entry_initial_conditions(current_entry_index, current_pos, entry@);
         }
 
         // First, write the `start` field of the entry, which is the address that the entry
