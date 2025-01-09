@@ -33,15 +33,22 @@ pub(super) enum KeyTableStatus {
 #[verifier::ext_equal]
 pub(super) struct ConcreteKeyInfo
 {
-    row_addr: u64,
-    rm: KeyTableRowMetadata,
+    pub row_addr: u64,
+    pub rm: KeyTableRowMetadata,
+}
+
+#[verifier::ext_equal]
+pub(super) enum KeyUndoRecord<K> {
+    UndoCreate{ row_addr: u64 },
+    UndoUpdate{ row_addr: u64, former_rm: KeyTableRowMetadata },
+    UndoDelete{ row_addr: u64, k: K, rm: KeyTableRowMetadata },
 }
 
 #[verifier::ext_equal]
 pub(super) enum KeyRowDisposition<K> {
-    Valid{ k: K, rm: KeyTableRowMetadata },
+    InHashTable{ k: K, rm: KeyTableRowMetadata },
     InFreeList{ pos: nat },
-    InPendingAllocationList{ pos: nat },
+    InPendingDeallocationList{ pos: nat },
 }
 
 #[verifier::reject_recursive_types(K)]
@@ -63,7 +70,7 @@ impl<K> KeyMemoryMapping<K>
             row_info: Map::<u64, Option<(K, KeyTableRowMetadata)>>::new(
                 |row_addr: u64| self.row_info.contains_key(row_addr),
                 |row_addr: u64| match self.row_info[row_addr] {
-                    KeyRowDisposition::Valid{ k, rm } => Some((k, rm)),
+                    KeyRowDisposition::InHashTable{ k, rm } => Some((k, rm)),
                     _ => None,
                 },
             ),
@@ -81,6 +88,154 @@ impl<K> KeyMemoryMapping<K>
             ),
         }
     }
+
+    pub(super) open spec fn row_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) <==>
+                self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
+            &&& sm.table.validate_row_addr(row_addr)
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k, rm } ==> {
+                    &&& self.key_info.contains_key(k)
+                    &&& self.key_info[k] == row_addr
+                    &&& self.item_info.contains_key(rm.item_addr)
+                    &&& self.item_info[rm.item_addr] == row_addr
+                    &&& rm.list_addr != 0 ==> self.list_info.contains_key(rm.list_addr)
+                    &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == row_addr
+                }
+        }
+    }
+
+    pub(super) open spec fn key_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& forall|k: K| #[trigger] self.key_info.contains_key(k) ==> {
+            let row_addr = self.key_info[k];
+            &&& self.row_info.contains_key(row_addr)
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+            &&& k == k2
+        }
+    }
+
+    pub(super) open spec fn item_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==> {
+            let row_addr = self.item_info[item_addr];
+            &&& self.row_info.contains_key(row_addr)
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+            &&& rm.item_addr == item_addr
+        }
+    }
+
+    pub(super) open spec fn list_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==> {
+            let row_addr = self.list_info[list_addr];
+            &&& self.row_info.contains_key(row_addr)
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+            &&& rm.list_addr == list_addr
+        }
+    }
+
+    pub(super) open spec fn valid(self, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& self.row_info_valid(sm)
+        &&& self.key_info_valid(sm)
+        &&& self.item_info_valid(sm)
+        &&& self.list_info_valid(sm)
+    }
+
+    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    {
+        forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
+            let cdb = recover_cdb(s, row_addr + sm.row_cdb_start);
+            match self.row_info[row_addr] {
+                KeyRowDisposition::InHashTable{ k, rm } => {
+                    &&& cdb == Some(true)
+                    &&& recover_object::<K>(s, row_addr + sm.row_key_start,
+                                            row_addr + sm.row_key_crc_start as u64) == Some(k)
+                    &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
+                                                                row_addr + sm.row_metadata_crc_start) == Some(rm)
+                },
+                _ => cdb == Some(false),
+            }
+        }
+    }
+
+    pub(super) open spec fn consistent_with_free_list_and_pending_deallocations(self, free_list: Seq<u64>, pending_deallocations: Seq<u64>) -> bool
+    {
+        &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
+            match self.row_info[row_addr] {
+                KeyRowDisposition::InFreeList{ pos } => {
+                    &&& pos < free_list.len()
+                    &&& free_list[pos as int] == row_addr
+                },
+                KeyRowDisposition::InPendingDeallocationList{ pos } => {
+                    &&& pos < pending_deallocations.len()
+                    &&& pending_deallocations[pos as int] == row_addr
+                },
+                _ => true,
+            }
+        }
+        &&& forall|i: int| 0 <= i < free_list.len() ==> {
+            &&& #[trigger] self.row_info[free_list[i]] matches KeyRowDisposition::InFreeList{ pos }
+            &&& pos == i
+        }
+        &&& forall|i: int| 0 <= i < pending_deallocations.len() ==> {
+            &&& #[trigger] self.row_info[pending_deallocations[i]] matches KeyRowDisposition::InPendingDeallocationList{ pos }
+            &&& pos == i
+        }
+    }
+
+    pub(super) open spec fn undo_create(self, row_addr: u64, k: K, rm: KeyTableRowMetadata, free_list_pos: nat) -> Option<Self>
+    {
+        if {
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: rm2 }
+            &&& k == k2
+            &&& rm == rm2
+        } {
+            Some(Self{
+                row_info: self.row_info.insert(row_addr, KeyRowDisposition::InFreeList{ pos: free_list_pos }),
+                key_info: self.key_info.remove(k),
+                item_info: self.item_info.remove(rm.item_addr),
+                list_info: self.list_info.remove(rm.list_addr),
+            })
+        }
+        else {
+            None
+        }
+    }
+
+    pub(super) open spec fn undo_update(self, row_addr: u64, k: K, former_rm: KeyTableRowMetadata) -> Option<Self>
+    {
+        if {
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+            &&& k == k2
+        } {
+            Some(Self{
+                row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm: former_rm }),
+                ..self
+            })
+        }
+        else {
+            None
+        }
+    }
+
+    pub(super) open spec fn undo_delete(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Option<Self>
+    {
+        if {
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InPendingDeallocationList{ pos }
+        } {
+            Some(Self{
+                row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
+                key_info: self.key_info.insert(k, row_addr),
+                item_info: self.item_info.insert(rm.item_addr, row_addr),
+                list_info: self.list_info.insert(rm.list_addr, row_addr),
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[verifier::reject_recursive_types(K)]
@@ -93,15 +248,108 @@ pub(super) struct KeyInternalView<K> {
 }
 
 impl<K> KeyInternalView<K>
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub(super) open spec fn keys_consistent_with(self, sm: KeyTableStaticMetadata, jv: JournalView) -> bool
+    pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>, sm: KeyTableStaticMetadata) -> bool
     {
-        true
+        &&& forall|row_addr: u64, addr: int| {
+            &&& #[trigger] self.free_list.contains(row_addr)
+            &&& row_addr <= addr < row_addr + sm.table.row_size
+        } ==> !(#[trigger] journaled_addrs.contains(addr))
     }
 
-    pub(super) open spec fn consistent_with(self, sm: KeyTableStaticMetadata, jv: JournalView) -> bool
+    pub(super) open spec fn apply_undo_record(self, record: KeyUndoRecord<K>) -> Option<Self>
     {
-        &&& self.keys_consistent_with(sm, jv)
+        match record {
+            KeyUndoRecord::UndoCreate{ row_addr } =>
+            {
+                match self.memory_mapping.row_info[row_addr] {
+                    KeyRowDisposition::InHashTable{ k, rm } => {
+                        match self.memory_mapping.undo_create(row_addr, k, rm, self.free_list.len()) {
+                            Some(memory_mapping) => Some(Self{
+                                m: self.m.remove(k),
+                                free_list: self.free_list.push(row_addr),
+                                pending_deallocations: self.pending_deallocations,
+                                memory_mapping,
+                            }),
+                            None => None,
+                        }
+                    },
+                    _ => None,
+                }
+            },
+            KeyUndoRecord::UndoUpdate{ row_addr, former_rm } =>
+            {
+                match self.memory_mapping.row_info[row_addr] {
+                    KeyRowDisposition::InHashTable{ k, rm } => {
+                        match self.memory_mapping.undo_update(row_addr, k, former_rm) {
+                            Some(memory_mapping) => Some(Self{
+                                m: self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm }),
+                                free_list: self.free_list,
+                                pending_deallocations: self.pending_deallocations,
+                                memory_mapping,
+                            }),
+                            None => None,
+                        }
+                    },
+                    _ => None,
+                }
+            },
+            KeyUndoRecord::UndoDelete{ row_addr, k, rm } =>
+            {
+                match self.memory_mapping.row_info[row_addr] {
+                    KeyRowDisposition::InPendingDeallocationList{ pos } => {
+                        if pos + 1 != self.pending_deallocations.len() {
+                            None
+                        }
+                        else {
+                            match self.memory_mapping.undo_delete(row_addr, k, rm) {
+                                Some(memory_mapping) => Some(Self{
+                                    m: self.m.remove(k),
+                                    free_list: self.free_list,
+                                    pending_deallocations: self.pending_deallocations.drop_last(),
+                                    memory_mapping,
+                                }),
+                                None => None,
+                            }
+                        }
+                    },
+                    _ => None,
+                }
+            },
+        }
+    }
+
+    pub(super) open spec fn apply_undo_record_list(self, records: Seq<KeyUndoRecord<K>>) -> Option<Self>
+        decreases
+            records.len()
+    {
+        if records.len() == 0 {
+            Some(self)
+        }
+        else {
+            match self.apply_undo_record(records.last()) {
+                Some(new_self) => new_self.apply_undo_record_list(records.drop_last()),
+                None => None,
+            }
+        }
+    }
+
+    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& self.memory_mapping.valid(sm)
+        &&& self.memory_mapping.consistent_with_state(s, sm)
+        &&& self.memory_mapping.consistent_with_free_list_and_pending_deallocations(self.free_list, self.pending_deallocations)
+    }
+
+
+    pub(super) open spec fn consistent_with_journal(self, undo_records: Seq<KeyUndoRecord<K>>, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
+    {
+        &&& self.consistent_with_state(jv.commit_state, sm)
+        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs, sm)
+        &&& self.apply_undo_record_list(undo_records) matches Some(undone_self)
+        &&& undone_self.consistent_with_state(jv.durable_state, sm)
     }
 }
 
@@ -122,7 +370,7 @@ impl<PM, K> KeyTable<PM, K>
 
     pub(super) open spec fn inv(self, sm: KeyTableStaticMetadata, jv: JournalView) -> bool
     {
-        &&& self.internal_view().consistent_with(sm, jv)
+        &&& self.internal_view().consistent_with_journal(self.undo_records@, jv, sm)
     }
 }
 

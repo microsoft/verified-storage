@@ -192,6 +192,7 @@ pub struct KeyTable<PM, K>
     free_list: Vec<u64>,
     pending_deallocations: Vec<u64>,
     memory_mapping: Ghost<KeyMemoryMapping<K>>,
+    undo_records: Vec<KeyUndoRecord<K>>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
