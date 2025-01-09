@@ -55,6 +55,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& old_self@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len())
     }
 
+    #[inline]
     pub exec fn write_slice(
         &mut self,
         addr: u64,
@@ -97,6 +98,7 @@ impl <Perm, PM> Journal<Perm, PM>
         assert(old(self)@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len()));
     }
 
+    #[inline]
     pub exec fn write_vec(
         &mut self,
         addr: u64,
@@ -111,6 +113,7 @@ impl <Perm, PM> Journal<Perm, PM>
         self.write_slice(addr, bytes_to_write.as_slice(), Tracked(perm))
     }
 
+    #[inline]
     pub exec fn write_object<S>(
         &mut self,
         addr: u64,
