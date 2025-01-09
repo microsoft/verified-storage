@@ -260,6 +260,7 @@ impl <Perm, PM> Journal<Perm, PM>
         crc_digest.sum64()
     }
 
+    #[inline]
     exec fn write_journal_metadata(
         &mut self,
         Tracked(perm): Tracked<&Perm>,
@@ -307,6 +308,7 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
 
+    #[inline]
     exec fn mark_journal_committed(
         &mut self,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
@@ -510,6 +512,7 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
 
+    #[inline]
     exec fn install_journal_entries_during_commit(
         &mut self,
         Ghost(original_commit_state): Ghost<Seq<u8>>,

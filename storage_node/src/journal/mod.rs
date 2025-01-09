@@ -127,6 +127,7 @@ impl <Perm, PM> Journal<Perm, PM>
         self.wrpm.get_pm_region_ref().read_aligned(addr)
     }
 
+    #[inline]
     pub exec fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) 
         requires 
             self.valid(),
