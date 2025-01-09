@@ -650,6 +650,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
+            self@.constants == old(self)@.constants,
             self.recover_successful(),
             self@ == (JournalView{
                 durable_state: self@.commit_state,

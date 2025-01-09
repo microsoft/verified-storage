@@ -43,6 +43,7 @@ impl <Perm, PM> Journal<Perm, PM>
     pub open spec fn write_postconditions(self, old_self: Self, addr: u64, bytes_to_write: Seq<u8>) -> bool
     {
         &&& self.valid()
+        &&& self@.constants == old_self@.constants
         &&& self@.valid()
         &&& self.recover_successful()
         &&& self@ == (JournalView{
@@ -65,6 +66,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use broadcast_update_bytes_effect;
         broadcast use group_can_result_from_write_effect;
         
@@ -139,6 +141,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
+            self@.constants == old(self)@.constants,
             self.recover_successful(),
             ({
                 let space_needed = Self::spec_journal_entry_overhead() + bytes_to_write@.len();
@@ -146,12 +149,19 @@ impl <Perm, PM> Journal<Perm, PM>
                     Ok(_) => {
                         &&& space_needed <= old(self)@.remaining_capacity
                         &&& self@ == (JournalView{
-                               commit_state: update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
+                               durable_state: self@.durable_state,
+                               read_state: self@.read_state,
+                               commit_state: self@.commit_state,
                                journaled_addrs: old(self)@.journaled_addrs +
                                                 Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
                                remaining_capacity: old(self)@.remaining_capacity - space_needed,
                                ..old(self)@
                            })
+                        &&& extract_section(self@.commit_state, addr as int, bytes_to_write.len() as nat) == bytes_to_write@
+                        &&& seqs_match_in_range(old(self)@.durable_state, self@.durable_state,
+                                              self@.constants.app_area_start as int, self@.constants.app_area_end as int)
+                        &&& seqs_match_in_range(old(self)@.read_state, self@.read_state,
+                                              self@.constants.app_area_start as int, self@.constants.app_area_end as int)
                         &&& self@.matches_except_in_range(old(self)@, addr as int, addr + bytes_to_write.len())
                     },
                     Err(JournalError::NotEnoughSpace) => {
@@ -216,6 +226,8 @@ impl <Perm, PM> Journal<Perm, PM>
         proof {
             lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
         }
+
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 
         Ok(())
     }

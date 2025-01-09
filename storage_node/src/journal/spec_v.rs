@@ -53,21 +53,27 @@ impl JournalView {
     {
         &&& self.valid()
         &&& other.valid()
-        &&& 0 <= start <= end <= self.len()
+        &&& self.constants.app_area_start <= start <= end <= self.constants.app_area_end
         &&& seqs_match_in_range(self.durable_state, other.durable_state, start, end)
         &&& seqs_match_in_range(self.read_state, other.read_state, start, end)
         &&& seqs_match_in_range(self.commit_state, other.commit_state, start, end)
         &&& forall|addr: int| start <= addr && addr < end ==>
-                self.journaled_addrs.contains(addr) == #[trigger] other.journaled_addrs.contains(addr)
+               self.journaled_addrs.contains(addr) == #[trigger] other.journaled_addrs.contains(addr)
     }
 
     pub open spec fn matches_except_in_range(self, other: JournalView, start: int, end: int) -> bool
     {
         &&& self.valid()
         &&& other.valid()
-        &&& 0 <= start <= end <= self.len()
-        &&& self.matches_in_range(other, 0, start)
-        &&& self.matches_in_range(other, end, self.len() as int)
+        &&& self.constants.app_area_start <= start <= end <= self.constants.app_area_end
+        &&& seqs_match_in_range(self.durable_state, other.durable_state, self.constants.app_area_start as int, start)
+        &&& seqs_match_in_range(self.durable_state, other.durable_state, end, self.constants.app_area_end as int)
+        &&& seqs_match_in_range(self.read_state, other.read_state, self.constants.app_area_start as int, start)
+        &&& seqs_match_in_range(self.read_state, other.read_state, end, self.constants.app_area_end as int)
+        &&& seqs_match_in_range(self.commit_state, other.commit_state, self.constants.app_area_start as int, start)
+        &&& seqs_match_in_range(self.commit_state, other.commit_state, end, self.constants.app_area_end as int)
+        &&& forall|addr: int| self.constants.app_area_start <= addr < start || end <= addr < self.constants.app_area_end ==>
+               self.journaled_addrs.contains(addr) == #[trigger] other.journaled_addrs.contains(addr)
     }
 }
 
