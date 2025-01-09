@@ -427,7 +427,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
                 },
                 Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
-                _ => true,
+                _ => false,
             }
     {
         let ghost old_durable_state = wrpm@.durable_state;
