@@ -86,19 +86,20 @@ impl<PM, K> KeyTable<PM, K>
                 sm.table.end <= pm@.len(),
                 cdb_false == CDB_FALSE,
                 0 <= row_index <= sm.table.num_rows,
-                sm.table.row_addr_to_index(row_addr as int) == row_index as int,
-                row_index < sm.table.num_rows ==> sm.table.validate_row_addr(row_addr as int),
-                forall|row_addr: int| {
-                    &&& #[trigger] sm.table.validate_row_addr(row_addr)
-                    &&& 0 <= sm.table.row_addr_to_index(row_addr) < row_index
-                } ==> recover_cdb(pm@.read_state, row_addr + sm.row_cdb_start) == Some(false),
+                sm.table.row_addr_to_index(row_addr) == row_index as int,
+                sm.table.start <= row_addr <= sm.table.end,
+                row_index < sm.table.num_rows ==> sm.table.validate_row_addr(row_addr),
+                forall|any_row_addr: u64| {
+                    &&& #[trigger] sm.table.validate_row_addr(any_row_addr)
+                    &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
+                } ==> recover_cdb(pm@.read_state, any_row_addr + sm.row_cdb_start) == Some(false),
                 seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
         {
             proof {
                 broadcast use group_validate_row_addr;
                 broadcast use group_update_bytes_effect;
                 broadcast use pmcopy_axioms;
-                sm.table.lemma_row_addr_successor_is_valid(row_addr as int);
+                sm.table.lemma_row_addr_successor_is_valid(row_addr);
             }
     
             let cdb_addr = row_addr + sm.row_cdb_start;
@@ -109,7 +110,7 @@ impl<PM, K> KeyTable<PM, K>
             row_addr = row_addr + sm.table.row_size;
         }
     
-        assert forall|row_addr: int| #[trigger] sm.table.validate_row_addr(row_addr)
+        assert forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr)
             implies recover_cdb(pm@.read_state, row_addr + sm.row_cdb_start) == Some(false) by {
             let row_index = sm.table.row_addr_to_index(row_addr);
             broadcast use group_validate_row_addr;

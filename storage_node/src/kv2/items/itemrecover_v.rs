@@ -29,7 +29,7 @@ pub(super) open spec fn item_recoverable<I>(
     where
         I: PmCopy,
 {
-    &&& sm.table.validate_row_addr(addr as int)
+    &&& sm.table.validate_row_addr(addr)
     &&& recover_object::<I>(s, addr + sm.row_item_start, addr + sm.row_item_crc_start) is Some
 }
 

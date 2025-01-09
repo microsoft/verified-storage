@@ -47,10 +47,10 @@ pub(super) enum KeyRowDisposition<K> {
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub(super) struct KeyMemoryMapping<K> {
-    pub row_info: Map<int, KeyRowDisposition<K>>,
-    pub key_info: Map<K, int>,
-    pub item_info: Map<u64, int>,
-    pub list_info: Map<u64, int>,
+    pub row_info: Map<u64, KeyRowDisposition<K>>,
+    pub key_info: Map<K, u64>,
+    pub item_info: Map<u64, u64>,
+    pub list_info: Map<u64, u64>,
 }
 
 impl<K> KeyMemoryMapping<K>
@@ -60,24 +60,24 @@ impl<K> KeyMemoryMapping<K>
     pub open spec fn as_recovery_mapping(self) -> KeyRecoveryMapping<K>
     {
         KeyRecoveryMapping::<K>{
-            row_info: Map::<int, Option<(K, KeyTableRowMetadata)>>::new(
-                |row_addr: int| self.row_info.contains_key(row_addr),
-                |row_addr: int| match self.row_info[row_addr] {
+            row_info: Map::<u64, Option<(K, KeyTableRowMetadata)>>::new(
+                |row_addr: u64| self.row_info.contains_key(row_addr),
+                |row_addr: u64| match self.row_info[row_addr] {
                     KeyRowDisposition::Valid{ k, rm } => Some((k, rm)),
                     _ => None,
                 },
             ),
-            key_info: Map::<K, int>::new(
+            key_info: Map::<K, u64>::new(
                 |k: K| self.key_info.contains_key(k),
-                |k: K| self.key_info[k] as int,
+                |k: K| self.key_info[k] as u64,
             ),
-            item_info: Map::<u64, int>::new(
+            item_info: Map::<u64, u64>::new(
                 |item_addr: u64| self.item_info.contains_key(item_addr),
-                |item_addr: u64| self.item_info[item_addr] as int,
+                |item_addr: u64| self.item_info[item_addr] as u64,
             ),
-            list_info: Map::<u64, int>::new(
+            list_info: Map::<u64, u64>::new(
                 |list_addr: u64| self.list_info.contains_key(list_addr),
-                |list_addr: u64| self.list_info[list_addr] as int,
+                |list_addr: u64| self.list_info[list_addr] as u64,
             ),
         }
     }

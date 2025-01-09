@@ -31,17 +31,17 @@ impl TableMetadata
         &&& self.num_rows as int * self.row_size <= self.end - self.start
     }
 
-    pub closed spec fn row_index_to_addr(self, row_index: int) -> int
+    pub closed spec fn row_index_to_addr(self, row_index: int) -> u64
     {
-        self.start + row_index * self.row_size
+        (self.start + row_index * self.row_size) as u64
     }
 
-    pub closed spec fn row_addr_to_index(self, addr: int) -> int
+    pub closed spec fn row_addr_to_index(self, addr: u64) -> int
     {
         (addr - self.start) / (self.row_size as int)
     }
 
-    pub closed spec fn validate_row_addr(self, addr: int) -> bool
+    pub closed spec fn validate_row_addr(self, addr: u64) -> bool
     {
         let row_index = self.row_addr_to_index(addr);
         &&& 0 <= row_index < self.num_rows
@@ -63,21 +63,22 @@ impl TableMetadata
         requires
             self.valid(),
         ensures
-            self.row_addr_to_index(self.start as int) == 0,
-            self.num_rows > 0 ==> self.validate_row_addr(self.start as int),
+            self.row_addr_to_index(self.start) == 0,
+            self.num_rows > 0 ==> self.validate_row_addr(self.start),
     {
         lemma_div_of0(self.row_size as int);
         assert(0int / self.row_size as int == 0);
     }
     
-    pub proof fn lemma_row_addr_successor_is_valid(self, addr: int)
+    pub proof fn lemma_row_addr_successor_is_valid(self, addr: u64)
         requires
             self.valid(),
             self.validate_row_addr(addr),
+            addr + self.row_size <= self.end,
         ensures 
             ({
                 let row_index = self.row_addr_to_index(addr);
-                let new_addr = addr + self.row_size;
+                let new_addr = (addr + self.row_size) as u64;
                 &&& self.row_addr_to_index(new_addr) == row_index + 1
                 &&& row_index + 1 <= self.num_rows
                 &&& row_index + 1 < self.num_rows ==> self.validate_row_addr(new_addr)
@@ -97,7 +98,7 @@ impl TableMetadata
     }
 }
 
-pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, addr: int)
+pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, addr: u64)
     requires
         tm.valid(),
         #[trigger] tm.validate_row_addr(addr),
@@ -114,7 +115,7 @@ pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, ad
     }
 }
 
-pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetadata, addr1: int, addr2: int)
+pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetadata, addr1: u64, addr2: u64)
     requires
         tm.valid(),
         #[trigger] tm.validate_row_addr(addr1),
@@ -148,9 +149,12 @@ pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_i
         tm.row_addr_to_index(tm.row_index_to_addr(row_index)) == row_index,
 {
     let addr = tm.row_index_to_addr(row_index);
+    assert(row_index * tm.row_size <= tm.num_rows * tm.row_size) by {
+        lemma_mul_inequality(row_index, tm.num_rows as int, tm.row_size as int);
+    }
     assert(row_index == tm.row_addr_to_index(addr)) by {
        lemma_fundamental_div_mod_converse(addr - tm.start, tm.row_size as int, row_index, 0);
-   }
+    }
 }
 
 pub broadcast group group_validate_row_addr {

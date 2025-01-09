@@ -27,10 +27,10 @@ pub struct KeyRecoveryMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub row_info: Map<int, Option<(K, KeyTableRowMetadata)>>,
-    pub key_info: Map<K, int>,
-    pub item_info: Map<u64, int>,
-    pub list_info: Map<u64, int>,
+    pub row_info: Map<u64, Option<(K, KeyTableRowMetadata)>>,
+    pub key_info: Map<K, u64>,
+    pub item_info: Map<u64, u64>,
+    pub list_info: Map<u64, u64>,
 }
 
 impl<K> KeyRecoveryMapping<K>
@@ -49,23 +49,23 @@ impl<K> KeyRecoveryMapping<K>
 
     pub(super) open spec fn new_empty(tm: TableMetadata) -> Self
     {
-        let row_info = Map::<int, Option<(K, KeyTableRowMetadata)>>::new(
-            |addr: int| tm.validate_row_addr(addr),
-            |addr: int| None,
+        let row_info = Map::<u64, Option<(K, KeyTableRowMetadata)>>::new(
+            |addr: u64| tm.validate_row_addr(addr),
+            |addr: u64| None,
         );
         Self{
             row_info,
-            key_info: Map::<K, int>::empty(),
-            item_info: Map::<u64, int>::empty(),
-            list_info: Map::<u64, int>::empty(),
+            key_info: Map::<K, u64>::empty(),
+            item_info: Map::<u64, u64>::empty(),
+            list_info: Map::<u64, u64>::empty(),
         }
     }
     
     pub(super) open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& forall|row_addr: int| #[trigger] sm.table.validate_row_addr(row_addr) ==>
+        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) ==>
                 self.row_info.contains_key(row_addr)
-        &&& forall|row_addr: int| #[trigger] self.row_info.contains_key(row_addr) ==>
+        &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==>
             {
                 let cdb = recover_cdb(s, row_addr + sm.row_cdb_start);
                 &&& sm.table.validate_row_addr(row_addr)
@@ -74,9 +74,9 @@ impl<K> KeyRecoveryMapping<K>
                     Some((k, rm)) => {
                         &&& cdb == Some(true)
                         &&& recover_object::<K>(s, row_addr + sm.row_key_start,
-                                                row_addr + sm.row_key_crc_start as int) == Some(k)
+                                                row_addr + sm.row_key_crc_start as u64) == Some(k)
                         &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
-                                                                  row_addr + sm.row_metadata_crc_start as int) == Some(rm)
+                                                                 row_addr + sm.row_metadata_crc_start) == Some(rm)
                         &&& self.key_info.contains_key(k)
                         &&& self.key_info[k] == row_addr
                         &&& self.item_info.contains_key(rm.item_addr)
