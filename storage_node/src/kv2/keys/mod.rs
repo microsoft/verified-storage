@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
+mod keyinv_v;
 mod keyrecover_v;
 mod keysetup_v;
+mod keystart_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -11,12 +13,14 @@ use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
+use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
+use keyinv_v::*;
 use keyrecover_v::*;
 use keysetup_v::*;
 use std::collections::HashMap;
@@ -183,7 +187,11 @@ pub struct KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    m: HashMap<K, u64>,
+    status: Ghost<KeyTableStatus>,
+    m: HashMap<K, ConcreteKeyInfo>,
+    free_list: Vec<u64>,
+    pending_deallocations: Vec<u64>,
+    memory_mapping: Ghost<KeyMemoryMapping<K>>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
@@ -192,6 +200,12 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
+    pub closed spec fn valid(self, sm: KeyTableStaticMetadata, jv: JournalView) -> bool
+    {
+        &&& self.status@ is Quiescent
+        &&& self.inv(sm, jv)
+    }
+
     pub closed spec fn recover(
         s: Seq<u8>,
         sm: KeyTableStaticMetadata,
