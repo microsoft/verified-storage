@@ -103,7 +103,7 @@ pub proof fn lemma_space_needed_for_alignment_works(addr: int, alignment: int)
     }
 }
 
-pub open spec fn spec_allocate_space<T>(offset: int) -> (bounds: (int, int))
+pub open spec fn spec_reserve_space<T>(offset: int) -> (bounds: (int, int))
     where
         T: PmCopy,
     recommends
@@ -114,7 +114,7 @@ pub open spec fn spec_allocate_space<T>(offset: int) -> (bounds: (int, int))
     (start, end)
 }
 
-pub open spec fn spec_allocate_specified_space(offset: int, size: int, alignment: int) -> (bounds: (int, int))
+pub open spec fn spec_reserve_specified_space(offset: int, size: int, alignment: int) -> (bounds: (int, int))
     recommends
         0 < alignment,
 {

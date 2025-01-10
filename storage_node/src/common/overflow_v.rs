@@ -283,7 +283,7 @@ impl OverflowingU64 {
 }
 
 #[inline]
-pub exec fn allocate_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU64, OverflowingU64))
+pub exec fn reserve_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU64, OverflowingU64))
     where
         T: PmCopy
     requires
@@ -303,8 +303,8 @@ pub exec fn allocate_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU
 }
 
 #[inline]
-pub exec fn allocate_specified_space(offset: &OverflowingU64, size: u64, alignment: u64)
-                                     -> (bounds: (OverflowingU64, OverflowingU64))
+pub exec fn reserve_specified_space(offset: &OverflowingU64, size: u64, alignment: u64)
+                                    -> (bounds: (OverflowingU64, OverflowingU64))
     requires
         0 < alignment,
     ensures
@@ -322,8 +322,8 @@ pub exec fn allocate_specified_space(offset: &OverflowingU64, size: u64, alignme
 }
 
 #[inline]
-pub exec fn allocate_specified_space_overflowing_u64(offset: &OverflowingU64, size: &OverflowingU64, alignment: u64)
-                                                     -> (bounds: (OverflowingU64, OverflowingU64))
+pub exec fn reserve_specified_space_overflowing_u64(offset: &OverflowingU64, size: &OverflowingU64, alignment: u64)
+                                                    -> (bounds: (OverflowingU64, OverflowingU64))
     requires
         0 < alignment,
     ensures
