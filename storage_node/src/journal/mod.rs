@@ -1,7 +1,6 @@
 mod commit_v;
 mod entry_v;
 mod inv_v;
-mod read_v;
 mod recover_v;
 mod setup_v;
 mod spec_v;
@@ -106,45 +105,15 @@ impl <Perm, PM> Journal<Perm, PM>
         (size_of::<u64>() + size_of::<u64>()) as u64
     }
 
-    pub exec fn read_aligned<S>(&self, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
-        where 
-            S: PmCopy + Sized,
+    pub exec fn get_pm_region_ref(&self) -> (result: &PM)
         requires
             self.valid(),
-            addr + S::spec_size_of() <= self@.read_state.len(),
-            // We must have previously written a serialized S to this addr
-            S::bytes_parseable(self@.read_state.subrange(addr as int, addr + S::spec_size_of()))
         ensures
-            match bytes {
-                Ok(bytes) => bytes_read_from_storage(
-                    bytes@,
-                    self@.read_state.subrange(addr as int, addr + S::spec_size_of()),
-                    addr as int,
-                    self@.pm_constants
-                ),
-                _ => false,
-            }
+            result.inv(),
+            result.constants() == self@.pm_constants,
+            result@.read_state == self@.read_state,
     {
-        self.wrpm.get_pm_region_ref().read_aligned(addr)
-    }
-
-    #[inline]
-    pub exec fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) 
-        requires 
-            self.valid(),
-            addr + num_bytes <= self@.read_state.len(),
-        ensures 
-            match bytes {
-                Ok(bytes) => bytes_read_from_storage(
-                    bytes@,
-                    self@.read_state.subrange(addr as int, addr + num_bytes as nat),
-                    addr as int,
-                    self@.pm_constants
-                ),
-                _ => false,
-            }
-    {
-        self.wrpm.get_pm_region_ref().read_unaligned(addr, num_bytes)
+        self.wrpm.get_pm_region_ref()
     }
 
     pub exec fn abort(&mut self)

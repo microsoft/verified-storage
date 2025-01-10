@@ -97,8 +97,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(Journal::<TrustedKvPermission, PM>::recover(journal@.read_state).unwrap().state == journal@.read_state);
         assert(seqs_match_in_range(journal@.read_state, js, jc.app_area_start as int, jc.app_area_end as int));
 
-        let sm = match journal.read_object::<KvStaticMetadata>(
-            jc.app_area_start, jc.app_area_start + size_of::<KvStaticMetadata>() as u64
+        let sm = match exec_recover_object::<PM, KvStaticMetadata>(
+            journal.get_pm_region_ref(), jc.app_area_start, jc.app_area_start + size_of::<KvStaticMetadata>() as u64
         ) {
             Some(sm) => sm,
             None => { return Err(KvError::CRCMismatch); },
