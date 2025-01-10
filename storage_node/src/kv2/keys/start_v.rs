@@ -40,6 +40,7 @@ impl<PM, K> KeyTable<PM, K>
                 Ok((keys, item_addrs, list_addrs)) => {
                     let recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
                     &&& keys.valid(journal@, *sm)
+                    &&& keys@.sm == *sm
                     &&& keys@.durable == recovered_state
                     &&& keys@.tentative == Some(recovered_state)
                     &&& item_addrs@ == recovered_state.item_addrs()

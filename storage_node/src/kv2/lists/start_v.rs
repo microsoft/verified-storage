@@ -32,6 +32,7 @@ impl<PM, L> ListTable<PM, L>
 {
     pub exec fn start<K>(
         journal: &Journal<TrustedKvPermission, PM>,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy,
         list_addrs: &HashSet<u64>,
         sm: &ListTableStaticMetadata,
     ) -> (result: Result<Self, KvError<K>>)
@@ -44,6 +45,8 @@ impl<PM, L> ListTable<PM, L>
                 Ok(lists) => {
                     let recovered_state = Self::recover(journal@.read_state, list_addrs@, *sm).unwrap();
                     &&& lists.valid(journal@, *sm)
+                    &&& lists@.sm == *sm
+                    &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
                 },

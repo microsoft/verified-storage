@@ -114,6 +114,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             None => { return Err(KvError::CRCMismatch); },
         };
 
+        let logical_range_gaps_policy = match decode_policies(sm.encoded_policies) {
+            Some(p) => p,
+            None => { assert(false); return Err(KvError::InternalError); }
+        };
+
         proof {
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, journal@.read_state, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
@@ -132,7 +137,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let lists = match ListTable::<PM, L>::start::<K>(&journal, &list_addrs, &sm.lists) {
+        let lists = match ListTable::<PM, L>::start::<K>(&journal, logical_range_gaps_policy, &list_addrs, &sm.lists) {
             Ok(i) => i,
             _ => { assert(false); return Err(KvError::InternalError); },
         };
