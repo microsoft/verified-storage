@@ -257,6 +257,27 @@ pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I,
     assert(recover_static_metadata::<K, I, L>(s2, jc) =~= Some(sm));
 }
 
+pub(super) open spec fn combine_component_snapshots<K, I, L>(
+    id: u128,
+    logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    keys: KeyTableSnapshot<K>,
+    items: ItemTableSnapshot<I>,
+    lists: ListTableSnapshot<L>,
+) -> AtomicKvStore<K, I, L>
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        I: PmCopy + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    AtomicKvStore::<K, I, L>{
+        id,
+        logical_range_gaps_policy,
+        m: Map::<K, (I, Seq<L>)>::new(
+            |k: K| keys.key_info.dom().contains(k),
+            |k: K| (items.m[keys.key_info[k].item_addr], lists.m[keys.key_info[k].list_addr]),
+        )
+    }
+}
 
 }
 

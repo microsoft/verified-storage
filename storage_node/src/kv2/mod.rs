@@ -23,6 +23,7 @@ use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
 use impl_t::*;
+use impl_v::*;
 use items::*;
 use keys::*;
 use lists::*;
@@ -41,8 +42,9 @@ where
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    sm: KvStaticMetadata,
-    logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    id: u128,
+    sm: Ghost<KvStaticMetadata>,
+    must_abort: Ghost<bool>,
     journal: Journal<TrustedKvPermission, PM>,
     keys: KeyTable<PM, K>,
     items: ItemTable<PM, I>,
@@ -60,7 +62,25 @@ where
 
     closed spec fn view(&self) -> KvStoreView<K, I, L>
     {
-        arbitrary()
+        KvStoreView {
+            id: self.id,
+            logical_range_gaps_policy: self.lists@.logical_range_gaps_policy,
+            pm_constants: self.journal@.pm_constants,
+            durable: combine_component_snapshots(
+                self.id,
+                self.lists@.logical_range_gaps_policy,
+                self.keys@.durable,
+                self.items@.durable,
+                self.lists@.durable,
+            ),
+            tentative: combine_component_snapshots(
+                self.id,
+                self.lists@.logical_range_gaps_policy,
+                self.keys@.tentative.unwrap(),
+                self.items@.tentative.unwrap(),
+                self.lists@.tentative.unwrap(),
+            ),
+        }
     }
 }
 
