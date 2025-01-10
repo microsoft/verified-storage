@@ -113,6 +113,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             Some(sm) => sm,
             None => { return Err(KvError::CRCMismatch); },
         };
+        if sm.id != kvstore_id {
+            return Err(KvError::WrongKvStoreId{ requested_id: kvstore_id, actual_id: sm.id });
+        }
 
         let logical_range_gaps_policy = match decode_policies(sm.encoded_policies) {
             Some(p) => p,
@@ -142,8 +145,16 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        assume(false);
-        Err(KvError::NotImplemented)
+        let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
+            status: Ghost(KvStoreStatus::Quiescent),
+            id: sm.id,
+            sm: Ghost(sm),
+            journal,
+            keys,
+            items,
+            lists,
+        };
+        Ok(kv)
     }
 }
     

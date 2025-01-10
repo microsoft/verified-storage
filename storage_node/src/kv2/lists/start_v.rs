@@ -49,6 +49,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
+                    &&& recovered_state.m.dom() == list_addrs@
                 },
                 Err(_) => false,
             }

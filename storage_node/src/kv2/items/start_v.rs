@@ -47,6 +47,7 @@ impl<PM, I> ItemTable<PM, I>
                     &&& items@.sm == *sm
                     &&& items@.durable == recovered_state
                     &&& items@.tentative == Some(recovered_state)
+                    &&& recovered_state.m.dom() == item_addrs@
                 },
                 Err(_) => false,
             }
