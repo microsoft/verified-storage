@@ -32,16 +32,16 @@ impl<PM, K> KeyTable<PM, K>
     pub exec fn start(
         journal: &Journal<TrustedKvPermission, PM>,
         sm: &KeyTableStaticMetadata,
-        Tracked(perm): Tracked<TrustedKvPermission>,
     ) -> (result: Result<Self, KvError<K>>)
         requires
             Self::recover(journal@.read_state, *sm) is Some,
         ensures
             match result {
                 Ok(keys) => {
+                    let recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
                     &&& keys.valid(journal@, *sm)
-                    &&& keys@.durable == Self::recover(journal@.read_state, *sm).unwrap()
-                    &&& keys@.tentative == Self::recover(journal@.read_state, *sm).unwrap()
+                    &&& keys@.durable == recovered_state
+                    &&& keys@.tentative == recovered_state
                 },
                 Err(_) => false,
             }

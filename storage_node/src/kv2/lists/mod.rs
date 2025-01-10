@@ -1,5 +1,7 @@
 #![allow(unused_imports)]
+pub mod listinv_v;
 pub mod listrecover_v;
+pub mod liststart_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -7,16 +9,19 @@ use vstd::prelude::*;
 
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
+use crate::common::table_v::*;
 use crate::common::util_v::*;
+use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
+use listinv_v::*;
+use liststart_v::*;
 use std::hash::Hash;
-use super::listrecover_v::*;
-use crate::common::table_v::*;
 use super::kvspec_t::*;
+use super::listrecover_v::*;
 
 verus! {
 
@@ -119,7 +124,8 @@ pub struct ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    m: Map<u64, Vec<L>>,
+    status: Ghost<ListTableStatus>,
+    v: Ghost<ListTableView<L>>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
@@ -128,6 +134,17 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    pub closed spec fn view(&self) -> ListTableView<L>
+    {
+        self.v@
+    }
+
+    pub closed spec fn valid(self, jv: JournalView, sm: ListTableStaticMetadata) -> bool
+    {
+        &&& self.status@ is Quiescent
+        &&& self.inv(jv, sm)
+    }
+    
     pub closed spec fn recover(
         s: Seq<u8>,
         addrs: Set<u64>,

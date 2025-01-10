@@ -1,7 +1,9 @@
 #![allow(unused_imports)]
 
+mod iteminv_v;
 mod itemrecover_v;
 mod itemsetup_v;
+mod itemstart_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -12,14 +14,17 @@ use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
+use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
+use iteminv_v::*;
 use itemrecover_v::*;
 use itemsetup_v::*;
+use itemstart_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 use super::kvimpl_t::*;
@@ -114,7 +119,10 @@ pub struct ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    m: HashMap<u64, I>,
+    status: Ghost<ItemTableStatus>,
+    v: Ghost<ItemTableView<I>>,
+    free_list: Vec<u64>,
+    pending_deallocations: Vec<u64>,
     phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
@@ -123,6 +131,17 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
+    pub closed spec fn view(&self) -> ItemTableView<I>
+    {
+        self.v@
+    }
+
+    pub closed spec fn valid(self, jv: JournalView, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& self.status@ is Quiescent
+        &&& self.inv(jv, sm)
+    }
+    
     pub closed spec fn recover(
         s: Seq<u8>,
         addrs: Set<u64>,
