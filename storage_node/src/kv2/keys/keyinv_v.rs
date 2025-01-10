@@ -89,6 +89,24 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
+    pub(super) open spec fn as_snapshot(self) -> KeyTableSnapshot<K>
+    {
+        KeyTableSnapshot::<K>{
+            key_info: Map::<K, KeyTableRowMetadata>::new(
+                |k: K| self.key_info.contains_key(k),
+                |k: K| self.row_info[self.key_info[k]]->rm,
+            ),
+            item_info: Map::<u64, K>::new(
+                |item_addr: u64| self.item_info.contains_key(item_addr),
+                |item_addr: u64| self.row_info[self.item_info[item_addr]]->k
+            ),
+            list_info: Map::<u64, K>::new(
+                |list_addr: u64| self.list_info.contains_key(list_addr),
+                |list_addr: u64| self.row_info[self.list_info[list_addr]]->k
+            ),
+        }
+    }
+
     pub(super) open spec fn row_info_valid(self, sm: KeyTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) <==>
@@ -351,6 +369,11 @@ impl<K> KeyInternalView<K>
         &&& self.apply_undo_record_list(undo_records) matches Some(undone_self)
         &&& undone_self.consistent_with_state(jv.durable_state, sm)
     }
+
+    pub(super) open spec fn as_snapshot(self) -> KeyTableSnapshot<K>
+    {
+        self.memory_mapping.as_snapshot()
+    }
 }
 
 impl<PM, K> KeyTable<PM, K>
@@ -368,7 +391,7 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
-    pub(super) open spec fn inv(self, sm: KeyTableStaticMetadata, jv: JournalView) -> bool
+    pub(super) open spec fn inv(self, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
     {
         &&& self.internal_view().consistent_with_journal(self.undo_records@, jv, sm)
     }

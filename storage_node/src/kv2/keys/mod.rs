@@ -201,10 +201,18 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub closed spec fn valid(self, sm: KeyTableStaticMetadata, jv: JournalView) -> bool
+    pub closed spec fn view(&self) -> KeyTableView<K>
+    {
+        KeyTableView{
+            durable: self.internal_view().apply_undo_record_list(self.undo_records@).unwrap().as_snapshot(),
+            tentative: self.internal_view().as_snapshot(),
+        }
+    }
+    
+    pub closed spec fn valid(self, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
     {
         &&& self.status@ is Quiescent
-        &&& self.inv(sm, jv)
+        &&& self.inv(jv, sm)
     }
 
     pub closed spec fn recover(
