@@ -45,7 +45,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.valid()
         &&& self@.constants == old_self@.constants
         &&& self@.valid()
-        &&& self.recover_successful()
+        &&& self.recover_idempotent()
         &&& self@ == (JournalView{
                 read_state: update_bytes(old_self@.read_state, addr as int, bytes_to_write),
                 commit_state: update_bytes(old_self@.commit_state, addr as int, bytes_to_write),
@@ -145,7 +145,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self.valid(),
             self@.valid(),
             self@.constants == old(self)@.constants,
-            self.recover_successful(),
+            self.recover_idempotent(),
             ({
                 let space_needed = Self::spec_journal_entry_overhead() + bytes_to_write@.len();
                 match result {

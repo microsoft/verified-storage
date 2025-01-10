@@ -94,9 +94,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         let jc: &JournalConstants = journal.constants();
 
-        assert(journal.recover_successful());
+        assert(journal.recover_idempotent());
         assert(Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));
-        assert(Journal::<TrustedKvPermission, PM>::recover(journal@.read_state).unwrap().state == journal@.read_state);
         assert(seqs_match_in_range(journal@.read_state, js, jc.app_area_start as int, jc.app_area_end as int));
 
         let sm = match exec_recover_object::<PM, KvStaticMetadata>(

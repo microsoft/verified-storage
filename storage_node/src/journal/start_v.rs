@@ -417,7 +417,7 @@ impl <Perm, PM> Journal<Perm, PM>
             match result {
                 Ok(j) => {
                     &&& j.valid()
-                    &&& j.recover_successful()
+                    &&& j.recover_idempotent()
                     &&& j@.valid()
                     &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
                     &&& j@.pm_constants == wrpm.constants()

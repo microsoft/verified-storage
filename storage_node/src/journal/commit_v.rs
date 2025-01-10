@@ -671,7 +671,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self.valid(),
             self@.valid(),
             self@.constants == old(self)@.constants,
-            self.recover_successful(),
+            self.recover_idempotent(),
             self@ == (JournalView{
                 durable_state: self@.commit_state,
                 read_state: self@.commit_state,

@@ -77,7 +77,7 @@ impl <Perm, PM> Journal<Perm, PM>
         recover_journal(bytes)
     }
 
-    pub open spec fn recover_successful(self) -> bool
+    pub open spec fn recover_idempotent(self) -> bool
     {
         Self::recover(self@.durable_state) == Some(RecoveredJournal{ constants: self@.constants,
                                                                      state: self@.durable_state })
@@ -131,7 +131,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
-            self.recover_successful(),
+            self.recover_idempotent(),
             self@ == (JournalView{
                 commit_state: self@.read_state,
                 remaining_capacity: self@.constants.journal_capacity as int,
