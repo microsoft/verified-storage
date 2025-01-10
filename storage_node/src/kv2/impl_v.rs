@@ -23,6 +23,12 @@ use super::spec_t::*;
 
 verus! {
 
+pub(super) enum KvStoreStatus
+{
+    Quiescent,
+    MustAbort,
+}
+
 impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,

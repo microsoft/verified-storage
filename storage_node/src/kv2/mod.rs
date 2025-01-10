@@ -2,6 +2,7 @@
 
 pub mod impl_t;
 pub mod impl_v;
+pub mod inv_v;
 pub mod items;
 pub mod keys;
 pub mod lists;
@@ -24,6 +25,7 @@ use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
 use impl_t::*;
 use impl_v::*;
+use inv_v::*;
 use items::*;
 use keys::*;
 use lists::*;
@@ -42,9 +44,9 @@ where
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
+    status: Ghost<KvStoreStatus>,
     id: u128,
     sm: Ghost<KvStaticMetadata>,
-    must_abort: Ghost<bool>,
     journal: Journal<TrustedKvPermission, PM>,
     keys: KeyTable<PM, K>,
     items: ItemTable<PM, I>,
@@ -103,7 +105,8 @@ where
 
     pub closed spec fn valid(self) -> bool
     {
-        true
+        &&& self.status@ is Quiescent
+        &&& self.inv()
     }
 
     pub closed spec fn spec_space_needed_for_journal_capacity(ps: SetupParameters) -> nat
