@@ -176,8 +176,9 @@ impl KeyTableStaticMetadata
 #[verifier::ext_equal]
 pub struct KeyTableView<K>
 {
+    pub sm: KeyTableStaticMetadata,
     pub durable: KeyTableSnapshot<K>,
-    pub tentative: KeyTableSnapshot<K>,
+    pub tentative: Option<KeyTableSnapshot<K>>, // None if, due to an error like journal overflow, we must abort
 }
     
 #[verifier::reject_recursive_types(K)]
@@ -188,6 +189,8 @@ pub struct KeyTable<PM, K>
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     status: Ghost<KeyTableStatus>,
+    must_abort: Ghost<bool>,
+    sm: KeyTableStaticMetadata,
     m: HashMap<K, ConcreteKeyInfo>,
     free_list: Vec<u64>,
     pending_deallocations: Vec<u64>,
@@ -204,8 +207,9 @@ impl<PM, K> KeyTable<PM, K>
     pub closed spec fn view(&self) -> KeyTableView<K>
     {
         KeyTableView{
+            sm: self.sm,
             durable: self.internal_view().apply_undo_record_list(self.undo_records@).unwrap().as_snapshot(),
-            tentative: self.internal_view().as_snapshot(),
+            tentative: if self.must_abort@ { None } else { Some(self.internal_view().as_snapshot()) },
         }
     }
     

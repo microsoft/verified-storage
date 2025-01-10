@@ -114,8 +114,10 @@ impl ListTableStaticMetadata
 #[verifier::ext_equal]
 pub struct ListTableView<L>
 {
+    pub sm: ListTableStaticMetadata,
+    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub durable: ListTableSnapshot<L>,
-    pub tentative: ListTableSnapshot<L>,
+    pub tentative: Option<ListTableSnapshot<L>>,
 }
 
 #[verifier::ext_equal]
@@ -125,7 +127,11 @@ pub struct ListTable<PM, L>
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     status: Ghost<ListTableStatus>,
-    v: Ghost<ListTableView<L>>,
+    sm: ListTableStaticMetadata,
+    must_abort: Ghost<bool>,
+    logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    durable_snapshot: Ghost<ListTableSnapshot<L>>,
+    tentative_snapshot: Ghost<ListTableSnapshot<L>>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
@@ -136,7 +142,12 @@ impl<PM, L> ListTable<PM, L>
 {
     pub closed spec fn view(&self) -> ListTableView<L>
     {
-        self.v@
+        ListTableView::<L>{
+            sm: self.sm,
+            logical_range_gaps_policy: self.logical_range_gaps_policy,
+            durable: self.durable_snapshot@,
+            tentative: if self.must_abort@ { None } else { Some(self.tentative_snapshot@) },
+        }
     }
 
     pub closed spec fn valid(self, jv: JournalView, sm: ListTableStaticMetadata) -> bool

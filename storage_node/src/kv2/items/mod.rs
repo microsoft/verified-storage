@@ -108,8 +108,9 @@ impl ItemTableStaticMetadata
 #[verifier::ext_equal]
 pub struct ItemTableView<I>
 {
+    pub sm: ItemTableStaticMetadata,
     pub durable: ItemTableSnapshot<I>,
-    pub tentative: ItemTableSnapshot<I>,
+    pub tentative: Option<ItemTableSnapshot<I>>,
 }
 
 #[verifier::ext_equal]
@@ -120,7 +121,10 @@ pub struct ItemTable<PM, I>
         I: PmCopy + Sized + std::fmt::Debug,
 {
     status: Ghost<ItemTableStatus>,
-    v: Ghost<ItemTableView<I>>,
+    sm: ItemTableStaticMetadata,
+    must_abort: Ghost<bool>,
+    durable_snapshot: Ghost<ItemTableSnapshot<I>>,
+    tentative_snapshot: Ghost<ItemTableSnapshot<I>>,
     free_list: Vec<u64>,
     pending_deallocations: Vec<u64>,
     phantom_pm: Ghost<core::marker::PhantomData<PM>>,
@@ -133,7 +137,11 @@ impl<PM, I> ItemTable<PM, I>
 {
     pub closed spec fn view(&self) -> ItemTableView<I>
     {
-        self.v@
+        ItemTableView::<I>{
+            sm: self.sm,
+            durable: self.durable_snapshot@,
+            tentative: if self.must_abort@ { None } else { Some(self.tentative_snapshot@) },
+        }
     }
 
     pub closed spec fn valid(self, jv: JournalView, sm: ItemTableStaticMetadata) -> bool

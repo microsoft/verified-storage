@@ -41,7 +41,7 @@ impl<PM, K> KeyTable<PM, K>
                     let recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
                     &&& keys.valid(journal@, *sm)
                     &&& keys@.durable == recovered_state
-                    &&& keys@.tentative == recovered_state
+                    &&& keys@.tentative == Some(recovered_state)
                     &&& item_addrs@ == recovered_state.item_addrs()
                     &&& list_addrs@ == recovered_state.list_addrs()
                 },

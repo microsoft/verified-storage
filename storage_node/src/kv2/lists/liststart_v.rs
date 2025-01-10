@@ -45,7 +45,7 @@ impl<PM, L> ListTable<PM, L>
                     let recovered_state = Self::recover(journal@.read_state, list_addrs@, *sm).unwrap();
                     &&& lists.valid(journal@, *sm)
                     &&& lists@.durable == recovered_state
-                    &&& lists@.tentative == recovered_state
+                    &&& lists@.tentative == Some(recovered_state)
                 },
                 Err(_) => false,
             }

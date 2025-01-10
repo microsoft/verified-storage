@@ -45,7 +45,7 @@ impl<PM, I> ItemTable<PM, I>
                     let recovered_state = Self::recover(journal@.read_state, item_addrs@, *sm).unwrap();
                     &&& items.valid(journal@, *sm)
                     &&& items@.durable == recovered_state
-                    &&& items@.tentative == recovered_state
+                    &&& items@.tentative == Some(recovered_state)
                 },
                 Err(_) => false,
             }
