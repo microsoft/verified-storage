@@ -19,10 +19,10 @@ use std::hash::Hash;
 use super::*;
 use super::keys::*;
 use super::items::*;
-use super::kvimpl_t::*;
-use super::kvrecover_v::*;
-use super::kvspec_t::*;
+use super::impl_t::*;
 use super::lists::*;
+use super::recover_v::*;
+use super::spec_t::*;
 
 verus! {
 

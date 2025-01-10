@@ -14,11 +14,11 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use std::hash::Hash;
-use super::keys::*;
+use super::impl_t::*;
 use super::items::*;
-use super::kvimpl_t::*;
-use super::kvspec_t::*;
+use super::keys::*;
 use super::lists::*;
+use super::spec_t::*;
 
 verus! {
 

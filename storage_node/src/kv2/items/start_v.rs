@@ -16,36 +16,36 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
-use listrecover_v::*;
+use recover_v::*;
 use std::collections::HashSet;
 use std::hash::Hash;
 use super::*;
-use super::super::kvimpl_t::*;
-use super::super::kvspec_t::*;
+use super::super::impl_t::*;
+use super::super::spec_t::*;
 
 verus! {
 
-impl<PM, L> ListTable<PM, L>
+impl<PM, I> ItemTable<PM, I>
     where
         PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn start<K>(
         journal: &Journal<TrustedKvPermission, PM>,
-        list_addrs: &HashSet<u64>,
-        sm: &ListTableStaticMetadata,
+        item_addrs: &HashSet<u64>,
+        sm: &ItemTableStaticMetadata,
     ) -> (result: Result<Self, KvError<K>>)
         where
             K: std::fmt::Debug,
         requires
-            Self::recover(journal@.read_state, list_addrs@, *sm) is Some,
+            Self::recover(journal@.read_state, item_addrs@, *sm) is Some,
         ensures
             match result {
-                Ok(lists) => {
-                    let recovered_state = Self::recover(journal@.read_state, list_addrs@, *sm).unwrap();
-                    &&& lists.valid(journal@, *sm)
-                    &&& lists@.durable == recovered_state
-                    &&& lists@.tentative == Some(recovered_state)
+                Ok(items) => {
+                    let recovered_state = Self::recover(journal@.read_state, item_addrs@, *sm).unwrap();
+                    &&& items.valid(journal@, *sm)
+                    &&& items@.durable == recovered_state
+                    &&& items@.tentative == Some(recovered_state)
                 },
                 Err(_) => false,
             }

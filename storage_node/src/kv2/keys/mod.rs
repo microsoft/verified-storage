@@ -1,8 +1,8 @@
 #![allow(unused_imports)]
-mod keyinv_v;
-mod keyrecover_v;
-mod keysetup_v;
-mod keystart_v;
+mod inv_v;
+mod recover_v;
+mod setup_v;
+mod start_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -20,12 +20,12 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
-use keyinv_v::*;
-use keyrecover_v::*;
-use keysetup_v::*;
+use inv_v::*;
+use recover_v::*;
+use setup_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::kvspec_t::*;
+use super::spec_t::*;
 
 verus! {
 

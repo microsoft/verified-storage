@@ -1,13 +1,13 @@
 #![allow(unused_imports)]
 
-pub mod kvimpl_t;
-pub mod kvrecover_v;
-pub mod kvsetup_v;
-pub mod kvspec_t;
-pub mod kvstart_v;
-pub mod keys;
+pub mod impl_t;
 pub mod items;
+pub mod keys;
 pub mod lists;
+pub mod recover_v;
+pub mod setup_v;
+pub mod spec_t;
+pub mod start_v;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -21,13 +21,13 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
+use impl_t::*;
 use items::*;
 use keys::*;
 use lists::*;
-use kvimpl_t::*;
-use kvrecover_v::*;
-use kvsetup_v::*;
-use kvspec_t::*;
+use recover_v::*;
+use setup_v::*;
+use spec_t::*;
 
 verus! {
 

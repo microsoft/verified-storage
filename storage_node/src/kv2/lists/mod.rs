@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
-pub mod listinv_v;
-pub mod listrecover_v;
-pub mod liststart_v;
+pub mod inv_v;
+pub mod recover_v;
+pub mod start_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -17,11 +17,11 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
-use listinv_v::*;
-use liststart_v::*;
+use inv_v::*;
+use start_v::*;
 use std::hash::Hash;
-use super::kvspec_t::*;
-use super::listrecover_v::*;
+use super::recover_v::*;
+use super::spec_t::*;
 
 verus! {
 
@@ -37,6 +37,16 @@ impl<L> ListTableSnapshot<L>
     {
         Self{ m: Map::<u64, Seq<L>>::empty() }
     }
+}
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+#[verifier::ext_equal]
+struct ListTableRowMetadata
+{
+    next_row_start: u64,
+    num_block_elements: u64,
+    num_trimmed_elements: u64,
 }
 
 #[repr(C)]

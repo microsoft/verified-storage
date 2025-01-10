@@ -19,27 +19,32 @@ use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
-use super::listrecover_v::*;
-use super::super::kvimpl_t::*;
-use super::super::kvspec_t::*;
+use super::super::impl_t::*;
+use super::super::spec_t::*;
 
 verus! {
-
-#[verifier::ext_equal]
-pub(super) enum ListTableStatus {
-    Quiescent,
-}
 
 impl<PM, L> ListTable<PM, L>
     where
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn inv(self, jv: JournalView, sm: ListTableStaticMetadata) -> bool
+    pub proof fn lemma_recover_depends_only_on_my_area(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        addrs: Set<u64>,
+        sm: ListTableStaticMetadata,
+    )
+        requires
+            sm.valid::<L>(),
+            sm.end() <= s1.len(),
+            seqs_match_in_range(s1, s2, sm.start() as int, sm.end() as int),
+            Self::recover(s1, addrs, sm) is Some,
+        ensures
+            Self::recover(s1, addrs, sm) == Self::recover(s2, addrs, sm),
     {
-        arbitrary()
+        assume(false);
     }
 }
 
 }
-

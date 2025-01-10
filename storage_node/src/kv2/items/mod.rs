@@ -1,9 +1,9 @@
 #![allow(unused_imports)]
 
-mod iteminv_v;
-mod itemrecover_v;
-mod itemsetup_v;
-mod itemstart_v;
+mod inv_v;
+mod recover_v;
+mod setup_v;
+mod start_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -21,15 +21,15 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
-use iteminv_v::*;
-use itemrecover_v::*;
-use itemsetup_v::*;
-use itemstart_v::*;
+use inv_v::*;
+use recover_v::*;
+use setup_v::*;
+use start_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::kvimpl_t::*;
-use super::kvrecover_v::*;
-use super::kvspec_t::*;
+use super::impl_t::*;
+use super::recover_v::*;
+use super::spec_t::*;
 
 verus! {
 

@@ -16,8 +16,8 @@ use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
-use super::super::kvimpl_t::*;
-use super::super::kvspec_t::*;
+use super::super::impl_t::*;
+use super::super::spec_t::*;
 
 verus! {
 
