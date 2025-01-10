@@ -4,6 +4,7 @@ pub mod kvimpl_t;
 pub mod kvrecover_v;
 pub mod kvsetup_v;
 pub mod kvspec_t;
+pub mod kvstart_v;
 pub mod keys;
 pub mod items;
 pub mod lists;
@@ -108,41 +109,6 @@ where
         let item_table_end = key_table_end + ItemTable::<PM, I>::spec_space_needed_for_setup(ps, key_table_end as nat);
         let list_table_end = item_table_end + ListTable::<PM, L>::spec_space_needed_for_setup(ps, item_table_end as nat);
         list_table_end as nat
-    }
-
-    pub fn untrusted_start(
-        wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission, PM>,
-        kvstore_id: u128,
-        Ghost(state): Ghost<AtomicKvStore<K, I, L>>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<Self, KvError<K>>)
-        requires 
-            wrpm.inv(),
-            Self::untrusted_recover(wrpm@.durable_state) == Some(state),
-            vstd::std_specs::hash::obeys_key_model::<K>(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(state),
-        ensures
-            match result {
-                Ok(kv) => {
-                    &&& kv.valid()
-                    &&& kv@.valid()
-                    &&& kv@.id == state.id == kvstore_id
-                    &&& kv@.logical_range_gaps_policy == state.logical_range_gaps_policy
-                    &&& kv@.pm_constants == wrpm.constants()
-                    &&& kv@.durable == state
-                    &&& kv@.tentative == state
-                }
-                Err(KvError::CRCMismatch) => !wrpm.constants().impervious_to_corruption(),
-                Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
-                   &&& requested_id == kvstore_id
-                   &&& actual_id == state.id
-                },
-                Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
-                Err(_) => false,
-            }
-    {        
-        assume(false);
-        Err(KvError::NotImplemented)
     }
 
     pub exec fn untrusted_read_item(

@@ -116,6 +116,11 @@ pub(super) open spec fn validate_static_metadata<K, I, L>(sm: KvStaticMetadata, 
 {
     &&& sm.valid::<K, I, L>()
     &&& jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= sm.keys.start()
+    &&& sm.keys.start() <= sm.keys.end()
+    &&& sm.keys.end() <= sm.items.start()
+    &&& sm.items.start() <= sm.items.end()
+    &&& sm.items.end() <= sm.lists.start()
+    &&& sm.lists.start() <= sm.lists.end()
     &&& sm.lists.end() <= jc.app_area_end
 }
 

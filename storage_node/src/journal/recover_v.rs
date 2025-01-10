@@ -9,6 +9,7 @@ use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use deps_hack::PmCopy;
+use super::*;
 use super::entry_v::*;
 use super::spec_v::*;
 
@@ -322,6 +323,32 @@ pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncomm
         recovers_to(s2, vm, sm, constants),
 {
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+}
+
+impl <Perm, PM> Journal<Perm, PM>
+    where
+        PM: PersistentMemoryRegion,
+        Perm: CheckPermission<Seq<u8>>,
+{
+    pub proof fn lemma_recover_doesnt_change_size(bytes: Seq<u8>)
+        ensures
+            Self::recover(bytes) matches Some(j) ==> j.state.len() == bytes.len()
+    {
+        if recover_journal(bytes) is None {
+            return;
+        }
+
+        let vm = recover_version_metadata(bytes).unwrap();
+        let sm = recover_static_metadata(bytes, vm).unwrap();
+        if recover_committed_cdb(bytes, sm) == Some(false) {
+            return;
+        }
+
+        let journal_length = recover_journal_length(bytes, sm).unwrap();
+        let entries = recover_journal_entries(bytes, sm, journal_length).unwrap();
+
+        lemma_apply_journal_entries_doesnt_change_size(bytes, entries, sm);
+    }
 }
 
 }

@@ -88,8 +88,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& Self::recover(state1) matches Some(j1)
         &&& Self::recover(state2) matches Some(j2)
         &&& j1.constants == j2.constants
-        &&& j1.state.subrange(j1.constants.app_area_start as int, j1.constants.app_area_end as int)
-               == j2.state.subrange(j2.constants.app_area_start as int, j2.constants.app_area_end as int)
+        &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
     }
 
     pub closed spec fn spec_journal_entry_overhead() -> nat

@@ -241,7 +241,7 @@ impl <Perm, PM> Journal<Perm, PM>
             parse_journal_entries(entries_bytes@) == Some(entries),
             apply_journal_entries(old(wrpm)@.read_state, entries, *sm) is Some,
             recover_journal(old(wrpm)@.read_state) is Some,
-            forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(wrpm)@.durable_state)
+            forall|s: Seq<u8>| recover_journal(old(wrpm)@.durable_state) == recover_journal(s)
                 ==> #[trigger] perm.check_permission(s),
         ensures
             wrpm.inv(),
@@ -450,11 +450,17 @@ impl <Perm, PM> Journal<Perm, PM>
             app_area_start: sm.app_area_start,
             app_area_end: sm.app_area_end,
         };
+
+        assert(Self::recover(wrpm@.durable_state).unwrap().constants.app_area_end == wrpm@.len());
         if cdb {
             let journal_length = Self::read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
             let entries_bytes =
                 Self::read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
             let ghost entries = parse_journal_entries(entries_bytes@).unwrap();
+            assert forall|s: Seq<u8>| recover_journal(wrpm@.durable_state) == recover_journal(s)
+                implies #[trigger] perm.check_permission(s) by {
+                Self::lemma_recover_doesnt_change_size(wrpm@.durable_state);
+            }
             Self::install_journal_entries_during_start(&mut wrpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes,
                                                        Ghost(entries));
             Self::clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
