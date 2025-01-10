@@ -1,6 +1,7 @@
 mod commit_v;
 mod entry_v;
 mod inv_v;
+mod read_v;
 mod recover_v;
 mod setup_v;
 mod spec_v;
@@ -87,6 +88,7 @@ impl <Perm, PM> Journal<Perm, PM>
     {
         &&& Self::recover(state1) matches Some(j1)
         &&& Self::recover(state2) matches Some(j2)
+        &&& j1.state.len() == state1.len() == state2.len()
         &&& j1.constants == j2.constants
         &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
     }

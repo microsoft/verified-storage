@@ -21,6 +21,19 @@ impl JournalConstants {
     {
         0 <= self.app_area_start <= self.app_area_end
     }
+
+    pub exec fn clone(&self) -> (result: Self)
+        ensures
+            result == self
+    {
+        Self{
+            app_version_number: self.app_version_number,
+            app_program_guid: self.app_program_guid,
+            journal_capacity: self.journal_capacity,
+            app_area_start: self.app_area_start,
+            app_area_end: self.app_area_end,
+        }
+    }
 }
 
 #[verifier::ext_equal]

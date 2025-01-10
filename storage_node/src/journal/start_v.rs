@@ -407,7 +407,7 @@ impl <Perm, PM> Journal<Perm, PM>
     pub exec fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>
-    ) -> (result: Result<Self, JournalError>)
+    ) -> (result: Result<(Self, JournalConstants), JournalError>)
         requires
             wrpm.inv(),
             Self::recover(wrpm@.durable_state).is_some(),
@@ -415,8 +415,9 @@ impl <Perm, PM> Journal<Perm, PM>
                 ==> #[trigger] perm.check_permission(s),
         ensures
             match result {
-                Ok(j) => {
+                Ok((j, constants)) => {
                     &&& j.valid()
+                    &&& j.recover_successful()
                     &&& j@.valid()
                     &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
                     &&& j@.pm_constants == wrpm.constants()
@@ -425,6 +426,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
+                    &&& constants == j@.constants
                 },
                 Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
                 _ => false,
@@ -465,16 +467,17 @@ impl <Perm, PM> Journal<Perm, PM>
                                                        Ghost(entries));
             Self::clear_log(&mut wrpm, Tracked(perm), Ghost(vm), &sm);
         }
-        Ok(Self {
+        let j = Self {
             wrpm,
             vm: Ghost(vm),
             sm,
             status: Ghost(JournalStatus::Quiescent),
-            constants,
+            constants: constants.clone(),
             journal_length: 0,
             journaled_addrs: Ghost(Set::<int>::empty()),
             entries: ConcreteJournalEntries::new(),
-        })
+        };
+        Ok((j, constants))
     }
 }
 
