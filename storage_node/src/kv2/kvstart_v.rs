@@ -94,6 +94,15 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         let jc: &JournalConstants = journal.constants();
 
+        if jc.app_program_guid != KVSTORE_PROGRAM_GUID {
+            assert(false);
+            return Err(KvError::InternalError);
+        }
+        if jc.app_version_number != KVSTORE_PROGRAM_VERSION_NUMBER {
+            assert(false);
+            return Err(KvError::InternalError);
+        }
+
         assert(journal.recover_idempotent());
         assert(Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));
         assert(seqs_match_in_range(journal@.read_state, js, jc.app_area_start as int, jc.app_area_end as int));
@@ -109,6 +118,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, journal@.read_state, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
                                                                       recovered_keys.item_addrs(), sm.items);
+            ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
+                                                                      recovered_keys.list_addrs(), sm.lists);
         }
 
         let (keys, item_addrs, list_addrs) = match KeyTable::<PM, K>::start(&journal, &sm.keys) {
@@ -117,6 +128,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
 
         let items = match ItemTable::<PM, I>::start::<K>(&journal, &item_addrs, &sm.items) {
+            Ok(i) => i,
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        let lists = match ListTable::<PM, L>::start::<K>(&journal, &list_addrs, &sm.lists) {
             Ok(i) => i,
             _ => { assert(false); return Err(KvError::InternalError); },
         };

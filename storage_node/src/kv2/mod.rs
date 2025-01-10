@@ -40,7 +40,8 @@ where
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    id: u128,
+    sm: KvStaticMetadata,
+    logical_range_gaps_policy: LogicalRangeGapsPolicy,
     journal: Journal<TrustedKvPermission, PM>,
     keys: KeyTable<PM, K>,
     items: ItemTable<PM, I>,

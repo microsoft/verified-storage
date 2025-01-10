@@ -84,11 +84,11 @@ pub exec fn decode_policies(encoded_policy: u64) -> (result: Option<LogicalRange
 #[verifier::ext_equal]
 pub struct KvStaticMetadata
 {
+    pub id: u128,
     pub encoded_policies: u64,
     pub keys: KeyTableStaticMetadata,
     pub items: ItemTableStaticMetadata,
     pub lists: ListTableStaticMetadata,
-    pub id: u128,
 }
 
 impl KvStaticMetadata
