@@ -86,11 +86,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, recovered_keys.list_addrs(), sm.lists);
         }
 
-        let (journal, jc) = match Journal::<TrustedKvPermission, PM>::start(wrpm, Tracked(perm)) {
-            Ok((j, c)) => (j, c),
+        let journal = match Journal::<TrustedKvPermission, PM>::start(wrpm, Tracked(perm)) {
+            Ok(j) => j,
             Err(JournalError::CRCError) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
+
+        let jc: &JournalConstants = journal.constants();
 
         assert(journal.recover_successful());
         assert(Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));

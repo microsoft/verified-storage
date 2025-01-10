@@ -116,6 +116,15 @@ impl <Perm, PM> Journal<Perm, PM>
         self.wrpm.get_pm_region_ref()
     }
 
+    pub exec fn constants(&self) -> (result: &JournalConstants)
+        requires
+            self.valid(),
+        ensures
+            result == self@.constants,
+    {
+        &self.constants
+    }
+
     pub exec fn abort(&mut self)
         requires
             old(self).valid(),

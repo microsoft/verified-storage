@@ -407,7 +407,7 @@ impl <Perm, PM> Journal<Perm, PM>
     pub exec fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         Tracked(perm): Tracked<&Perm>
-    ) -> (result: Result<(Self, JournalConstants), JournalError>)
+    ) -> (result: Result<Self, JournalError>)
         requires
             wrpm.inv(),
             Self::recover(wrpm@.durable_state).is_some(),
@@ -415,7 +415,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ==> #[trigger] perm.check_permission(s),
         ensures
             match result {
-                Ok((j, constants)) => {
+                Ok(j) => {
                     &&& j.valid()
                     &&& j.recover_successful()
                     &&& j@.valid()
@@ -426,7 +426,6 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
-                    &&& constants == j@.constants
                 },
                 Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
                 _ => false,
@@ -477,7 +476,7 @@ impl <Perm, PM> Journal<Perm, PM>
             journaled_addrs: Ghost(Set::<int>::empty()),
             entries: ConcreteJournalEntries::new(),
         };
-        Ok((j, constants))
+        Ok(j)
     }
 }
 
