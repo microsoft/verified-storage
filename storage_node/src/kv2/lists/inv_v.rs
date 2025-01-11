@@ -35,7 +35,7 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn inv(self, jv: JournalView, sm: ListTableStaticMetadata) -> bool
+    pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
         arbitrary()
     }

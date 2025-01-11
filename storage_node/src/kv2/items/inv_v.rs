@@ -35,7 +35,7 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn inv(self, jv: JournalView, sm: ItemTableStaticMetadata) -> bool
+    pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
         arbitrary()
     }

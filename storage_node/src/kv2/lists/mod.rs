@@ -160,10 +160,10 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-    pub closed spec fn valid(self, jv: JournalView, sm: ListTableStaticMetadata) -> bool
+    pub closed spec fn valid(self, jv: JournalView) -> bool
     {
         &&& self.status@ is Quiescent
-        &&& self.inv(jv, sm)
+        &&& self.inv(jv)
     }
     
     pub closed spec fn recover(

@@ -54,6 +54,7 @@ pub(super) enum KeyRowDisposition<K> {
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub(super) struct KeyMemoryMapping<K> {
+    pub sm: KeyTableStaticMetadata,
     pub row_info: Map<u64, KeyRowDisposition<K>>,
     pub key_info: Map<K, u64>,
     pub item_info: Map<u64, u64>,
@@ -107,12 +108,12 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn row_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn row_info_valid(self) -> bool
     {
-        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) <==>
+        &&& forall|row_addr: u64| #[trigger] self.sm.table.validate_row_addr(row_addr) <==>
                 self.row_info.contains_key(row_addr)
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
-            &&& sm.table.validate_row_addr(row_addr)
+            &&& self.sm.table.validate_row_addr(row_addr)
             &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k, rm } ==> {
                     &&& self.key_info.contains_key(k)
                     &&& self.key_info[k] == row_addr
@@ -124,7 +125,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn key_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn key_info_valid(self) -> bool
     {
         &&& forall|k: K| #[trigger] self.key_info.contains_key(k) ==> {
             let row_addr = self.key_info[k];
@@ -134,7 +135,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn item_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn item_info_valid(self) -> bool
     {
         &&& forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==> {
             let row_addr = self.item_info[item_addr];
@@ -144,7 +145,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn list_info_valid(self, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn list_info_valid(self) -> bool
     {
         &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==> {
             let row_addr = self.list_info[list_addr];
@@ -154,25 +155,25 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn valid(self, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn valid(self) -> bool
     {
-        &&& self.row_info_valid(sm)
-        &&& self.key_info_valid(sm)
-        &&& self.item_info_valid(sm)
-        &&& self.list_info_valid(sm)
+        &&& self.row_info_valid()
+        &&& self.key_info_valid()
+        &&& self.item_info_valid()
+        &&& self.list_info_valid()
     }
 
-    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>) -> bool
     {
         forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
-            let cdb = recover_cdb(s, row_addr + sm.row_cdb_start);
+            let cdb = recover_cdb(s, row_addr + self.sm.row_cdb_start);
             match self.row_info[row_addr] {
                 KeyRowDisposition::InHashTable{ k, rm } => {
                     &&& cdb == Some(true)
-                    &&& recover_object::<K>(s, row_addr + sm.row_key_start,
-                                            row_addr + sm.row_key_crc_start as u64) == Some(k)
-                    &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
-                                                                row_addr + sm.row_metadata_crc_start) == Some(rm)
+                    &&& recover_object::<K>(s, row_addr + self.sm.row_key_start,
+                                            row_addr + self.sm.row_key_crc_start as u64) == Some(k)
+                    &&& recover_object::<KeyTableRowMetadata>(s, row_addr + self.sm.row_metadata_start,
+                                                                row_addr + self.sm.row_metadata_crc_start) == Some(rm)
                 },
                 _ => cdb == Some(false),
             }
@@ -204,7 +205,8 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn undo_create(self, row_addr: u64, k: K, rm: KeyTableRowMetadata, free_list_pos: nat) -> Option<Self>
+    pub(super) open spec fn undo_create(self, row_addr: u64, k: K, rm: KeyTableRowMetadata, free_list_pos: nat)
+                                        -> Option<Self>
     {
         if {
             &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: rm2 }
@@ -216,6 +218,7 @@ impl<K> KeyMemoryMapping<K>
                 key_info: self.key_info.remove(k),
                 item_info: self.item_info.remove(rm.item_addr),
                 list_info: self.list_info.remove(rm.list_addr),
+                ..self
             })
         }
         else {
@@ -249,6 +252,7 @@ impl<K> KeyMemoryMapping<K>
                 key_info: self.key_info.insert(k, row_addr),
                 item_info: self.item_info.insert(rm.item_addr, row_addr),
                 list_info: self.list_info.insert(rm.list_addr, row_addr),
+                ..self
             })
         } else {
             None
@@ -259,6 +263,7 @@ impl<K> KeyMemoryMapping<K>
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub(super) struct KeyInternalView<K> {
+    pub sm: KeyTableStaticMetadata,
     pub m: Map<K, ConcreteKeyInfo>,
     pub free_list: Seq<u64>,
     pub pending_deallocations: Seq<u64>,
@@ -269,11 +274,11 @@ impl<K> KeyInternalView<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>) -> bool
     {
         &&& forall|row_addr: u64, addr: int| {
             &&& #[trigger] self.free_list.contains(row_addr)
-            &&& row_addr <= addr < row_addr + sm.table.row_size
+            &&& row_addr <= addr < row_addr + self.sm.table.row_size
         } ==> !(#[trigger] journaled_addrs.contains(addr))
     }
 
@@ -288,8 +293,8 @@ impl<K> KeyInternalView<K>
                             Some(memory_mapping) => Some(Self{
                                 m: self.m.remove(k),
                                 free_list: self.free_list.push(row_addr),
-                                pending_deallocations: self.pending_deallocations,
                                 memory_mapping,
+                                ..self
                             }),
                             None => None,
                         }
@@ -304,9 +309,8 @@ impl<K> KeyInternalView<K>
                         match self.memory_mapping.undo_update(row_addr, k, former_rm) {
                             Some(memory_mapping) => Some(Self{
                                 m: self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm }),
-                                free_list: self.free_list,
-                                pending_deallocations: self.pending_deallocations,
                                 memory_mapping,
+                                ..self
                             }),
                             None => None,
                         }
@@ -325,9 +329,9 @@ impl<K> KeyInternalView<K>
                             match self.memory_mapping.undo_delete(row_addr, k, rm) {
                                 Some(memory_mapping) => Some(Self{
                                     m: self.m.remove(k),
-                                    free_list: self.free_list,
                                     pending_deallocations: self.pending_deallocations.drop_last(),
                                     memory_mapping,
+                                    ..self
                                 }),
                                 None => None,
                             }
@@ -354,20 +358,20 @@ impl<K> KeyInternalView<K>
         }
     }
 
-    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>) -> bool
     {
-        &&& self.memory_mapping.valid(sm)
-        &&& self.memory_mapping.consistent_with_state(s, sm)
+        &&& self.memory_mapping.valid()
+        &&& self.memory_mapping.consistent_with_state(s)
         &&& self.memory_mapping.consistent_with_free_list_and_pending_deallocations(self.free_list, self.pending_deallocations)
     }
 
 
-    pub(super) open spec fn consistent_with_journal(self, undo_records: Seq<KeyUndoRecord<K>>, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn consistent_with_journal(self, undo_records: Seq<KeyUndoRecord<K>>, jv: JournalView) -> bool
     {
-        &&& self.consistent_with_state(jv.commit_state, sm)
-        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs, sm)
+        &&& self.consistent_with_state(jv.commit_state)
+        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs)
         &&& self.apply_undo_record_list(undo_records) matches Some(undone_self)
-        &&& undone_self.consistent_with_state(jv.durable_state, sm)
+        &&& undone_self.consistent_with_state(jv.durable_state)
     }
 
     pub(super) open spec fn as_snapshot(self) -> KeyTableSnapshot<K>
@@ -384,6 +388,7 @@ impl<PM, K> KeyTable<PM, K>
     pub(super) open spec fn internal_view(self) -> KeyInternalView<K>
     {
         KeyInternalView::<K>{
+            sm: self.sm,
             m: self.m@,
             free_list: self.free_list@,
             pending_deallocations: self.pending_deallocations@,
@@ -391,9 +396,9 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
-    pub(super) open spec fn inv(self, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
-        &&& self.internal_view().consistent_with_journal(self.undo_records@, jv, sm)
+        &&& self.internal_view().consistent_with_journal(self.undo_records@, jv)
     }
 }
 

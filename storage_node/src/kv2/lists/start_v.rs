@@ -44,12 +44,12 @@ impl<PM, L> ListTable<PM, L>
             match result {
                 Ok(lists) => {
                     let recovered_state = Self::recover(journal@.read_state, list_addrs@, *sm).unwrap();
-                    &&& lists.valid(journal@, *sm)
+                    &&& lists.valid(journal@)
                     &&& lists@.sm == *sm
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
-                    &&& recovered_state.m.dom() == list_addrs@
+                    &&& recovered_state.m.dom() == list_addrs@.insert(0)
                 },
                 Err(_) => false,
             }
