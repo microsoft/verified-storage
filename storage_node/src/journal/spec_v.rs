@@ -88,6 +88,16 @@ impl JournalView {
         &&& forall|addr: int| self.constants.app_area_start <= addr < start || end <= addr < self.constants.app_area_end ==>
                self.journaled_addrs.contains(addr) == #[trigger] other.journaled_addrs.contains(addr)
     }
+
+    pub open spec fn abort(self) -> Self
+    {
+        JournalView{
+            commit_state: self.read_state,
+            remaining_capacity: self.constants.journal_capacity as int,
+            journaled_addrs: Set::<int>::empty(),
+            ..self
+        }
+    }
 }
 
 pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(

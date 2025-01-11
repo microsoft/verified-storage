@@ -333,6 +333,21 @@ where
         self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
     }
 
+    pub exec fn abort(&mut self) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => self@ == old(self)@.abort(),
+                Err(_) => false,
+            },
+    {
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        self.untrusted_kv_impl.untrusted_abort(Tracked(&perm))
+    }
+
     pub exec fn commit(&mut self) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),

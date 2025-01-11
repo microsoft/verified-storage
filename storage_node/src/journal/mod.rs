@@ -132,12 +132,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self.valid(),
             self@.valid(),
             self.recover_idempotent(),
-            self@ == (JournalView{
-                commit_state: self@.read_state,
-                remaining_capacity: self@.constants.journal_capacity as int,
-                journaled_addrs: Set::<int>::empty(),
-                ..old(self)@
-            }),
+            self@ == old(self)@.abort(),
     {
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());

@@ -33,6 +33,7 @@ where
     pub(super) open spec fn inv(self) -> bool
     {
         &&& self.journal.valid()
+        &&& self.journal@.valid()
         &&& self.journal.recover_idempotent()
         &&& self.id == self.sm@.id
         &&& recover_static_metadata::<K, I, L>(self.journal@.durable_state, self.journal@.constants) == Some(self.sm@)
