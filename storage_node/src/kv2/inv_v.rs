@@ -35,8 +35,12 @@ where
         &&& self.journal.valid()
         &&& self.journal@.valid()
         &&& self.journal.recover_idempotent()
+        &&& self.journal@.constants.app_program_guid == KVSTORE_PROGRAM_GUID
+        &&& self.journal@.constants.app_version_number == KVSTORE_PROGRAM_VERSION_NUMBER
         &&& self.id == self.sm@.id
+        &&& self.sm@.valid::<K, I, L>()
         &&& recover_static_metadata::<K, I, L>(self.journal@.durable_state, self.journal@.constants) == Some(self.sm@)
+        &&& validate_static_metadata::<K, I, L>(self.sm@, self.journal@.constants)
         &&& self.keys@.sm == self.sm@.keys
         &&& self.keys.valid(self.journal@)
         &&& self.items@.sm == self.sm@.items
@@ -45,6 +49,7 @@ where
         &&& self.lists.valid(self.journal@)
         &&& self.keys@.durable.item_addrs() == self.items@.durable.m.dom()
         &&& self.keys@.durable.list_addrs().insert(0) == self.lists@.durable.m.dom()
+        &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
         &&& !(self.status@ is MustAbort) ==> {
             &&& self.keys@.tentative matches Some(tentative_keys)
             &&& self.items@.tentative matches Some(tentative_items)

@@ -98,6 +98,20 @@ impl JournalView {
             ..self
         }
     }
+
+    pub open spec fn committed_from(self, old_self: Self) -> bool
+    {
+        &&& self == JournalView{
+                durable_state: self.commit_state,
+                read_state: self.commit_state,
+                commit_state: self.commit_state,
+                remaining_capacity: self.constants.journal_capacity as int,
+                journaled_addrs: Set::<int>::empty(),
+                ..old_self
+            }
+        &&& seqs_match_in_range(old_self.commit_state, self.commit_state, self.constants.app_area_start as int,
+                              self.constants.app_area_end as int)
+    }
 }
 
 pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(

@@ -400,6 +400,25 @@ impl<PM, K> KeyTable<PM, K>
     {
         &&& self.internal_view().consistent_with_journal(self.undo_records@, jv)
     }
+
+    pub proof fn lemma_valid_implies_recover(self, jv: JournalView)
+        requires
+            self.valid(jv),
+        ensures
+            Self::recover(jv.durable_state, self@.sm) == Some(self@.durable),
+    {
+        assume(false);
+    }
+
+    pub proof fn lemma_valid_implies_recover_after_commit(self, jv: JournalView)
+        requires
+            self.valid(jv),
+            self@.tentative is Some,
+        ensures
+            Self::recover(jv.commit_state, self@.sm) == self@.tentative,
+    {
+        assume(false);
+    }
 }
 
 }

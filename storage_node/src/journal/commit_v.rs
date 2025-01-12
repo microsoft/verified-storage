@@ -672,16 +672,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self@.valid(),
             self@.constants == old(self)@.constants,
             self.recover_idempotent(),
-            self@ == (JournalView{
-                durable_state: self@.commit_state,
-                read_state: self@.commit_state,
-                commit_state: self@.commit_state,
-                remaining_capacity: self@.constants.journal_capacity as int,
-                journaled_addrs: Set::<int>::empty(),
-                ..old(self)@
-            }),
-            seqs_match_in_range(old(self)@.commit_state, self@.commit_state, self@.constants.app_area_start as int,
-                                self@.constants.app_area_end as int),
+            self@.committed_from(old(self)@),
     {
         proof {
             self.lemma_commit_initial_conditions();

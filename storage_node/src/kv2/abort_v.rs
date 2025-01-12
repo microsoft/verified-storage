@@ -31,7 +31,7 @@ where
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub exec fn untrusted_abort(
-        &mut self, 
+        &mut self,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError<K>>)
         requires 

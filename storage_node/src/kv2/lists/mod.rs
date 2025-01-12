@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 pub mod abort_v;
+pub mod commit_v;
 pub mod inv_v;
 pub mod recover_v;
 pub mod start_v;

@@ -105,6 +105,7 @@ impl KvStaticMetadata
         &&& self.keys.num_rows() == self.items.num_rows()
         &&& self.keys.end() <= self.items.start()
         &&& self.items.end() <= self.lists.start()
+        &&& decode_policies(self.encoded_policies) is Some
     }
 }
 

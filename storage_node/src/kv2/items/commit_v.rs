@@ -35,28 +35,23 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn inv(self, jv: JournalView) -> bool
-    {
-        arbitrary()
-    }
-
-    pub proof fn lemma_valid_implies_recover(self, jv: JournalView)
+    pub exec fn commit(
+        &mut self,
+        jv_before_commit: Ghost<JournalView>,
+        jv_after_commit: Ghost<JournalView>,
+    )
         requires
-            self.valid(jv),
+            old(self).valid(jv_before_commit@),
+            old(self)@.tentative is Some,
+            jv_before_commit@.valid(),
+            jv_after_commit@.valid(),
+            jv_after_commit@.committed_from(jv_before_commit@),
         ensures
-            Self::recover(jv.durable_state, self@.durable.m.dom(), self@.sm) == Some(self@.durable),
+            self.valid(jv_after_commit@),
+            self@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
     {
-        assume(false);
-    }
-
-    pub proof fn lemma_valid_implies_recover_after_commit(self, jv: JournalView)
-        requires
-            self.valid(jv),
-            self@.tentative is Some,
-        ensures
-            Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) == self@.tentative,
-    {
-        assume(false);
+        // Play back the undo list from back to front
+        assume(false); // unimplemented
     }
 }
 

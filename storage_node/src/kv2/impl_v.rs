@@ -98,27 +98,6 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn untrusted_commit(
-        &mut self, 
-        Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
-        requires 
-            old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| Self::untrusted_recover(s) == Some(old(self)@.durable)
-                ||| Self::untrusted_recover(s) == Some(old(self)@.tentative)
-            },
-        ensures 
-            self.valid(),
-            self@.constants_match(old(self)@),
-            match result {
-                Ok(()) => self@ == old(self)@.commit(),
-                Err(_) => false,
-            }
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
 
     pub exec fn untrusted_create(
         &mut self,
