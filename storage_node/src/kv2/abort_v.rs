@@ -47,9 +47,11 @@ where
     {
         let ghost jv_before_abort = self.journal@;
         self.journal.abort();
+        
         self.keys.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.items.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.lists.abort(Ghost(jv_before_abort), Ghost(self.journal@));
+
         Ok(())
     }
 }

@@ -40,6 +40,10 @@ where
         &&& self.id == self.sm@.id
         &&& self.sm@.valid::<K, I, L>()
         &&& recover_static_metadata::<K, I, L>(self.journal@.durable_state, self.journal@.constants) == Some(self.sm@)
+        &&& states_match_in_static_metadata_area(self.journal@.durable_state, self.journal@.read_state,
+                                               self.journal@.constants)
+        &&& states_match_in_static_metadata_area(self.journal@.durable_state, self.journal@.commit_state,
+                                               self.journal@.constants)
         &&& validate_static_metadata::<K, I, L>(self.sm@, self.journal@.constants)
         &&& self.keys@.sm == self.sm@.keys
         &&& self.keys.valid(self.journal@)

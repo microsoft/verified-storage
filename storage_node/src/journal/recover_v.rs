@@ -349,6 +349,18 @@ impl <Perm, PM> Journal<Perm, PM>
 
         lemma_apply_journal_entries_doesnt_change_size(bytes, entries, sm);
     }
+
+    pub proof fn lemma_recover_from_commit_idempotent(self)
+        requires
+            self.valid(),
+        ensures
+            Self::recover(self@.commit_state) == Some(RecoveredJournal{ constants: self@.constants,
+                                                                        state: self@.commit_state }),
+    {
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        lemma_apply_journal_entries_some_iff_journal_entries_valid(self@.read_state, self.entries@, self.sm);
+        lemma_apply_journal_entries_only_affects_app_area(self@.read_state, self.vm@, self.sm, self.entries@);
+    }
 }
 
 }

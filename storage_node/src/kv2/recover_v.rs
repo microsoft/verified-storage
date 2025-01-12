@@ -235,6 +235,12 @@ pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> 
     }
 }
 
+pub(super) open spec fn states_match_in_static_metadata_area(s1: Seq<u8>, s2: Seq<u8>, jc: JournalConstants) -> bool
+{
+    seqs_match_in_range(s1, s2, jc.app_area_start as int,
+                        jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of())
+}
+
 pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I, L>(
     s1: Seq<u8>,
     s2: Seq<u8>,
@@ -247,8 +253,7 @@ pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
     requires
         validate_static_metadata::<K, I, L>(sm, jc),
-        seqs_match_in_range(s1, s2, jc.app_area_start as int,
-                            jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
+        states_match_in_static_metadata_area(s1, s2, jc),
         recover_static_metadata::<K, I, L>(s1, jc) == Some(sm),
     ensures
         recover_static_metadata::<K, I, L>(s2, jc) == Some(sm),

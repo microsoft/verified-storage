@@ -50,23 +50,25 @@ where
             }
     {
         let ghost jv_before_commit = self.journal@;
-        let ghost jc = jv_before_commit.constants;
-        let ghost js = jv_before_commit.durable_state;
-        let ghost sm = self.sm@;
 
         proof {
             self.lemma_establish_recovery_equivalent_for_app(perm);
+            self.lemma_establish_recovery_equivalent_for_app_after_commit(perm);
         }
-        assert forall|s: Seq<u8>| Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(
-            s, jv_before_commit.commit_state
-        ) implies #[trigger] perm.check_permission(s) by {
-            assume(false);
-        }
+
         self.journal.commit(Tracked(perm));
-        assume(false);
+
+        proof {
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(
+                old(self).journal@.durable_state, self.journal@.commit_state, self.sm@, jv_before_commit.constants
+            );
+        }
+
         self.keys.commit(Ghost(jv_before_commit), Ghost(self.journal@));
         self.items.commit(Ghost(jv_before_commit), Ghost(self.journal@));
         self.lists.commit(Ghost(jv_before_commit), Ghost(self.journal@));
+
         Ok(())
     }
 }
