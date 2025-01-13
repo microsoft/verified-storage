@@ -344,8 +344,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 assert(entries.skip(num_entries_installed) =~= seq![entries[num_entries_installed as int]] +
                        entries.skip(num_entries_installed + 1));
                 num_entries_installed = num_entries_installed + 1;
-                lemma_auto_subrange_subrange(durable_state_at_start_of_loop, 0, sm.app_area_start as int);
-                lemma_auto_subrange_subrange(wrpm@.durable_state, 0, sm.app_area_start as int);
             }
             
             start += (twice_u64_size + len as usize);
