@@ -103,7 +103,7 @@ impl<K> KeyTableSnapshot<K>
 
     pub open spec fn list_addrs(self) -> Set<u64>
     {
-        self.list_info.dom()
+        self.list_info.dom().insert(0)
     }
 }
 
@@ -252,7 +252,6 @@ impl<PM, K> KeyTable<PM, K>
             };
         (initial_space + table_size) as nat
     }
-
 }
 
 }

@@ -40,23 +40,19 @@ impl<PM, L> ListTable<PM, L>
         arbitrary()
     }
 
-    pub proof fn lemma_valid_implies_recover(self, jv: JournalView, list_addrs: Set<u64>)
+    pub proof fn lemma_valid_implications(self, jv: JournalView)
         requires
             self.valid(jv),
-            list_addrs.insert(0) == self@.durable.m.dom(),
         ensures
-            Self::recover(jv.durable_state, list_addrs, self@.sm) == Some(self@.durable),
-    {
-        assume(false);
-    }
-
-    pub proof fn lemma_valid_implies_recover_after_commit(self, jv: JournalView, list_addrs: Set<u64>)
-        requires
-            self.valid(jv),
-            self@.tentative is Some,
-            list_addrs.insert(0) == self@.tentative.unwrap().m.dom(),
-        ensures
-            Self::recover(jv.commit_state, list_addrs, self@.sm) == self@.tentative,
+            self@.durable.m.contains_key(0),
+            self@.durable.m[0] == Seq::<L>::empty(),
+            Self::recover(jv.durable_state, self@.durable.m.dom(), self@.sm) == Some(self@.durable),
+            self@.tentative is Some ==> {
+                let tentative = self@.tentative.unwrap();
+                &&& tentative.m.contains_key(0)
+                &&& tentative.m[0] == Seq::<L>::empty()
+                &&& Self::recover(jv.commit_state, tentative.m.dom(), self@.sm) == self@.tentative
+            },
     {
         assume(false);
     }

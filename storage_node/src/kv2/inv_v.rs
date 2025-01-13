@@ -52,7 +52,7 @@ where
         &&& self.lists@.sm == self.sm@.lists
         &&& self.lists.valid(self.journal@)
         &&& self.keys@.durable.item_addrs() == self.items@.durable.m.dom()
-        &&& self.keys@.durable.list_addrs().insert(0) == self.lists@.durable.m.dom()
+        &&& self.keys@.durable.list_addrs() == self.lists@.durable.m.dom()
         &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
         &&& self.lists@.durable.m.contains_key(0)
         &&& self.lists@.durable.m[0] == Seq::<L>::empty()
@@ -61,7 +61,7 @@ where
             &&& self.items@.tentative matches Some(tentative_items)
             &&& self.lists@.tentative matches Some(tentative_lists)
             &&& tentative_keys.item_addrs() == tentative_items.m.dom()
-            &&& tentative_keys.list_addrs().insert(0) == tentative_lists.m.dom()
+            &&& tentative_keys.list_addrs() == tentative_lists.m.dom()
             &&& tentative_lists.m.contains_key(0)
             &&& tentative_lists.m[0] == Seq::<L>::empty()
         }

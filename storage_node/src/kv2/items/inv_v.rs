@@ -40,21 +40,13 @@ impl<PM, I> ItemTable<PM, I>
         arbitrary()
     }
 
-    pub proof fn lemma_valid_implies_recover(self, jv: JournalView)
+    pub proof fn lemma_valid_implications(self, jv: JournalView)
         requires
             self.valid(jv),
         ensures
             Self::recover(jv.durable_state, self@.durable.m.dom(), self@.sm) == Some(self@.durable),
-    {
-        assume(false);
-    }
-
-    pub proof fn lemma_valid_implies_recover_after_commit(self, jv: JournalView)
-        requires
-            self.valid(jv),
-            self@.tentative is Some,
-        ensures
-            Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) == self@.tentative,
+            self@.tentative is Some ==>
+                Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) == self@.tentative,
     {
         assume(false);
     }

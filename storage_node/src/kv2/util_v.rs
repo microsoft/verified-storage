@@ -51,9 +51,9 @@ where
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             let js2 = Journal::<TrustedKvPermission, PM>::recover(s).unwrap().state;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, self.sm@, jc);
-            self.keys.lemma_valid_implies_recover(self.journal@);
-            self.items.lemma_valid_implies_recover(self.journal@);
-            self.lists.lemma_valid_implies_recover(self.journal@, keys.list_addrs());
+            self.keys.lemma_valid_implications(self.journal@);
+            self.items.lemma_valid_implications(self.journal@);
+            self.lists.lemma_valid_implications(self.journal@);
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, keys.item_addrs(), sm.items);
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, keys.list_addrs(), sm.lists);
@@ -86,9 +86,9 @@ where
             let js2 = Journal::<TrustedKvPermission, PM>::recover(s).unwrap().state;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js2,
                                                                               self.sm@, jc);
-            self.keys.lemma_valid_implies_recover_after_commit(self.journal@);
-            self.items.lemma_valid_implies_recover_after_commit(self.journal@);
-            self.lists.lemma_valid_implies_recover_after_commit(self.journal@, keys.list_addrs());
+            self.keys.lemma_valid_implications(self.journal@);
+            self.items.lemma_valid_implications(self.journal@);
+            self.lists.lemma_valid_implications(self.journal@);
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, keys.item_addrs(), sm.items);
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, keys.list_addrs(), sm.lists);

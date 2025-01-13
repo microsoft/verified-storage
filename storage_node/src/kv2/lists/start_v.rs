@@ -40,6 +40,7 @@ impl<PM, L> ListTable<PM, L>
             K: std::fmt::Debug,
         requires
             Self::recover(journal@.read_state, list_addrs@, *sm) is Some,
+            list_addrs@.contains(0),
         ensures
             match result {
                 Ok(lists) => {
@@ -49,7 +50,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
-                    &&& recovered_state.m.dom() == list_addrs@.insert(0)
+                    &&& recovered_state.m.dom() == list_addrs@
                     &&& recovered_state.m[0] == Seq::<L>::empty()
                 },
                 Err(_) => false,

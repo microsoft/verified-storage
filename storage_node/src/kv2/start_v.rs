@@ -144,7 +144,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             Ok(i) => i,
             _ => { assert(false); return Err(KvError::InternalError); },
         };
-        assert(lists@.durable.m.dom() == list_addrs@.insert(0));
+        assert(lists@.durable.m.dom() == list_addrs@);
 
         let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
             status: Ghost(KvStoreStatus::Quiescent),
