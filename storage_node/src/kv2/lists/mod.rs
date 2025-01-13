@@ -37,7 +37,7 @@ impl<L> ListTableSnapshot<L>
 {
     pub open spec fn init() -> Self
     {
-        Self{ m: Map::<u64, Seq<L>>::empty() }
+        Self{ m: Map::<u64, Seq<L>>::new(|list_addr: u64| list_addr == 0, |list_addr: u64| Seq::<L>::empty()) }
     }
 }
 

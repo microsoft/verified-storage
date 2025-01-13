@@ -50,6 +50,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
                     &&& recovered_state.m.dom() == list_addrs@.insert(0)
+                    &&& recovered_state.m[0] == Seq::<L>::empty()
                 },
                 Err(_) => false,
             }
