@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
+use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 
@@ -274,6 +275,19 @@ impl<K> KeyInternalView<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
+    pub(super) open spec fn valid(self) -> bool
+    {
+        &&& forall|k: K| #[trigger] self.memory_mapping.key_info.contains_key(k) ==> {
+            let row_addr = self.memory_mapping.key_info[k];
+            &&& self.m.contains_key(k)
+            &&& self.m[k].row_addr == row_addr
+            &&& self.memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm }
+            &&& k2 == k
+            &&& rm == self.m[k].rm
+        }
+        &&& forall|k: K| #[trigger] self.m.contains_key(k) ==> self.memory_mapping.key_info.contains_key(k)
+    }
+
     pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>) -> bool
     {
         &&& forall|row_addr: u64, addr: int| {
@@ -368,9 +382,11 @@ impl<K> KeyInternalView<K>
 
     pub(super) open spec fn consistent_with_journal(self, undo_records: Seq<KeyUndoRecord<K>>, jv: JournalView) -> bool
     {
+        &&& self.valid()
         &&& self.consistent_with_state(jv.commit_state)
         &&& self.consistent_with_journaled_addrs(jv.journaled_addrs)
         &&& self.apply_undo_record_list(undo_records) matches Some(undone_self)
+        &&& undone_self.valid()
         &&& undone_self.consistent_with_state(jv.durable_state)
     }
 
@@ -398,6 +414,7 @@ impl<PM, K> KeyTable<PM, K>
 
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
+        &&& vstd::std_specs::hash::obeys_key_model::<K>()
         &&& self.internal_view().consistent_with_journal(self.undo_records@, jv)
     }
 

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
+use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 

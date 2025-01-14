@@ -35,6 +35,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(Self, HashSet<u64>, HashSet<u64>), KvError<K>>)
         requires
             Self::recover(journal@.read_state, *sm) is Some,
+            vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures
             match result {
                 Ok((keys, item_addrs, list_addrs)) => {
