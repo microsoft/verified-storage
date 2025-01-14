@@ -30,41 +30,83 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub(super) open spec fn inv(self) -> bool
+    pub(super) open spec fn inv_journal_ok(self) -> bool
     {
         &&& self.journal.valid()
         &&& self.journal@.valid()
         &&& self.journal.recover_idempotent()
         &&& self.journal@.constants.app_program_guid == KVSTORE_PROGRAM_GUID
         &&& self.journal@.constants.app_version_number == KVSTORE_PROGRAM_VERSION_NUMBER
-        &&& self.id == self.sm@.id
-        &&& self.sm@.valid::<K, I, L>()
+        &&& validate_static_metadata::<K, I, L>(self.sm@, self.journal@.constants)
+    }
+
+    pub(super) open spec fn inv_static_metadata_matches(self) -> bool
+    {
         &&& recover_static_metadata::<K, I, L>(self.journal@.durable_state, self.journal@.constants) == Some(self.sm@)
         &&& states_match_in_static_metadata_area(self.journal@.durable_state, self.journal@.read_state,
                                                self.journal@.constants)
         &&& states_match_in_static_metadata_area(self.journal@.durable_state, self.journal@.commit_state,
                                                self.journal@.constants)
-        &&& validate_static_metadata::<K, I, L>(self.sm@, self.journal@.constants)
+    }
+
+    pub(super) open spec fn inv_components_valid(self) -> bool
+    {
         &&& self.keys@.sm == self.sm@.keys
-        &&& self.keys.valid(self.journal@)
         &&& self.items@.sm == self.sm@.items
-        &&& self.items.valid(self.journal@)
         &&& self.lists@.sm == self.sm@.lists
+        &&& self.keys.valid(self.journal@)
+        &&& self.items.valid(self.journal@)
         &&& self.lists.valid(self.journal@)
+    }
+
+    pub(super) open spec fn inv_tentative_components_exist(self) -> bool
+    {
+        &&& !(self.status@ is MustAbort) ==> {
+            &&& self.keys@.tentative is Some
+            &&& self.items@.tentative is Some
+            &&& self.lists@.tentative is Some
+        }
+    }
+
+    pub(super) open spec fn inv_components_correspond(self) -> bool
+        recommends
+            self.inv_tentative_components_exist()
+    {
         &&& self.keys@.durable.item_addrs() == self.items@.durable.m.dom()
         &&& self.keys@.durable.list_addrs() == self.lists@.durable.m.dom()
-        &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
+        &&& self.status@ is Quiescent ==> {
+            let tentative_keys = self.keys@.tentative.unwrap();
+            let tentative_items = self.items@.tentative.unwrap();
+            let tentative_lists = self.lists@.tentative.unwrap();
+            &&& tentative_keys.item_addrs() == tentative_items.m.dom()
+            &&& tentative_keys.list_addrs() == tentative_lists.m.dom()
+        }
+    }
+
+    pub(super) open spec fn inv_lists_map_zero_to_empty(self) -> bool
+        recommends
+            self.inv_tentative_components_exist()
+    {
         &&& self.lists@.durable.m.contains_key(0)
         &&& self.lists@.durable.m[0] == Seq::<L>::empty()
         &&& !(self.status@ is MustAbort) ==> {
-            &&& self.keys@.tentative matches Some(tentative_keys)
-            &&& self.items@.tentative matches Some(tentative_items)
-            &&& self.lists@.tentative matches Some(tentative_lists)
-            &&& tentative_keys.item_addrs() == tentative_items.m.dom()
-            &&& tentative_keys.list_addrs() == tentative_lists.m.dom()
+            let tentative_lists = self.lists@.tentative.unwrap();
             &&& tentative_lists.m.contains_key(0)
             &&& tentative_lists.m[0] == Seq::<L>::empty()
         }
+    }
+
+    pub(super) open spec fn inv(self) -> bool
+    {
+        &&& self.inv_journal_ok()
+        &&& self.id == self.sm@.id
+        &&& self.sm@.valid::<K, I, L>()
+        &&& self.inv_static_metadata_matches()
+        &&& self.inv_tentative_components_exist()
+        &&& self.inv_components_valid()
+        &&& self.inv_components_correspond()
+        &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
+        &&& self.inv_lists_map_zero_to_empty()
     }
 
     pub(super) proof fn lemma_recover_static_metadata_depends_only_on_my_area(

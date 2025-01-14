@@ -27,6 +27,7 @@ pub(super) enum KvStoreStatus
 {
     Quiescent,
     MustAbort,
+    ComponentsDontCorrespond,
 }
 
 impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>

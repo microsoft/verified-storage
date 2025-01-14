@@ -95,6 +95,139 @@ where
             assert(Self::untrusted_recover(s) =~= Some(self@.tentative));
         }
     }
+
+    pub(super) proof fn prepare_for_key_table_update(&self, tracked perm: &TrustedKvPermission) -> (result: Self)
+        requires
+            self.inv_journal_ok(),
+            self.inv_static_metadata_matches(),
+            self.inv_components_valid(),
+            self.inv_tentative_components_exist(),
+            forall |s| Self::untrusted_recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+        ensures
+            result == self,
+    {
+        *self
+    }
+
+    pub(super) proof fn reflect_key_table_update(self, old_self: Self)
+        requires
+            old_self.inv(),
+            old_self.status@ is ComponentsDontCorrespond,
+            self.keys.valid(self.journal@),
+            self.journal.valid(),
+            self.journal.recover_idempotent(),
+            self.journal@.constants_match(old_self.journal@),
+            old_self.journal@.matches_except_in_range(self.journal@, self.keys@.sm.start() as int,
+                                                      self.keys@.sm.end() as int),
+            self == (Self{ keys: self.keys, journal: self.journal, ..old_self }),
+            self.keys@ == (KeyTableView{ tentative: self.keys@.tentative, ..old_self.keys@ }),
+        ensures
+            ({
+                let new_self: Self = 
+                    if self.keys@.tentative is Some {
+                        self
+                    } else {
+                        Self{ status: Ghost(KvStoreStatus::MustAbort), ..self }
+                    };
+                new_self.inv()
+            })
+    {
+        broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        self.items.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
+        self.items.lemma_valid_implications(self.journal@);
+        self.lists.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
+        self.lists.lemma_valid_implications(self.journal@);
+        self.lemma_recover_static_metadata_depends_only_on_my_area(old_self.journal@, self.journal@);
+    }
+
+    pub(super) proof fn prepare_for_item_table_update(&self, tracked perm: &TrustedKvPermission) -> (result: Self)
+        requires
+            self.inv_journal_ok(),
+            self.inv_static_metadata_matches(),
+            self.inv_components_valid(),
+            self.inv_tentative_components_exist(),
+            forall |s| Self::untrusted_recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+        ensures
+            result == self,
+    {
+        *self
+    }
+
+    pub(super) proof fn reflect_item_table_update(self, old_self: Self)
+        requires
+            old_self.inv(),
+            old_self.status@ is ComponentsDontCorrespond,
+            self.items.valid(self.journal@),
+            self.journal.valid(),
+            self.journal.recover_idempotent(),
+            self.journal@.constants_match(old_self.journal@),
+            old_self.journal@.matches_except_in_range(self.journal@, self.items@.sm.start() as int,
+                                                      self.items@.sm.end() as int),
+            self == (Self{ items: self.items, journal: self.journal, ..old_self }),
+            self.items@ == (ItemTableView{ tentative: self.items@.tentative, ..old_self.items@ }),
+        ensures
+            ({
+                let new_self: Self = 
+                    if self.items@.tentative is Some {
+                        self
+                    } else {
+                        Self{ status: Ghost(KvStoreStatus::MustAbort), ..self }
+                    };
+                new_self.inv()
+            })
+    {
+        broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        self.keys.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
+        self.keys.lemma_valid_implications(self.journal@);
+        self.lists.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
+        self.lists.lemma_valid_implications(self.journal@);
+        self.lemma_recover_static_metadata_depends_only_on_my_area(old_self.journal@, self.journal@);
+    }
+
+    pub(super) proof fn prepare_for_list_table_update(&self, tracked perm: &TrustedKvPermission) -> (result: Self)
+        requires
+            self.inv_journal_ok(),
+            self.inv_static_metadata_matches(),
+            self.inv_components_valid(),
+            self.inv_tentative_components_exist(),
+            forall |s| Self::untrusted_recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+        ensures
+            result == self,
+    {
+        *self
+    }
+
+    pub(super) proof fn reflect_list_table_update(self, old_self: Self)
+        requires
+            old_self.inv(),
+            old_self.status@ is ComponentsDontCorrespond,
+            self.lists.valid(self.journal@),
+            self.journal.valid(),
+            self.journal.recover_idempotent(),
+            self.journal@.constants_match(old_self.journal@),
+            old_self.journal@.matches_except_in_range(self.journal@, self.lists@.sm.start() as int,
+                                                      self.lists@.sm.end() as int),
+            self == (Self{ lists: self.lists, journal: self.journal, ..old_self }),
+            self.lists@ == (ListTableView{ tentative: self.lists@.tentative, ..old_self.lists@ }),
+        ensures
+            ({
+                let new_self: Self = 
+                    if self.lists@.tentative is Some {
+                        self
+                    } else {
+                        Self{ status: Ghost(KvStoreStatus::MustAbort), ..self }
+                    };
+                new_self.inv()
+            })
+    {
+        broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        self.keys.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
+        self.keys.lemma_valid_implications(self.journal@);
+        self.items.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
+        self.items.lemma_valid_implications(self.journal@);
+        self.lists.lemma_valid_implications(self.journal@);
+        self.lemma_recover_static_metadata_depends_only_on_my_area(old_self.journal@, self.journal@);
+    }
 }
 
 }

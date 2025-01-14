@@ -110,15 +110,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             None => {},
         };
 
+        self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
+
+        let ghost self_before_item_create = self.prepare_for_item_table_update(perm);
         let result = self.items.create::<K>(item, &mut self.journal);
-        proof {
-            broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
-            self.keys.lemma_valid_depends_only_on_my_area(old(self).journal@, self.journal@);
-            self.keys.lemma_valid_implications(self.journal@);
-            self.lists.lemma_valid_depends_only_on_my_area(old(self).journal@, self.journal@);
-            self.lists.lemma_valid_implications(self.journal@);
-            self.lemma_recover_static_metadata_depends_only_on_my_area(old(self).journal@, self.journal@);
-        }
+        proof { self.reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
             Ok(i) => i,
@@ -130,16 +126,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let ghost journal_after_item_update = self.journal@;
+        let ghost self_before_key_create = self.prepare_for_key_table_update(perm);
         let result = self.keys.create(key, item_addr, &mut self.journal);
-        proof {
-            broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
-            self.items.lemma_valid_depends_only_on_my_area(journal_after_item_update, self.journal@);
-            self.items.lemma_valid_implications(self.journal@);
-            self.lists.lemma_valid_depends_only_on_my_area(journal_after_item_update, self.journal@);
-            self.lists.lemma_valid_implications(self.journal@);
-            self.lemma_recover_static_metadata_depends_only_on_my_area(journal_after_item_update, self.journal@);
-        }
+        proof { self.reflect_key_table_update(self_before_key_create); }
 
         match result {
             Ok(()) => {},
@@ -150,6 +139,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             },
             _ => { assert(false); return Err(KvError::InternalError); },
         }
+
+        self.status = Ghost(KvStoreStatus::Quiescent);
 
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
         Ok(())
