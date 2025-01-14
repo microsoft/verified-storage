@@ -30,7 +30,7 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read<K>(&self, item_addr: u64, jv: Ghost<JournalView>) -> (result: Result<I, KvError<K>>)
+    pub exec fn read<K>(&self, item_addr: u64, jv: Ghost<JournalView>) -> (result: Result<&I, KvError<K>>)
         where
             K: std::fmt::Debug,
         requires

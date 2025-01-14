@@ -422,6 +422,8 @@ impl<PM, K> KeyTable<PM, K>
         requires
             self.valid(jv),
         ensures
+            self@.durable.valid(),
+            self@.tentative matches Some(tentative) ==> tentative.valid(),
             Self::recover(jv.durable_state, self@.sm) == Some(self@.durable),
             self@.tentative is Some ==> Self::recover(jv.commit_state, self@.sm) == self@.tentative,
     {

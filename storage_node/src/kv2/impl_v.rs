@@ -36,29 +36,6 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_read_item(
-        &self,
-        key: &K,
-    ) -> (result: Result<&I, KvError<K>>)
-        requires 
-            self.valid(),
-        ensures
-            match result {
-                Ok(item) => {
-                    &&& self@.tentative.read_item(*key) matches Ok(i)
-                    &&& item == i
-                },
-                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
-                Err(e) => {
-                    &&& self@.tentative.read_item(*key) matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
-
     // This function performs a tentative update to the item of the specified key 
     // as part of an ongoing transaction.
     pub exec fn untrusted_update_item(
