@@ -31,7 +31,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self@.constants.app_area_start <= addr
         &&& addr + bytes_to_write.len() <= self@.constants.app_area_end
         &&& forall|s: Seq<u8>| {
-            &&& seqs_match_except_in_range(s, self@.durable_state, addr as int, addr + bytes_to_write.len())
+            &&& seqs_match_except_in_range(self@.durable_state, s, addr as int, addr + bytes_to_write.len())
             &&& Self::recover(s) matches Some(j)
             &&& j.constants == self@.constants
             &&& j.state == s

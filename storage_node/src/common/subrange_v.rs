@@ -24,6 +24,7 @@ pub open spec fn seqs_match_in_range<T>(s1: Seq<T>, s2: Seq<T>, start: int, end:
 
 pub open spec fn seqs_match_except_in_range<T>(s1: Seq<T>, s2: Seq<T>, start: int, end: int) -> bool
 {
+    &&& s1.len() == s2.len()
     &&& start <= end
     &&& seqs_match_in_range(s1, s2, 0, start)
     &&& seqs_match_in_range(s1, s2, end, s1.len() as int)

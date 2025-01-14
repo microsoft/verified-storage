@@ -168,6 +168,14 @@ impl<PM, I> ItemTable<PM, I>
         self.sm.table.validate_row_addr(addr)
     }
 
+    pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool
+    {
+        &&& seqs_match_except_in_range(jv.durable_state, s, self@.sm.start() as int, self@.sm.end() as int)
+        &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+        &&& j.constants == jv.constants
+        &&& j.state == s
+        &&& Self::recover(s, self@.durable.m.dom(), self@.sm) == Some(self@.durable)
+    }
 }
 
 }

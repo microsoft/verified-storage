@@ -55,6 +55,7 @@ impl JournalView {
         &&& self.durable_state.len() == self.read_state.len()
         &&& self.read_state.len() == self.commit_state.len()
         &&& self.remaining_capacity >= 0
+        &&& self.constants.app_area_end <= self.durable_state.len()
     }
 
     pub open spec fn len(&self) -> nat

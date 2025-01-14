@@ -47,13 +47,18 @@ impl<PM, I> ItemTable<PM, I>
         Err(KvError::<K>::NotImplemented)
     }
 
-    pub exec fn create<K>(&mut self, item: &I, journal: &mut Journal<TrustedKvPermission, PM>)
-                          -> (result: Result<u64, KvError<K>>)
+    pub exec fn create<K>(
+        &mut self,
+        item: &I,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<u64, KvError<K>>)
         where
             K: std::fmt::Debug,
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -82,13 +87,19 @@ impl<PM, I> ItemTable<PM, I>
         Err(KvError::<K>::NotImplemented)
     }
 
-    pub exec fn delete<K>(&mut self, item_addr: u64, journal: &mut Journal<TrustedKvPermission, PM>) -> (result: Result<(), KvError<K>>)
+    pub exec fn delete<K>(
+        &mut self,
+        item_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError<K>>)
         where
             K: std::fmt::Debug,
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
             old(self)@.tentative.unwrap().m.contains_key(item_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),

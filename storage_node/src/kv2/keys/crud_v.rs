@@ -53,12 +53,18 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
-    pub exec fn create(&mut self, k: &K, item_addr: u64, journal: &mut Journal<TrustedKvPermission, PM>)
-                      -> (result: Result<(), KvError<K>>)
+    pub exec fn create(
+        &mut self,
+        k: &K,
+        item_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -85,13 +91,19 @@ impl<PM, K> KeyTable<PM, K>
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn delete(&mut self, k: &K, key_addr: u64, journal: &mut Journal<TrustedKvPermission, PM>)
-        -> (result: Result<(), KvError<K>>)
+    pub exec fn delete(
+        &mut self,
+        k: &K,
+        key_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self).key_corresponds_to_key_addr(*k, key_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -125,6 +137,7 @@ impl<PM, K> KeyTable<PM, K>
         item_addr: u64,
         current_list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
@@ -133,6 +146,7 @@ impl<PM, K> KeyTable<PM, K>
             old(self).key_corresponds_to_key_addr(*k, key_addr),
             old(self)@.tentative.unwrap().key_info[*k].list_addr == current_list_addr,
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -166,6 +180,7 @@ impl<PM, K> KeyTable<PM, K>
         current_item_addr: u64,
         list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
@@ -174,6 +189,7 @@ impl<PM, K> KeyTable<PM, K>
             old(self).key_corresponds_to_key_addr(*k, key_addr),
             old(self)@.tentative.unwrap().key_info[*k].item_addr == current_item_addr,
             !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -207,6 +223,7 @@ impl<PM, K> KeyTable<PM, K>
         item_addr: u64,
         list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
@@ -215,6 +232,7 @@ impl<PM, K> KeyTable<PM, K>
             old(self).key_corresponds_to_key_addr(*k, key_addr),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
             !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),

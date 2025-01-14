@@ -112,9 +112,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
-        let ghost self_before_item_create = self.prepare_for_item_table_update(perm);
-        let result = self.items.create::<K>(item, &mut self.journal);
-        proof { self.reflect_item_table_update(self_before_item_create); }
+        let ghost self_before_item_create = self.lemma_prepare_for_item_table_update(perm);
+        let result = self.items.create::<K>(item, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
             Ok(i) => i,
@@ -126,9 +126,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let ghost self_before_key_create = self.prepare_for_key_table_update(perm);
-        let result = self.keys.create(key, item_addr, &mut self.journal);
-        proof { self.reflect_key_table_update(self_before_key_create); }
+        let ghost self_before_key_create = self.lemma_prepare_for_key_table_update(perm);
+        let result = self.keys.create(key, item_addr, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_key_table_update(self_before_key_create); }
 
         match result {
             Ok(()) => {},

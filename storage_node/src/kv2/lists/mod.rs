@@ -22,6 +22,7 @@ use deps_hack::PmCopy;
 use inv_v::*;
 use start_v::*;
 use std::hash::Hash;
+use super::*;
 use super::recover_v::*;
 use super::spec_t::*;
 
@@ -224,6 +225,15 @@ impl<PM, L> ListTable<PM, L>
     {
         assume(false);
         Err(KvError::OutOfSpace)
+    }
+
+    pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool
+    {
+        &&& seqs_match_except_in_range(jv.durable_state, s, self@.sm.start() as int, self@.sm.end() as int)
+        &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+        &&& j.constants == jv.constants
+        &&& j.state == s
+        &&& Self::recover(s, self@.durable.m.dom(), self@.sm) == Some(self@.durable)
     }
 }
 

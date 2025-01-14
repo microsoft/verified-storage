@@ -49,6 +49,15 @@ where
                                                self.journal@.constants)
     }
 
+    pub(super) open spec fn inv_tentative_components_exist(self) -> bool
+    {
+        &&& !(self.status@ is MustAbort) ==> {
+            &&& self.keys@.tentative is Some
+            &&& self.items@.tentative is Some
+            &&& self.lists@.tentative is Some
+        }
+    }
+
     pub(super) open spec fn inv_components_valid(self) -> bool
     {
         &&& self.keys@.sm == self.sm@.keys
@@ -57,15 +66,6 @@ where
         &&& self.keys.valid(self.journal@)
         &&& self.items.valid(self.journal@)
         &&& self.lists.valid(self.journal@)
-    }
-
-    pub(super) open spec fn inv_tentative_components_exist(self) -> bool
-    {
-        &&& !(self.status@ is MustAbort) ==> {
-            &&& self.keys@.tentative is Some
-            &&& self.items@.tentative is Some
-            &&& self.lists@.tentative is Some
-        }
     }
 
     pub(super) open spec fn inv_components_correspond(self) -> bool
