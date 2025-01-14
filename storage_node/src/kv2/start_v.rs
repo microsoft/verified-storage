@@ -132,16 +132,19 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         let (keys, item_addrs, list_addrs) = match KeyTable::<PM, K>::start(&journal, &sm.keys) {
             Ok((k, i, l)) => (k, i, l),
+            Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
         let items = match ItemTable::<PM, I>::start::<K>(&journal, &item_addrs, &sm.items) {
             Ok(i) => i,
+            Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
         let lists = match ListTable::<PM, L>::start::<K>(&journal, logical_range_gaps_policy, &list_addrs, &sm.lists) {
             Ok(i) => i,
+            Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
         assert(lists@.durable.m.dom() == list_addrs@);

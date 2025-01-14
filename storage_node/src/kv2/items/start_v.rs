@@ -38,7 +38,14 @@ impl<PM, I> ItemTable<PM, I>
         where
             K: std::fmt::Debug,
         requires
+            journal.valid(),
+            journal@.valid(),
+            journal@.journaled_addrs.is_empty(),
+            journal@.durable_state == journal@.read_state,
+            journal@.read_state == journal@.commit_state,
             Self::recover(journal@.read_state, item_addrs@, *sm) is Some,
+            sm.valid::<I>(),
+            sm.end() <= journal@.durable_state.len(),
         ensures
             match result {
                 Ok(items) => {
@@ -49,6 +56,7 @@ impl<PM, I> ItemTable<PM, I>
                     &&& items@.tentative == Some(recovered_state)
                     &&& recovered_state.m.dom() == item_addrs@
                 },
+                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 Err(_) => false,
             }
     {

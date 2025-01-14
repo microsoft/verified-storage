@@ -66,6 +66,17 @@ impl<K> KeyMemoryMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
+    pub(super) open spec fn new(sm: KeyTableStaticMetadata) -> Self
+    {
+        Self{
+            sm,
+            row_info: Map::<u64, KeyRowDisposition<K>>::empty(),
+            key_info: Map::<K, u64>::empty(),
+            item_info: Map::<u64, u64>::empty(),
+            list_info: Map::<u64, u64>::empty(),
+        }
+    }
+
     pub open spec fn as_recovery_mapping(self) -> KeyRecoveryMapping<K>
     {
         KeyRecoveryMapping::<K>{
@@ -109,10 +120,14 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn row_info_valid(self) -> bool
+    pub(super) open spec fn complete(self) -> bool
     {
-        &&& forall|row_addr: u64| #[trigger] self.sm.table.validate_row_addr(row_addr) <==>
+        &&& forall|row_addr: u64| #[trigger] self.sm.table.validate_row_addr(row_addr) ==>
                 self.row_info.contains_key(row_addr)
+    }
+
+    pub(super) open spec fn row_info_consistent(self) -> bool
+    {
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
             &&& self.sm.table.validate_row_addr(row_addr)
             &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k, rm } ==> {
@@ -126,7 +141,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn key_info_valid(self) -> bool
+    pub(super) open spec fn key_info_consistent(self) -> bool
     {
         &&& forall|k: K| #[trigger] self.key_info.contains_key(k) ==> {
             let row_addr = self.key_info[k];
@@ -136,7 +151,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn item_info_valid(self) -> bool
+    pub(super) open spec fn item_info_consistent(self) -> bool
     {
         &&& forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==> {
             let row_addr = self.item_info[item_addr];
@@ -146,7 +161,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn list_info_valid(self) -> bool
+    pub(super) open spec fn list_info_consistent(self) -> bool
     {
         &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==> {
             let row_addr = self.list_info[list_addr];
@@ -156,12 +171,18 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
+    pub(super) open spec fn consistent(self) -> bool
+    {
+        &&& self.row_info_consistent()
+        &&& self.key_info_consistent()
+        &&& self.item_info_consistent()
+        &&& self.list_info_consistent()
+    }
+
     pub(super) open spec fn valid(self) -> bool
     {
-        &&& self.row_info_valid()
-        &&& self.key_info_valid()
-        &&& self.item_info_valid()
-        &&& self.list_info_valid()
+        &&& self.complete()
+        &&& self.consistent()
     }
 
     pub(super) open spec fn consistent_with_state(self, s: Seq<u8>) -> bool

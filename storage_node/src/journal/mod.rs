@@ -112,7 +112,11 @@ impl <Perm, PM> Journal<Perm, PM>
             result.inv(),
             result.constants() == self@.pm_constants,
             result@.read_state == self@.read_state,
+            result@.valid(),
     {
+        proof {
+            self.wrpm.lemma_inv_implies_view_valid();
+        }
         self.wrpm.get_pm_region_ref()
     }
 
