@@ -175,6 +175,11 @@ impl<PM, K> KeyTable<PM, K>
         (initial_space + table_size) as nat
     }
 
+    pub closed spec fn validate_key_addr(&self, addr: u64) -> bool
+    {
+        self.sm.table.validate_row_addr(addr)
+    }
+
     pub closed spec fn key_corresponds_to_key_addr(&self, k: K, addr: u64) -> bool
     {
         self.m@.contains_key(k) && self.m@[k].row_addr == addr

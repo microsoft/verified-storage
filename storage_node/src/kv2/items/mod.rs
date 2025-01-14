@@ -2,9 +2,11 @@
 
 mod abort_v;
 mod commit_v;
+mod crud_v;
 mod inv_v;
 mod recover_v;
 mod setup_v;
+mod spec_v;
 mod start_v;
 
 use builtin::*;
@@ -26,6 +28,7 @@ use deps_hack::PmCopy;
 use inv_v::*;
 use recover_v::*;
 use setup_v::*;
+use spec_v::*;
 use start_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -35,19 +38,7 @@ use super::spec_t::*;
 
 verus! {
 
-#[verifier::ext_equal]
-pub struct ItemTableSnapshot<I>
-{
-    pub m: Map<u64, I>,
-}
-
-impl<I> ItemTableSnapshot<I>
-{
-    pub open spec fn init() -> Self
-    {
-        Self{ m: Map::<u64, I>::empty() }
-    }
-}
+pub use spec_v::{ItemTableSnapshot, ItemTableView};
 
 #[repr(C)]
 #[derive(PmCopy, Copy)]
@@ -105,14 +96,6 @@ impl ItemTableStaticMetadata
     {
         self.table.num_rows
     }
-}
-
-#[verifier::ext_equal]
-pub struct ItemTableView<I>
-{
-    pub sm: ItemTableStaticMetadata,
-    pub durable: ItemTableSnapshot<I>,
-    pub tentative: Option<ItemTableSnapshot<I>>,
 }
 
 #[verifier::ext_equal]
@@ -178,6 +161,11 @@ impl<PM, I> ItemTable<PM, I>
             space_needed_for_alignment(min_start as int, u64::spec_size_of() as int)
         };
         (initial_space + table_size) as nat
+    }
+
+    pub closed spec fn validate_item_addr(&self, addr: u64) -> bool
+    {
+        self.sm.table.validate_row_addr(addr)
     }
 
 }

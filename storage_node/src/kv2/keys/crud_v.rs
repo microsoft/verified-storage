@@ -54,22 +54,36 @@ impl<PM, K> KeyTable<PM, K>
     }
 
     pub exec fn create(&mut self, k: &K, item_addr: u64, journal: &mut Journal<TrustedKvPermission, PM>)
+                      -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
         ensures
             self.valid(journal@),
-            self@ == (KeyTableView {
-                tentative: Some(old(self)@.tentative.unwrap().create(*k, item_addr)),
-                ..old(self)@
-            }),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(()) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().create(*k, item_addr)),
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            },
     {
         assume(false);
+        Err(KvError::NotImplemented)
     }
 
     pub exec fn delete(&mut self, k: &K, key_addr: u64, journal: &mut Journal<TrustedKvPermission, PM>)
+        -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -77,13 +91,25 @@ impl<PM, K> KeyTable<PM, K>
             old(self).key_corresponds_to_key_addr(*k, key_addr),
         ensures
             self.valid(journal@),
-            self@ == (KeyTableView {
-                tentative: Some(old(self)@.tentative.unwrap().delete(*k)),
-                ..old(self)@
-            }),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(()) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().delete(*k)),
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            },
     {
         assume(false);
+        Err(KvError::NotImplemented)
     }
 
     pub exec fn update_item(
@@ -93,7 +119,7 @@ impl<PM, K> KeyTable<PM, K>
         item_addr: u64,
         current_list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
-    )
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -103,13 +129,25 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
         ensures
             self.valid(journal@),
-            self@ == (KeyTableView {
-                tentative: Some(old(self)@.tentative.unwrap().update_item(*k, item_addr)),
-                ..old(self)@
-            }),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(()) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().update_item(*k, item_addr)),
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            },
     {
         assume(false);
+        Err(KvError::NotImplemented)
     }
 
     pub exec fn update_list(
@@ -119,7 +157,7 @@ impl<PM, K> KeyTable<PM, K>
         current_item_addr: u64,
         list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
-    )
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -129,13 +167,25 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
         ensures
             self.valid(journal@),
-            self@ == (KeyTableView {
-                tentative: Some(old(self)@.tentative.unwrap().update_list(*k, list_addr)),
-                ..old(self)@
-            }),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(()) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().update_list(*k, list_addr)),
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            },
     {
         assume(false);
+        Err(KvError::NotImplemented)
     }
 
     pub exec fn update_item_and_list(
@@ -145,7 +195,7 @@ impl<PM, K> KeyTable<PM, K>
         item_addr: u64,
         list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
-    )
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -155,13 +205,25 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
         ensures
             self.valid(journal@),
-            self@ == (KeyTableView {
-                tentative: Some(old(self)@.tentative.unwrap().update_item_and_list(*k, item_addr, list_addr)),
-                ..old(self)@
-            }),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(()) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().update_item_and_list(*k, item_addr, list_addr)),
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (KeyTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            },
     {
         assume(false);
+        Err(KvError::NotImplemented)
     }
 }
 
