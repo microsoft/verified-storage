@@ -29,6 +29,16 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)
+        requires
+            self.valid(old_jv),
+            old_jv.matches_in_range(new_jv, self@.sm.start() as int, self@.sm.end() as int),
+        ensures
+            self.valid(new_jv),
+    {
+        assume(false);
+    }
+
     pub proof fn lemma_recover_depends_only_on_my_area(
         s1: Seq<u8>,
         s2: Seq<u8>,

@@ -45,14 +45,31 @@ where
                 Err(_) => false,
             }
     {
+        self.status = Ghost(KvStoreStatus::MustAbort);
+        self.internal_abort(Tracked(perm));
+        Ok(())
+    }
+
+    pub(super) exec fn internal_abort(
+        &mut self,
+        Tracked(perm): Tracked<&TrustedKvPermission>
+    )
+        requires 
+            old(self).inv(),
+            old(self).status@ is MustAbort,
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+        ensures 
+            self.valid(),
+            self@.constants_match(old(self)@),
+            self@ == old(self)@.abort(),
+    {
         let ghost jv_before_abort = self.journal@;
         self.journal.abort();
         
         self.keys.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.items.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.lists.abort(Ghost(jv_before_abort), Ghost(self.journal@));
-
-        Ok(())
+        self.status = Ghost(KvStoreStatus::Quiescent);
     }
 }
 

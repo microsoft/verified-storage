@@ -61,6 +61,9 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -91,6 +94,9 @@ impl<PM, K> KeyTable<PM, K>
             old(self).key_corresponds_to_key_addr(*k, key_addr),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -129,6 +135,9 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -167,6 +176,9 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -205,6 +217,9 @@ impl<PM, K> KeyTable<PM, K>
             !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {

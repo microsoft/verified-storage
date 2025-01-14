@@ -47,7 +47,8 @@ impl<PM, I> ItemTable<PM, I>
         Err(KvError::<K>::NotImplemented)
     }
 
-    pub exec fn create<K>(&mut self, item: I, journal: &mut Journal<TrustedKvPermission, PM>) -> (result: Result<u64, KvError<K>>)
+    pub exec fn create<K>(&mut self, item: &I, journal: &mut Journal<TrustedKvPermission, PM>)
+                          -> (result: Result<u64, KvError<K>>)
         where
             K: std::fmt::Debug,
         requires
@@ -55,11 +56,14 @@ impl<PM, I> ItemTable<PM, I>
             old(self)@.tentative.is_some(),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(item_addr) => {
                     &&& self@ == (ItemTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().create(item_addr, item)),
+                        tentative: Some(old(self)@.tentative.unwrap().create(item_addr, *item)),
                         ..old(self)@
                     })
                     &&& !old(self)@.tentative.unwrap().m.contains_key(item_addr)
@@ -87,6 +91,9 @@ impl<PM, I> ItemTable<PM, I>
             old(self)@.tentative.unwrap().m.contains_key(item_addr),
         ensures
             self.valid(journal@),
+            journal.valid(),
+            journal.recover_idempotent(),
+            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(_) => {

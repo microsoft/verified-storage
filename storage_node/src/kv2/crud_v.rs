@@ -67,6 +67,93 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
         Ok(item)
     }
+
+    pub exec fn untrusted_create(
+        &mut self,
+        key: &K,
+        item: &I,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+        ensures 
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.create(*key, *item) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                    &&& self@.durable == old(self)@.durable
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@.abort()
+                    &&& !self@.pm_constants.impervious_to_corruption()
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@.abort()
+                    // TODO
+                }
+                Err(e) => {
+                    &&& old(self)@.tentative.create(*key, *item) matches Err(e_spec)
+                    &&& e == e_spec
+                    &&& self@ == old(self)@
+                },
+            }
+    {
+        proof {
+            self.keys.lemma_valid_implications(self.journal@);
+        }
+
+        match self.keys.read(key, Ghost(self.journal@)) {
+            Some(info) => { return Err(KvError::<K>::KeyAlreadyExists); },
+            None => {},
+        };
+
+        let result = self.items.create::<K>(item, &mut self.journal);
+        proof {
+            broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+            self.keys.lemma_valid_depends_only_on_my_area(old(self).journal@, self.journal@);
+            self.keys.lemma_valid_implications(self.journal@);
+            self.lists.lemma_valid_depends_only_on_my_area(old(self).journal@, self.journal@);
+            self.lists.lemma_valid_implications(self.journal@);
+            self.lemma_recover_static_metadata_depends_only_on_my_area(old(self).journal@, self.journal@);
+        }
+
+        let item_addr = match result {
+            Ok(i) => i,
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        let ghost journal_after_item_update = self.journal@;
+        let result = self.keys.create(key, item_addr, &mut self.journal);
+        proof {
+            broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+            self.items.lemma_valid_depends_only_on_my_area(journal_after_item_update, self.journal@);
+            self.items.lemma_valid_implications(self.journal@);
+            self.lists.lemma_valid_depends_only_on_my_area(journal_after_item_update, self.journal@);
+            self.lists.lemma_valid_implications(self.journal@);
+            self.lemma_recover_static_metadata_depends_only_on_my_area(journal_after_item_update, self.journal@);
+        }
+
+        match result {
+            Ok(()) => {},
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        }
+
+        assume(false); // TODO @jay
+        Ok(())
+    }
 }
     
 }

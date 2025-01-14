@@ -66,6 +66,34 @@ where
             &&& tentative_lists.m[0] == Seq::<L>::empty()
         }
     }
+
+    pub(super) proof fn lemma_recover_static_metadata_depends_only_on_my_area(
+        &self,
+        old_jv: JournalView,
+        new_jv: JournalView,
+    )
+        requires
+            old_jv.constants == new_jv.constants,
+            validate_static_metadata::<K, I, L>(self.sm@, old_jv.constants),
+            recover_static_metadata::<K, I, L>(old_jv.durable_state, old_jv.constants) == Some(self.sm@),
+            states_match_in_static_metadata_area(old_jv.durable_state, old_jv.read_state,
+                                                 old_jv.constants),
+            states_match_in_static_metadata_area(old_jv.durable_state, old_jv.commit_state,
+                                                 old_jv.constants),
+            old_jv.matches_in_range(
+                new_jv,
+                old_jv.constants.app_area_start as int,
+                old_jv.constants.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()
+            ),
+        ensures
+            recover_static_metadata::<K, I, L>(new_jv.durable_state, new_jv.constants) == Some(self.sm@),
+            states_match_in_static_metadata_area(new_jv.durable_state, new_jv.read_state, new_jv.constants),
+            states_match_in_static_metadata_area(new_jv.durable_state, new_jv.commit_state, new_jv.constants),
+    {
+        lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(
+            old_jv.durable_state, new_jv.durable_state, self.sm@, old_jv.constants
+        );
+    }
 }
 
 }
