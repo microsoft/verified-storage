@@ -151,7 +151,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         }
 
-        assume(false); // TODO @jay
+        assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
         Ok(())
     }
 }
