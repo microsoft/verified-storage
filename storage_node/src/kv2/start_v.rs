@@ -3,6 +3,13 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use super::impl_t::*;
+use super::items::*;
+use super::keys::*;
+use super::lists::*;
+use super::recover_v::*;
+use super::spec_t::*;
+use super::*;
 use crate::common::align_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
@@ -10,19 +17,12 @@ use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
 use crate::journal::*;
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use std::hash::Hash;
-use super::*;
-use super::keys::*;
-use super::items::*;
-use super::impl_t::*;
-use super::lists::*;
-use super::recover_v::*;
-use super::spec_t::*;
 
 verus! {
 
@@ -39,7 +39,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         Ghost(state): Ghost<AtomicKvStore<K, I, L>>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<Self, KvError<K>>)
-        requires 
+        requires
             wrpm.inv(),
             Self::untrusted_recover(wrpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
@@ -161,5 +161,5 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         Ok(kv)
     }
 }
-    
+
 }

@@ -7,8 +7,12 @@ use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
-use vstd::arithmetic::div_mod::{lemma_div_of0, lemma_div_plus_one, lemma_fundamental_div_mod_converse};
-use vstd::arithmetic::mul::{lemma_mul_basics, lemma_mul_inequality, lemma_mul_is_distributive_add_other_way};
+use vstd::arithmetic::div_mod::{
+    lemma_div_of0, lemma_div_plus_one, lemma_fundamental_div_mod_converse,
+};
+use vstd::arithmetic::mul::{
+    lemma_mul_basics, lemma_mul_inequality, lemma_mul_is_distributive_add_other_way,
+};
 
 verus! {
 
@@ -31,9 +35,20 @@ impl TableMetadata
         &&& self.num_rows as int * self.row_size <= self.end - self.start
     }
 
-    pub closed spec fn row_index_to_addr(self, row_index: int) -> u64
+    pub closed spec fn spec_row_index_to_addr(self, row_index: int) -> u64
     {
         (self.start + row_index * self.row_size) as u64
+    }
+
+    pub exec fn row_index_to_addr(self, row_index: u64) -> (out: u64)
+        requires
+            self.valid(),
+            0 <= row_index < self.num_rows,
+        ensures
+            out == self.spec_row_index_to_addr(row_index as int)
+    {
+        proof { lemma_row_index_to_addr_is_valid(self, row_index as int); }
+        self.start + row_index * self.row_size
     }
 
     pub closed spec fn row_addr_to_index(self, addr: u64) -> int
@@ -69,13 +84,13 @@ impl TableMetadata
         lemma_div_of0(self.row_size as int);
         assert(0int / self.row_size as int == 0);
     }
-    
+
     pub proof fn lemma_row_addr_successor_is_valid(self, addr: u64)
         requires
             self.valid(),
             self.validate_row_addr(addr),
             addr + self.row_size <= self.end,
-        ensures 
+        ensures
             ({
                 let row_index = self.row_addr_to_index(addr);
                 let new_addr = (addr + self.row_size) as u64;
@@ -145,10 +160,10 @@ pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_i
         tm.valid(),
         0 <= row_index < tm.num_rows,
     ensures
-        tm.validate_row_addr(#[trigger] tm.row_index_to_addr(row_index)),
-        tm.row_addr_to_index(tm.row_index_to_addr(row_index)) == row_index,
+        tm.validate_row_addr(#[trigger] tm.spec_row_index_to_addr(row_index)),
+        tm.row_addr_to_index(tm.spec_row_index_to_addr(row_index)) == row_index,
 {
-    let addr = tm.row_index_to_addr(row_index);
+    let addr = tm.spec_row_index_to_addr(row_index);
     assert(row_index * tm.row_size <= tm.num_rows * tm.row_size) by {
         lemma_mul_inequality(row_index, tm.num_rows as int, tm.row_size as int);
     }
