@@ -219,7 +219,7 @@ impl<PM, K> KeyTable<PM, K>
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
         assert(keys@.durable =~= recovered_state);
         assert(item_addrs@ =~= recovered_state.item_addrs());
-        assert(list_addrs@.insert(0) =~= keys@.durable.list_addrs());
+        assert(list_addrs@.insert(0) =~= recovered_state.list_addrs());
         list_addrs.insert(0);
 
         Ok((keys, item_addrs, list_addrs))
