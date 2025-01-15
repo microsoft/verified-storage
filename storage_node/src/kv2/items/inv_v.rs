@@ -40,26 +40,28 @@ impl<PM, I> ItemTable<PM, I>
         // no rows are both free and pending deallocation
         &&& self.free_list@.to_set().intersect(self.pending_deallocations@.to_set()) == Set::<u64>::empty()
 
-        // TODO @hayley fix invariant
+        // durable and tentative views correspond to free list.
+        // in the durable state, pending deallocations have not yet been deallocated;
+        // in the tentative state they have
+        &&& self.free_list@.to_set().intersect(self@.durable.m.dom()) == Set::<u64>::empty()
+        &&& self@.tentative is Some ==>
+                (self.free_list@.to_set() + self.pending_deallocations@.to_set()).intersect(self@.tentative.unwrap().m.dom()) == Set::<u64>::empty()
 
-        // // durable and tentative views correspond to free list.
-        // // in the durable state, pending deallocations have not yet been deallocated;
-        // // in the tentative state they have
-        // &&& self.free_list@.to_set().intersect(self@.durable.m.dom()) == Set::<u64>::empty()
-        // &&& (self.free_list@.to_set() + self.pending_deallocations@.to_set()).intersect(self@.tentative.m.dom()) == Set::<u64>::empty()
+        // free list and pending dealloc list only contain addresses for valid rows
+        &&& forall |i: int| 0 <= i < self.free_list@.len() ==> #[trigger] self.sm.table.validate_row_addr(self.free_list@[i])
+        &&& forall |i: int| 0 <= i < self.pending_deallocations@.len() ==> #[trigger] self.sm.table.validate_row_addr(self.free_list@[i])
 
-        // // free list and pending dealloc list only contain addresses for valid rows
-        // &&& forall |i: int| 0 <= i < self.free_list@.len() ==> #[trigger] self.sm.table.validate_row_addr(self.free_list@[i])
-        // &&& forall |i: int| 0 <= i < self.pending_deallocations@.len() ==> #[trigger] self.sm.table.validate_row_addr(self.free_list@[i])
-
-        // // all addresses are either free, pending deallocation, or valid
-        // &&& ({
-        //         let all_addrs = Set::new(|addr: u64| self.sm.table.validate_row_addr(addr));
-        //         // free list + durable view dom == all valid addresses
-        //         &&& self.free_list@.to_set() + self@.durable_snapshot.dom() == all_addrs
-        //         // free list + pending deallocs + tentative view dom == all valid addresses
-        //         &&& self.free_list@.to_set() + self.pending_deallocations@.to_set() + self@.tentative_snapshot.dom() == all_addrs
-        //     })
+        // all addresses are either free, pending deallocation, or valid
+        &&& ({
+                // let all_addrs = Set::new(|addr: u64| self.sm.table.validate_row_addr(addr));
+                let all_addrs_seq = Seq::new(self.sm.table.num_rows as nat, |i: int| self.sm.table.spec_row_index_to_addr(i));
+                let all_addrs = all_addrs_seq.to_set();
+                // free list + durable view dom == all valid addresses
+                &&& self.free_list@.to_set() + self@.durable.m.dom() == all_addrs
+                // free list + pending deallocs + tentative view dom == all valid addresses
+                &&& self@.tentative is Some ==>
+                        self.free_list@.to_set() + self.pending_deallocations@.to_set() + self@.tentative.unwrap().m.dom() == all_addrs
+            })
     }
 
     pub proof fn lemma_valid_implications(self, jv: JournalView)
