@@ -65,15 +65,15 @@ impl<PM, K> KeyTable<PM, K>
         let ghost recovery_mapping = KeyRecoveryMapping::<K>::new(journal@.read_state, *sm).unwrap();
         assert(recovery_mapping.corresponds(journal@.read_state, *sm));
 
-        let ghost mut memory_mapping = KeyMemoryMapping::<K>::new(*sm);
-        
-        let mut row_index: u64 = 0;
-        let mut row_addr: u64 = sm.table.start;
-        let pm = journal.get_pm_region_ref();
-        let mut free_list = Vec::<u64>::new();
         let mut m = HashMap::<K, ConcreteKeyInfo>::new();
+        let mut free_list = Vec::<u64>::new();
+        let ghost mut memory_mapping = KeyMemoryMapping::<K>::new(*sm);
         let mut item_addrs = HashSet::<u64>::new();
         let mut list_addrs = HashSet::<u64>::new();
+
+        let pm = journal.get_pm_region_ref();
+        let mut row_index: u64 = 0;
+        let mut row_addr: u64 = sm.table.start;
     
         proof {
             sm.table.lemma_start_is_valid_row();
