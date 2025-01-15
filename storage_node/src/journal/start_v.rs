@@ -420,7 +420,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
                     &&& j@.pm_constants == wrpm.constants()
                     &&& j@.remaining_capacity == j@.constants.journal_capacity
-                    &&& j@.journaled_addrs.is_empty()
+                    &&& j@.journaled_addrs == Set::<int>::empty()
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)

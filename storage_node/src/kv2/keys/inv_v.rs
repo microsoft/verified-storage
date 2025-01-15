@@ -77,6 +77,35 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
+    pub(super) open spec fn corresponds_to_snapshot_at_addr(self, m: KeyRecoveryMapping<K>, row_addr: u64) -> bool
+    {
+        &&& m.row_info.contains_key(row_addr)
+        &&& self.row_info.contains_key(row_addr)
+        &&& match self.row_info[row_addr] {
+            KeyRowDisposition::InHashTable{ k, rm } => m.row_info[row_addr] == Some((k, rm)),
+            _ => m.row_info[row_addr] is None,
+        }
+    }
+
+    pub(super) open spec fn update(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Self
+    {
+        Self{
+            row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
+            key_info: self.key_info.insert(k, row_addr),
+            item_info: self.item_info.insert(rm.item_addr, row_addr),
+            list_info: if rm.list_addr == 0 { self.list_info } else { self.list_info.insert(rm.list_addr, row_addr) },
+            ..self
+        }
+    }
+
+    pub(super) open spec fn mark_in_free_list(self, row_addr: u64, pos: nat) -> Self
+    {
+        Self{
+            row_info: self.row_info.insert(row_addr, KeyRowDisposition::InFreeList{ pos }),
+            ..self
+        }
+    }
+
     pub open spec fn as_recovery_mapping(self) -> KeyRecoveryMapping<K>
     {
         KeyRecoveryMapping::<K>{
@@ -122,8 +151,10 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn complete(self) -> bool
     {
-        &&& forall|row_addr: u64| #[trigger] self.sm.table.validate_row_addr(row_addr) ==>
-                self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64|
+            #![trigger self.sm.table.validate_row_addr(row_addr)]
+            #![trigger self.row_info.contains_key(row_addr)]
+            self.sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
     }
 
     pub(super) open spec fn row_info_consistent(self) -> bool
@@ -202,7 +233,11 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn consistent_with_free_list_and_pending_deallocations(self, free_list: Seq<u64>, pending_deallocations: Seq<u64>) -> bool
+    pub(super) open spec fn consistent_with_free_list_and_pending_deallocations(
+        self,
+        free_list: Seq<u64>,
+        pending_deallocations: Seq<u64>
+    ) -> bool
     {
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
             match self.row_info[row_addr] {
@@ -222,8 +257,27 @@ impl<K> KeyMemoryMapping<K>
             &&& pos == i
         }
         &&& forall|i: int| 0 <= i < pending_deallocations.len() ==> {
-            &&& #[trigger] self.row_info[pending_deallocations[i]] matches KeyRowDisposition::InPendingDeallocationList{ pos }
+            &&& #[trigger] self.row_info[pending_deallocations[i]]
+                matches KeyRowDisposition::InPendingDeallocationList{ pos }
             &&& pos == i
+        }
+    }
+
+    pub(super) open spec fn consistent_with_hash_table(self, m: Map<K, ConcreteKeyInfo>) -> bool
+    {
+        &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
+            match self.row_info[row_addr] {
+                KeyRowDisposition::InHashTable{ k, rm } => {
+                    &&& m.contains_key(k)
+                    &&& m[k].row_addr == row_addr
+                    &&& m[k].rm == rm
+                },
+                _ => true,
+            }
+        }
+        &&& forall|k: K| #[trigger] m.contains_key(k) ==> {
+            &&& self.row_info.contains_key(m[k].row_addr)
+            &&& self.row_info[m[k].row_addr] == KeyRowDisposition::InHashTable{ k, rm: m[k].rm }
         }
     }
 

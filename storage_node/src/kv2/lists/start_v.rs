@@ -40,8 +40,9 @@ impl<PM, L> ListTable<PM, L>
             K: std::fmt::Debug,
         requires
             journal.valid(),
+            journal.recover_idempotent(),
             journal@.valid(),
-            journal@.journaled_addrs.is_empty(),
+            journal@.journaled_addrs == Set::<int>::empty(),
             journal@.durable_state == journal@.read_state,
             journal@.read_state == journal@.commit_state,
             Self::recover(journal@.read_state, list_addrs@, *sm) is Some,

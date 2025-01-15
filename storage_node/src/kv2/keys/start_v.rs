@@ -21,8 +21,11 @@ use super::*;
 use super::recover_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+use vstd::std_specs::hash::*;
 
 verus! {
+
+broadcast use group_hash_axioms;
 
 impl<PM, K> KeyTable<PM, K>
     where
@@ -35,8 +38,9 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(Self, HashSet<u64>, HashSet<u64>), KvError<K>>)
         requires
             journal.valid(),
+            journal.recover_idempotent(),
             journal@.valid(),
-            journal@.journaled_addrs.is_empty(),
+            journal@.journaled_addrs == Set::<int>::empty(),
             journal@.durable_state == journal@.read_state,
             journal@.read_state == journal@.commit_state,
             Self::recover(journal@.read_state, *sm) is Some,
@@ -58,14 +62,18 @@ impl<PM, K> KeyTable<PM, K>
                 Err(_) => false,
             }
     {
-        let ghost m = KeyRecoveryMapping::<K>::new(journal@.read_state, *sm).unwrap();
-        assert(m.corresponds(journal@.read_state, *sm));
+        let ghost recovery_mapping = KeyRecoveryMapping::<K>::new(journal@.read_state, *sm).unwrap();
+        assert(recovery_mapping.corresponds(journal@.read_state, *sm));
 
         let ghost mut memory_mapping = KeyMemoryMapping::<K>::new(*sm);
         
         let mut row_index: u64 = 0;
         let mut row_addr: u64 = sm.table.start;
         let pm = journal.get_pm_region_ref();
+        let mut free_list = Vec::<u64>::new();
+        let mut m = HashMap::<K, ConcreteKeyInfo>::new();
+        let mut item_addrs = HashSet::<u64>::new();
+        let mut list_addrs = HashSet::<u64>::new();
     
         proof {
             sm.table.lemma_start_is_valid_row();
@@ -74,15 +82,16 @@ impl<PM, K> KeyTable<PM, K>
         while row_index < sm.table.num_rows
             invariant
                 journal.valid(),
+                journal.recover_idempotent(),
                 journal@.valid(),
-                journal@.journaled_addrs.is_empty(),
+                journal@.journaled_addrs == Set::<int>::empty(),
                 journal@.durable_state == journal@.read_state,
                 journal@.read_state == journal@.commit_state,
                 Self::recover(journal@.read_state, *sm) is Some,
                 sm.valid::<K>(),
                 sm.end() <= journal@.durable_state.len(),
                 vstd::std_specs::hash::obeys_key_model::<K>(),
-                m.corresponds(journal@.read_state, *sm),
+                KeyRecoveryMapping::<K>::new(journal@.read_state, *sm) == Some(recovery_mapping),
                 pm.inv(),
                 pm.constants() == journal@.pm_constants,
                 pm@.valid(),
@@ -93,13 +102,36 @@ impl<PM, K> KeyTable<PM, K>
                 sm.table.row_addr_to_index(row_addr) == row_index as int,
                 sm.table.start <= row_addr <= sm.table.end,
                 row_index < sm.table.num_rows ==> sm.table.validate_row_addr(row_addr),
-                memory_mapping.consistent(),
-        /*
-                forall|any_row_addr: u64| {
-                    &&& #[trigger] sm.table.validate_row_addr(any_row_addr)
+                forall|any_row_addr: u64|
+                    #![trigger sm.table.validate_row_addr(any_row_addr)]
+                    #![trigger memory_mapping.row_info.contains_key(any_row_addr)]
+                {
+                    &&& sm.table.validate_row_addr(any_row_addr)
                     &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
-                } ==> recover_cdb(pm@.read_state, any_row_addr + sm.row_cdb_start) == Some(false),
-        */
+                } ==> {
+                    &&& memory_mapping.row_info.contains_key(any_row_addr)
+                    &&& memory_mapping.corresponds_to_snapshot_at_addr(recovery_mapping, any_row_addr)
+                },
+                forall|any_row_addr: u64| #[trigger] memory_mapping.row_info.contains_key(any_row_addr) ==>
+                    0 <= sm.table.row_addr_to_index(any_row_addr) < row_index,
+                memory_mapping.sm == sm,
+                memory_mapping.consistent(),
+                memory_mapping.consistent_with_state(journal@.read_state),
+                memory_mapping.consistent_with_free_list_and_pending_deallocations(free_list@, Seq::<u64>::empty()),
+                memory_mapping.consistent_with_hash_table(m@),
+                forall|i: int| #![trigger free_list@[i]] 0 <= i < free_list@.len() ==> {
+                    let free_row_addr = free_list@[i];
+                    &&& sm.table.validate_row_addr(free_row_addr)
+                    &&& 0 <= sm.table.row_addr_to_index(free_row_addr) < row_index
+                },
+                forall|k: K| #[trigger] m@.contains_key(k) ==> {
+                    let used_row_addr = m@[k].row_addr;
+                    &&& sm.table.validate_row_addr(used_row_addr)
+                    &&& 0 <= sm.table.row_addr_to_index(used_row_addr) < row_index
+                    &&& memory_mapping.row_info.contains_key(used_row_addr)
+                    &&& memory_mapping.row_info[used_row_addr] is InHashTable
+                },
+                !memory_mapping.list_info.contains_key(0),
         {
             proof {
                 broadcast use group_validate_row_addr;
@@ -107,7 +139,7 @@ impl<PM, K> KeyTable<PM, K>
                 broadcast use pmcopy_axioms;
                 sm.table.lemma_row_addr_successor_is_valid(row_addr);
                 assert(sm.table.validate_row_addr(row_addr));
-                assert(m.row_info.contains_key(row_addr));
+                assert(recovery_mapping.row_info.contains_key(row_addr));
             }
     
             let cdb_addr = row_addr + sm.row_cdb_start;
@@ -115,13 +147,64 @@ impl<PM, K> KeyTable<PM, K>
             if cdb.is_none() {
                 return Err(KvError::CRCMismatch);
             }
-    
+            let cdb = cdb.unwrap();
+
+            let ghost old_memory_mapping = memory_mapping;
+            let ghost old_m = m@;
+
+            if cdb {
+                let key_addr = row_addr + sm.row_key_start;
+                let key_crc_addr = row_addr + sm.row_key_crc_start;
+                let k = match exec_recover_object::<PM, K>(pm, key_addr, key_crc_addr) {
+                    None => { return Err(KvError::CRCMismatch); },
+                    Some(k) => k,
+                };
+                let rm_addr = row_addr + sm.row_metadata_start;
+                let rm_crc_addr = row_addr + sm.row_metadata_crc_start;
+                let rm = match exec_recover_object::<PM, KeyTableRowMetadata>(pm, rm_addr, rm_crc_addr) {
+                    None => { return Err(KvError::CRCMismatch); },
+                    Some(r) => r,
+                };
+                proof {
+                    memory_mapping = memory_mapping.update(row_addr, k, rm);
+                }
+                let concrete_key_info = ConcreteKeyInfo{ row_addr, rm };
+                m.insert(k, concrete_key_info);
+            }
+            else {
+                proof {
+                    memory_mapping = memory_mapping.mark_in_free_list(row_addr, free_list.len() as nat);
+                }
+                free_list.push(row_addr);
+            }
+
             row_index = row_index + 1;
             row_addr = row_addr + sm.table.row_size;
         }
-        
-        assume(false);
-        Err(KvError::NotImplemented)
+    
+        assert forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr)
+            implies memory_mapping.row_info.contains_key(row_addr) by {
+            let row_index = sm.table.row_addr_to_index(row_addr);
+            broadcast use group_validate_row_addr;
+        }
+
+        let keys = Self{
+            status: Ghost(KeyTableStatus::Quiescent),
+            must_abort: Ghost(false),
+            sm: sm.clone(),
+            m,
+            free_list,
+            pending_deallocations: Vec::<u64>::new(),
+            memory_mapping: Ghost(memory_mapping),
+            undo_records: Vec::<KeyUndoRecord<K>>::new(),
+            phantom: Ghost(None),
+        };
+
+        let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
+        assert(keys@.durable =~= recovered_state);
+        assume(item_addrs@ == recovered_state.item_addrs());
+        assume(list_addrs@ == recovered_state.list_addrs());
+        Ok((keys, item_addrs, list_addrs))
     }
 }
 
