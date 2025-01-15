@@ -132,14 +132,26 @@ impl<PM, K> KeyTable<PM, K>
                     &&& memory_mapping.row_info[used_row_addr] is InHashTable
                 },
                 !memory_mapping.list_info.contains_key(0),
+                forall|any_row_addr: u64| {
+                    &&& #[trigger] recovery_mapping.row_info.contains_key(any_row_addr)
+                    &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
+                    &&& recovery_mapping.row_info[any_row_addr] is Some
+                } ==> {
+                    let (_, rm) = recovery_mapping.row_info[any_row_addr].unwrap();
+                    &&& item_addrs@.contains(rm.item_addr)
+                    &&& rm.list_addr != 0 ==> list_addrs@.contains(rm.list_addr)
+                },
+                forall|item_addr: u64| #[trigger] item_addrs@.contains(item_addr) ==>
+                    recovery_mapping.item_info.contains_key(item_addr),
+                forall|list_addr: u64| #[trigger] list_addrs@.contains(list_addr) ==>
+                    recovery_mapping.list_info.contains_key(list_addr),
+                !list_addrs@.contains(0),
         {
             proof {
                 broadcast use group_validate_row_addr;
                 broadcast use group_update_bytes_effect;
                 broadcast use pmcopy_axioms;
                 sm.table.lemma_row_addr_successor_is_valid(row_addr);
-                assert(sm.table.validate_row_addr(row_addr));
-                assert(recovery_mapping.row_info.contains_key(row_addr));
             }
     
             let cdb_addr = row_addr + sm.row_cdb_start;
@@ -170,6 +182,10 @@ impl<PM, K> KeyTable<PM, K>
                 }
                 let concrete_key_info = ConcreteKeyInfo{ row_addr, rm };
                 m.insert(k, concrete_key_info);
+                item_addrs.insert(rm.item_addr);
+                if rm.list_addr != 0 {
+                    list_addrs.insert(rm.list_addr);
+                }
             }
             else {
                 proof {
@@ -202,8 +218,10 @@ impl<PM, K> KeyTable<PM, K>
 
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
         assert(keys@.durable =~= recovered_state);
-        assume(item_addrs@ == recovered_state.item_addrs());
-        assume(list_addrs@ == recovered_state.list_addrs());
+        assert(item_addrs@ =~= recovered_state.item_addrs());
+        assert(list_addrs@.insert(0) =~= keys@.durable.list_addrs());
+        list_addrs.insert(0);
+
         Ok((keys, item_addrs, list_addrs))
     }
 }
