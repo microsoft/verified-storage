@@ -38,16 +38,17 @@ impl<PM, I> ItemTable<PM, I>
 {
     pub exec fn abort(
         &mut self,
-        jv_before_abort: Ghost<JournalView>,
-        jv_after_abort: Ghost<JournalView>,
+        Ghost(jv_before_abort): Ghost<JournalView>,
+        Ghost(jv_after_abort): Ghost<JournalView>,
     )
         requires
-            old(self).valid(jv_before_abort@),
-            jv_before_abort@.valid(),
-            jv_after_abort@.valid(),
-            jv_after_abort == jv_before_abort@.abort(),
+            old(self).valid(jv_before_abort),
+            jv_before_abort.valid(),
+            jv_after_abort.valid(),
+            jv_after_abort == jv_before_abort.abort(),
+            jv_before_abort.durable_state == jv_before_abort.read_state,
         ensures
-            self.valid(jv_after_abort@),
+            self.valid(jv_after_abort),
             self@ == (ItemTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
     {
         // Play back the undo list from back to front
