@@ -277,7 +277,7 @@ impl<K> KeyMemoryMapping<K>
         }
         &&& forall|k: K| #[trigger] m.contains_key(k) ==> {
             &&& self.row_info.contains_key(m[k].row_addr)
-            &&& self.row_info[m[k].row_addr] == KeyRowDisposition::InHashTable{ k, rm: m[k].rm }
+            &&& self.row_info[m[k].row_addr] == (KeyRowDisposition::InHashTable{ k, rm: m[k].rm })
         }
     }
 
@@ -365,10 +365,11 @@ impl<K> KeyInternalView<K>
 
     pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>) -> bool
     {
-        &&& forall|row_addr: u64, addr: int| {
-            &&& #[trigger] self.free_list.contains(row_addr)
+        &&& forall|i: int, addr: int| #![trigger self.free_list[i], journaled_addrs.contains(addr)] {
+            let row_addr = self.free_list[i];
+            &&& 0 <= i < self.free_list.len()
             &&& row_addr <= addr < row_addr + self.sm.table.row_size
-        } ==> !(#[trigger] journaled_addrs.contains(addr))
+        } ==> !journaled_addrs.contains(addr)
     }
 
     pub(super) open spec fn apply_undo_record(self, record: KeyUndoRecord<K>) -> Option<Self>
@@ -471,6 +472,25 @@ impl<K> KeyInternalView<K>
     }
 }
 
+pub(super) broadcast proof fn broadcast_undo_record_list_preserves_sm<K>(
+    v: KeyInternalView<K>,
+    records: Seq<KeyUndoRecord<K>>,
+)
+    where
+        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    requires
+        #[trigger] v.apply_undo_record_list(records) is Some,
+    ensures
+        v.apply_undo_record_list(records).unwrap().sm == v.sm,
+        v.apply_undo_record_list(records).unwrap().memory_mapping.sm == v.memory_mapping.sm,
+    decreases
+        records.len(),
+{
+    if records.len() > 0 {
+        broadcast_undo_record_list_preserves_sm(v.apply_undo_record(records.last()).unwrap(), records.drop_last());
+    }
+}
+
 impl<PM, K> KeyTable<PM, K>
     where
         PM: PersistentMemoryRegion,
@@ -490,17 +510,28 @@ impl<PM, K> KeyTable<PM, K>
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
+        &&& self.sm.valid::<K>()
+        &&& jv.constants.app_area_start <= self.sm.start()
+        &&& self.sm.end() <= jv.constants.app_area_end
+        &&& self.memory_mapping@.sm == self.sm
         &&& self.internal_view().consistent_with_journal(self.undo_records@, jv)
+        &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
     }
 
     pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)
         requires
             self.valid(old_jv),
+            old_jv.constants == new_jv.constants,
             old_jv.matches_in_range(new_jv, self@.sm.start() as int, self@.sm.end() as int),
         ensures
             self.valid(new_jv),
     {
-        assume(false);
+        broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use pmcopy_axioms;
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_undo_record_list_preserves_sm;
+        assert(self.valid(new_jv));
     }
 
     pub proof fn lemma_valid_implications(&self, jv: JournalView)

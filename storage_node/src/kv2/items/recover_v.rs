@@ -82,6 +82,7 @@ impl<PM, I> ItemTable<PM, I>
         requires
             self.valid(old_jv),
             old_jv.matches_in_range(new_jv, self@.sm.start() as int, self@.sm.end() as int),
+            old_jv.constants == new_jv.constants,
         ensures
             self.valid(new_jv),
     {

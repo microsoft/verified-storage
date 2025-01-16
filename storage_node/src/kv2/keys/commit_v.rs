@@ -44,8 +44,8 @@ impl<PM, K> KeyTable<PM, K>
             self.valid(jv_after_commit@),
             self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
     {
-        // Play back the undo list from back to front
-        assume(false); // unimplemented
+        self.undo_records.clear();
+        assume(self.valid(jv_after_commit@)); // TODO @jay
     }
 }
 
