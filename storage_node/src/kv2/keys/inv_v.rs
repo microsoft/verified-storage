@@ -543,9 +543,8 @@ impl<PM, K> KeyTable<PM, K>
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.memory_mapping@.sm == self.sm
         &&& self.internal_view().valid()
-        &&& self.internal_view().consistent_with_journal(jv)
-        &&& !(self.status@ is Undoing) ==>
-            self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv)
+        &&& !(self.status@ is Undoing) ==> self.internal_view().consistent_with_journal(jv)
+        &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
         &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.pending_deallocations@[i])

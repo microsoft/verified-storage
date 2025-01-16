@@ -44,7 +44,13 @@ impl<PM, K> KeyTable<PM, K>
             self.sm == old(self).sm,
             self.undo_records@ == old(self).undo_records@.drop_last(),
     {
-        let undo_record = self.undo_records.pop();
+        let undo_record = self.undo_records.pop().unwrap();
+        assert(self.internal_view().apply_undo_record(undo_record) is Some);
+        match undo_record {
+            KeyUndoRecord::UndoCreate{ row_addr } => {},
+            KeyUndoRecord::UndoUpdate{ row_addr, former_rm } => {},
+            KeyUndoRecord::UndoDelete{ row_addr, k, rm } => {},
+        };
         assume(false); // TODO @jay
     }
         
