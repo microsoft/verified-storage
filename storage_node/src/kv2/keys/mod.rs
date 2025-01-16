@@ -132,7 +132,7 @@ impl<PM, K> KeyTable<PM, K>
     {
         KeyTableView{
             sm: self.sm,
-            durable: self.internal_view().apply_undo_records(self.undo_records@).unwrap().as_snapshot(),
+            durable: self.internal_view().apply_undo_records(self.undo_records@, self.sm).unwrap().as_snapshot(),
             tentative: if self.must_abort@ { None } else { Some(self.internal_view().as_snapshot()) },
         }
     }

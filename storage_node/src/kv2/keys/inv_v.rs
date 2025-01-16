@@ -42,7 +42,7 @@ pub(super) struct ConcreteKeyInfo
 #[verifier::ext_equal]
 pub(super) enum KeyUndoRecord<K> {
     UndoCreate{ row_addr: u64, k: K },
-    UndoUpdate{ row_addr: u64, former_rm: KeyTableRowMetadata },
+    UndoUpdate{ row_addr: u64, k: K, former_rm: KeyTableRowMetadata },
     UndoDelete{ row_addr: u64, k: K, rm: KeyTableRowMetadata },
 }
 
@@ -330,11 +330,28 @@ impl<K> KeyMemoryMapping<K>
     pub(super) open spec fn undo_update(self, row_addr: u64, k: K, former_rm: KeyTableRowMetadata) -> Option<Self>
     {
         if {
-            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm }
             &&& k == k2
         } {
+            let rm = self.row_info[row_addr]->rm;
+            let list_info_after_remove =
+                if rm.list_addr != 0 {
+                    self.list_info.remove(rm.list_addr)
+                }
+                else {
+                    self.list_info
+                };
+            let new_list_info =
+                if former_rm.list_addr != 0 {
+                    list_info_after_remove.insert(former_rm.list_addr, row_addr)
+                }
+                else {
+                    list_info_after_remove
+                };
             Some(Self{
                 row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm: former_rm }),
+                item_info: self.item_info.remove(rm.item_addr).insert(former_rm.item_addr, row_addr),
+                list_info: new_list_info,
                 ..self
             })
         }
@@ -412,33 +429,28 @@ impl<K> KeyInternalView<K>
                 else {
                     match self.memory_mapping.row_info[row_addr] {
                         KeyRowDisposition::InHashTable{ k: k2, rm } => {
-                            if k != k2 {
-                                None
-                            }
-                            else {
-                                match self.memory_mapping.undo_create(row_addr, k, rm, self.free_list.len()) {
-                                    Some(memory_mapping) => Some(Self{
-                                        m: self.m.remove(k),
-                                        free_list: self.free_list.push(row_addr),
-                                        memory_mapping,
-                                        ..self
-                                    }),
-                                    None => None,
-                                }
+                            match self.memory_mapping.undo_create(row_addr, k, rm, self.free_list.len()) {
+                                Some(memory_mapping) => Some(Self{
+                                    m: self.m.remove(k),
+                                    free_list: self.free_list.push(row_addr),
+                                    memory_mapping,
+                                    ..self
+                                }),
+                                None => None,
                             }
                         },
                         _ => None,
                     }
                 }
             },
-            KeyUndoRecord::UndoUpdate{ row_addr, former_rm } =>
+            KeyUndoRecord::UndoUpdate{ row_addr, k, former_rm } =>
             {
                 if !self.memory_mapping.row_info.contains_key(row_addr) {
                     None
                 }
                 else {
                     match self.memory_mapping.row_info[row_addr] {
-                        KeyRowDisposition::InHashTable{ k, rm } => {
+                        KeyRowDisposition::InHashTable{ k: k2, rm } => {
                             match self.memory_mapping.undo_update(row_addr, k, former_rm) {
                                 Some(memory_mapping) => Some(Self{
                                     m: self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm }),
@@ -482,7 +494,11 @@ impl<K> KeyInternalView<K>
         }
     }
 
-    pub(super) open spec fn apply_undo_records(self, records: Seq<KeyUndoRecord<K>>) -> Option<Self>
+    pub(super) open spec fn apply_undo_records(
+        self,
+        records: Seq<KeyUndoRecord<K>>,
+        sm: KeyTableStaticMetadata
+    ) -> Option<Self>
         decreases
             records.len()
     {
@@ -491,7 +507,12 @@ impl<K> KeyInternalView<K>
         }
         else {
             match self.apply_undo_record(records.last()) {
-                Some(new_self) => new_self.apply_undo_records(records.drop_last()),
+                Some(new_self) =>
+                    if new_self.valid(sm) {
+                        new_self.apply_undo_records(records.drop_last(), sm)
+                    } else {
+                        None
+                    },
                 None => None,
             }
         }
@@ -518,7 +539,7 @@ impl<K> KeyInternalView<K>
         sm: KeyTableStaticMetadata,
     ) -> bool
     {
-        &&& self.apply_undo_records(undo_records) matches Some(undone_self)
+        &&& self.apply_undo_records(undo_records, sm) matches Some(undone_self)
         &&& undone_self.valid(sm)
         &&& undone_self.consistent_with_state(jv.durable_state, sm)
         &&& undone_self.pending_deallocations == Seq::<u64>::empty()
@@ -584,7 +605,7 @@ impl<PM, K> KeyTable<PM, K>
     {
         assert(Self::recover(jv.durable_state, self@.sm) is Some) by {
             self.internal_view()
-                .apply_undo_records(self.undo_records@)
+                .apply_undo_records(self.undo_records@, self.sm)
                 .unwrap()
                 .memory_mapping
                 .as_recovery_mapping()

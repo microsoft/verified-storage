@@ -39,6 +39,7 @@ impl<PM, K> KeyTable<PM, K>
             old(self).inv(jv),
             old(self).status@ is Undoing,
             old(self).undo_records@.len() > 0,
+            old(self).internal_view().apply_undo_record(old(self).undo_records@.last()).unwrap().valid(old(self).sm),
         ensures
             self.inv(jv),
             self.status == old(self).status,
@@ -47,7 +48,6 @@ impl<PM, K> KeyTable<PM, K>
             self.undo_records@ == old(self).undo_records@.drop_last(),    
     {
         let undo_record = self.undo_records.pop().unwrap();
-        assert(self.internal_view().apply_undo_record(undo_record) is Some);
         broadcast use group_hash_axioms;
         match undo_record {
             KeyUndoRecord::UndoCreate{ row_addr, k } => {
@@ -56,14 +56,20 @@ impl<PM, K> KeyTable<PM, K>
                     Ghost(self.memory_mapping@.undo_create(row_addr, k, rm, self.free_list@.len()).unwrap());
                 self.m.remove(&k);
                 self.free_list.push(row_addr);
+                assert(old(self).internal_view().apply_undo_record(undo_record) =~= Some(self.internal_view()));
             },
-            KeyUndoRecord::UndoUpdate{ row_addr, former_rm } => { assume(false); }, // TODO @jay
+            KeyUndoRecord::UndoUpdate{ row_addr, k, former_rm } => {
+                self.memory_mapping =
+                    Ghost(self.memory_mapping@.undo_update(row_addr, k, former_rm).unwrap());
+                self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm });
+                assert(old(self).internal_view().apply_undo_record(undo_record) =~= Some(self.internal_view()));
+            },
             KeyUndoRecord::UndoDelete{ row_addr, k, rm } => { assume(false); }, // TODO @jay
         };
 
         assert(old(self).internal_view().apply_undo_record(undo_record) == Some(self.internal_view()));
-        assert(self.internal_view().apply_undo_records(self.undo_records@) ==
-               old(self).internal_view().apply_undo_records(old(self).undo_records@));
+        assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
+               old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm));
     }
         
     exec fn apply_all_undo_records(
