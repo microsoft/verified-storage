@@ -143,6 +143,17 @@ impl <Perm, PM> Journal<Perm, PM>
         self.journaled_addrs = Ghost(Set::<int>::empty());
         self.entries = ConcreteJournalEntries::new();
     }
+
+    pub exec fn flush(&mut self)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@ == old(self)@,
+            self@.durable_state == self@.read_state,
+    {
+        self.wrpm.flush();
+    }
 }
 
 }

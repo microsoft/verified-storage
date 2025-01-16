@@ -62,9 +62,11 @@ where
             self.valid(),
             self@.constants_match(old(self)@),
             self@ == old(self)@.abort(),
+            self.journal@.durable_state == self.journal@.read_state,
     {
         let ghost jv_before_abort = self.journal@;
         self.journal.abort();
+        self.journal.flush();
         
         self.keys.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.items.abort(Ghost(jv_before_abort), Ghost(self.journal@));

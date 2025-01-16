@@ -101,6 +101,7 @@ impl<PM, K> KeyTable<PM, K>
             jv_before_abort.valid(),
             jv_after_abort.valid(),
             jv_after_abort == jv_before_abort.abort(),
+            jv_before_abort.durable_state == jv_before_abort.read_state,
         ensures
             self.valid(jv_after_abort),
             self@ == (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
