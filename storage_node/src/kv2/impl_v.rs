@@ -76,42 +76,6 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn untrusted_delete(
-        &mut self,
-        key: &K,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError>)
-        requires 
-            old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
-        ensures 
-            self.valid(),
-            self@.constants_match(old(self)@),
-            match result {
-                Ok(()) => {
-                    &&& old(self)@.tentative.delete(*key) matches Ok(new_self)
-                    &&& self@.tentative == new_self
-                    &&& self@.durable == old(self)@.durable
-                },
-                Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
-                }, 
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
-                    // TODO
-                }
-                Err(e) => {
-                    &&& old(self)@.tentative.delete(*key) matches Err(e_spec)
-                    &&& e == e_spec
-                    &&& self@ == old(self)@
-                },
-            },
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
-
     pub exec fn untrusted_read_item_and_list(&self, key: &K) -> (result: Result<(&I, &Vec<L>), KvError>)
         requires
             self.valid(),

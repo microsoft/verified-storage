@@ -145,6 +145,106 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
         Ok(())
     }
+
+    pub exec fn untrusted_delete(
+        &mut self,
+        key: &K,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError>)
+        requires 
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+        ensures 
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.delete(*key) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                    &&& self@.durable == old(self)@.durable
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@.abort()
+                    &&& !self@.pm_constants.impervious_to_corruption()
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@.abort()
+                    // TODO
+                }
+                Err(e) => {
+                    &&& old(self)@.tentative.delete(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                    &&& self@ == old(self)@
+                },
+            },
+    {
+        proof {
+            self.keys.lemma_valid_implications(self.journal@);
+        }
+
+        let (key_addr, rm) = match self.keys.read(key, Ghost(self.journal@)) {
+            Some(info) => info,
+            None => { return Err(KvError::KeyNotFound); }
+        };
+
+        self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
+
+        let ghost self_before_item_delete = self.lemma_prepare_for_item_table_update(perm);
+        let result = self.items.delete(rm.item_addr, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_item_table_update(self_before_item_delete); }
+
+        match result {
+            Ok(i) => {},
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        if rm.list_addr != 0 {
+            let ghost self_before_list_delete = self.lemma_prepare_for_list_table_update(perm);
+            let result = self.lists.delete(rm.list_addr, &mut self.journal, Tracked(perm));
+            proof { self.lemma_reflect_list_table_update(self_before_list_delete); }
+
+            match result {
+                Ok(()) => {},
+                Err(KvError::OutOfSpace) => {
+                    self.status = Ghost(KvStoreStatus::MustAbort);
+                    self.internal_abort(Tracked(perm));
+                    return Err(KvError::OutOfSpace);
+                },
+                _ => { assert(false); return Err(KvError::InternalError); },
+            }
+        }
+
+        let ghost self_before_key_delete = self.lemma_prepare_for_key_table_update(perm);
+        let result = self.keys.delete(key, key_addr, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_key_table_update(self_before_key_delete); }
+
+        match result {
+            Ok(()) => {},
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        }
+
+        self.status = Ghost(KvStoreStatus::Quiescent);
+
+        assert(self@.tentative =~= old(self)@.tentative.delete(*key).unwrap());
+
+        // It's a little bit tricky to see that the key table's set of
+        // list addresses still matches the list table's domain, due
+        // to the special treatment of the 0 address. So we need to
+        // invoke extensional equality to establish that equivalence.
+        assert(self.keys@.tentative.unwrap().list_addrs() =~= self.lists@.tentative.unwrap().m.dom());
+
+        Ok(())
+    }
 }
     
 }

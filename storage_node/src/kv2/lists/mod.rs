@@ -1,8 +1,10 @@
 #![allow(unused_imports)]
 pub mod abort_v;
 pub mod commit_v;
+pub mod crud_v;
 pub mod inv_v;
 pub mod recover_v;
+pub mod spec_v;
 pub mod start_v;
 
 use builtin::*;
@@ -20,6 +22,7 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
 use inv_v::*;
+use spec_v::*;
 use start_v::*;
 use std::hash::Hash;
 use super::*;
@@ -28,19 +31,7 @@ use super::spec_t::*;
 
 verus! {
 
-#[verifier::ext_equal]
-pub struct ListTableSnapshot<L>
-{
-    pub m: Map<u64, Seq<L>>, // always maps the null address (0) to the empty sequence
-}
-
-impl<L> ListTableSnapshot<L>
-{
-    pub open spec fn init() -> Self
-    {
-        Self{ m: Map::<u64, Seq<L>>::new(|list_addr: u64| list_addr == 0, |list_addr: u64| Seq::<L>::empty()) }
-    }
-}
+pub use spec_v::{ListTableSnapshot, ListTableView};
 
 #[repr(C)]
 #[derive(PmCopy, Copy)]
@@ -122,15 +113,6 @@ impl ListTableStaticMetadata
     {
         self.table.num_rows
     }
-}
-
-#[verifier::ext_equal]
-pub struct ListTableView<L>
-{
-    pub sm: ListTableStaticMetadata,
-    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    pub durable: ListTableSnapshot<L>,
-    pub tentative: Option<ListTableSnapshot<L>>,
 }
 
 #[verifier::ext_equal]

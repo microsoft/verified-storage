@@ -47,7 +47,6 @@ impl<I> ItemTableSnapshot<I>
     {
         Self{ m: self.m.remove(item_addr) }
     }
-
 }
 
 #[verifier::ext_equal]
