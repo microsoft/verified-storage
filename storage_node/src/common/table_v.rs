@@ -111,6 +111,25 @@ impl TableMetadata
             lemma_mul_basics(self.row_size as int);
         }
     }
+
+    pub proof fn lemma_index_addr_inverse(self)
+        requires
+            self.valid(),
+        ensures
+            forall |addr: u64| self.validate_row_addr(addr) ==> {
+                let row = self.row_addr_to_index(addr);
+                addr == self.spec_row_index_to_addr(row)
+            },
+            forall |i: int| 0 <= i < self.num_rows ==> {
+                let addr = #[trigger] self.spec_row_index_to_addr(i);
+                i == self.row_addr_to_index(addr)
+            },
+    {
+        assert forall |i: int| 0 <= i < self.num_rows implies {
+            let addr = #[trigger] self.spec_row_index_to_addr(i);
+            i == self.row_addr_to_index(addr)
+        } by { lemma_row_index_to_addr_is_valid(self, i); }
+    }
 }
 
 pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, addr: u64)
@@ -171,6 +190,8 @@ pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_i
        lemma_fundamental_div_mod_converse(addr - tm.start, tm.row_size as int, row_index, 0);
     }
 }
+
+
 
 pub broadcast group group_validate_row_addr {
     broadcast_validate_row_addr_effects,

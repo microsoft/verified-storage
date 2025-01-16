@@ -128,13 +128,8 @@ impl<PM, I> ItemTable<PM, I>
             broadcast use group_validate_row_addr;
 
             assert(item_table_snapshot.m.dom() == item_addrs@);
-            assert(pending_deallocations@.to_set() == Set::<u64>::empty());
             assert(free_list@.to_set() + pending_deallocations@.to_set() == free_list@.to_set());
             assert(free_list@.to_set().intersect(pending_deallocations@.to_set()) == Set::<u64>::empty());
-
-            assert(free_list@.to_set() + item_table_snapshot.m.dom() ==
-                free_list@.to_set() + pending_deallocations@.to_set() + item_table_snapshot.m.dom());
-
 
             // making a sequence then a set is a little janky, but it's much easier than using Set::new and
             // trying to prove that the resulting set is finite
@@ -142,23 +137,11 @@ impl<PM, I> ItemTable<PM, I>
             let all_addrs = all_addrs_seq.to_set();
 
             assert(free_list@.to_set() + item_addrs@ =~= all_addrs) by {
-                // triggers?
-                assert(forall |addr: u64| all_addrs.contains(addr) ==>
-                    exists |row: int| sm.table.spec_row_index_to_addr(row) == addr);
-
-                // TODO @hayley
-                // i think this is true
-                assert(forall |addr: u64| #[trigger] all_addrs.contains(addr) <==>
-                    sm.table.validate_row_addr(addr));
-
-                // assert forall |addr: u64| (free_list@.to_set() + item_addrs@).contains(addr) implies
-                //     #[trigger] all_addrs.contains(addr)
-                // by {
-                //     // assert(sm.table.validate_row_addr(addr));
-                // }
-
-                // assert(forall |addr: u64| (free_list@.to_set() + item_addrs@).contains(addr) <==>
-                //     #[trigger] all_addrs.contains(addr));
+                sm.table.lemma_index_addr_inverse();
+                assert(forall |row: int| 0 <= row < sm.table.num_rows ==> {
+                    let addr = #[trigger] sm.table.spec_row_index_to_addr(row);
+                    all_addrs_seq[row] == addr
+                });
             }
         }
 
