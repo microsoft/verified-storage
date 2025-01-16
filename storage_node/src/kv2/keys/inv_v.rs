@@ -454,7 +454,7 @@ impl<K> KeyInternalView<K>
         }
     }
 
-    pub(super) open spec fn apply_undo_record_list(self, records: Seq<KeyUndoRecord<K>>) -> Option<Self>
+    pub(super) open spec fn apply_undo_records(self, records: Seq<KeyUndoRecord<K>>) -> Option<Self>
         decreases
             records.len()
     {
@@ -463,7 +463,7 @@ impl<K> KeyInternalView<K>
         }
         else {
             match self.apply_undo_record(records.last()) {
-                Some(new_self) => new_self.apply_undo_record_list(records.drop_last()),
+                Some(new_self) => new_self.apply_undo_records(records.drop_last()),
                 None => None,
             }
         }
@@ -482,7 +482,7 @@ impl<K> KeyInternalView<K>
         &&& self.valid()
         &&& self.consistent_with_state(jv.commit_state)
         &&& self.consistent_with_journaled_addrs(jv.journaled_addrs)
-        &&& self.apply_undo_record_list(undo_records) matches Some(undone_self)
+        &&& self.apply_undo_records(undo_records) matches Some(undone_self)
         &&& undone_self.valid()
         &&& undone_self.consistent_with_state(jv.durable_state)
     }
@@ -500,10 +500,10 @@ pub(super) broadcast proof fn broadcast_undo_record_list_preserves_sm<K>(
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
     requires
-        #[trigger] v.apply_undo_record_list(records) is Some,
+        #[trigger] v.apply_undo_records(records) is Some,
     ensures
-        v.apply_undo_record_list(records).unwrap().sm == v.sm,
-        v.apply_undo_record_list(records).unwrap().memory_mapping.sm == v.memory_mapping.sm,
+        v.apply_undo_records(records).unwrap().sm == v.sm,
+        v.apply_undo_records(records).unwrap().memory_mapping.sm == v.memory_mapping.sm,
     decreases
         records.len(),
 {
