@@ -41,7 +41,7 @@ pub(super) struct ConcreteKeyInfo
 
 #[verifier::ext_equal]
 pub(super) enum KeyUndoRecord<K> {
-    UndoCreate{ row_addr: u64 },
+    UndoCreate{ row_addr: u64, k: K },
     UndoUpdate{ row_addr: u64, former_rm: KeyTableRowMetadata },
     UndoDelete{ row_addr: u64, k: K, rm: KeyTableRowMetadata },
 }
@@ -374,6 +374,7 @@ impl<K> KeyInternalView<K>
 {
     pub(super) open spec fn valid(self) -> bool
     {
+        &&& self.memory_mapping.valid()
         &&& forall|k: K| #[trigger] self.memory_mapping.key_info.contains_key(k) ==> {
             let row_addr = self.memory_mapping.key_info[k];
             &&& self.m.contains_key(k)
@@ -397,59 +398,79 @@ impl<K> KeyInternalView<K>
     pub(super) open spec fn apply_undo_record(self, record: KeyUndoRecord<K>) -> Option<Self>
     {
         match record {
-            KeyUndoRecord::UndoCreate{ row_addr } =>
+            KeyUndoRecord::UndoCreate{ row_addr, k } =>
             {
-                match self.memory_mapping.row_info[row_addr] {
-                    KeyRowDisposition::InHashTable{ k, rm } => {
-                        match self.memory_mapping.undo_create(row_addr, k, rm, self.free_list.len()) {
-                            Some(memory_mapping) => Some(Self{
-                                m: self.m.remove(k),
-                                free_list: self.free_list.push(row_addr),
-                                memory_mapping,
-                                ..self
-                            }),
-                            None => None,
-                        }
-                    },
-                    _ => None,
+                if !self.memory_mapping.row_info.contains_key(row_addr) {
+                    None
+                }
+                else {
+                    match self.memory_mapping.row_info[row_addr] {
+                        KeyRowDisposition::InHashTable{ k: k2, rm } => {
+                            if k != k2 {
+                                None
+                            }
+                            else {
+                                match self.memory_mapping.undo_create(row_addr, k, rm, self.free_list.len()) {
+                                    Some(memory_mapping) => Some(Self{
+                                        m: self.m.remove(k),
+                                        free_list: self.free_list.push(row_addr),
+                                        memory_mapping,
+                                        ..self
+                                    }),
+                                    None => None,
+                                }
+                            }
+                        },
+                        _ => None,
+                    }
                 }
             },
             KeyUndoRecord::UndoUpdate{ row_addr, former_rm } =>
             {
-                match self.memory_mapping.row_info[row_addr] {
-                    KeyRowDisposition::InHashTable{ k, rm } => {
-                        match self.memory_mapping.undo_update(row_addr, k, former_rm) {
-                            Some(memory_mapping) => Some(Self{
-                                m: self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm }),
-                                memory_mapping,
-                                ..self
-                            }),
-                            None => None,
-                        }
-                    },
-                    _ => None,
+                if !self.memory_mapping.row_info.contains_key(row_addr) {
+                    None
                 }
-            },
-            KeyUndoRecord::UndoDelete{ row_addr, k, rm } =>
-            {
-                match self.memory_mapping.row_info[row_addr] {
-                    KeyRowDisposition::InPendingDeallocationList{ pos } => {
-                        if pos + 1 != self.pending_deallocations.len() {
-                            None
-                        }
-                        else {
-                            match self.memory_mapping.undo_delete(row_addr, k, rm) {
+                else {
+                    match self.memory_mapping.row_info[row_addr] {
+                        KeyRowDisposition::InHashTable{ k, rm } => {
+                            match self.memory_mapping.undo_update(row_addr, k, former_rm) {
                                 Some(memory_mapping) => Some(Self{
-                                    m: self.m.remove(k),
-                                    pending_deallocations: self.pending_deallocations.drop_last(),
+                                    m: self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm }),
                                     memory_mapping,
                                     ..self
                                 }),
                                 None => None,
                             }
-                        }
-                    },
-                    _ => None,
+                        },
+                        _ => None,
+                    }
+                }
+            },
+            KeyUndoRecord::UndoDelete{ row_addr, k, rm } =>
+            {
+                if !self.memory_mapping.row_info.contains_key(row_addr) {
+                    None
+                }
+                else {
+                    match self.memory_mapping.row_info[row_addr] {
+                        KeyRowDisposition::InPendingDeallocationList{ pos } => {
+                            if pos + 1 != self.pending_deallocations.len() {
+                                None
+                            }
+                            else {
+                                match self.memory_mapping.undo_delete(row_addr, k, rm) {
+                                    Some(memory_mapping) => Some(Self{
+                                        m: self.m.remove(k),
+                                        pending_deallocations: self.pending_deallocations.drop_last(),
+                                        memory_mapping,
+                                        ..self
+                                    }),
+                                    None => None,
+                                }
+                            }
+                        },
+                        _ => None,
+                    }
                 }
             },
         }

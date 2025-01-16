@@ -15,12 +15,14 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
+use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
 use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+use vstd::std_specs::hash::*;
 
 verus! {
 
@@ -42,16 +44,28 @@ impl<PM, K> KeyTable<PM, K>
             self.status == old(self).status,
             self.must_abort == old(self).must_abort,
             self.sm == old(self).sm,
-            self.undo_records@ == old(self).undo_records@.drop_last(),
+            self.undo_records@ == old(self).undo_records@.drop_last(),    
     {
+        broadcast use broadcast_undo_records_preserves_sm;
+
         let undo_record = self.undo_records.pop().unwrap();
         assert(self.internal_view().apply_undo_record(undo_record) is Some);
+        broadcast use group_hash_axioms;
         match undo_record {
-            KeyUndoRecord::UndoCreate{ row_addr } => {},
-            KeyUndoRecord::UndoUpdate{ row_addr, former_rm } => {},
-            KeyUndoRecord::UndoDelete{ row_addr, k, rm } => {},
+            KeyUndoRecord::UndoCreate{ row_addr, k } => {
+                let ghost rm = self.memory_mapping@.row_info[row_addr]->rm;
+                self.memory_mapping =
+                    Ghost(self.memory_mapping@.undo_create(row_addr, k, rm, self.free_list@.len()).unwrap());
+                self.m.remove(&k);
+                self.free_list.push(row_addr);
+            },
+            KeyUndoRecord::UndoUpdate{ row_addr, former_rm } => { assume(false); }, // TODO @jay
+            KeyUndoRecord::UndoDelete{ row_addr, k, rm } => { assume(false); }, // TODO @jay
         };
-        assume(false); // TODO @jay
+
+        assert(old(self).internal_view().apply_undo_record(undo_record) == Some(self.internal_view()));
+        assert(self.internal_view().apply_undo_records(self.undo_records@) ==
+               old(self).internal_view().apply_undo_records(old(self).undo_records@));
     }
         
     exec fn apply_all_undo_records(
