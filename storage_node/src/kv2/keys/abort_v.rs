@@ -46,8 +46,6 @@ impl<PM, K> KeyTable<PM, K>
             self.sm == old(self).sm,
             self.undo_records@ == old(self).undo_records@.drop_last(),    
     {
-        broadcast use broadcast_undo_records_preserves_sm;
-
         let undo_record = self.undo_records.pop().unwrap();
         assert(self.internal_view().apply_undo_record(undo_record) is Some);
         broadcast use group_hash_axioms;

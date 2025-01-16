@@ -363,7 +363,6 @@ impl<K> KeyMemoryMapping<K>
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub(super) struct KeyInternalView<K> {
-    pub sm: KeyTableStaticMetadata,
     pub m: Map<K, ConcreteKeyInfo>,
     pub free_list: Seq<u64>,
     pub pending_deallocations: Seq<u64>,
@@ -374,9 +373,9 @@ impl<K> KeyInternalView<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub(super) open spec fn valid(self) -> bool
+    pub(super) open spec fn valid(self, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.memory_mapping.valid(self.sm)
+        &&& self.memory_mapping.valid(sm)
         &&& forall|k: K| #[trigger] self.memory_mapping.key_info.contains_key(k) ==> {
             let row_addr = self.memory_mapping.key_info[k];
             &&& self.m.contains_key(k)
@@ -388,12 +387,16 @@ impl<K> KeyInternalView<K>
         &&& forall|k: K| #[trigger] self.m.contains_key(k) ==> self.memory_mapping.key_info.contains_key(k)
     }
 
-    pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>) -> bool
+    pub(super) open spec fn consistent_with_journaled_addrs(
+        self,
+        journaled_addrs: Set<int>,
+        sm: KeyTableStaticMetadata
+    ) -> bool
     {
         &&& forall|i: int, addr: int| #![trigger self.free_list[i], journaled_addrs.contains(addr)] {
             let row_addr = self.free_list[i];
             &&& 0 <= i < self.free_list.len()
-            &&& row_addr <= addr < row_addr + self.sm.table.row_size
+            &&& row_addr <= addr < row_addr + sm.table.row_size
         } ==> !journaled_addrs.contains(addr)
     }
 
@@ -493,51 +496,35 @@ impl<K> KeyInternalView<K>
         }
     }
 
-    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>) -> bool
+    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.memory_mapping.valid(self.sm)
-        &&& self.memory_mapping.consistent_with_state(s, self.sm)
-        &&& self.memory_mapping.consistent_with_free_list_and_pending_deallocations(self.free_list, self.pending_deallocations)
+        &&& self.memory_mapping.valid(sm)
+        &&& self.memory_mapping.consistent_with_state(s, sm)
+        &&& self.memory_mapping.consistent_with_free_list_and_pending_deallocations(self.free_list,
+                                                                                  self.pending_deallocations)
     }
 
-    pub(super) open spec fn consistent_with_journal(self, jv: JournalView) -> bool
+    pub(super) open spec fn consistent_with_journal(self, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.consistent_with_state(jv.commit_state)
-        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs)
+        &&& self.consistent_with_state(jv.commit_state, sm)
+        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs, sm)
     }
 
     pub(super) open spec fn consistent_with_journal_after_undo(
         self,
         undo_records: Seq<KeyUndoRecord<K>>,
-        jv: JournalView
+        jv: JournalView,
+        sm: KeyTableStaticMetadata,
     ) -> bool
     {
         &&& self.apply_undo_records(undo_records) matches Some(undone_self)
-        &&& undone_self.valid()
-        &&& undone_self.consistent_with_state(jv.durable_state)
+        &&& undone_self.valid(sm)
+        &&& undone_self.consistent_with_state(jv.durable_state, sm)
     }
 
     pub(super) open spec fn as_snapshot(self) -> KeyTableSnapshot<K>
     {
         self.memory_mapping.as_snapshot()
-    }
-}
-
-pub(super) broadcast proof fn broadcast_undo_records_preserves_sm<K>(
-    v: KeyInternalView<K>,
-    records: Seq<KeyUndoRecord<K>>,
-)
-    where
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-    requires
-        #[trigger] v.apply_undo_records(records) is Some,
-    ensures
-        v.apply_undo_records(records).unwrap().sm == v.sm,
-    decreases
-        records.len(),
-{
-    if records.len() > 0 {
-        broadcast_undo_records_preserves_sm(v.apply_undo_record(records.last()).unwrap(), records.drop_last());
     }
 }
 
@@ -549,7 +536,6 @@ impl<PM, K> KeyTable<PM, K>
     pub(super) open spec fn internal_view(self) -> KeyInternalView<K>
     {
         KeyInternalView::<K>{
-            sm: self.sm,
             m: self.m@,
             free_list: self.free_list@,
             pending_deallocations: self.pending_deallocations@,
@@ -563,9 +549,9 @@ impl<PM, K> KeyTable<PM, K>
         &&& self.sm.valid::<K>()
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
-        &&& self.internal_view().valid()
-        &&& !(self.status@ is Undoing) ==> self.internal_view().consistent_with_journal(jv)
-        &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv)
+        &&& self.internal_view().valid(self.sm)
+        &&& !(self.status@ is Undoing) ==> self.internal_view().consistent_with_journal(jv, self.sm)
+        &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv, self.sm)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
         &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.pending_deallocations@[i])
@@ -583,7 +569,6 @@ impl<PM, K> KeyTable<PM, K>
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use pmcopy_axioms;
         broadcast use group_validate_row_addr;
-        broadcast use broadcast_undo_records_preserves_sm;
         assert(self.valid(new_jv));
     }
 
