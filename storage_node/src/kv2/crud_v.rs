@@ -245,6 +245,86 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         Ok(())
     }
+
+    // This function performs a tentative update to the item of the specified key 
+    // as part of an ongoing transaction.
+    pub exec fn untrusted_update_item(
+        &mut self,
+        key: &K,
+        new_item: &I,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError>)
+        requires 
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+        ensures 
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.tentative.update_item(*key, *new_item) matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                    &&& self@.durable == old(self)@.durable
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@.abort()
+                    &&& !self@.pm_constants.impervious_to_corruption()
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@.abort()
+                    // TODO
+                },
+                Err(e) => {
+                    &&& old(self)@.tentative.update_item(*key, *new_item) matches Err(e_spec)
+                    &&& e_spec == e
+                    &&& self@ == old(self)@
+                },
+            }
+    {
+        proof {
+            self.keys.lemma_valid_implications(self.journal@);
+        }
+
+        let (key_addr, rm) = match self.keys.read(key, Ghost(self.journal@)) {
+            Some(info) => info,
+            None => { return Err(KvError::KeyNotFound); },
+        };
+
+        self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
+
+        let ghost self_before_item_create = self.lemma_prepare_for_item_table_update(perm);
+        let result = self.items.create(new_item, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_item_table_update(self_before_item_create); }
+
+        let item_addr = match result {
+            Ok(i) => i,
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        let ghost self_before_key_update = self.lemma_prepare_for_key_table_update(perm);
+        let result = self.keys.update_item(key, key_addr, item_addr, rm.list_addr, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_key_table_update(self_before_key_update); }
+
+        match result {
+            Ok(()) => {},
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        }
+
+        self.status = Ghost(KvStoreStatus::Quiescent);
+
+        assert(self@.tentative =~= old(self)@.tentative.update_item(*key, *new_item).unwrap());
+        Ok(())
+    }
 }
     
 }
