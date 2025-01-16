@@ -61,8 +61,8 @@ impl<K> KeyTableSnapshot<K>
             let rm = self.key_info[k];
             &&& self.item_info.contains_key(rm.item_addr)
             &&& self.item_info[rm.item_addr] == k
-            &&& self.list_info.contains_key(rm.list_addr)
-            &&& self.list_info[rm.list_addr] == k
+            &&& rm.list_addr != 0 ==> self.list_info.contains_key(rm.list_addr)
+            &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == k
         }
     }
 
@@ -77,6 +77,7 @@ impl<K> KeyTableSnapshot<K>
 
     pub open spec fn list_info_valid(self) -> bool
     {
+        &&& !self.list_info.contains_key(0)
         &&& forall|addr: u64| #[trigger] self.list_info.contains_key(addr) ==> {
             let k = self.list_info[addr];
             &&& self.key_info.contains_key(k)
