@@ -69,7 +69,7 @@ impl<PM, K> KeyTable<PM, K>
 
         let mut m = HashMap::<K, ConcreteKeyInfo>::new();
         let mut free_list = Vec::<u64>::new();
-        let ghost mut memory_mapping = KeyMemoryMapping::<K>::new(*sm);
+        let ghost mut memory_mapping = KeyMemoryMapping::<K>::new();
         let mut item_addrs = HashSet::<u64>::new();
         let mut list_addrs = HashSet::<u64>::new();
 
@@ -118,9 +118,8 @@ impl<PM, K> KeyTable<PM, K>
                 },
                 forall|any_row_addr: u64| #[trigger] memory_mapping.row_info.contains_key(any_row_addr) ==>
                     0 <= sm.table.row_addr_to_index(any_row_addr) < row_index,
-                memory_mapping.sm == sm,
-                memory_mapping.consistent(),
-                memory_mapping.consistent_with_state(journal@.read_state),
+                memory_mapping.consistent(*sm),
+                memory_mapping.consistent_with_state(journal@.read_state, *sm),
                 memory_mapping.consistent_with_free_list_and_pending_deallocations(free_list@, Seq::<u64>::empty()),
                 memory_mapping.consistent_with_hash_table(m@),
                 forall|i: int| #![trigger free_list@[i]] 0 <= i < free_list@.len() ==> {

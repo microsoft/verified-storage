@@ -68,7 +68,6 @@ impl<K> KeyRowDisposition<K>
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub(super) struct KeyMemoryMapping<K> {
-    pub sm: KeyTableStaticMetadata,
     pub row_info: Map<u64, KeyRowDisposition<K>>,
     pub key_info: Map<K, u64>,
     pub item_info: Map<u64, u64>,
@@ -79,10 +78,9 @@ impl<K> KeyMemoryMapping<K>
     where
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
 {
-    pub(super) open spec fn new(sm: KeyTableStaticMetadata) -> Self
+    pub(super) open spec fn new() -> Self
     {
         Self{
-            sm,
             row_info: Map::<u64, KeyRowDisposition<K>>::empty(),
             key_info: Map::<K, u64>::empty(),
             item_info: Map::<u64, u64>::empty(),
@@ -90,7 +88,11 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn corresponds_to_snapshot_at_addr(self, m: KeyRecoveryMapping<K>, row_addr: u64) -> bool
+    pub(super) open spec fn corresponds_to_snapshot_at_addr(
+        self,
+        m: KeyRecoveryMapping<K>,
+        row_addr: u64
+    ) -> bool
     {
         &&& m.row_info.contains_key(row_addr)
         &&& self.row_info.contains_key(row_addr)
@@ -171,18 +173,18 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn complete(self) -> bool
+    pub(super) open spec fn complete(self, sm: KeyTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: u64|
-            #![trigger self.sm.table.validate_row_addr(row_addr)]
+            #![trigger sm.table.validate_row_addr(row_addr)]
             #![trigger self.row_info.contains_key(row_addr)]
-            self.sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+            sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
     }
 
-    pub(super) open spec fn row_info_consistent(self) -> bool
+    pub(super) open spec fn row_info_consistent(self, sm: KeyTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
-            &&& self.sm.table.validate_row_addr(row_addr)
+            &&& sm.table.validate_row_addr(row_addr)
             &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k, rm } ==> {
                     &&& self.key_info.contains_key(k)
                     &&& self.key_info[k] == row_addr
@@ -224,31 +226,31 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn consistent(self) -> bool
+    pub(super) open spec fn consistent(self, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.row_info_consistent()
+        &&& self.row_info_consistent(sm)
         &&& self.key_info_consistent()
         &&& self.item_info_consistent()
         &&& self.list_info_consistent()
     }
 
-    pub(super) open spec fn valid(self) -> bool
+    pub(super) open spec fn valid(self, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& self.complete()
-        &&& self.consistent()
+        &&& self.complete(sm)
+        &&& self.consistent(sm)
     }
 
-    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>) -> bool
+    pub(super) open spec fn consistent_with_state(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
-            let cdb = recover_cdb(s, row_addr + self.sm.row_cdb_start);
+            let cdb = recover_cdb(s, row_addr + sm.row_cdb_start);
             match self.row_info[row_addr] {
                 KeyRowDisposition::InHashTable{ k, rm } => {
                     &&& cdb == Some(true)
-                    &&& recover_object::<K>(s, row_addr + self.sm.row_key_start,
-                                            row_addr + self.sm.row_key_crc_start as u64) == Some(k)
-                    &&& recover_object::<KeyTableRowMetadata>(s, row_addr + self.sm.row_metadata_start,
-                                                                row_addr + self.sm.row_metadata_crc_start) == Some(rm)
+                    &&& recover_object::<K>(s, row_addr + sm.row_key_start,
+                                            row_addr + sm.row_key_crc_start as u64) == Some(k)
+                    &&& recover_object::<KeyTableRowMetadata>(s, row_addr + sm.row_metadata_start,
+                                                                row_addr + sm.row_metadata_crc_start) == Some(rm)
                 },
                 _ => cdb == Some(false),
             }
@@ -374,7 +376,7 @@ impl<K> KeyInternalView<K>
 {
     pub(super) open spec fn valid(self) -> bool
     {
-        &&& self.memory_mapping.valid()
+        &&& self.memory_mapping.valid(self.sm)
         &&& forall|k: K| #[trigger] self.memory_mapping.key_info.contains_key(k) ==> {
             let row_addr = self.memory_mapping.key_info[k];
             &&& self.m.contains_key(k)
@@ -493,8 +495,8 @@ impl<K> KeyInternalView<K>
 
     pub(super) open spec fn consistent_with_state(self, s: Seq<u8>) -> bool
     {
-        &&& self.memory_mapping.valid()
-        &&& self.memory_mapping.consistent_with_state(s)
+        &&& self.memory_mapping.valid(self.sm)
+        &&& self.memory_mapping.consistent_with_state(s, self.sm)
         &&& self.memory_mapping.consistent_with_free_list_and_pending_deallocations(self.free_list, self.pending_deallocations)
     }
 
@@ -531,7 +533,6 @@ pub(super) broadcast proof fn broadcast_undo_records_preserves_sm<K>(
         #[trigger] v.apply_undo_records(records) is Some,
     ensures
         v.apply_undo_records(records).unwrap().sm == v.sm,
-        v.apply_undo_records(records).unwrap().memory_mapping.sm == v.memory_mapping.sm,
     decreases
         records.len(),
 {
@@ -562,7 +563,6 @@ impl<PM, K> KeyTable<PM, K>
         &&& self.sm.valid::<K>()
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
-        &&& self.memory_mapping@.sm == self.sm
         &&& self.internal_view().valid()
         &&& !(self.status@ is Undoing) ==> self.internal_view().consistent_with_journal(jv)
         &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv)
