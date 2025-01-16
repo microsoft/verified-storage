@@ -54,7 +54,7 @@ impl<PM, K> KeyTable<PM, K>
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use group_validate_row_addr;
-        broadcast use broadcast_undo_record_list_preserves_sm;
+        broadcast use broadcast_undo_records_preserves_sm;
 
         assert(self.valid(jv_after_commit@));
         assert(self@ =~= (KeyTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));

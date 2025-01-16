@@ -29,6 +29,7 @@ verus! {
 #[verifier::ext_equal]
 pub(super) enum KeyTableStatus {
     Quiescent,
+    Undoing,
 }
 
 #[verifier::ext_equal]
@@ -476,12 +477,18 @@ impl<K> KeyInternalView<K>
         &&& self.memory_mapping.consistent_with_free_list_and_pending_deallocations(self.free_list, self.pending_deallocations)
     }
 
-
-    pub(super) open spec fn consistent_with_journal(self, undo_records: Seq<KeyUndoRecord<K>>, jv: JournalView) -> bool
+    pub(super) open spec fn consistent_with_journal(self, jv: JournalView) -> bool
     {
-        &&& self.valid()
         &&& self.consistent_with_state(jv.commit_state)
         &&& self.consistent_with_journaled_addrs(jv.journaled_addrs)
+    }
+
+    pub(super) open spec fn consistent_with_journal_after_undo(
+        self,
+        undo_records: Seq<KeyUndoRecord<K>>,
+        jv: JournalView
+    ) -> bool
+    {
         &&& self.apply_undo_records(undo_records) matches Some(undone_self)
         &&& undone_self.valid()
         &&& undone_self.consistent_with_state(jv.durable_state)
@@ -493,7 +500,7 @@ impl<K> KeyInternalView<K>
     }
 }
 
-pub(super) broadcast proof fn broadcast_undo_record_list_preserves_sm<K>(
+pub(super) broadcast proof fn broadcast_undo_records_preserves_sm<K>(
     v: KeyInternalView<K>,
     records: Seq<KeyUndoRecord<K>>,
 )
@@ -508,7 +515,7 @@ pub(super) broadcast proof fn broadcast_undo_record_list_preserves_sm<K>(
         records.len(),
 {
     if records.len() > 0 {
-        broadcast_undo_record_list_preserves_sm(v.apply_undo_record(records.last()).unwrap(), records.drop_last());
+        broadcast_undo_records_preserves_sm(v.apply_undo_record(records.last()).unwrap(), records.drop_last());
     }
 }
 
@@ -535,7 +542,10 @@ impl<PM, K> KeyTable<PM, K>
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.memory_mapping@.sm == self.sm
-        &&& self.internal_view().consistent_with_journal(self.undo_records@, jv)
+        &&& self.internal_view().valid()
+        &&& self.internal_view().consistent_with_journal(jv)
+        &&& !(self.status@ is Undoing) ==>
+            self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
         &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.pending_deallocations@[i])
@@ -553,7 +563,7 @@ impl<PM, K> KeyTable<PM, K>
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use pmcopy_axioms;
         broadcast use group_validate_row_addr;
-        broadcast use broadcast_undo_record_list_preserves_sm;
+        broadcast use broadcast_undo_records_preserves_sm;
         assert(self.valid(new_jv));
     }
 

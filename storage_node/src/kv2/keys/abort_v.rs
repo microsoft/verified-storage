@@ -29,20 +29,66 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn abort(
+    exec fn apply_last_undo_record(
         &mut self,
-        jv_before_abort: Ghost<JournalView>,
-        jv_after_abort: Ghost<JournalView>,
+        Ghos(jv): Ghost<JournalView>,
     )
         requires
-            old(self).valid(jv_before_abort@),
-            jv_before_abort@.valid(),
-            jv_after_abort@.valid(),
-            jv_after_abort == jv_before_abort@.abort(),
+            old(self).inv(jv),
+            old(self).status@ is Undoing,
+            old(self).undo_records@.len() > 0,
         ensures
-            self.valid(jv_after_abort@),
+            self.inv(jv),
+            self.status == old(self).status,
+            self.must_abort == old(self).must_abort,
+            self.sm == old(self).sm,
+            self.undo_records@ == old(self).undo_records@.drop_last(),
+    {
+        let undo_record = self.undo_records.pop();
+        assume(false); // TODO @jay
+    }
+        
+    exec fn apply_all_undo_records(
+        &mut self,
+        Ghost(jv): Ghost<JournalView>,
+    )
+        requires
+            old(self).inv(jv),
+            old(self).status@ is Undoing,
+        ensures
+            self.inv(jv),
+            self.status == old(self).status,
+            self.must_abort == old(self).must_abort,
+            self.sm == old(self).sm,
+            self.undo_records@.len() == 0,
+    {
+        while self.undo_records.len() > 0
+            invariant
+                self.inv(jv),
+                self.status@ is Undoing,
+                self.must_abort == old(self).must_abort,
+                self.sm == old(self).sm,
+        {
+            self.apply_last_undo_record(Ghost(jv));
+        }
+    }
+    
+    pub exec fn abort(
+        &mut self,
+        Ghost(jv_before_abort): Ghost<JournalView>,
+        Ghost(jv_after_abort): Ghost<JournalView>,
+    )
+        requires
+            old(self).valid(jv_before_abort),
+            jv_before_abort.valid(),
+            jv_after_abort.valid(),
+            jv_after_abort == jv_before_abort.abort(),
+        ensures
+            self.valid(jv_after_abort),
             self@ == (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
     {
+        self.status = Ghost(KeyTableStatus::Undoing);
+        self.apply_all_undo_records(Ghost(jv_before_abort));
         // Play back the undo list from back to front
         assume(false); // unimplemented
     }
