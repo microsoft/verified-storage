@@ -47,8 +47,9 @@ impl<PM, K> KeyTable<PM, K>
             self.sm == old(self).sm,
             self.undo_records@ == old(self).undo_records@.drop_last(),    
     {
-        let undo_record = self.undo_records.pop().unwrap();
         broadcast use group_hash_axioms;
+
+        let undo_record = self.undo_records.pop().unwrap();
         match undo_record {
             KeyUndoRecord::UndoCreate{ row_addr, k } => {
                 let ghost rm = self.memory_mapping@.row_info[row_addr]->rm;
@@ -56,18 +57,21 @@ impl<PM, K> KeyTable<PM, K>
                     Ghost(self.memory_mapping@.undo_create(row_addr, k, rm, self.free_list@.len()).unwrap());
                 self.m.remove(&k);
                 self.free_list.push(row_addr);
-                assert(old(self).internal_view().apply_undo_record(undo_record) =~= Some(self.internal_view()));
             },
             KeyUndoRecord::UndoUpdate{ row_addr, k, former_rm } => {
                 self.memory_mapping =
                     Ghost(self.memory_mapping@.undo_update(row_addr, k, former_rm).unwrap());
                 self.m.insert(k, ConcreteKeyInfo{ row_addr, rm: former_rm });
-                assert(old(self).internal_view().apply_undo_record(undo_record) =~= Some(self.internal_view()));
             },
-            KeyUndoRecord::UndoDelete{ row_addr, k, rm } => { assume(false); }, // TODO @jay
+            KeyUndoRecord::UndoDelete{ row_addr, k, rm } => {
+                self.memory_mapping =
+                    Ghost(self.memory_mapping@.undo_delete(row_addr, k, rm).unwrap());
+                self.m.remove(&k);
+                let _ = self.pending_deallocations.pop();
+            },
         };
 
-        assert(old(self).internal_view().apply_undo_record(undo_record) == Some(self.internal_view()));
+        assert(old(self).internal_view().apply_undo_record(undo_record) =~= Some(self.internal_view()));
         assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
                old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm));
     }
