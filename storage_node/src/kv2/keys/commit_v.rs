@@ -44,8 +44,20 @@ impl<PM, K> KeyTable<PM, K>
             self.valid(jv_after_commit@),
             self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
     {
+        // Delete all the undo records, and move everything in the pending deallocations
+        // list to the free list.
+
         self.undo_records.clear();
-        assume(self.valid(jv_after_commit@)); // TODO @jay
+        self.memory_mapping =
+            Ghost(self.memory_mapping@.move_pending_deallocations_to_free_list(self.free_list@.len()));
+        self.free_list.append(&mut self.pending_deallocations);
+
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_undo_record_list_preserves_sm;
+
+        assert(self.valid(jv_after_commit@));
+        assert(self@ =~= (KeyTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));
     }
 }
 

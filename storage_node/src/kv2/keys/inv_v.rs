@@ -52,6 +52,18 @@ pub(super) enum KeyRowDisposition<K> {
     InPendingDeallocationList{ pos: nat },
 }
 
+impl<K> KeyRowDisposition<K>
+{
+    pub(super) open spec fn move_to_free_list_if_pending_deallocation(self, free_list_len: nat) -> Self
+    {
+        match self {
+            KeyRowDisposition::<K>::InPendingDeallocationList{ pos } =>
+                KeyRowDisposition::<K>::InFreeList{ pos: pos + free_list_len },
+            _ => self,
+        }
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub(super) struct KeyMemoryMapping<K> {
@@ -102,6 +114,15 @@ impl<K> KeyMemoryMapping<K>
     {
         Self{
             row_info: self.row_info.insert(row_addr, KeyRowDisposition::InFreeList{ pos }),
+            ..self
+        }
+    }
+
+    pub(super) open spec fn move_pending_deallocations_to_free_list(self, free_list_len: nat) -> Self
+    {
+        Self{
+            row_info: self.row_info.map_values(|krd: KeyRowDisposition<K>|
+                                               krd.move_to_free_list_if_pending_deallocation(free_list_len)),
             ..self
         }
     }
@@ -516,6 +537,8 @@ impl<PM, K> KeyTable<PM, K>
         &&& self.memory_mapping@.sm == self.sm
         &&& self.internal_view().consistent_with_journal(self.undo_records@, jv)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
+        &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
+            self.sm.table.validate_row_addr(#[trigger] self.pending_deallocations@[i])
     }
 
     pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)
