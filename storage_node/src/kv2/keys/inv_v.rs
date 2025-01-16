@@ -218,6 +218,7 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn list_info_consistent(self) -> bool
     {
+        &&& !self.list_info.contains_key(0)
         &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==> {
             let row_addr = self.list_info[list_addr];
             &&& self.row_info.contains_key(row_addr)
@@ -581,7 +582,15 @@ impl<PM, K> KeyTable<PM, K>
             Self::recover(jv.durable_state, self@.sm) == Some(self@.durable),
             self@.tentative is Some ==> Self::recover(jv.commit_state, self@.sm) == self@.tentative,
     {
-        assume(false);
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use pmcopy_axioms;
+        broadcast use group_validate_row_addr;
+        assume(Self::recover(jv.durable_state, self@.sm) is Some); // TODO @jay
+        assert(Self::recover(jv.durable_state, self@.sm) =~= Some(self@.durable));
+        if self@.tentative is Some {
+            assume(Self::recover(jv.commit_state, self@.sm) is Some); // TODO @jay
+            assert(Self::recover(jv.commit_state, self@.sm) =~= self@.tentative);
+        }
     }
 
 }
