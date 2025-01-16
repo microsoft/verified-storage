@@ -521,6 +521,7 @@ impl<K> KeyInternalView<K>
         &&& self.apply_undo_records(undo_records) matches Some(undone_self)
         &&& undone_self.valid(sm)
         &&& undone_self.consistent_with_state(jv.durable_state, sm)
+        &&& undone_self.pending_deallocations == Seq::<u64>::empty()
     }
 
     pub(super) open spec fn as_snapshot(self) -> KeyTableSnapshot<K>

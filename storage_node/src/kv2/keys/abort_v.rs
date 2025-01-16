@@ -108,8 +108,14 @@ impl<PM, K> KeyTable<PM, K>
     {
         self.status = Ghost(KeyTableStatus::Undoing);
         self.apply_all_undo_records(Ghost(jv_before_abort));
-        // Play back the undo list from back to front
-        assume(false); // unimplemented
+        self.status = Ghost(KeyTableStatus::Quiescent);
+        self.must_abort = Ghost(false);
+
+        // There's no need to empty the pending deallocations list because
+        // applying the undo records emptied it.
+        assert(self.pending_deallocations@ == Seq::<u64>::empty());
+
+        assert(self@ =~= (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }));
     }
 }
 
