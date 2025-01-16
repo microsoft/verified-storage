@@ -1,0 +1,33 @@
+pub struct TableMetadata {
+    start: u64,
+    num_rows: u64,
+    row_size: u64,
+}
+
+impl TableMetadata {
+    pub fn new(start: u64, num_rows: u64, row_size: u64) -> Self {
+        Self {
+            start,
+            num_rows,
+            row_size,
+        }
+    }
+
+    pub fn validate_addr(&self, addr: u64) -> bool {
+        self.start <= addr && addr < (self.start + (self.num_rows * self.row_size))
+    }
+
+    pub fn row_addr_to_index(&self, addr: u64) -> u64 {
+        (addr - self.start) / self.row_size
+    }
+
+    pub fn row_index_to_addr(&self, index: u64) -> u64 {
+        (index * self.row_size) + self.start
+    }
+}
+
+// methods for list tables of different durable layouts
+pub trait ListTable {
+    fn new(mem_start: u64, mem_size: u64) -> Self;
+    fn allocate_row(&mut self) -> Option<u64>;
+}
