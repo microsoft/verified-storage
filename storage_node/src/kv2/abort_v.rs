@@ -66,6 +66,18 @@ where
     {
         let ghost jv_before_abort = self.journal@;
         self.journal.abort();
+
+        // Calling flush simplifies the reasoning that each component
+        // has to do. It has to keep track of its relation to the
+        // durable state anyway because of the possibility of a crash.
+        // But it might be lazy (from a proof perspective) and not
+        // keep track of its relation to the read state. By flushing,
+        // we let it know that the durable state and the read state
+        // are the same thing. TODO - We could save some performance
+        // by not doing this flush, at the cost of trickier reasoning.
+        // But since aborts are rare, removing this flush is
+        // low-priority for now.
+
         self.journal.flush();
         
         self.keys.abort(Ghost(jv_before_abort), Ghost(self.journal@));
