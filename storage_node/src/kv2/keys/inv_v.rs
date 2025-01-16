@@ -566,10 +566,9 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(new_jv),
     {
-        broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        broadcast use pmcopy_axioms;
         broadcast use group_validate_row_addr;
+
         assert(self.valid(new_jv));
     }
 
@@ -582,13 +581,22 @@ impl<PM, K> KeyTable<PM, K>
             Self::recover(jv.durable_state, self@.sm) == Some(self@.durable),
             self@.tentative is Some ==> Self::recover(jv.commit_state, self@.sm) == self@.tentative,
     {
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        broadcast use pmcopy_axioms;
-        broadcast use group_validate_row_addr;
-        assume(Self::recover(jv.durable_state, self@.sm) is Some); // TODO @jay
+        assert(Self::recover(jv.durable_state, self@.sm) is Some) by {
+            self.internal_view()
+                .apply_undo_records(self.undo_records@)
+                .unwrap()
+                .memory_mapping
+                .as_recovery_mapping()
+                .lemma_corresponds_implies_equals_new(jv.durable_state, self@.sm);
+        }
         assert(Self::recover(jv.durable_state, self@.sm) =~= Some(self@.durable));
+
         if self@.tentative is Some {
-            assume(Self::recover(jv.commit_state, self@.sm) is Some); // TODO @jay
+            assert(Self::recover(jv.commit_state, self@.sm) is Some) by {
+                self.memory_mapping@
+                    .as_recovery_mapping()
+                    .lemma_corresponds_implies_equals_new(jv.commit_state, self@.sm);
+            }
             assert(Self::recover(jv.commit_state, self@.sm) =~= self@.tentative);
         }
     }
