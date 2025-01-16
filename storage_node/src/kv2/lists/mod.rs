@@ -191,14 +191,12 @@ impl<PM, L> ListTable<PM, L>
         OverflowingU64::new(0)
     }
 
-    pub exec fn setup<K>(
+    pub exec fn setup(
         pm: &mut PM,
         ps: &SetupParameters,
         min_start: u64,
         max_end: u64,
-    ) -> (result: Result<ListTableStaticMetadata, KvError<K>>)
-        where
-            K: std::fmt::Debug,
+    ) -> (result: Result<ListTableStaticMetadata, KvError>)
         requires
             old(pm).inv(),
             old(pm)@.valid(),

@@ -69,14 +69,12 @@ impl<PM, I> ItemTable<PM, I>
         assert(Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) =~= Some(ItemTableSnapshot::<I>::init()));
     }
     
-    pub exec fn setup<K>(
+    pub exec fn setup(
         pm: &mut PM,
         ps: &SetupParameters,
         min_start: u64,
         max_end: u64,
-    ) -> (result: Result<ItemTableStaticMetadata, KvError<K>>)
-        where
-            K: std::fmt::Debug,
+    ) -> (result: Result<ItemTableStaticMetadata, KvError>)
         requires
             old(pm).inv(),
             old(pm)@.valid(),

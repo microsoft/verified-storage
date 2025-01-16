@@ -30,9 +30,7 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read<K>(&self, item_addr: u64, jv: Ghost<JournalView>) -> (result: Result<&I, KvError<K>>)
-        where
-            K: std::fmt::Debug,
+    pub exec fn read(&self, item_addr: u64, jv: Ghost<JournalView>) -> (result: Result<&I, KvError>)
         requires
             self.valid(jv@),
             self@.tentative.is_some(),
@@ -44,17 +42,15 @@ impl<PM, I> ItemTable<PM, I>
             }
     {
         assume(false);
-        Err(KvError::<K>::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
-    pub exec fn create<K>(
+    pub exec fn create(
         &mut self,
         item: &I,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<u64, KvError<K>>)
-        where
-            K: std::fmt::Debug,
+    ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
@@ -84,17 +80,15 @@ impl<PM, I> ItemTable<PM, I>
             },
     {
         assume(false);
-        Err(KvError::<K>::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
-    pub exec fn delete<K>(
+    pub exec fn delete(
         &mut self,
         item_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
-        where
-            K: std::fmt::Debug,
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
@@ -123,7 +117,7 @@ impl<PM, I> ItemTable<PM, I>
             }
     {
         assume(false);
-        Err(KvError::<K>::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
 }

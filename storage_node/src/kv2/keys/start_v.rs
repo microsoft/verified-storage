@@ -35,7 +35,7 @@ impl<PM, K> KeyTable<PM, K>
     pub exec fn start(
         journal: &Journal<TrustedKvPermission, PM>,
         sm: &KeyTableStaticMetadata,
-    ) -> (result: Result<(Self, HashSet<u64>, HashSet<u64>), KvError<K>>)
+    ) -> (result: Result<(Self, HashSet<u64>, HashSet<u64>), KvError>)
         requires
             journal.valid(),
             journal.recover_idempotent(),

@@ -38,7 +38,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         kvstore_id: u128,
         Ghost(state): Ghost<AtomicKvStore<K, I, L>>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<Self, KvError<K>>)
+    ) -> (result: Result<Self, KvError>)
         requires
             wrpm.inv(),
             Self::untrusted_recover(wrpm@.durable_state) == Some(state),

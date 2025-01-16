@@ -136,7 +136,7 @@ where
         UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
-    pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
         ensures
             match result {
                 Ok(v) => v == Self::spec_space_needed_for_setup(*ps),
@@ -148,7 +148,7 @@ where
         UntrustedKvStoreImpl::<PM, K, I, L>::space_needed_for_setup(ps)
     }
 
-    pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
+    pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
         requires 
             old(pm).inv(),
         ensures
@@ -169,7 +169,7 @@ where
         UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm, ps)
     }
 
-    pub exec fn start(mut pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError<K>>)
+    pub exec fn start(mut pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError>)
         requires 
             pm.inv(),
             UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_recover(pm@.read_state) is Some,
@@ -210,7 +210,7 @@ where
     pub exec fn read_item(
         &self,
         key: &K,
-    ) -> (result: Result<&I, KvError<K>>)
+    ) -> (result: Result<&I, KvError>)
         requires 
             self.valid(),
         ensures 
@@ -233,7 +233,7 @@ where
         &mut self,
         key: &K,
         item: &I,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
         ensures 
@@ -268,7 +268,7 @@ where
         &mut self,
         key: &K,
         item: &I,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
         ensures 
@@ -302,7 +302,7 @@ where
     pub exec fn delete(
         &mut self,
         key: &K,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
         ensures 
@@ -333,7 +333,7 @@ where
         self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
     }
 
-    pub exec fn abort(&mut self) -> (result: Result<(), KvError<K>>)
+    pub exec fn abort(&mut self) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
         ensures 
@@ -348,7 +348,7 @@ where
         self.untrusted_kv_impl.untrusted_abort(Tracked(&perm))
     }
 
-    pub exec fn commit(&mut self) -> (result: Result<(), KvError<K>>)
+    pub exec fn commit(&mut self) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
         ensures 
@@ -363,7 +363,7 @@ where
         self.untrusted_kv_impl.untrusted_commit(Tracked(&perm))
     }
 
-    pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError<K>>)
+    pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError>)
         requires 
             self.valid(),
         ensures 
@@ -382,7 +382,7 @@ where
     pub exec fn read_item_and_list(
         &self,
         key: &K,
-    ) -> (result: Result<(&I, &Vec<L>), KvError<K>>)
+    ) -> (result: Result<(&I, &Vec<L>), KvError>)
         requires 
             self.valid(),
         ensures 
@@ -402,7 +402,7 @@ where
         self.untrusted_kv_impl.untrusted_read_item_and_list(key)
     }
 
-    pub exec fn read_list(&self, key: &K) -> (result: Result<&Vec<L>, KvError<K>>)
+    pub exec fn read_list(&self, key: &K) -> (result: Result<&Vec<L>, KvError>)
         requires
             self.valid(),
         ensures
@@ -421,7 +421,7 @@ where
         self.untrusted_kv_impl.untrusted_read_list(key)
     }
 
-    pub exec fn read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
+    pub exec fn read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError>)
         requires
             self.valid(),
         ensures
@@ -444,7 +444,7 @@ where
         &mut self,
         key: &K,
         new_list_entry: L,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -471,7 +471,7 @@ where
         key: &K,
         new_list_entry: L,
         new_item: I,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -500,7 +500,7 @@ where
         key: &K,
         idx: usize,
         new_list_entry: L,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -530,7 +530,7 @@ where
         idx: usize,
         new_list_entry: L,
         new_item: I,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -559,7 +559,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -586,7 +586,7 @@ where
         key: &K,
         trim_length: usize,
         new_item: I,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
         ensures

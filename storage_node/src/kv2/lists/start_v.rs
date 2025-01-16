@@ -35,7 +35,7 @@ impl<PM, L> ListTable<PM, L>
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
         list_addrs: &HashSet<u64>,
         sm: &ListTableStaticMetadata,
-    ) -> (result: Result<Self, KvError<K>>)
+    ) -> (result: Result<Self, KvError>)
         where
             K: std::fmt::Debug,
         requires

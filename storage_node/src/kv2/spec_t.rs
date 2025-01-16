@@ -18,9 +18,7 @@ use std::hash::Hash;
 verus! {
 
 #[derive(Debug)]
-pub enum KvError<K>
-where
-    K: std::fmt::Debug,
+pub enum KvError
 {
     NotImplemented,
     InvalidParameter,
@@ -28,7 +26,7 @@ where
     WrongKvStoreId{ requested_id: u128, actual_id: u128 },
     KeyNotFound,
     KeyAlreadyExists,
-    InvalidKey{ key: K },
+    InvalidKey,
     IndexOutOfRange{ upper_bound: usize },
     KeySizeTooSmall,
     KeySizeTooBig,
@@ -155,7 +153,7 @@ where
         }
     }
 
-    pub open spec fn create(self, key: K, item: I) -> Result<Self, KvError<K>>
+    pub open spec fn create(self, key: K, item: I) -> Result<Self, KvError>
     {
         if self.m.contains_key(key) {
             Err(KvError::KeyAlreadyExists)
@@ -168,7 +166,7 @@ where
 
     }
 
-    pub open spec fn read_item(self, key: K) -> Result<I, KvError<K>>
+    pub open spec fn read_item(self, key: K) -> Result<I, KvError>
     {
         if self.m.contains_key(key) {
             Ok(self.m[key].0)
@@ -177,7 +175,7 @@ where
         }
     }
 
-    pub open spec fn read_item_and_list(self, key: K) -> Result<(I, Seq<L>), KvError<K>>
+    pub open spec fn read_item_and_list(self, key: K) -> Result<(I, Seq<L>), KvError>
     {
         if self.m.contains_key(key) {
             Ok(self.m[key])
@@ -186,7 +184,7 @@ where
         }
     }
 
-    pub open spec fn read_list_entry_at_index(self, key: K, idx: nat) -> Result<L, KvError<K>>
+    pub open spec fn read_list_entry_at_index(self, key: K, idx: nat) -> Result<L, KvError>
     {
         if self.m.contains_key(key) {
             let (offset, list) = self.m[key];
@@ -200,7 +198,7 @@ where
         }
     }
 
-    pub open spec fn update_item(self, key: K, new_item: I) -> Result<Self, KvError<K>>
+    pub open spec fn update_item(self, key: K, new_item: I) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((old_item, pages)) => {
@@ -214,7 +212,7 @@ where
 
     }
 
-    pub open spec fn delete(self, key: K) -> Result<Self, KvError<K>>
+    pub open spec fn delete(self, key: K) -> Result<Self, KvError>
     {
         if self.m.contains_key(key) {
             Ok(Self {
@@ -227,7 +225,7 @@ where
 
     }
 
-    pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError<K>>
+    pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((item, list_entries)) => {
@@ -253,7 +251,7 @@ where
     }
 
     pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I)
-                                                    -> Result<Self, KvError<K>>
+                                                    -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((item, list_entries)) => {
@@ -278,7 +276,7 @@ where
         }
     }
 
-    pub open spec fn update_list_entry_at_index(self, key: K, idx: nat, new_list_entry: L) -> Result<Self, KvError<K>>
+    pub open spec fn update_list_entry_at_index(self, key: K, idx: nat, new_list_entry: L) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((item, list_entries)) =>
@@ -306,7 +304,7 @@ where
     }
 
     pub open spec fn update_list_entry_at_index_and_item(self, key: K, idx: nat, new_list_entry: L, new_item: I)
-                                                         -> Result<Self, KvError<K>>
+                                                         -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((item, list_entries)) => {
@@ -334,7 +332,7 @@ where
         }
     }
 
-    pub open spec fn trim_list(self, key: K, trim_length: nat) -> Result<Self, KvError<K>>
+    pub open spec fn trim_list(self, key: K, trim_length: nat) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((item, list_entries)) =>
@@ -352,7 +350,7 @@ where
         }
     }
 
-    pub open spec fn trim_list_and_update_item(self, key: K, trim_length: nat, new_item: I) -> Result<Self, KvError<K>>
+    pub open spec fn trim_list_and_update_item(self, key: K, trim_length: nat, new_item: I) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
             Ok((item, list_entries)) =>

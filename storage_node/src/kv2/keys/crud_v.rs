@@ -59,7 +59,7 @@ impl<PM, K> KeyTable<PM, K>
         item_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -97,7 +97,7 @@ impl<PM, K> KeyTable<PM, K>
         key_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -138,7 +138,7 @@ impl<PM, K> KeyTable<PM, K>
         current_list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -181,7 +181,7 @@ impl<PM, K> KeyTable<PM, K>
         list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -224,7 +224,7 @@ impl<PM, K> KeyTable<PM, K>
         list_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,

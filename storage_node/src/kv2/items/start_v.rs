@@ -34,7 +34,7 @@ impl<PM, I> ItemTable<PM, I>
         journal: &Journal<TrustedKvPermission, PM>,
         item_addrs: &HashSet<u64>,
         sm: &ItemTableStaticMetadata,
-    ) -> (result: Result<Self, KvError<K>>)
+    ) -> (result: Result<Self, KvError>)
         where
             K: std::fmt::Debug,
         requires

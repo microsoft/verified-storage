@@ -36,7 +36,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     pub exec fn untrusted_read_item(
         &self,
         key: &K,
-    ) -> (result: Result<&I, KvError<K>>)
+    ) -> (result: Result<&I, KvError>)
         requires 
             self.valid(),
         ensures
@@ -57,13 +57,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         }
 
         let (_key_addr, row_metadata) = match self.keys.read(key, Ghost(self.journal@)) {
-            None => { return Err(KvError::<K>::KeyNotFound); },
+            None => { return Err(KvError::KeyNotFound); },
             Some(i) => i,
         };
         let item_addr = row_metadata.item_addr;
-        let item = match self.items.read::<K>(item_addr, Ghost(self.journal@)) {
+        let item = match self.items.read(item_addr, Ghost(self.journal@)) {
             Ok(i) => i,
-            Err(_) => { assert(false); return Err(KvError::<K>::KeyNotFound); },
+            Err(_) => { assert(false); return Err(KvError::KeyNotFound); },
         };
         Ok(item)
     }
@@ -73,7 +73,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         key: &K,
         item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -106,14 +106,14 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         }
 
         match self.keys.read(key, Ghost(self.journal@)) {
-            Some(info) => { return Err(KvError::<K>::KeyAlreadyExists); },
+            Some(info) => { return Err(KvError::KeyAlreadyExists); },
             None => {},
         };
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
         let ghost self_before_item_create = self.lemma_prepare_for_item_table_update(perm);
-        let result = self.items.create::<K>(item, &mut self.journal, Tracked(perm));
+        let result = self.items.create(item, &mut self.journal, Tracked(perm));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {

@@ -44,7 +44,7 @@ where
         key: &K,
         new_item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -80,7 +80,7 @@ where
         &mut self,
         key: &K,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -112,7 +112,7 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn untrusted_read_item_and_list(&self, key: &K) -> (result: Result<(&I, &Vec<L>), KvError<K>>)
+    pub exec fn untrusted_read_item_and_list(&self, key: &K) -> (result: Result<(&I, &Vec<L>), KvError>)
         requires
             self.valid(),
         ensures
@@ -133,7 +133,7 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn untrusted_read_list(&self, key: &K) -> (result: Result<&Vec<L>, KvError<K>>)
+    pub exec fn untrusted_read_list(&self, key: &K) -> (result: Result<&Vec<L>, KvError>)
         requires
             self.valid(),
         ensures
@@ -153,7 +153,7 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
+    pub exec fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError>)
         requires
             self.valid()
         ensures
@@ -178,7 +178,7 @@ where
         key: &K,
         new_list_entry: L,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -207,7 +207,7 @@ where
         new_list_entry: L,
         new_item: I,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -238,7 +238,7 @@ where
         idx: usize,
         new_list_entry: L,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -270,7 +270,7 @@ where
         new_list_entry: L,
         new_item: I,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -300,7 +300,7 @@ where
         key: &K,
         trim_length: usize,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -329,7 +329,7 @@ where
         trim_length: usize,
         new_item: I,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
@@ -354,7 +354,7 @@ where
         Err(KvError::NotImplemented)
     }
 
-    pub exec fn untrusted_get_keys(&self) -> (result: Result<Vec<K>, KvError<K>>)
+    pub exec fn untrusted_get_keys(&self) -> (result: Result<Vec<K>, KvError>)
         requires
             self.valid(),
         ensures

@@ -34,7 +34,7 @@ where
     pub exec fn untrusted_commit(
         &mut self, 
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> {

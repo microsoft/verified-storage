@@ -130,7 +130,7 @@ impl<PM, K> KeyTable<PM, K>
         ps: &SetupParameters,
         min_start: u64,
         max_end: u64,
-    ) -> (result: Result<KeyTableStaticMetadata, KvError<K>>)
+    ) -> (result: Result<KeyTableStaticMetadata, KvError>)
         requires
             old(pm).inv(),
             old(pm)@.valid(),

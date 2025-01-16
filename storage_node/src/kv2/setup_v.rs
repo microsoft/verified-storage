@@ -59,7 +59,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         OverflowingU64::new(ps.max_operations_per_transaction).mul_overflowing_u64(&bytes_per_operation)
     }
     
-    pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError<K>>)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
         where
             PM: PersistentMemoryRegion,
             K: Hash + PmCopy + std::fmt::Debug,
@@ -131,7 +131,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(recover_static_metadata::<K, I, L>(pm@.read_state, *jc) =~= Some(*sm));
     }
     
-    pub exec fn untrusted_setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError<K>>)
+    pub exec fn untrusted_setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
         where
             PM: PersistentMemoryRegion,
             K: Hash + PmCopy + std::fmt::Debug,
@@ -186,13 +186,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
         let ghost state_after_key_init = pm@.read_state;
     
-        let item_sm = match ItemTable::<PM, I>::setup::<K>(pm, ps, key_sm.end(), pm_size) {
+        let item_sm = match ItemTable::<PM, I>::setup(pm, ps, key_sm.end(), pm_size) {
             Ok(item_sm) => item_sm,
             Err(e) => { return Err(e); },
         };
         let ghost state_after_item_init = pm@.read_state;
     
-        let list_sm = match ListTable::<PM, L>::setup::<K>(pm, ps, item_sm.end(), pm_size) {
+        let list_sm = match ListTable::<PM, L>::setup(pm, ps, item_sm.end(), pm_size) {
             Ok(list_sm) => list_sm,
             Err(e) => { return Err(e); },
         };

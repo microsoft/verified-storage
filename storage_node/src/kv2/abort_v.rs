@@ -33,7 +33,7 @@ where
     pub exec fn untrusted_abort(
         &mut self,
         Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError<K>>)
+    ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
