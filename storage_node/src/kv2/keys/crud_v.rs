@@ -194,6 +194,7 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
+    /*
     proof fn lemma_writing_to_free_slot_has_permission_later_forall(
         iv: KeyInternalView<K>,
         durable_state1: Seq<u8>,
@@ -249,6 +250,65 @@ impl<PM, K> KeyTable<PM, K>
                                                                     row_addr, start, end);
         }
     }
+    */
+
+    proof fn lemma_writing_to_free_slot_has_permission_later_forall(
+        iv: KeyInternalView<K>,
+        initial_durable_state: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+        constants: JournalConstants,
+        free_list_pos: int,
+        row_addr: u64,
+        tracked perm: &TrustedKvPermission,
+    )
+        requires
+            sm.valid::<K>(),
+            iv.consistent_with_state(initial_durable_state, sm),
+            ({
+                &&& Journal::<TrustedKvPermission, PM>::recover(initial_durable_state) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == initial_durable_state
+            }),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            sm.table.end <= initial_durable_state.len(),
+            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, initial_durable_state, constants, sm)
+                &&& iv.consistent_with_state(current_durable_state, sm)
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } ==> {
+                &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
+                &&& iv.consistent_with_state(s, sm)
+                &&& perm.check_permission(s)
+            },
+    {
+        assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, initial_durable_state, constants, sm)
+                &&& iv.consistent_with_state(current_durable_state, sm)
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } implies {
+                &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
+                &&& iv.consistent_with_state(s, sm)
+                &&& perm.check_permission(s)
+            } by {
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, current_durable_state, s, sm, free_list_pos,
+                                                                    row_addr, start, end);
+        }
+    }
     
     pub exec fn create(
         &mut self,
@@ -290,16 +350,17 @@ impl<PM, K> KeyTable<PM, K>
             self.lemma_valid_implications(journal@);
         }
 
-        let key_addr = match self.free_list.pop() {
+        let row_addr = match self.free_list.pop() {
             None => { self.must_abort = Ghost(true); return Err(KvError::OutOfSpace); },
             Some(a) => a,
         };
 
-        assert(self.memory_mapping@.row_info[key_addr] is InFreeList);
+        assert(self.memory_mapping@.row_info[row_addr] is InFreeList);
+        let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
+        let ghost free_list_pos = self.free_list@.len();
+
         proof {
-            let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
-            let ghost free_list_pos = self.free_list@.len();
-            assert(0 <= free_list_pos < iv.free_list.len() && iv.free_list[free_list_pos as int] == key_addr) by {
+            assert(0 <= free_list_pos < iv.free_list.len() && iv.free_list[free_list_pos as int] == row_addr) by {
                 old(self).internal_view().lemma_apply_undo_records_only_appends_to_free_list(
                     old(self).undo_records@, old(self).sm
                 );
@@ -307,16 +368,31 @@ impl<PM, K> KeyTable<PM, K>
             Self::lemma_writing_to_free_slot_has_permission_later_forall(
                 iv,
                 journal@.durable_state,
-                journal@.durable_state,
                 old(self).sm,
                 journal@.constants,
                 free_list_pos as int,
-                key_addr,
+                row_addr,
                 perm
             );
+            broadcast use pmcopy_axioms;
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
 
-        assume(false);
+        let key_addr = row_addr + self.sm.row_key_start;
+        journal.write_object(key_addr, k, Tracked(perm));
+        let key_crc_addr = row_addr + self.sm.row_key_crc_start;
+        let key_crc = calculate_crc(k);
+        journal.write_object(key_crc_addr, &key_crc, Tracked(perm));
+
+        let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
+        let metadata_addr = row_addr + self.sm.row_metadata_start;
+        journal.write_object(metadata_addr, &rm, Tracked(perm));
+        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
+        let rm_crc = calculate_crc(&rm);
+        journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
+
+        assume(false); // TODO @jay - finish implementation
         Err(KvError::NotImplemented)
     }
 

@@ -53,6 +53,8 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..old_self@
             })
         &&& old_self@.matches_except_in_range(self@, addr as int, addr + bytes_to_write.len())
+        &&& seqs_match_except_in_range(old_self@.durable_state, self@.durable_state, addr as int,
+                                     addr + bytes_to_write.len())
     }
 
     #[inline]
