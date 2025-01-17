@@ -64,6 +64,7 @@ impl<PM, K> KeyTable<PM, K>
             old(self).valid(old(journal)@),
             old(journal).valid(),
             old(self)@.tentative is Some,
+            !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
@@ -90,11 +91,13 @@ impl<PM, K> KeyTable<PM, K>
         proof {
             journal.lemma_valid_implications();
         }
-        
+
         let key_addr = match self.free_list.pop() {
             None => { self.must_abort = Ghost(true); return Err(KvError::OutOfSpace); },
             Some(a) => a,
         };
+
+        assert(self.memory_mapping@.row_info[key_addr] is InFreeList);
 
         assume(false);
         Err(KvError::NotImplemented)
