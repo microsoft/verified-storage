@@ -309,7 +309,7 @@ impl<PM, K> KeyTable<PM, K>
                                                                     row_addr, start, end);
         }
     }
-    
+
     pub exec fn create(
         &mut self,
         k: &K,
@@ -392,8 +392,24 @@ impl<PM, K> KeyTable<PM, K>
         let rm_crc = calculate_crc(&rm);
         journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
 
-        assume(false); // TODO @jay - finish implementation
-        Err(KvError::NotImplemented)
+        self.memory_mapping = Ghost(self.memory_mapping@.create(row_addr, *k, rm));
+
+        let cki = ConcreteKeyInfo{ row_addr, rm };
+        let k_clone = k.clone();
+        assume(k_clone == *k); // TODO @jay
+        self.m.insert(k_clone, cki);
+        assert(self.m@.remove(*k) =~= old(self).m@);
+
+        let undo_record = KeyUndoRecord::UndoCreate{ row_addr, k: *k };
+        assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
+               
+        self.undo_records.push(undo_record);
+        assert(self.valid(journal@)) by {
+            broadcast use broadcast_update_bytes_effect;
+            broadcast use broadcast_update_bytes_effect_on_subranges;
+            assume(false); // TODO @jay
+        }
+        Ok(())
     }
 
     pub exec fn delete(

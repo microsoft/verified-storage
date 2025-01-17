@@ -102,6 +102,17 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
+    pub(super) open spec fn create(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Self
+    {
+        Self{
+            row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
+            key_info: self.key_info.insert(k, row_addr),
+            item_info: self.item_info.insert(rm.item_addr, row_addr),
+            list_info: if rm.list_addr == 0 { self.list_info } else { self.list_info.insert(rm.list_addr, row_addr) },
+            ..self
+        }
+    }
+
     pub(super) open spec fn update(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Self
     {
         Self{
