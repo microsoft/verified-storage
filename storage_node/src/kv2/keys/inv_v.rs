@@ -549,6 +549,33 @@ impl<K> KeyInternalView<K>
     {
         self.memory_mapping.as_snapshot()
     }
+
+    pub(super) proof fn lemma_apply_undo_records_only_appends_to_free_list(
+        self,
+        undo_records: Seq<KeyUndoRecord<K>>,
+        sm: KeyTableStaticMetadata,
+    )
+        ensures
+            self.apply_undo_records(undo_records, sm) matches Some(new_self) ==> {
+                &&& new_self.free_list.len() >= self.free_list.len()
+                &&& forall|i: int| 0 <= i < self.free_list.len() ==> new_self.free_list[i] == self.free_list[i]
+            }
+        decreases
+            undo_records.len()
+    {
+        if undo_records.len() > 0 {
+            let next_self = self.apply_undo_record(undo_records.last());
+            if next_self is Some {
+                let next_self = next_self.unwrap();
+                if next_self.valid(sm) {
+                    assert(next_self.free_list.len() >= self.free_list.len());
+                    assert(forall|i: int| 0 <= i < self.free_list.len() ==> next_self.free_list[i] == self.free_list[i]);
+                    next_self.lemma_apply_undo_records_only_appends_to_free_list(undo_records.drop_last(), sm);
+                }
+            }
+        }
+    }
+            
 }
 
 impl<PM, K> KeyTable<PM, K>

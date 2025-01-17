@@ -53,6 +53,203 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
+    proof fn lemma_writing_to_free_slot_maintains_internal_view_consistency(
+        iv: KeyInternalView<K>,
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+        free_list_pos: int,
+        row_addr: u64,
+        start: int,
+        end: int,
+    )
+        requires
+            sm.valid::<K>(),
+            iv.consistent_with_state(s1, sm),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size,
+            seqs_match_except_in_range(s1, s2, start, end),
+        ensures
+            iv.consistent_with_state(s2, sm),
+    {
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+    }
+
+    proof fn lemma_writing_to_free_slot_doesnt_change_recovery(
+        iv: KeyInternalView<K>,
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+        free_list_pos: int,
+        row_addr: u64,
+        start: int,
+        end: int,
+    )
+        requires
+            sm.valid::<K>(),
+            iv.consistent_with_state(s1, sm),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size,
+            seqs_match_except_in_range(s1, s2, start, end),
+        ensures
+            iv.consistent_with_state(s2, sm),
+            Self::recover(s2, sm) == Self::recover(s1, sm),
+    {
+        Self::lemma_writing_to_free_slot_maintains_internal_view_consistency(iv, s1, s2, sm, free_list_pos,
+                                                                             row_addr, start, end);
+        iv.memory_mapping.as_recovery_mapping().lemma_corresponds_implies_equals_new(s1, sm);
+        iv.memory_mapping.as_recovery_mapping().lemma_corresponds_implies_equals_new(s2, sm);
+    }
+
+    proof fn lemma_writing_to_free_slot_doesnt_change_recovery_forall(
+        iv: KeyInternalView<K>,
+        s1: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+        free_list_pos: int,
+        row_addr: u64,
+    )
+        requires
+            sm.valid::<K>(),
+            iv.consistent_with_state(s1, sm),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+        ensures
+            forall|s2: Seq<u8>, start: int, end: int| {
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& #[trigger] seqs_match_except_in_range(s1, s2, start, end)
+            } ==> {
+                &&& iv.consistent_with_state(s2, sm)
+                &&& Self::recover(s2, sm) == Self::recover(s1, sm)
+            }
+    {
+        assert forall|s2: Seq<u8>, start: int, end: int| {
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& #[trigger] seqs_match_except_in_range(s1, s2, start, end)
+            } implies {
+                &&& iv.consistent_with_state(s2, sm)
+                &&& Self::recover(s2, sm) == Self::recover(s1, sm)
+            } by {
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, s1, s2, sm, free_list_pos,
+                                                                    row_addr, start, end);
+        }
+    }
+
+    proof fn lemma_writing_to_free_slot_has_permission_forall(
+        iv: KeyInternalView<K>,
+        durable_state: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+        constants: JournalConstants,
+        free_list_pos: int,
+        row_addr: u64,
+        tracked perm: &TrustedKvPermission,
+    )
+        requires
+            sm.valid::<K>(),
+            iv.consistent_with_state(durable_state, sm),
+            ({
+                &&& Journal::<TrustedKvPermission, PM>::recover(durable_state) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == durable_state
+            }),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            sm.table.end <= durable_state.len(),
+            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, durable_state, constants, sm)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            forall|s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(durable_state, s, start, end)
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } ==> {
+                &&& Self::state_equivalent_for_me_specific(s, durable_state, constants, sm)
+                &&& perm.check_permission(s)
+            }
+    {
+        assert forall|s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(durable_state, s, start, end)
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } implies {
+                &&& Self::state_equivalent_for_me_specific(s, durable_state, constants, sm)
+                &&& perm.check_permission(s)
+            } by
+        {
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, durable_state, s, sm, free_list_pos,
+                                                                    row_addr, start, end);
+            assert(Self::state_equivalent_for_me_specific(s, durable_state, constants, sm));
+        }
+    }
+
+    proof fn lemma_writing_to_free_slot_has_permission_later_forall(
+        iv: KeyInternalView<K>,
+        durable_state1: Seq<u8>,
+        durable_state2: Seq<u8>,
+        sm: KeyTableStaticMetadata,
+        constants: JournalConstants,
+        free_list_pos: int,
+        row_addr: u64,
+        tracked perm: &TrustedKvPermission,
+    )
+        requires
+            sm.valid::<K>(),
+            iv.consistent_with_state(durable_state1, sm),
+            iv.consistent_with_state(durable_state2, sm),
+            ({
+                &&& Journal::<TrustedKvPermission, PM>::recover(durable_state1) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == durable_state1
+            }),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            sm.table.end <= durable_state1.len(),
+            Self::recover(durable_state1, sm) is Some,
+            Self::state_equivalent_for_me_specific(durable_state2, durable_state1, constants, sm),
+            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, durable_state1, constants, sm)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            forall|s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(durable_state2, s, start, end)
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } ==> {
+                &&& Self::state_equivalent_for_me_specific(s, durable_state1, constants, sm)
+                &&& perm.check_permission(s)
+            },
+    {
+        assert forall|s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(durable_state2, s, start, end)
+                &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } implies {
+                &&& Self::state_equivalent_for_me_specific(s, durable_state1, constants, sm)
+                &&& perm.check_permission(s)
+            } by {
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, durable_state2, s, sm, free_list_pos,
+                                                                    row_addr, start, end);
+        }
+    }
+    
     pub exec fn create(
         &mut self,
         k: &K,
@@ -90,6 +287,7 @@ impl<PM, K> KeyTable<PM, K>
     {
         proof {
             journal.lemma_valid_implications();
+            self.lemma_valid_implications(journal@);
         }
 
         let key_addr = match self.free_list.pop() {
@@ -98,6 +296,25 @@ impl<PM, K> KeyTable<PM, K>
         };
 
         assert(self.memory_mapping@.row_info[key_addr] is InFreeList);
+        proof {
+            let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
+            let ghost free_list_pos = self.free_list@.len();
+            assert(0 <= free_list_pos < iv.free_list.len() && iv.free_list[free_list_pos as int] == key_addr) by {
+                old(self).internal_view().lemma_apply_undo_records_only_appends_to_free_list(
+                    old(self).undo_records@, old(self).sm
+                );
+            }
+            Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                iv,
+                journal@.durable_state,
+                journal@.durable_state,
+                old(self).sm,
+                journal@.constants,
+                free_list_pos as int,
+                key_addr,
+                perm
+            );
+        }
 
         assume(false);
         Err(KvError::NotImplemented)
