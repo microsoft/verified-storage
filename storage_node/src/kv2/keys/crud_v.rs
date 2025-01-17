@@ -310,6 +310,7 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
+    #[verifier::rlimit(50)] // TODO @jay
     pub exec fn create(
         &mut self,
         k: &K,
@@ -392,6 +393,23 @@ impl<PM, K> KeyTable<PM, K>
         let rm_crc = calculate_crc(&rm);
         journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
 
+        let cdb_addr = row_addr + self.sm.row_cdb_start;
+        let cdb = CDB_TRUE;
+        let cdb_bytes = vstd::slice::slice_to_vec(cdb.as_byte_slice());
+        match journal.journal_write(cdb_addr, cdb_bytes, Tracked(perm)) {
+            Ok(()) => {},
+            Err(JournalError::NotEnoughSpace) => {
+                self.must_abort = Ghost(true);
+                assume(false); // TODO @jay
+                return Err(KvError::OutOfSpace);
+            },
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            }
+        };
+
         self.memory_mapping = Ghost(self.memory_mapping@.create(row_addr, *k, rm));
 
         let cki = ConcreteKeyInfo{ row_addr, rm };
@@ -404,10 +422,14 @@ impl<PM, K> KeyTable<PM, K>
         assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
                
         self.undo_records.push(undo_record);
+
+        assume(false); // TODO @jay
         assert(self.valid(journal@)) by {
             broadcast use broadcast_update_bytes_effect;
-            broadcast use broadcast_update_bytes_effect_on_subranges;
-            assume(false); // TODO @jay
+            assert(self.internal_view().memory_mapping.consistent_with_state(journal@.commit_state, self.sm));
+        }
+        assert(old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int)) by {
+            broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
         }
         Ok(())
     }
