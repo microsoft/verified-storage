@@ -39,6 +39,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative.is_some(),
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
             list_addr != 0,
@@ -46,7 +47,6 @@ impl<PM, L> ListTable<PM, L>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {

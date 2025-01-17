@@ -149,7 +149,6 @@ where
             old_self.status@ is ComponentsDontCorrespond,
             self.keys.valid(self.journal@),
             self.journal.valid(),
-            self.journal.recover_idempotent(),
             self.journal@.constants_match(old_self.journal@),
             old_self.journal@.matches_except_in_range(self.journal@, self.keys@.sm.start() as int,
                                                       self.keys@.sm.end() as int),
@@ -167,6 +166,7 @@ where
             })
     {
         broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        self.journal.lemma_valid_implications();
         self.items.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
         self.items.lemma_valid_implications(self.journal@);
         self.lists.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
@@ -216,7 +216,6 @@ where
             old_self.status@ is ComponentsDontCorrespond,
             self.items.valid(self.journal@),
             self.journal.valid(),
-            self.journal.recover_idempotent(),
             self.journal@.constants_match(old_self.journal@),
             old_self.journal@.matches_except_in_range(self.journal@, self.items@.sm.start() as int,
                                                       self.items@.sm.end() as int),
@@ -234,6 +233,7 @@ where
             })
     {
         broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        self.journal.lemma_valid_implications();
         self.keys.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
         self.keys.lemma_valid_implications(self.journal@);
         self.lists.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
@@ -283,7 +283,6 @@ where
             old_self.status@ is ComponentsDontCorrespond,
             self.lists.valid(self.journal@),
             self.journal.valid(),
-            self.journal.recover_idempotent(),
             self.journal@.constants_match(old_self.journal@),
             old_self.journal@.matches_except_in_range(self.journal@, self.lists@.sm.start() as int,
                                                       self.lists@.sm.end() as int),
@@ -301,6 +300,7 @@ where
             })
     {
         broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
+        self.journal.lemma_valid_implications();
         self.keys.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);
         self.keys.lemma_valid_implications(self.journal@);
         self.items.lemma_valid_depends_only_on_my_area(old_self.journal@, self.journal@);

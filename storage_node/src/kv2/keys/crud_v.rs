@@ -62,13 +62,13 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
@@ -87,6 +87,15 @@ impl<PM, K> KeyTable<PM, K>
                 _ => false,
             },
     {
+        proof {
+            journal.lemma_valid_implications();
+        }
+        
+        let key_addr = match self.free_list.pop() {
+            None => { self.must_abort = Ghost(true); return Err(KvError::OutOfSpace); },
+            Some(a) => a,
+        };
+
         assume(false);
         Err(KvError::NotImplemented)
     }
@@ -100,6 +109,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self).key_corresponds_to_key_addr(*k, key_addr),
@@ -107,7 +117,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
@@ -141,6 +150,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self).key_corresponds_to_key_addr(*k, key_addr),
@@ -150,7 +160,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
@@ -184,6 +193,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self).key_corresponds_to_key_addr(*k, key_addr),
@@ -193,7 +203,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
@@ -227,6 +236,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self).key_corresponds_to_key_addr(*k, key_addr),
@@ -236,7 +246,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {

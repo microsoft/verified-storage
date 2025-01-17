@@ -92,6 +92,15 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
     }
 
+    pub proof fn lemma_valid_implications(self)
+        requires
+            self.valid(),
+        ensures
+            self.recover_idempotent(),
+            self@.valid(),
+    {
+    }
+
     pub closed spec fn spec_journal_entry_overhead() -> nat
     {
         (u64::spec_size_of() + u64::spec_size_of()) as nat

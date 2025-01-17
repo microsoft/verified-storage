@@ -54,11 +54,11 @@ impl<PM, I> ItemTable<PM, I>
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
+            old(journal).valid(),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
@@ -91,13 +91,13 @@ impl<PM, I> ItemTable<PM, I>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative.is_some(),
             old(self)@.tentative.unwrap().m.contains_key(item_addr),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal.recover_idempotent(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
