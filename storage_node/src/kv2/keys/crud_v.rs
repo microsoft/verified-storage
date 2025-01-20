@@ -229,7 +229,7 @@ impl<PM, K> KeyTable<PM, K>
         journal: &mut Journal<TrustedKvPermission, PM>,
         row_addr: u64,
         Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError>)
+    )
         requires
             old(self).inv(old(journal)@),
             old(self).status@ is Creating,
@@ -241,7 +241,6 @@ impl<PM, K> KeyTable<PM, K>
                 #[trigger] perm.check_permission(s),
             0 < old(self).free_list@.len(),
             row_addr == old(self).free_list@.last(),
-            old(self).memory_mapping@.row_info[row_addr] is InFreeList,
             forall|addr: int|
                 row_addr + old(self).sm.row_metadata_start <= addr < row_addr + old(self).sm.table.row_size ==>
                 !(#[trigger] old(journal)@.journaled_addrs.contains(addr)),
@@ -250,26 +249,17 @@ impl<PM, K> KeyTable<PM, K>
             journal.valid(),
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(()) => {
-                    &&& self == old(self)
-                    &&& recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
-                                          row_addr + self.sm.row_key_crc_start as u64) == Some(*k)
-                    &&& recover_object::<KeyTableRowMetadata>(
-                        journal@.commit_state, row_addr + self.sm.row_metadata_start,
-                        row_addr + self.sm.row_metadata_crc_start
-                    ) == Some(KeyTableRowMetadata{ item_addr, list_addr: 0 })
-                    &&& seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
-                                                 row_addr + self.sm.row_metadata_start,
-                                                 row_addr + self.sm.table.row_size)
-                    &&& journal@.journaled_addrs == old(journal)@.journaled_addrs
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self.valid(journal@)
-                    &&& self@ == (KeyTableView { tentative: None, ..old(self)@ })
-                },
-                _ => false,
-            },
+            self == old(self),
+            recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
+                                row_addr + self.sm.row_key_crc_start as u64) == Some(*k),
+            recover_object::<KeyTableRowMetadata>(
+                journal@.commit_state, row_addr + self.sm.row_metadata_start,
+                row_addr + self.sm.row_metadata_crc_start
+            ) == Some(KeyTableRowMetadata{ item_addr, list_addr: 0 }),
+            seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
+                                       row_addr + self.sm.row_metadata_start,
+                                       row_addr + self.sm.table.row_size),
+            journal@.journaled_addrs == old(journal)@.journaled_addrs,
     {
         proof {
             journal.lemma_valid_implications();
@@ -279,7 +269,6 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use group_update_bytes_effect;
         }
 
-        assert(self.memory_mapping@.row_info[row_addr] is InFreeList);
         let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
 
         proof {
@@ -312,8 +301,6 @@ impl<PM, K> KeyTable<PM, K>
         let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
         let rm_crc = calculate_crc(&rm);
         journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
-
-        Ok(())
     }
 
     pub exec fn create(
@@ -361,10 +348,7 @@ impl<PM, K> KeyTable<PM, K>
             Ok(r) => r,
             Err(e) => { return Err(e); },
         };
-        match self.create_step2(k, item_addr, journal, row_addr, Tracked(perm)) {
-            Ok(r) => {},
-            Err(e) => { return Err(e); },
-        };
+        self.create_step2(k, item_addr, journal, row_addr, Tracked(perm));
 
         let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
         let _ = self.free_list.pop();
