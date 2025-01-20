@@ -472,6 +472,7 @@ impl<PM, K> KeyTable<PM, K>
         Ok(())
     }
 
+    #[verifier::rlimit(20)] // TODO @jay - split into two
     pub exec fn update_item(
         &mut self,
         k: &K,

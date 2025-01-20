@@ -320,8 +320,24 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         }
 
+        let ghost self_before_item_delete = self.lemma_prepare_for_item_table_update(perm);
+        let result = self.items.delete(rm.item_addr, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_item_table_update(self_before_item_delete); }
+
+        match result {
+            Ok(()) => {},
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
         self.status = Ghost(KvStoreStatus::Quiescent);
 
+        assert(old(self).keys@.tentative.unwrap().item_addrs().insert(item_addr).remove(rm.item_addr) =~=
+               old(self).keys@.tentative.unwrap().item_addrs().remove(rm.item_addr).insert(item_addr));
         assert(self@.tentative =~= old(self)@.tentative.update_item(*key, *new_item).unwrap());
         Ok(())
     }
