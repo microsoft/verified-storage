@@ -223,7 +223,7 @@ impl<PM, K> KeyTable<PM, K>
 
     #[inline]
     exec fn create_step2(
-        &mut self,
+        &self,
         k: &K,
         item_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
@@ -231,25 +231,25 @@ impl<PM, K> KeyTable<PM, K>
         Tracked(perm): Tracked<&TrustedKvPermission>,
     )
         requires
-            old(self).inv(old(journal)@),
-            old(self).status@ is Creating,
+            self.inv(old(journal)@),
+            self.status@ is Creating,
             old(journal).valid(),
-            old(self)@.tentative is Some,
-            !old(self)@.tentative.unwrap().key_info.contains_key(*k),
-            !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
+            self@.tentative is Some,
+            !self@.tentative.unwrap().key_info.contains_key(*k),
+            !self@.tentative.unwrap().item_addrs().contains(item_addr),
+            forall|s: Seq<u8>| self.state_equivalent_for_me(s, old(journal)@) ==>
                 #[trigger] perm.check_permission(s),
-            0 < old(self).free_list@.len(),
-            row_addr == old(self).free_list@.last(),
+            0 < self.free_list@.len(),
+            row_addr == self.free_list@.last(),
             forall|addr: int|
-                row_addr + old(self).sm.row_metadata_start <= addr < row_addr + old(self).sm.table.row_size ==>
+                row_addr + self.sm.row_metadata_start <= addr < row_addr + self.sm.table.row_size ==>
                 !(#[trigger] old(journal)@.journaled_addrs.contains(addr)),
         ensures
             self.inv(journal@),
             journal.valid(),
             journal@.constants_match(old(journal)@),
+            journal@.journaled_addrs == old(journal)@.journaled_addrs,
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
-            self == old(self),
             recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
                                 row_addr + self.sm.row_key_crc_start as u64) == Some(*k),
             recover_object::<KeyTableRowMetadata>(
@@ -259,7 +259,6 @@ impl<PM, K> KeyTable<PM, K>
             seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
                                        row_addr + self.sm.row_metadata_start,
                                        row_addr + self.sm.table.row_size),
-            journal@.journaled_addrs == old(journal)@.journaled_addrs,
     {
         proof {
             journal.lemma_valid_implications();
@@ -269,19 +268,19 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use group_update_bytes_effect;
         }
 
-        let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
+        let ghost iv = self.internal_view().apply_undo_records(self.undo_records@, self.sm).unwrap();
 
         proof {
             let ghost free_list_pos = self.free_list@.len() - 1;
             assert(0 <= free_list_pos < iv.free_list.len() && iv.free_list[free_list_pos as int] == row_addr) by {
-                old(self).internal_view().lemma_apply_undo_records_only_appends_to_free_list(
-                    old(self).undo_records@, old(self).sm
+                self.internal_view().lemma_apply_undo_records_only_appends_to_free_list(
+                    self.undo_records@, self.sm
                 );
             }
             Self::lemma_writing_to_free_slot_has_permission_later_forall(
                 iv,
                 journal@.durable_state,
-                old(self).sm,
+                self.sm,
                 journal@.constants,
                 free_list_pos as int,
                 row_addr,
