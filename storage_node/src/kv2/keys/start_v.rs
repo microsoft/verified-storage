@@ -181,7 +181,7 @@ impl<PM, K> KeyTable<PM, K>
                     Some(r) => r,
                 };
                 proof {
-                    memory_mapping = memory_mapping.update(row_addr, k, rm);
+                    memory_mapping = memory_mapping.initialize_row(row_addr, k, rm);
                 }
                 let concrete_key_info = ConcreteKeyInfo{ row_addr, rm };
                 m.insert(k, concrete_key_info);

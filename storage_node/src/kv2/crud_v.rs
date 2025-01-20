@@ -307,7 +307,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update(perm);
-        let result = self.keys.update_item(key, key_addr, item_addr, rm.list_addr, &mut self.journal, Tracked(perm));
+        let result = self.keys.update_item(key, key_addr, item_addr, rm, &mut self.journal, Tracked(perm));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {

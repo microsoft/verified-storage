@@ -130,7 +130,7 @@ impl<K> KeyTableSnapshot<K>
         }
     }
 
-    pub open spec fn update_item(self, k: K, item_addr: u64) -> Self
+    pub open spec fn update_item(self, k: K, item_addr: u64, former_item_addr: u64) -> Self
     {
         let new_rm = KeyTableRowMetadata{
             item_addr,
@@ -138,33 +138,64 @@ impl<K> KeyTableSnapshot<K>
         };
         Self{
             key_info: self.key_info.insert(k, new_rm),
-            item_info: self.item_info.insert(item_addr, k),
+            item_info: self.item_info.remove(former_item_addr).insert(item_addr, k),
             list_info: self.list_info,
         }
     }
 
-    pub open spec fn update_list(self, k: K, list_addr: u64) -> Self
+    // TODO @jay -- remove former values as above
+    pub open spec fn update_list(self, k: K, list_addr: u64, former_list_addr: u64) -> Self
     {
         let new_rm = KeyTableRowMetadata{
             list_addr,
             ..self.key_info[k]
         };
+        let list_info_after_remove =
+            if former_list_addr != 0 {
+                self.list_info.remove(former_list_addr)
+            }
+            else {
+                self.list_info
+            };
+        let new_list_info =
+            if list_addr != 0 {
+                list_info_after_remove.insert(list_addr, k)
+            }
+            else {
+                list_info_after_remove
+            };
         Self{
             key_info: self.key_info.insert(k, new_rm),
             item_info: self.item_info,
-            list_info: self.list_info.insert(list_addr, k),
+            list_info: new_list_info,
         }
     }
 
-    pub open spec fn update_item_and_list(self, k: K, item_addr: u64, list_addr: u64) -> Self
+    // TODO @jay -- remove former values as above
+    pub open spec fn update_item_and_list(self, k: K, item_addr: u64, list_addr: u64,
+                                          former_item_addr: u64, former_list_addr: u64) -> Self
     {
+        let list_info_after_remove =
+            if former_list_addr != 0 {
+                self.list_info.remove(former_list_addr)
+            }
+            else {
+                self.list_info
+            };
+        let new_list_info =
+            if list_addr != 0 {
+                list_info_after_remove.insert(list_addr, k)
+            }
+            else {
+                list_info_after_remove
+            };
         Self{
             key_info: self.key_info.insert(k, KeyTableRowMetadata{
                 item_addr,
                 list_addr,
             }),
-            item_info: self.item_info.insert(item_addr, k),
-            list_info: self.list_info.insert(list_addr, k),
+            item_info: self.item_info.remove(former_item_addr).insert(item_addr, k),
+            list_info: new_list_info,
         }
     }
 }

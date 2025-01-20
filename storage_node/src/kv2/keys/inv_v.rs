@@ -89,6 +89,28 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
+    pub(super) open spec fn initialize_row(
+        self,
+        row_addr: u64,
+        k: K,
+        rm: KeyTableRowMetadata,
+    ) -> Self
+    {
+        let new_list_info =
+            if rm.list_addr != 0 {
+                 self.list_info.insert(rm.list_addr, row_addr)
+            }
+            else {
+                self.list_info
+            };
+        Self{
+            row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
+            key_info: self.key_info.insert(k, row_addr),
+            item_info: self.item_info.insert(rm.item_addr, row_addr),
+            list_info: new_list_info,
+        }
+    }
+
     pub(super) open spec fn corresponds_to_snapshot_at_addr(
         self,
         m: KeyRecoveryMapping<K>,
@@ -115,14 +137,33 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub(super) open spec fn update(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Self
+    pub(super) open spec fn update(
+        self,
+        row_addr: u64,
+        k: K,
+        rm: KeyTableRowMetadata,
+        former_rm: KeyTableRowMetadata
+    ) -> Self
     {
+        let list_info_after_remove =
+            if former_rm.list_addr != 0 {
+                self.list_info.remove(former_rm.list_addr)
+            }
+            else {
+                self.list_info
+            };
+        let new_list_info =
+            if rm.list_addr != 0 {
+                 list_info_after_remove.insert(rm.list_addr, row_addr)
+            }
+            else {
+                list_info_after_remove
+            };
         Self{
             row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
             key_info: self.key_info.insert(k, row_addr),
-            item_info: self.item_info.insert(rm.item_addr, row_addr),
-            list_info: if rm.list_addr == 0 { self.list_info } else { self.list_info.insert(rm.list_addr, row_addr) },
-            ..self
+            item_info: self.item_info.remove(former_rm.item_addr).insert(rm.item_addr, row_addr),
+            list_info: new_list_info,
         }
     }
 
@@ -633,7 +674,8 @@ impl<PM, K> KeyTable<PM, K>
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.internal_view().valid(self.sm)
-        &&& self.status@ is Quiescent ==> self.internal_view().consistent_with_journal(jv, self.sm)
+        &&& self.status@ is Quiescent && !self.must_abort@ ==>
+            self.internal_view().consistent_with_journal(jv, self.sm)
         &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv, self.sm)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
