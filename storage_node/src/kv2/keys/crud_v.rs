@@ -334,9 +334,7 @@ impl<PM, K> KeyTable<PM, K>
                 Ok(row_addr) => {
                     &&& 0 < self.free_list@.len()
                     &&& row_addr == self.free_list@.last()
-                    &&& self.sm.table.validate_row_addr(row_addr)
-                    &&& self.status@ is Creating
-                    &&& self == (Self{ status: self.status, ..*old(self) })
+                    &&& self == (Self{ status: Ghost(KeyTableStatus::Creating), ..*old(self) })
                     &&& recover_cdb(journal@.commit_state, row_addr + self.sm.row_cdb_start) == Some(true)
                     &&& recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
                                           row_addr + self.sm.row_key_crc_start as u64) == Some(*k)
@@ -365,6 +363,11 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_update_bytes_effect;
         }
+
+        // Read the last element in the free list but don't pop it
+        // yet, to maintain validity of our data structures in case
+        // the journal doesn't have enouh space to write. We leave
+        // it to our caller to pop that element from the free list.
 
         let free_list_len = self.free_list.len();
         let ghost free_list_pos = free_list_len - 1;
