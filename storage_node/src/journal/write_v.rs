@@ -137,7 +137,6 @@ impl <Perm, PM> Journal<Perm, PM>
         &mut self,
         addr: u64,
         bytes_to_write: Vec<u8>,
-        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), JournalError>)
         requires
             old(self).valid(),
