@@ -109,7 +109,8 @@ impl<K> KeyMemoryMapping<K>
             row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
             key_info: self.key_info.insert(k, row_addr),
             item_info: self.item_info.insert(rm.item_addr, row_addr),
-            list_info: if rm.list_addr == 0 { self.list_info } else { self.list_info.insert(rm.list_addr, row_addr) },
+            list_info: if rm.list_addr == 0 { self.list_info }
+                       else { self.list_info.insert(rm.list_addr, row_addr) },
             ..self
         }
     }
@@ -121,6 +122,28 @@ impl<K> KeyMemoryMapping<K>
             key_info: self.key_info.insert(k, row_addr),
             item_info: self.item_info.insert(rm.item_addr, row_addr),
             list_info: if rm.list_addr == 0 { self.list_info } else { self.list_info.insert(rm.list_addr, row_addr) },
+            ..self
+        }
+    }
+
+    pub(super) open spec fn delete(
+        self,
+        row_addr: u64,
+        k: K,
+        rm: KeyTableRowMetadata,
+        pending_deallocation_list_len: nat,
+    ) -> Self
+        recommends
+            self.row_info.contains_key(row_addr),
+            self.row_info[row_addr] == (KeyRowDisposition::InHashTable{ k, rm }),
+    {
+        let rd = KeyRowDisposition::InPendingDeallocationList{ pos: pending_deallocation_list_len };
+        Self{
+            row_info: self.row_info.insert(row_addr, rd),
+            key_info: self.key_info.remove(k),
+            item_info: self.item_info.remove(rm.item_addr),
+            list_info: if rm.list_addr == 0 { self.list_info }
+                       else { self.list_info.remove(rm.list_addr) },
             ..self
         }
     }
@@ -374,15 +397,13 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn undo_delete(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Option<Self>
     {
-        if {
-            &&& self.row_info[row_addr] matches KeyRowDisposition::InPendingDeallocationList{ pos }
-        } {
+        if self.row_info[row_addr] matches KeyRowDisposition::InPendingDeallocationList{ pos } {
             Some(Self{
                 row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
                 key_info: self.key_info.insert(k, row_addr),
                 item_info: self.item_info.insert(rm.item_addr, row_addr),
-                list_info: self.list_info.insert(rm.list_addr, row_addr),
-                ..self
+                list_info: if rm.list_addr == 0 { self.list_info }
+                           else { self.list_info.insert(rm.list_addr, row_addr) },
             })
         } else {
             None
@@ -490,7 +511,7 @@ impl<K> KeyInternalView<K>
                             else {
                                 match self.memory_mapping.undo_delete(row_addr, k, rm) {
                                     Some(memory_mapping) => Some(Self{
-                                        m: self.m.remove(k),
+                                        m: self.m.insert(k, ConcreteKeyInfo{ row_addr, rm }),
                                         pending_deallocations: self.pending_deallocations.drop_last(),
                                         memory_mapping,
                                         ..self

@@ -66,7 +66,7 @@ impl<PM, K> KeyTable<PM, K>
             KeyUndoRecord::UndoDelete{ row_addr, k, rm } => {
                 self.memory_mapping =
                     Ghost(self.memory_mapping@.undo_delete(row_addr, k, rm).unwrap());
-                self.m.remove(&k);
+                self.m.insert(k, ConcreteKeyInfo{ row_addr, rm });
                 let _ = self.pending_deallocations.pop();
             },
         };

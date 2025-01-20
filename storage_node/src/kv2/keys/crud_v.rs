@@ -382,7 +382,8 @@ impl<PM, K> KeyTable<PM, K>
     pub exec fn delete(
         &mut self,
         k: &K,
-        key_addr: u64,
+        row_addr: u64,
+        rm: KeyTableRowMetadata,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<(), KvError>)
@@ -391,8 +392,10 @@ impl<PM, K> KeyTable<PM, K>
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
-            old(self).key_corresponds_to_key_addr(*k, key_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            old(self)@.tentative.unwrap().key_info[*k] == rm,
+            old(self).key_corresponds_to_key_addr(*k, row_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
+                #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -414,8 +417,58 @@ impl<PM, K> KeyTable<PM, K>
                 _ => false,
             },
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        proof {
+            journal.lemma_valid_implications();
+            self.lemma_valid_implications(journal@);
+            broadcast use pmcopy_axioms;
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_update_bytes_effect;
+        }
+
+        let cdb_addr = row_addr + self.sm.row_cdb_start;
+        let cdb = CDB_FALSE;
+        let cdb_bytes = vstd::slice::slice_to_vec(cdb.as_byte_slice());
+        match journal.journal_write(cdb_addr, cdb_bytes) {
+            Ok(()) => {},
+            Err(JournalError::NotEnoughSpace) => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            },
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        };
+
+        assert(self.memory_mapping@.valid(self.sm));
+        assert(self.memory_mapping == old(self).memory_mapping);
+        self.memory_mapping =
+            Ghost(self.memory_mapping@.delete(row_addr, *k, rm, self.pending_deallocations@.len()));
+        assert(self.memory_mapping@.undo_delete(row_addr, *k, rm) =~= Some(old(self).memory_mapping@));
+
+        self.m.remove(k);
+        assert(self.m@.insert(*k, ConcreteKeyInfo{ row_addr, rm }) == old(self).m@);
+        self.pending_deallocations.push(row_addr);
+
+        let undo_record = KeyUndoRecord::UndoDelete{ row_addr, k: *k, rm };
+        assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
+        self.undo_records.push(undo_record);
+        assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
+               old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm)) by {
+            assert(self.undo_records@.drop_last() =~= old(self).undo_records@);
+            assert(self.undo_records@.last() =~= undo_record);
+        }
+
+        proof {
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_validate_row_addr;
+        }
+
+        assert(self.valid(journal@));
+        assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(*k)));
+        Ok(())
     }
 
     pub exec fn update_item(
