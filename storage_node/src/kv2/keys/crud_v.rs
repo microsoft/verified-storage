@@ -310,7 +310,124 @@ impl<PM, K> KeyTable<PM, K>
         }
     }
 
-    #[verifier::rlimit(50)] // TODO @jay
+    exec fn create_step1(
+        &mut self,
+        k: &K,
+        item_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<u64, KvError>)
+        requires
+            old(self).valid(old(journal)@),
+            old(journal).valid(),
+            old(self)@.tentative is Some,
+            !old(self)@.tentative.unwrap().key_info.contains_key(*k),
+            !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
+                #[trigger] perm.check_permission(s),
+        ensures
+            self.inv(journal@),
+            journal.valid(),
+            journal@.constants_match(old(journal)@),
+            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(row_addr) => {
+                    &&& 0 < self.free_list@.len()
+                    &&& row_addr == self.free_list@.last()
+                    &&& self.sm.table.validate_row_addr(row_addr)
+                    &&& self.status@ is Creating
+                    &&& self == (Self{ status: self.status, ..*old(self) })
+                    &&& recover_cdb(journal@.commit_state, row_addr + self.sm.row_cdb_start) == Some(true)
+                    &&& recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
+                                          row_addr + self.sm.row_key_crc_start as u64) == Some(*k)
+                    &&& recover_object::<KeyTableRowMetadata>(
+                        journal@.commit_state, row_addr + self.sm.row_metadata_start,
+                        row_addr + self.sm.row_metadata_crc_start
+                    ) == Some(KeyTableRowMetadata{ item_addr, list_addr: 0 })
+                    &&& seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
+                                                 row_addr as int, row_addr + self.sm.table.row_size)
+                    &&& journal@.journaled_addrs == old(journal)@.journaled_addrs +
+                        Set::<int>::new(|i: int| row_addr + self.sm.row_cdb_start <= i
+                                      < row_addr + self.sm.row_cdb_start + u64::spec_size_of())
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self.valid(journal@)
+                    &&& self@ == (KeyTableView { tentative: None, ..old(self)@ })
+                },
+                _ => false,
+            },
+    {
+        proof {
+            journal.lemma_valid_implications();
+            self.lemma_valid_implications(journal@);
+            broadcast use pmcopy_axioms;
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_update_bytes_effect;
+        }
+
+        let free_list_len = self.free_list.len();
+        let ghost free_list_pos = free_list_len - 1;
+        if free_list_len == 0 {
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+        let row_addr = self.free_list[free_list_len - 1];
+
+        let cdb_addr = row_addr + self.sm.row_cdb_start;
+        let cdb = CDB_TRUE;
+        let cdb_bytes = vstd::slice::slice_to_vec(cdb.as_byte_slice());
+        match journal.journal_write(cdb_addr, cdb_bytes, Tracked(perm)) {
+            Ok(()) => {},
+            Err(JournalError::NotEnoughSpace) => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            },
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        };
+
+        self.status = Ghost(KeyTableStatus::Creating);
+
+        assert(self.memory_mapping@.row_info[row_addr] is InFreeList);
+        let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
+
+        proof {
+            assert(0 <= free_list_pos < iv.free_list.len() && iv.free_list[free_list_pos as int] == row_addr) by {
+                old(self).internal_view().lemma_apply_undo_records_only_appends_to_free_list(
+                    old(self).undo_records@, old(self).sm
+                );
+            }
+            Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                iv,
+                journal@.durable_state,
+                old(self).sm,
+                journal@.constants,
+                free_list_pos as int,
+                row_addr,
+                perm
+            );
+        }
+
+        let key_addr = row_addr + self.sm.row_key_start;
+        journal.write_object(key_addr, k, Tracked(perm));
+        let key_crc_addr = row_addr + self.sm.row_key_crc_start;
+        let key_crc = calculate_crc(k);
+        journal.write_object(key_crc_addr, &key_crc, Tracked(perm));
+
+        let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
+        let metadata_addr = row_addr + self.sm.row_metadata_start;
+        journal.write_object(metadata_addr, &rm, Tracked(perm));
+        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
+        let rm_crc = calculate_crc(&rm);
+        journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
+
+        Ok(row_addr)
+    }
+
     pub exec fn create(
         &mut self,
         k: &K,
@@ -324,7 +441,8 @@ impl<PM, K> KeyTable<PM, K>
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
+                #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -351,86 +469,38 @@ impl<PM, K> KeyTable<PM, K>
             self.lemma_valid_implications(journal@);
         }
 
-        let row_addr = match self.free_list.pop() {
-            None => { self.must_abort = Ghost(true); return Err(KvError::OutOfSpace); },
-            Some(a) => a,
+        let row_addr = match self.create_step1(k, item_addr, journal, Tracked(perm)) {
+            Ok(r) => r,
+            Err(e) => { return Err(e); },
         };
-
-        assert(self.memory_mapping@.row_info[row_addr] is InFreeList);
-        let ghost iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, old(self).sm).unwrap();
-        let ghost free_list_pos = self.free_list@.len();
-
-        proof {
-            assert(0 <= free_list_pos < iv.free_list.len() && iv.free_list[free_list_pos as int] == row_addr) by {
-                old(self).internal_view().lemma_apply_undo_records_only_appends_to_free_list(
-                    old(self).undo_records@, old(self).sm
-                );
-            }
-            Self::lemma_writing_to_free_slot_has_permission_later_forall(
-                iv,
-                journal@.durable_state,
-                old(self).sm,
-                journal@.constants,
-                free_list_pos as int,
-                row_addr,
-                perm
-            );
-            broadcast use pmcopy_axioms;
-            broadcast use group_validate_row_addr;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        }
-
-        let key_addr = row_addr + self.sm.row_key_start;
-        journal.write_object(key_addr, k, Tracked(perm));
-        let key_crc_addr = row_addr + self.sm.row_key_crc_start;
-        let key_crc = calculate_crc(k);
-        journal.write_object(key_crc_addr, &key_crc, Tracked(perm));
 
         let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
-        let metadata_addr = row_addr + self.sm.row_metadata_start;
-        journal.write_object(metadata_addr, &rm, Tracked(perm));
-        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
-        let rm_crc = calculate_crc(&rm);
-        journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
-
-        let cdb_addr = row_addr + self.sm.row_cdb_start;
-        let cdb = CDB_TRUE;
-        let cdb_bytes = vstd::slice::slice_to_vec(cdb.as_byte_slice());
-        match journal.journal_write(cdb_addr, cdb_bytes, Tracked(perm)) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                assume(false); // TODO @jay
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            }
-        };
+        let _ = self.free_list.pop();
 
         self.memory_mapping = Ghost(self.memory_mapping@.create(row_addr, *k, rm));
 
         let cki = ConcreteKeyInfo{ row_addr, rm };
-        let k_clone = k.clone();
-        assume(k_clone == *k); // TODO @jay
-        self.m.insert(k_clone, cki);
+        self.m.insert(k.clone_provable(), cki);
         assert(self.m@.remove(*k) =~= old(self).m@);
 
         let undo_record = KeyUndoRecord::UndoCreate{ row_addr, k: *k };
         assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
-               
         self.undo_records.push(undo_record);
+        assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
+               old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm)) by {
+            assert(self.undo_records@.drop_last() =~= old(self).undo_records@);
+            assert(self.undo_records@.last() =~= undo_record);
+        }
 
-        assume(false); // TODO @jay
-        assert(self.valid(journal@)) by {
-            broadcast use broadcast_update_bytes_effect;
-            assert(self.internal_view().memory_mapping.consistent_with_state(journal@.commit_state, self.sm));
+        self.status = Ghost(KeyTableStatus::Quiescent);
+
+        proof {
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_validate_row_addr;
         }
-        assert(old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int)) by {
-            broadcast use broadcast_journal_view_matches_in_range_can_narrow_range;
-        }
+
+        assert(self.valid(journal@));
+        assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().create(*k, item_addr)));
         Ok(())
     }
 

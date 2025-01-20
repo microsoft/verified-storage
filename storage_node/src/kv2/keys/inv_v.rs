@@ -30,6 +30,7 @@ verus! {
 pub(super) enum KeyTableStatus {
     Quiescent,
     Undoing,
+    Creating,
 }
 
 #[verifier::ext_equal]
@@ -611,9 +612,10 @@ impl<PM, K> KeyTable<PM, K>
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.internal_view().valid(self.sm)
-        &&& !(self.status@ is Undoing) ==> self.internal_view().consistent_with_journal(jv, self.sm)
+        &&& self.status@ is Quiescent ==> self.internal_view().consistent_with_journal(jv, self.sm)
         &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv, self.sm)
-        &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
+        &&& forall|i: int| 0 <= i < self.free_list@.len() ==>
+            self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
         &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.pending_deallocations@[i])
     }
