@@ -472,7 +472,6 @@ impl<PM, K> KeyTable<PM, K>
         Ok(())
     }
 
-    #[verifier::rlimit(20)] // TODO @jay - split into two
     pub exec fn update_item(
         &mut self,
         k: &K,
@@ -519,39 +518,8 @@ impl<PM, K> KeyTable<PM, K>
             self.lemma_valid_implications(journal@);
             broadcast use pmcopy_axioms;
             broadcast use group_validate_row_addr;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_update_bytes_effect;
         }
-
-        let key_addr = row_addr + self.sm.row_key_start;
-        let key_bytes = slice_to_vec(k.as_byte_slice());
-        match journal.journal_write(key_addr, key_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
-        let key_crc_addr = row_addr + self.sm.row_key_crc_start;
-        let key_crc = calculate_crc(k);
-        let key_crc_bytes = slice_to_vec(key_crc.as_byte_slice());
-        match journal.journal_write(key_crc_addr, key_crc_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
 
         let metadata_addr = row_addr + self.sm.row_metadata_start;
         let rm = KeyTableRowMetadata{ item_addr, ..current_rm };
