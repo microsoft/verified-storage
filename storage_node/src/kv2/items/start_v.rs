@@ -96,13 +96,10 @@ impl<PM, I> ItemTable<PM, I>
                     &&& iv.consistent(*sm)
                     &&& iv.consistent_with_read_state(journal@.read_state, *sm)
                 }),
-                forall|any_row_addr: u64|
-                    #![trigger sm.table.validate_row_addr(any_row_addr)]
-                    #![trigger row_info.contains_key(any_row_addr)]
-                {
+                forall|any_row_addr: u64| {
                     &&& sm.table.validate_row_addr(any_row_addr)
                     &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
-                } ==> row_info.contains_key(any_row_addr),
+                } ==> #[trigger] row_info.contains_key(any_row_addr),
                 forall|any_row_addr: u64|
                     #[trigger] row_info.contains_key(any_row_addr) ==>
                     match row_info[any_row_addr] {
