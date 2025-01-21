@@ -57,6 +57,8 @@ impl<PM, I> ItemTable<PM, I>
                         ItemRowDisposition::<I>::NowhereFree{ item },
                     ItemRowDisposition::<I>::InPendingDeallocationList{ pos, item } =>
                         ItemRowDisposition::<I>::InFreeList{ pos: self.free_list@.len() + pos },
+                    ItemRowDisposition::<I>::InBothPendingLists{ alloc_pos, dealloc_pos, item } =>
+                        ItemRowDisposition::<I>::InFreeList{ pos: self.free_list@.len() + dealloc_pos },
                     _ => self.row_info@[row_addr],
                 },
             );

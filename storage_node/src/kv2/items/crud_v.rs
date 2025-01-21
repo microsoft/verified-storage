@@ -233,39 +233,33 @@ impl<PM, I> ItemTable<PM, I>
 
     pub exec fn delete(
         &mut self,
-        item_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError>)
+        row_addr: u64,
+        journal: &Journal<TrustedKvPermission, PM>,
+    )
         requires
-            old(self).valid(old(journal)@),
-            old(journal).valid(),
+            old(self).valid(journal@),
+            journal.valid(),
             old(self)@.tentative.is_some(),
-            old(self)@.tentative.unwrap().m.contains_key(item_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            old(self)@.tentative.unwrap().m.contains_key(row_addr),
         ensures
             self.valid(journal@),
-            journal.valid(),
-            journal@.constants_match(old(journal)@),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(_) => {
-                    &&& self@ == (ItemTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().delete(item_addr)),
-                        ..old(self)@
-                    })
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ItemTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
-                _ => false,
-            }
+            self@ == (ItemTableView {
+                tentative: Some(old(self)@.tentative.unwrap().delete(row_addr)),
+                ..old(self)@
+            }),
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        let ghost new_pos = self.pending_deallocations@.len() as nat;
+        let ghost disposition = match self.row_info@[row_addr] {
+            ItemRowDisposition::NowhereFree{ item } =>
+                ItemRowDisposition::InPendingDeallocationList{ pos: new_pos, item },
+            ItemRowDisposition::InPendingAllocationList{ pos, item } =>
+                 ItemRowDisposition::InBothPendingLists{ alloc_pos: pos, dealloc_pos: new_pos, item },
+            _ => { assert(false); arbitrary() },
+        };
+        self.row_info = Ghost(self.row_info@.insert(row_addr, disposition));
+        self.pending_deallocations.push(row_addr);
+        assert(self@.durable =~= old(self)@.durable);
+        assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(row_addr)));
     }
 
 }

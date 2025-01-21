@@ -39,6 +39,7 @@ pub(super) enum ItemRowDisposition<I>
     InFreeList{ pos: nat },
     InPendingDeallocationList{ pos: nat, item: I },
     InPendingAllocationList{ pos: nat, item: I },
+    InBothPendingLists{ alloc_pos: nat, dealloc_pos: nat, item: I },
 }
 
 #[verifier::ext_equal]
@@ -75,12 +76,18 @@ impl<I> ItemInternalView<I>
                       &&& self.free_list[pos as int] == row_addr
                   },
                   ItemRowDisposition::InPendingAllocationList{ pos, item } => {
-                     &&& 0 <= pos < self.pending_allocations.len()
+                      &&& 0 <= pos < self.pending_allocations.len()
                       &&& self.pending_allocations[pos as int] == row_addr
-                 },
+                  },
                   ItemRowDisposition::InPendingDeallocationList{ pos, item } => {
                       &&& 0 <= pos < self.pending_deallocations.len()
                       &&& self.pending_deallocations[pos as int] == row_addr
+                  },
+                  ItemRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, item } => {
+                      &&& 0 <= alloc_pos < self.pending_allocations.len()
+                      &&& self.pending_allocations[alloc_pos as int] == row_addr
+                      &&& 0 <= dealloc_pos < self.pending_deallocations.len()
+                      &&& self.pending_deallocations[dealloc_pos as int] == row_addr
                   },
               }
         }
@@ -102,9 +109,11 @@ impl<I> ItemInternalView<I>
         &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
             &&& sm.table.validate_row_addr(self.pending_allocations[i])
             &&& self.row_info.contains_key(self.pending_allocations[i])
-            &&& self.row_info[self.pending_allocations[i]]
-                matches ItemRowDisposition::InPendingAllocationList{ pos, item }
-            &&& pos == i
+            &&& match self.row_info[self.pending_allocations[i]] {
+                ItemRowDisposition::InPendingAllocationList{ pos, item } => pos == i,
+                ItemRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, item } => alloc_pos == i,
+                _ => false,
+            }
         }
     }
 
@@ -113,9 +122,11 @@ impl<I> ItemInternalView<I>
         &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
             &&& sm.table.validate_row_addr(self.pending_deallocations[i])
             &&& self.row_info.contains_key(self.pending_deallocations[i])
-            &&& self.row_info[self.pending_deallocations[i]]
-                matches ItemRowDisposition::InPendingDeallocationList{ pos, item }
-            &&& pos == i
+            &&& match self.row_info[self.pending_deallocations[i]] {
+                ItemRowDisposition::InPendingDeallocationList{ pos, item } => pos == i,
+                ItemRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, item } => dealloc_pos == i,
+                _ => false,
+            }
         }
     }
 
@@ -154,6 +165,9 @@ impl<I> ItemInternalView<I>
                     recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
                         == Some(item),
                 ItemRowDisposition::InPendingDeallocationList{ pos, item } =>
+                    recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
+                        == Some(item),
+                ItemRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, item } =>
                     recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
                         == Some(item),
             }

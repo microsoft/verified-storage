@@ -190,19 +190,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
-        let ghost self_before_item_delete = self.lemma_prepare_for_item_table_update(perm);
-        let result = self.items.delete(rm.item_addr, &mut self.journal, Tracked(perm));
-        proof { self.lemma_reflect_item_table_update(self_before_item_delete); }
-
-        match result {
-            Ok(i) => {},
-            Err(KvError::OutOfSpace) => {
-                self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
-                return Err(KvError::OutOfSpace);
-            },
-            _ => { assert(false); return Err(KvError::InternalError); },
-        };
+        self.items.delete(rm.item_addr, &self.journal);
 
         if rm.list_addr != 0 {
             let ghost self_before_list_delete = self.lemma_prepare_for_list_table_update(perm);
@@ -321,19 +309,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         }
 
-        let ghost self_before_item_delete = self.lemma_prepare_for_item_table_update(perm);
-        let result = self.items.delete(rm.item_addr, &mut self.journal, Tracked(perm));
-        proof { self.lemma_reflect_item_table_update(self_before_item_delete); }
-
-        match result {
-            Ok(()) => {},
-            Err(KvError::OutOfSpace) => {
-                self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
-                return Err(KvError::OutOfSpace);
-            },
-            _ => { assert(false); return Err(KvError::InternalError); },
-        };
+        self.items.delete(rm.item_addr, &self.journal);
 
         self.status = Ghost(KvStoreStatus::Quiescent);
 
