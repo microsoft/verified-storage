@@ -38,17 +38,17 @@ impl<PM, L> ListTable<PM, L>
 {
     pub exec fn commit(
         &mut self,
-        jv_before_commit: Ghost<JournalView>,
-        jv_after_commit: Ghost<JournalView>,
+        Ghost(jv_before_commit): Ghost<JournalView>,
+        Ghost(jv_after_commit): Ghost<JournalView>,
     )
         requires
-            old(self).valid(jv_before_commit@),
+            old(self).valid(jv_before_commit),
             old(self)@.tentative is Some,
-            jv_before_commit@.valid(),
-            jv_after_commit@.valid(),
-            jv_after_commit@.committed_from(jv_before_commit@),
+            jv_before_commit.valid(),
+            jv_after_commit.valid(),
+            jv_after_commit.committed_from(jv_before_commit),
         ensures
-            self.valid(jv_after_commit@),
+            self.valid(jv_after_commit),
             self@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
     {
         // Play back the undo list from back to front
