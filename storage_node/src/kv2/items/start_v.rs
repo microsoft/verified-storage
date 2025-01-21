@@ -3,9 +3,6 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::super::impl_t::*;
-use super::super::spec_t::*;
-use super::*;
 use crate::common::align_v::*;
 use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
@@ -22,6 +19,10 @@ use deps_hack::PmCopy;
 use recover_v::*;
 use std::collections::HashSet;
 use std::hash::Hash;
+use super::super::impl_t::*;
+use super::super::spec_t::*;
+use super::*;
+use super::inv_v::*;
 
 verus! {
 
@@ -44,9 +45,10 @@ impl<PM, I> ItemTable<PM, I>
             journal@.journaled_addrs == Set::<int>::empty(),
             journal@.durable_state == journal@.read_state,
             journal@.read_state == journal@.commit_state,
+            journal@.constants.app_area_start <= sm.start(),
+            sm.end() <= journal@.constants.app_area_end,
             Self::recover(journal@.read_state, item_addrs@, *sm) is Some,
             sm.valid::<I>(),
-            sm.end() <= journal@.durable_state.len(),
         ensures
             match result {
                 Ok(items) => {
@@ -65,96 +67,104 @@ impl<PM, I> ItemTable<PM, I>
         // The only thing we have to do here is fill in its free list and initialize
         // other associated data structures.
 
+        let ghost mut row_info = Map::<u64, ItemRowDisposition<I>>::empty();
         let mut free_list: Vec<u64> = Vec::new();
-        assert(free_list@.to_set().intersect(item_addrs@) == Set::<u64>::empty());
+        let mut row_index: u64 = 0;
+        let mut row_addr: u64 = sm.table.start;
+    
+        proof {
+            sm.table.lemma_start_is_valid_row();
+        }
 
-        let mut i = 0;
-        while i < sm.table.num_rows
+        while row_index < sm.table.num_rows
             invariant
-                sm.table.valid(),
-                // no addrs are in both the free list and item_addrs set
-                free_list@.to_set().intersect(item_addrs@) == Set::<u64>::empty(),
-                // for all rows between 0 and i, the corresponding address is
-                // in one of the lists. this implies that rows without a
-                // corresponding item_addr entry have been added to the free list
-                forall |row: int| 0 <= row < i ==> {
-                    let addr = #[trigger] sm.table.spec_row_index_to_addr(row);
-                    ||| free_list@.contains(addr)
-                    ||| item_addrs@.contains(addr)
-                },
-                // all addrs in the free list should be valid rows in the table
-                forall |j: int| 0 <= j < free_list@.len() ==>
-                    sm.table.validate_row_addr(#[trigger] free_list@[j]),
-                // all items in item_addrs should be valid rows in the table
-                forall |addr: u64| item_addrs@.contains(addr) ==>
-                    sm.table.validate_row_addr(addr),
+                Self::recover(journal@.read_state, item_addrs@, *sm) is Some,
+                sm.valid::<I>(),
+                0 <= row_index <= sm.table.num_rows,
+                sm.table.row_addr_to_index(row_addr) == row_index as int,
+                sm.table.start <= row_addr <= sm.table.end,
+                row_index < sm.table.num_rows ==> sm.table.validate_row_addr(row_addr),
+                journal@.constants.app_area_start <= sm.start(),
+                sm.end() <= journal@.constants.app_area_end,
+                ({
+                    let iv = ItemInternalView::<I>{
+                        row_info,
+                        free_list: free_list@,
+                        pending_allocations: Seq::<u64>::empty(),
+                        pending_deallocations: Seq::<u64>::empty(),
+                    };
+                    &&& iv.row_info_consistent(*sm)
+                    &&& iv.free_list_consistent(*sm)
+                    &&& iv.pending_allocations_consistent(*sm)
+                    &&& iv.pending_deallocations_consistent(*sm)
+                    &&& iv.consistent_with_read_state(journal@.read_state, *sm)
+                }),
+                forall|any_row_addr: u64|
+                    #![trigger sm.table.validate_row_addr(any_row_addr)]
+                    #![trigger row_info.contains_key(any_row_addr)]
+                {
+                    &&& sm.table.validate_row_addr(any_row_addr)
+                    &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
+                } ==> row_info.contains_key(any_row_addr),
+                forall|any_row_addr: u64|
+                    #[trigger] row_info.contains_key(any_row_addr) ==>
+                    match row_info[any_row_addr] {
+                        ItemRowDisposition::<I>::NowhereFree{ item } => item_addrs@.contains(any_row_addr),
+                        ItemRowDisposition::<I>::InFreeList{ pos } => !item_addrs@.contains(any_row_addr),
+                        _ => false,
+                    },
+                forall|i: int| 0 <= i < free_list@.len() ==>
+                    0 <= sm.table.row_addr_to_index(#[trigger] free_list@[i]) < row_index,
         {
-            let ghost old_free_list = free_list@;
-            let current_addr = sm.table.row_index_to_addr(i);
-
-            if !item_addrs.contains(&current_addr) {
-                free_list.push(current_addr);
+            proof {
+                broadcast use group_validate_row_addr;
+                broadcast use pmcopy_axioms;
+                broadcast use vstd::std_specs::hash::group_hash_axioms;
+                sm.table.lemma_row_addr_successor_is_valid(row_addr);
             }
 
-            proof {
-                broadcast use vstd::std_specs::hash::group_hash_axioms;
-                broadcast use group_validate_row_addr;
-
-                lemma_row_index_to_addr_is_valid(sm.table, i as int);
-
-                assert(old_free_list == free_list@.subrange(0, old_free_list.len() as int));
-                assert(free_list@.to_set().intersect(item_addrs@) == Set::<u64>::empty());
-
-                assert forall |row: int| 0 <= row <= i implies {
-                    let addr = #[trigger] sm.table.spec_row_index_to_addr(row);
-                    ||| free_list@.contains(addr)
-                    ||| item_addrs@.contains(addr)
-                } by {
-                    let addr = sm.table.spec_row_index_to_addr(row);
-                    if addr == current_addr {
-                        if !item_addrs@.contains(addr) {
-                            assert(free_list@.last() == addr);
-                        }
-                    }
+            let ghost old_free_list = free_list@;
+            if !item_addrs.contains(&row_addr) {
+                proof {
+                    let ghost pos = free_list@.len();
+                    row_info = row_info.insert(row_addr, ItemRowDisposition::InFreeList{ pos });
+                }
+                free_list.push(row_addr);
+            }
+            else {
+                proof {
+                    let ghost item = recover_item::<I>(journal@.read_state, row_addr, *sm);
+                    row_info = row_info.insert(row_addr, ItemRowDisposition::NowhereFree{ item });
                 }
             }
-            i += 1;
+
+            row_index = row_index + 1;
+            row_addr = row_addr + sm.table.row_size;
         }
-
-        let ghost item_table_snapshot = Self::recover(journal@.read_state, item_addrs@, *sm).unwrap();
-        let pending_deallocations = Vec::new();
-
-        proof {
+    
+        assert forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr)
+            implies row_info.contains_key(row_addr) by {
+            let row_index = sm.table.row_addr_to_index(row_addr);
             broadcast use group_validate_row_addr;
-
-            assert(item_table_snapshot.m.dom() == item_addrs@);
-            assert(free_list@.to_set() + pending_deallocations@.to_set() == free_list@.to_set());
-            assert(free_list@.to_set().intersect(pending_deallocations@.to_set()) == Set::<u64>::empty());
-
-            // making a sequence then a set is a little janky, but it's much easier than using Set::new and
-            // trying to prove that the resulting set is finite
-            let all_addrs_seq = Seq::new(sm.table.num_rows as nat, |i: int| sm.table.spec_row_index_to_addr(i));
-            let all_addrs = all_addrs_seq.to_set();
-
-            assert(free_list@.to_set() + item_addrs@ =~= all_addrs) by {
-                sm.table.lemma_index_addr_inverse();
-                assert(forall |row: int| 0 <= row < sm.table.num_rows ==> {
-                    let addr = #[trigger] sm.table.spec_row_index_to_addr(row);
-                    all_addrs_seq[row] == addr
-                });
-            }
         }
 
-        Ok(Self {
+        let items = Self {
             status: Ghost(ItemTableStatus::Quiescent),
             sm: *sm,
             must_abort: Ghost(false),
-            durable_snapshot: Ghost(item_table_snapshot),
-            tentative_snapshot: Ghost(item_table_snapshot),
+            row_info: Ghost(row_info),
             free_list,
-            pending_deallocations,
+            pending_allocations: Vec::new(),
+            pending_deallocations: Vec::new(),
             phantom_pm: Ghost(core::marker::PhantomData),
-        })
+        };
+        
+        let ghost recovered_state = Self::recover(journal@.read_state, item_addrs@, *sm).unwrap();
+        assert(items@.durable =~= recovered_state);
+        assert(items@.tentative == Some(recovered_state));
+        assert(recovered_state.m.dom() =~= item_addrs@);
+
+        Ok(items)
     }
 }
 

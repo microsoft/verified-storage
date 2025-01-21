@@ -30,38 +30,199 @@ pub(super) enum ItemTableStatus {
     Quiescent,
 }
 
+#[verifier::ext_equal]
+pub(super) enum ItemRowDisposition<I>
+    where
+        I: PmCopy + Sized + std::fmt::Debug,
+{
+    NowhereFree{ item: I },
+    InFreeList{ pos: nat },
+    InPendingDeallocationList{ pos: nat, item: I },
+    InPendingAllocationList{ pos: nat, item: I },
+}
+
+#[verifier::ext_equal]
+pub(super) struct ItemInternalView<I>
+    where
+        I: PmCopy + Sized + std::fmt::Debug,
+{
+    pub row_info: Map<u64, ItemRowDisposition<I>>,
+    pub free_list: Seq<u64>,
+    pub pending_allocations: Seq<u64>,
+    pub pending_deallocations: Seq<u64>,
+}
+
+impl<I> ItemInternalView<I>
+    where
+        I: PmCopy + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn complete(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& forall|row_addr: u64|
+            #![trigger sm.table.validate_row_addr(row_addr)]
+            #![trigger self.row_info.contains_key(row_addr)]
+            sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+    }
+
+    pub(super) open spec fn row_info_consistent(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
+            &&& sm.table.validate_row_addr(row_addr)
+            &&& match self.row_info[row_addr] {
+                  ItemRowDisposition::NowhereFree{ item } => true,
+                  ItemRowDisposition::InFreeList{ pos } => {
+                      &&& 0 <= pos < self.free_list.len()
+                      &&& self.free_list[pos as int] == row_addr
+                  },
+                  ItemRowDisposition::InPendingAllocationList{ pos, item } => {
+                     &&& 0 <= pos < self.pending_allocations.len()
+                      &&& self.pending_allocations[pos as int] == row_addr
+                 },
+                  ItemRowDisposition::InPendingDeallocationList{ pos, item } => {
+                      &&& 0 <= pos < self.pending_deallocations.len()
+                      &&& self.pending_deallocations[pos as int] == row_addr
+                  },
+              }
+        }
+    }
+
+    pub(super) open spec fn free_list_consistent(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& forall|i: int| #![trigger self.row_info.contains_key(self.free_list[i])]
+                   #![trigger self.row_info[self.free_list[i]]]
+            0 <= i < self.free_list.len() ==> {
+            &&& sm.table.validate_row_addr(self.free_list[i])
+            &&& self.row_info.contains_key(self.free_list[i])
+            &&& #[trigger] self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
+            &&& pos == i
+        }
+    }
+
+    pub(super) open spec fn pending_allocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& forall|i: int| 0 <= i < self.pending_allocations.len() ==> {
+            &&& sm.table.validate_row_addr(self.pending_allocations[i])
+            &&& self.row_info.contains_key(self.pending_allocations[i])
+            &&& #[trigger] self.row_info[self.pending_allocations[i]]
+                matches ItemRowDisposition::InPendingAllocationList{ pos, item }
+            &&& pos == i
+        }
+    }
+
+    pub(super) open spec fn pending_deallocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& forall|i: int| 0 <= i < self.pending_deallocations.len() ==> {
+            &&& sm.table.validate_row_addr(self.pending_deallocations[i])
+            &&& self.row_info.contains_key(self.pending_deallocations[i])
+            &&& #[trigger] self.row_info[self.pending_deallocations[i]]
+                matches ItemRowDisposition::InPendingDeallocationList{ pos, item }
+            &&& pos == i
+        }
+    }
+
+    pub(super) open spec fn valid(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& self.complete(sm)
+        &&& self.row_info_consistent(sm)
+        &&& self.free_list_consistent(sm)
+        &&& self.pending_allocations_consistent(sm)
+        &&& self.pending_deallocations_consistent(sm)
+    }
+
+    pub(super) open spec fn consistent_with_durable_state(self, s: Seq<u8>, sm: ItemTableStaticMetadata) -> bool
+    {
+        forall|row_addr: u64| self.row_info.contains_key(row_addr) ==>
+            match self.row_info[row_addr] {
+                ItemRowDisposition::NowhereFree{ item } =>
+                    recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
+                        == Some(item),
+                ItemRowDisposition::InPendingDeallocationList{ pos, item } =>
+                    recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
+                        == Some(item),
+                _ => true,
+            }
+    }
+
+    pub(super) open spec fn consistent_with_read_state(self, s: Seq<u8>, sm: ItemTableStaticMetadata) -> bool
+    {
+        forall|row_addr: u64| self.row_info.contains_key(row_addr) ==>
+            match self.row_info[row_addr] {
+                ItemRowDisposition::NowhereFree{ item } =>
+                    recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
+                        == Some(item),
+                ItemRowDisposition::InFreeList{ pos } => true,
+                ItemRowDisposition::InPendingAllocationList{ pos, item } =>
+                    recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
+                        == Some(item),
+                ItemRowDisposition::InPendingDeallocationList{ pos, item } =>
+                    recover_object::<I>(s, row_addr + sm.row_item_start, row_addr + sm.row_item_crc_start)
+                        == Some(item),
+            }
+    }
+
+    pub(super) open spec fn as_durable_snapshot(self) -> ItemTableSnapshot<I>
+    {
+        ItemTableSnapshot::<I>{
+            m: Map::<u64, I>::new(
+                |row_addr: u64| {
+                    &&& self.row_info.contains_key(row_addr)
+                    &&& self.row_info[row_addr] is NowhereFree ||
+                       self.row_info[row_addr] is InPendingDeallocationList
+                },
+                |row_addr: u64| match self.row_info[row_addr] {
+                    ItemRowDisposition::NowhereFree{ item } => item,
+                    ItemRowDisposition::InPendingDeallocationList{ pos, item } => item,
+                    _ => arbitrary(),
+                },
+            ),
+        }
+    }
+
+    pub(super) open spec fn as_tentative_snapshot(self) -> ItemTableSnapshot<I>
+    {
+        ItemTableSnapshot::<I>{
+            m: Map::<u64, I>::new(
+                |row_addr: u64| {
+                    &&& self.row_info.contains_key(row_addr)
+                    &&& self.row_info[row_addr] is NowhereFree ||
+                       self.row_info[row_addr] is InPendingAllocationList
+                },
+                |row_addr: u64| match self.row_info[row_addr] {
+                    ItemRowDisposition::NowhereFree{ item } => item,
+                    ItemRowDisposition::InPendingAllocationList{ pos, item } => item,
+                    _ => arbitrary(),
+                },
+            ),
+        }
+    }
+}
+
 impl<PM, I> ItemTable<PM, I>
     where
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
+    pub(super) open spec fn internal_view(self) -> ItemInternalView<I>
+    {
+        ItemInternalView::<I>{
+            row_info: self.row_info@,
+            free_list: self.free_list@,
+            pending_allocations: self.pending_allocations@,
+            pending_deallocations: self.pending_deallocations@,
+        }
+    }
+
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
-        // no rows are both free and pending deallocation
-        &&& self.free_list@.to_set().intersect(self.pending_deallocations@.to_set()) == Set::<u64>::empty()
-
-        // durable and tentative views correspond to free list.
-        // in the durable state, pending deallocations have not yet been deallocated;
-        // in the tentative state they have
-        &&& self.free_list@.to_set().intersect(self@.durable.m.dom()) == Set::<u64>::empty()
-        &&& self@.tentative is Some ==>
-                (self.free_list@.to_set() + self.pending_deallocations@.to_set()).intersect(self@.tentative.unwrap().m.dom()) == Set::<u64>::empty()
-
-        // free list and pending dealloc list only contain addresses for valid rows
-        &&& forall |i: int| 0 <= i < self.free_list@.len() ==> #[trigger] self.sm.table.validate_row_addr(self.free_list@[i])
-        &&& forall |i: int| 0 <= i < self.pending_deallocations@.len() ==> #[trigger] self.sm.table.validate_row_addr(self.free_list@[i])
-
-        // all addresses are either free, pending deallocation, or valid
-        &&& ({
-                // let all_addrs = Set::new(|addr: u64| self.sm.table.validate_row_addr(addr));
-                let all_addrs_seq = Seq::new(self.sm.table.num_rows as nat, |i: int| self.sm.table.spec_row_index_to_addr(i));
-                let all_addrs = all_addrs_seq.to_set();
-                // free list + durable view dom == all valid addresses
-                &&& self.free_list@.to_set() + self@.durable.m.dom() == all_addrs
-                // free list + pending deallocs + tentative view dom == all valid addresses
-                &&& self@.tentative is Some ==>
-                        self.free_list@.to_set() + self.pending_deallocations@.to_set() + self@.tentative.unwrap().m.dom() == all_addrs
-            })
+        &&& self.sm.valid::<I>()
+        &&& jv.constants.app_area_start <= self.sm.start()
+        &&& self.sm.end() <= jv.constants.app_area_end
+        &&& self.internal_view().valid(self.sm)
+        &&& self.internal_view().consistent_with_durable_state(jv.durable_state, self.sm)
+        &&& self.internal_view().consistent_with_read_state(jv.read_state, self.sm)
+        &&& self.internal_view().consistent_with_read_state(jv.commit_state, self.sm)
+        &&& forall|addr: int| self.sm.table.start <= addr < self.sm.table.end ==>
+            !(#[trigger] jv.journaled_addrs.contains(addr))
     }
 
     pub proof fn lemma_valid_implications(self, jv: JournalView)
@@ -72,7 +233,10 @@ impl<PM, I> ItemTable<PM, I>
             self@.tentative is Some ==>
                 Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) == self@.tentative,
     {
-        assume(false);
+        assert(Self::recover(jv.durable_state, self@.durable.m.dom(), self@.sm) =~= Some(self@.durable));
+        if self@.tentative is Some {
+            assert(Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) =~= self@.tentative);
+        }
     }
 }
 

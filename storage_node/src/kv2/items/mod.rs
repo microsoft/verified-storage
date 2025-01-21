@@ -108,9 +108,9 @@ pub struct ItemTable<PM, I>
     status: Ghost<ItemTableStatus>,
     sm: ItemTableStaticMetadata,
     must_abort: Ghost<bool>,
-    durable_snapshot: Ghost<ItemTableSnapshot<I>>,
-    tentative_snapshot: Ghost<ItemTableSnapshot<I>>,
+    row_info: Ghost<Map<u64, ItemRowDisposition<I>>>,
     free_list: Vec<u64>,
+    pending_allocations: Vec<u64>,
     pending_deallocations: Vec<u64>,
     phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
@@ -124,8 +124,8 @@ impl<PM, I> ItemTable<PM, I>
     {
         ItemTableView::<I>{
             sm: self.sm,
-            durable: self.durable_snapshot@,
-            tentative: if self.must_abort@ { None } else { Some(self.tentative_snapshot@) },
+            durable: self.internal_view().as_durable_snapshot(),
+            tentative: if self.must_abort@ { None } else { Some(self.internal_view().as_tentative_snapshot()) },
         }
     }
 

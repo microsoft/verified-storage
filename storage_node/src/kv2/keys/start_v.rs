@@ -100,7 +100,6 @@ impl<PM, K> KeyTable<PM, K>
                 pm.constants() == journal@.pm_constants,
                 pm@.valid(),
                 pm@.read_state == journal@.read_state,
-                sm.valid::<K>(),
                 sm.table.end <= pm@.len(),
                 0 <= row_index <= sm.table.num_rows,
                 sm.table.row_addr_to_index(row_addr) == row_index as int,
