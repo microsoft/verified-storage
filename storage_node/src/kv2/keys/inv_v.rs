@@ -29,8 +29,7 @@ verus! {
 #[verifier::ext_equal]
 pub(super) enum KeyTableStatus {
     Quiescent,
-    Undoing,
-    Creating,
+    Inconsistent,
 }
 
 #[verifier::ext_equal]
@@ -674,7 +673,7 @@ impl<PM, K> KeyTable<PM, K>
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.internal_view().valid(self.sm)
-        &&& self.status@ is Quiescent && !self.must_abort@ ==>
+        &&& !(self.status@ is Inconsistent) && !self.must_abort@ ==>
             self.internal_view().consistent_with_journal(jv, self.sm)
         &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv, self.sm)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==>

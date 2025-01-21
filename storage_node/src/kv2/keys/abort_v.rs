@@ -37,7 +37,7 @@ impl<PM, K> KeyTable<PM, K>
     )
         requires
             old(self).inv(jv),
-            old(self).status@ is Undoing,
+            old(self).status@ is Inconsistent,
             old(self).undo_records@.len() > 0,
             old(self).internal_view().apply_undo_record(old(self).undo_records@.last()).unwrap().valid(old(self).sm),
         ensures
@@ -82,7 +82,7 @@ impl<PM, K> KeyTable<PM, K>
     )
         requires
             old(self).inv(jv),
-            old(self).status@ is Undoing,
+            old(self).status@ is Inconsistent,
         ensures
             self.inv(jv),
             self.status == old(self).status,
@@ -93,7 +93,7 @@ impl<PM, K> KeyTable<PM, K>
         while self.undo_records.len() > 0
             invariant
                 self.inv(jv),
-                self.status@ is Undoing,
+                self.status@ is Inconsistent,
                 self.must_abort == old(self).must_abort,
                 self.sm == old(self).sm,
         {
@@ -116,7 +116,7 @@ impl<PM, K> KeyTable<PM, K>
             self.valid(jv_after_abort),
             self@ == (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
     {
-        self.status = Ghost(KeyTableStatus::Undoing);
+        self.status = Ghost(KeyTableStatus::Inconsistent);
         self.apply_all_undo_records(Ghost(jv_before_abort));
         self.status = Ghost(KeyTableStatus::Quiescent);
         self.must_abort = Ghost(false);

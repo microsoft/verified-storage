@@ -165,7 +165,7 @@ impl<PM, K> KeyTable<PM, K>
                 Ok(row_addr) => {
                     &&& 0 < self.free_list@.len()
                     &&& row_addr == self.free_list@.last()
-                    &&& self == (Self{ status: Ghost(KeyTableStatus::Creating), ..*old(self) })
+                    &&& self == (Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) })
                     &&& recover_cdb(journal@.commit_state, row_addr + self.sm.row_cdb_start) == Some(true)
                     &&& seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
                                                  row_addr as int, row_addr + self.sm.table.row_size)
@@ -218,7 +218,7 @@ impl<PM, K> KeyTable<PM, K>
             }
         };
 
-        self.status = Ghost(KeyTableStatus::Creating);
+        self.status = Ghost(KeyTableStatus::Inconsistent);
         Ok(row_addr)
     }
 
@@ -233,7 +233,7 @@ impl<PM, K> KeyTable<PM, K>
     )
         requires
             self.inv(old(journal)@),
-            self.status@ is Creating,
+            self.status@ is Inconsistent,
             old(journal).valid(),
             self@.tentative is Some,
             !self@.tentative.unwrap().key_info.contains_key(*k),
