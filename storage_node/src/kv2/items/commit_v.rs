@@ -49,8 +49,26 @@ impl<PM, I> ItemTable<PM, I>
             self.valid(jv_after_commit@),
             self@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
     {
-        // Play back the undo list from back to front
-        assume(false); // unimplemented
+        let ghost new_row_info =
+            Map::<u64, ItemRowDisposition<I>>::new(
+                |row_addr: u64| self.row_info@.contains_key(row_addr),
+                |row_addr: u64| match self.row_info@[row_addr] {
+                    ItemRowDisposition::<I>::InPendingAllocationList{ pos, item } =>
+                        ItemRowDisposition::<I>::NowhereFree{ item },
+                    ItemRowDisposition::<I>::InPendingDeallocationList{ pos, item } =>
+                        ItemRowDisposition::<I>::InFreeList{ pos: self.free_list@.len() + pos },
+                    _ => self.row_info@[row_addr],
+                },
+            );
+        self.row_info = Ghost(new_row_info);
+        self.free_list.append(&mut self.pending_deallocations);
+        self.pending_allocations.clear();
+
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use group_validate_row_addr;
+
+        assert(self.valid(jv_after_commit@));
+        assert(self@ =~= (ItemTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));
     }
 }
 
