@@ -93,10 +93,7 @@ impl<PM, I> ItemTable<PM, I>
                         pending_allocations: Seq::<u64>::empty(),
                         pending_deallocations: Seq::<u64>::empty(),
                     };
-                    &&& iv.row_info_consistent(*sm)
-                    &&& iv.free_list_consistent(*sm)
-                    &&& iv.pending_allocations_consistent(*sm)
-                    &&& iv.pending_deallocations_consistent(*sm)
+                    &&& iv.consistent(*sm)
                     &&& iv.consistent_with_read_state(journal@.read_state, *sm)
                 }),
                 forall|any_row_addr: u64|

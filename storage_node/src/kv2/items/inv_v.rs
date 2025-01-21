@@ -130,13 +130,18 @@ impl<I> ItemInternalView<I>
         }
     }
 
-    pub(super) open spec fn valid(self, sm: ItemTableStaticMetadata) -> bool
+    pub(super) open spec fn consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& self.complete(sm)
         &&& self.row_info_consistent(sm)
         &&& self.free_list_consistent(sm)
         &&& self.pending_allocations_consistent(sm)
         &&& self.pending_deallocations_consistent(sm)
+    }
+
+    pub(super) open spec fn valid(self, sm: ItemTableStaticMetadata) -> bool
+    {
+        &&& self.complete(sm)
+        &&& self.consistent(sm)
     }
 
     pub(super) open spec fn consistent_with_durable_state(self, s: Seq<u8>, sm: ItemTableStaticMetadata) -> bool
