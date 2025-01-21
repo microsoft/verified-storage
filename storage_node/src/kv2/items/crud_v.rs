@@ -22,6 +22,7 @@ use std::hash::Hash;
 use super::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+use vstd::slice::slice_to_vec;
 
 verus! {
 
@@ -55,6 +56,101 @@ impl<PM, I> ItemTable<PM, I>
         }
     }
 
+    proof fn lemma_writing_to_free_slot_doesnt_change_recovery(
+        iv: ItemInternalView<I>,
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sm: ItemTableStaticMetadata,
+        free_list_pos: int,
+        row_addr: u64,
+        start: int,
+        end: int,
+    )
+        requires
+            sm.valid::<I>(),
+            iv.valid(sm),
+            iv.consistent_with_durable_state(s1, sm),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            row_addr <= start <= end <= row_addr + sm.table.row_size,
+            seqs_match_except_in_range(s1, s2, start, end),
+        ensures
+            iv.consistent_with_durable_state(s2, sm),
+            Self::recover(s2, iv.as_durable_snapshot().m.dom(), sm) ==
+                Self::recover(s1, iv.as_durable_snapshot().m.dom(), sm),
+    {
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+
+        assert(Self::recover(s2, iv.as_durable_snapshot().m.dom(), sm) =~=
+               Self::recover(s1, iv.as_durable_snapshot().m.dom(), sm));
+    }
+
+    proof fn lemma_writing_to_free_slot_has_permission_later_forall(
+        iv: ItemInternalView<I>,
+        initial_durable_state: Seq<u8>,
+        sm: ItemTableStaticMetadata,
+        constants: JournalConstants,
+        free_list_pos: int,
+        row_addr: u64,
+        tracked perm: &TrustedKvPermission,
+    )
+        requires
+            sm.valid::<I>(),
+            iv.valid(sm),
+            iv.consistent_with_durable_state(initial_durable_state, sm),
+            ({
+                &&& Journal::<TrustedKvPermission, PM>::recover(initial_durable_state) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == initial_durable_state
+            }),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            sm.table.end <= initial_durable_state.len(),
+            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
+                                                                 initial_durable_state, constants, sm)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.as_durable_snapshot().m.dom(),
+                                                         initial_durable_state, constants, sm)
+                &&& iv.consistent_with_durable_state(current_durable_state, sm)
+                &&& row_addr <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } ==> {
+                &&& Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
+                                                         initial_durable_state, constants, sm)
+                &&& iv.consistent_with_durable_state(s, sm)
+                &&& perm.check_permission(s)
+            },
+    {
+        let item_addrs = iv.as_durable_snapshot().m.dom();
+        assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, item_addrs,
+                                                         initial_durable_state, constants, sm)
+                &&& iv.consistent_with_durable_state(current_durable_state, sm)
+                &&& row_addr <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+                &&& j.constants == constants
+                &&& j.state == s
+            } implies {
+                &&& Self::state_equivalent_for_me_specific(s, item_addrs, initial_durable_state, constants, sm)
+                &&& iv.consistent_with_durable_state(s, sm)
+                &&& perm.check_permission(s)
+            } by {
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, current_durable_state, s, sm,
+                                                                    free_list_pos, row_addr, start, end);
+        }
+    }
+
     pub exec fn create(
         &mut self,
         item: &I,
@@ -72,13 +168,13 @@ impl<PM, I> ItemTable<PM, I>
             journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
-                Ok(item_addr) => {
+                Ok(row_addr) => {
                     &&& self@ == (ItemTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().create(item_addr, *item)),
+                        tentative: Some(old(self)@.tentative.unwrap().create(row_addr, *item)),
                         ..old(self)@
                     })
-                    &&& !old(self)@.tentative.unwrap().m.contains_key(item_addr)
-                    &&& self.validate_item_addr(item_addr)
+                    &&& !old(self)@.tentative.unwrap().m.contains_key(row_addr)
+                    &&& self.validate_item_addr(row_addr)
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ItemTableView {
@@ -89,8 +185,50 @@ impl<PM, I> ItemTable<PM, I>
                 _ => false,
             },
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        proof {
+            journal.lemma_valid_implications();
+            self.lemma_valid_implications(journal@);
+            if self.free_list@.len() > 0 {
+                Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                    self.internal_view(),
+                    journal@.durable_state,
+                    self.sm,
+                    journal@.constants,
+                    self.free_list@.len() - 1,
+                    self.free_list@.last(),
+                    perm
+                );
+            }
+
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_update_bytes_effect;
+        }
+
+        let row_addr = match self.free_list.pop() {
+            None => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            },
+            Some(a) => a,
+        };
+        assert(old(self).free_list@[self.free_list@.len() as int] == row_addr);
+
+        let item_addr = row_addr + self.sm.row_item_start;
+        let item_crc_addr = row_addr + self.sm.row_item_crc_start;
+        let item_crc = calculate_crc(item);
+
+        journal.write_object::<I>(item_addr, &item, Tracked(perm));
+        journal.write_object::<u64>(item_crc_addr, &item_crc, Tracked(perm));
+
+        let ghost disposition =
+            ItemRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat, item: *item };
+        self.row_info = Ghost(self.row_info@.insert(row_addr, disposition));
+        self.pending_allocations.push(row_addr);
+        assert(self@.durable =~= old(self)@.durable);
+        assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().create(row_addr, *item)));
+        Ok(row_addr)
     }
 
     pub exec fn delete(

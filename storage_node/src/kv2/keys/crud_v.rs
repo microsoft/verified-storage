@@ -122,10 +122,10 @@ impl<PM, K> KeyTable<PM, K>
             },
     {
         assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
                 &&& Self::state_equivalent_for_me_specific(current_durable_state, initial_durable_state,
                                                          constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
-                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
                 &&& j.constants == constants

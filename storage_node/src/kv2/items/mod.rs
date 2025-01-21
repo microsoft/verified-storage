@@ -168,13 +168,24 @@ impl<PM, I> ItemTable<PM, I>
         self.sm.table.validate_row_addr(addr)
     }
 
+    pub open spec fn state_equivalent_for_me_specific(
+        s: Seq<u8>,
+        item_addrs: Set<u64>,
+        durable_state: Seq<u8>,
+        constants: JournalConstants,
+        sm: ItemTableStaticMetadata
+    ) -> bool
+    {
+        &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
+        &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
+        &&& j.constants == constants
+        &&& j.state == s
+        &&& Self::recover(s, item_addrs, sm) == Self::recover(durable_state, item_addrs, sm)
+    }
+
     pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool
     {
-        &&& seqs_match_except_in_range(jv.durable_state, s, self@.sm.start() as int, self@.sm.end() as int)
-        &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-        &&& j.constants == jv.constants
-        &&& j.state == s
-        &&& Self::recover(s, self@.durable.m.dom(), self@.sm) == Some(self@.durable)
+        Self::state_equivalent_for_me_specific(s, self@.durable.m.dom(), jv.durable_state, jv.constants, self@.sm)
     }
 }
 

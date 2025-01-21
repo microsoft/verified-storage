@@ -88,8 +88,7 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn free_list_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.row_info.contains_key(self.free_list[i])]
-                   #![trigger self.row_info[self.free_list[i]]]
+        &&& forall|i: int| #![trigger self.free_list[i]]
             0 <= i < self.free_list.len() ==> {
             &&& sm.table.validate_row_addr(self.free_list[i])
             &&& self.row_info.contains_key(self.free_list[i])
@@ -100,10 +99,10 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn pending_allocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| 0 <= i < self.pending_allocations.len() ==> {
+        &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
             &&& sm.table.validate_row_addr(self.pending_allocations[i])
             &&& self.row_info.contains_key(self.pending_allocations[i])
-            &&& #[trigger] self.row_info[self.pending_allocations[i]]
+            &&& self.row_info[self.pending_allocations[i]]
                 matches ItemRowDisposition::InPendingAllocationList{ pos, item }
             &&& pos == i
         }
@@ -111,10 +110,10 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn pending_deallocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| 0 <= i < self.pending_deallocations.len() ==> {
+        &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
             &&& sm.table.validate_row_addr(self.pending_deallocations[i])
             &&& self.row_info.contains_key(self.pending_deallocations[i])
-            &&& #[trigger] self.row_info[self.pending_deallocations[i]]
+            &&& self.row_info[self.pending_deallocations[i]]
                 matches ItemRowDisposition::InPendingDeallocationList{ pos, item }
             &&& pos == i
         }
@@ -219,8 +218,8 @@ impl<PM, I> ItemTable<PM, I>
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.internal_view().valid(self.sm)
         &&& self.internal_view().consistent_with_durable_state(jv.durable_state, self.sm)
-        &&& self.internal_view().consistent_with_read_state(jv.read_state, self.sm)
-        &&& self.internal_view().consistent_with_read_state(jv.commit_state, self.sm)
+        &&& !self.must_abort@ ==> self.internal_view().consistent_with_read_state(jv.read_state, self.sm)
+        &&& !self.must_abort@ ==> self.internal_view().consistent_with_read_state(jv.commit_state, self.sm)
         &&& forall|addr: int| self.sm.table.start <= addr < self.sm.table.end ==>
             !(#[trigger] jv.journaled_addrs.contains(addr))
     }
