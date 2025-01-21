@@ -472,12 +472,12 @@ impl<PM, K> KeyTable<PM, K>
         Ok(())
     }
 
-    pub exec fn update_item(
+    pub exec fn update(
         &mut self,
         k: &K,
         row_addr: u64,
-        item_addr: u64,
-        current_rm: KeyTableRowMetadata,
+        new_rm: KeyTableRowMetadata,
+        former_rm: KeyTableRowMetadata,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<(), KvError>)
@@ -487,227 +487,16 @@ impl<PM, K> KeyTable<PM, K>
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self).key_corresponds_to_key_addr(*k, row_addr),
-            old(self)@.tentative.unwrap().key_info[*k] == current_rm,
-            !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
-                #[trigger] perm.check_permission(s),
-        ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.constants_match(old(journal)@),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(()) => {
-                    &&& self@ == (KeyTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().update_item(*k, item_addr,
-                                                                                current_rm.item_addr)),
-                        ..old(self)@
-                    })
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (KeyTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
-                _ => false,
-            },
-    {
-        proof {
-            journal.lemma_valid_implications();
-            self.lemma_valid_implications(journal@);
-            broadcast use pmcopy_axioms;
-            broadcast use group_validate_row_addr;
-            broadcast use group_update_bytes_effect;
-        }
-
-        let metadata_addr = row_addr + self.sm.row_metadata_start;
-        let rm = KeyTableRowMetadata{ item_addr, ..current_rm };
-        let rm_bytes = slice_to_vec(rm.as_byte_slice());
-        match journal.journal_write(metadata_addr, rm_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
-
-        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
-        let rm_crc = calculate_crc(&rm);
-        let rm_crc_bytes = slice_to_vec(rm_crc.as_byte_slice());
-        match journal.journal_write(rm_crc_addr, rm_crc_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
-
-        assert(self.memory_mapping@.valid(self.sm));
-        assert(self.memory_mapping == old(self).memory_mapping);
-        self.memory_mapping = Ghost(self.memory_mapping@.update(row_addr, *k, rm, current_rm));
-        assert(self.memory_mapping@.undo_update(row_addr, *k, current_rm) =~= Some(old(self).memory_mapping@));
-
-        self.m.insert(k.clone_provable(), ConcreteKeyInfo{ row_addr, rm });
-        assert(self.m@.insert(*k, ConcreteKeyInfo{ row_addr, rm: current_rm }) == old(self).m@);
-
-        let undo_record = KeyUndoRecord::UndoUpdate{ row_addr, k: *k, former_rm: current_rm };
-        assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
-        self.undo_records.push(undo_record);
-        assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
-               old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm)) by {
-            assert(self.undo_records@.drop_last() =~= old(self).undo_records@);
-            assert(self.undo_records@.last() =~= undo_record);
-        }
-
-        proof {
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use group_validate_row_addr;
-        }
-
-        assert(self.valid(journal@));
-        assert(self@.tentative =~=
-               Some(old(self)@.tentative.unwrap().update_item(*k, item_addr, current_rm.item_addr)));
-        Ok(())
-    }
-
-    pub exec fn update_list(
-        &mut self,
-        k: &K,
-        row_addr: u64,
-        list_addr: u64,
-        current_rm: KeyTableRowMetadata,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError>)
-        requires
-            old(self).valid(old(journal)@),
-            old(journal).valid(),
-            old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().key_info.contains_key(*k),
-            old(self).key_corresponds_to_key_addr(*k, row_addr),
-            old(self)@.tentative.unwrap().key_info[*k] == current_rm,
-            list_addr != 0 ==> !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
-                #[trigger] perm.check_permission(s),
-        ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.constants_match(old(journal)@),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(()) => {
-                    &&& self@ == (KeyTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().update_list(*k, list_addr, current_rm.list_addr)),
-                        ..old(self)@
-                    })
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (KeyTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
-                _ => false,
-            },
-    {
-        proof {
-            journal.lemma_valid_implications();
-            self.lemma_valid_implications(journal@);
-            broadcast use pmcopy_axioms;
-            broadcast use group_validate_row_addr;
-            broadcast use group_update_bytes_effect;
-        }
-
-        let metadata_addr = row_addr + self.sm.row_metadata_start;
-        let rm = KeyTableRowMetadata{ list_addr, ..current_rm };
-        let rm_bytes = slice_to_vec(rm.as_byte_slice());
-        match journal.journal_write(metadata_addr, rm_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
-
-        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
-        let rm_crc = calculate_crc(&rm);
-        let rm_crc_bytes = slice_to_vec(rm_crc.as_byte_slice());
-        match journal.journal_write(rm_crc_addr, rm_crc_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
-
-        assert(self.memory_mapping@.valid(self.sm));
-        assert(self.memory_mapping == old(self).memory_mapping);
-        self.memory_mapping = Ghost(self.memory_mapping@.update(row_addr, *k, rm, current_rm));
-        assert(self.memory_mapping@.undo_update(row_addr, *k, current_rm) =~= Some(old(self).memory_mapping@));
-
-        self.m.insert(k.clone_provable(), ConcreteKeyInfo{ row_addr, rm });
-        assert(self.m@.insert(*k, ConcreteKeyInfo{ row_addr, rm: current_rm }) == old(self).m@);
-
-        let undo_record = KeyUndoRecord::UndoUpdate{ row_addr, k: *k, former_rm: current_rm };
-        assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
-        self.undo_records.push(undo_record);
-        assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
-               old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm)) by {
-            assert(self.undo_records@.drop_last() =~= old(self).undo_records@);
-            assert(self.undo_records@.last() =~= undo_record);
-        }
-
-        proof {
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use group_validate_row_addr;
-        }
-
-        assert(self.valid(journal@));
-        assert(self@.tentative =~=
-               Some(old(self)@.tentative.unwrap().update_list(*k, list_addr, current_rm.list_addr)));
-        Ok(())
-    }
-
-    pub exec fn update_item_and_list(
-        &mut self,
-        k: &K,
-        row_addr: u64,
-        item_addr: u64,
-        list_addr: u64,
-        current_rm: KeyTableRowMetadata,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError>)
-        requires
-            old(self).valid(old(journal)@),
-            old(journal).valid(),
-            old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().key_info.contains_key(*k),
-            old(self).key_corresponds_to_key_addr(*k, row_addr),
-            old(self)@.tentative.unwrap().key_info[*k] == current_rm,
-            !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
-            list_addr != 0 ==> !old(self)@.tentative.unwrap().list_addrs().contains(list_addr),
+            old(self)@.tentative.unwrap().key_info[*k] == former_rm,
+            ({
+                ||| new_rm.item_addr == former_rm.item_addr
+                ||| !old(self)@.tentative.unwrap().item_addrs().contains(new_rm.item_addr)
+            }),
+            ({
+                ||| new_rm.list_addr == 0
+                ||| new_rm.list_addr == former_rm.list_addr
+                ||| !old(self)@.tentative.unwrap().list_addrs().contains(new_rm.list_addr)
+            }),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
@@ -717,9 +506,7 @@ impl<PM, K> KeyTable<PM, K>
             match result {
                 Ok(()) => {
                     &&& self@ == (KeyTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().update_item_and_list(
-                            *k, item_addr, list_addr, current_rm.item_addr, current_rm.list_addr
-                        )),
+                        tentative: Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)),
                         ..old(self)@
                     })
                 },
@@ -741,8 +528,7 @@ impl<PM, K> KeyTable<PM, K>
         }
 
         let metadata_addr = row_addr + self.sm.row_metadata_start;
-        let rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let rm_bytes = slice_to_vec(rm.as_byte_slice());
+        let rm_bytes = slice_to_vec(new_rm.as_byte_slice());
         match journal.journal_write(metadata_addr, rm_bytes) {
             Ok(()) => {},
             Err(JournalError::NotEnoughSpace) => {
@@ -757,7 +543,7 @@ impl<PM, K> KeyTable<PM, K>
         };
 
         let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
-        let rm_crc = calculate_crc(&rm);
+        let rm_crc = calculate_crc(&new_rm);
         let rm_crc_bytes = slice_to_vec(rm_crc.as_byte_slice());
         match journal.journal_write(rm_crc_addr, rm_crc_bytes) {
             Ok(()) => {},
@@ -774,13 +560,13 @@ impl<PM, K> KeyTable<PM, K>
 
         assert(self.memory_mapping@.valid(self.sm));
         assert(self.memory_mapping == old(self).memory_mapping);
-        self.memory_mapping = Ghost(self.memory_mapping@.update(row_addr, *k, rm, current_rm));
-        assert(self.memory_mapping@.undo_update(row_addr, *k, current_rm) =~= Some(old(self).memory_mapping@));
+        self.memory_mapping = Ghost(self.memory_mapping@.update(row_addr, *k, new_rm, former_rm));
+        assert(self.memory_mapping@.undo_update(row_addr, *k, former_rm) =~= Some(old(self).memory_mapping@));
 
-        self.m.insert(k.clone_provable(), ConcreteKeyInfo{ row_addr, rm });
-        assert(self.m@.insert(*k, ConcreteKeyInfo{ row_addr, rm: current_rm }) == old(self).m@);
+        self.m.insert(k.clone_provable(), ConcreteKeyInfo{ row_addr, rm: new_rm });
+        assert(self.m@.insert(*k, ConcreteKeyInfo{ row_addr, rm: former_rm }) == old(self).m@);
 
-        let undo_record = KeyUndoRecord::UndoUpdate{ row_addr, k: *k, former_rm: current_rm };
+        let undo_record = KeyUndoRecord::UndoUpdate{ row_addr, k: *k, former_rm: former_rm };
         assert(self.internal_view().apply_undo_record(undo_record) =~= Some(old(self).internal_view()));
         self.undo_records.push(undo_record);
         assert(self.internal_view().apply_undo_records(self.undo_records@, self.sm) ==
@@ -795,9 +581,7 @@ impl<PM, K> KeyTable<PM, K>
         }
 
         assert(self.valid(journal@));
-        assert(self@.tentative =~=
-               Some(old(self)@.tentative.unwrap().update_item_and_list(*k, item_addr, list_addr,
-                                                                     current_rm.item_addr, current_rm.list_addr)));
+        assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
         Ok(())
     }
 }

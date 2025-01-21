@@ -274,7 +274,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             self.keys.lemma_valid_implications(self.journal@);
         }
 
-        let (key_addr, rm) = match self.keys.read(key, Ghost(self.journal@)) {
+        let (key_addr, former_rm) = match self.keys.read(key, Ghost(self.journal@)) {
             Some(info) => info,
             None => { return Err(KvError::KeyNotFound); },
         };
@@ -296,7 +296,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update(perm);
-        let result = self.keys.update_item(key, key_addr, item_addr, rm, &mut self.journal, Tracked(perm));
+        let new_rm = KeyTableRowMetadata{ item_addr, ..former_rm };
+        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal, Tracked(perm));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {
@@ -309,12 +310,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         }
 
-        self.items.delete(rm.item_addr, &self.journal);
+        self.items.delete(former_rm.item_addr, &self.journal);
 
         self.status = Ghost(KvStoreStatus::Quiescent);
 
-        assert(old(self).keys@.tentative.unwrap().item_addrs().insert(item_addr).remove(rm.item_addr) =~=
-               old(self).keys@.tentative.unwrap().item_addrs().remove(rm.item_addr).insert(item_addr));
+        let ghost old_item_addrs = old(self).keys@.tentative.unwrap().item_addrs();
+        assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
+               old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.update_item(*key, *new_item).unwrap());
         Ok(())
     }
