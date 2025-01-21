@@ -1,3 +1,5 @@
+pub const NULL_ADDR: usize = 0;
+
 pub struct TableMetadata {
     start: u64,
     num_rows: u64,
