@@ -35,7 +35,7 @@ impl<PM, K> KeyTable<PM, K>
     pub exec fn start(
         journal: &Journal<TrustedKvPermission, PM>,
         sm: &KeyTableStaticMetadata,
-    ) -> (result: Result<(Self, HashSet<u64>, HashSet<u64>), KvError>)
+    ) -> (result: Result<(Self, HashSet<u64>, Vec<u64>), KvError>)
         requires
             journal.valid(),
             journal.recover_idempotent(),
@@ -58,7 +58,8 @@ impl<PM, K> KeyTable<PM, K>
                     &&& keys@.durable == recovered_state
                     &&& keys@.tentative == Some(recovered_state)
                     &&& item_addrs@ == recovered_state.item_addrs()
-                    &&& list_addrs@ == recovered_state.list_addrs()
+                    &&& list_addrs@.to_set().insert(0) == recovered_state.list_addrs()
+                    &&& !list_addrs@.contains(0)
                 },
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 Err(_) => false,
@@ -71,7 +72,7 @@ impl<PM, K> KeyTable<PM, K>
         let mut free_list = Vec::<u64>::new();
         let ghost mut memory_mapping = KeyMemoryMapping::<K>::new();
         let mut item_addrs = HashSet::<u64>::new();
-        let mut list_addrs = HashSet::<u64>::new();
+        let mut list_addrs = Vec::<u64>::new();
 
         let pm = journal.get_pm_region_ref();
         let mut row_index: u64 = 0;
@@ -165,6 +166,7 @@ impl<PM, K> KeyTable<PM, K>
 
             let ghost old_memory_mapping = memory_mapping;
             let ghost old_m = m@;
+            let ghost old_list_addrs = list_addrs@;
 
             if cdb {
                 let key_addr = row_addr + sm.row_key_start;
@@ -186,7 +188,16 @@ impl<PM, K> KeyTable<PM, K>
                 m.insert(k, concrete_key_info);
                 item_addrs.insert(rm.item_addr);
                 if rm.list_addr != 0 {
-                    list_addrs.insert(rm.list_addr);
+                    list_addrs.push(rm.list_addr);
+                    // Make any trigger about the new list trigger a fact about the old list.
+                    assert(forall|list_addr: u64| #[trigger] list_addrs@.contains(list_addr) ==>
+                           old_list_addrs.contains(list_addr) || list_addr == rm.list_addr);
+                    assert forall|list_addr: u64| #[trigger] old_list_addrs.contains(list_addr) implies
+                           list_addrs@.contains(list_addr) by {
+                        let i = choose|i: int| 0 <= i < old_list_addrs.len() && #[trigger] old_list_addrs[i] == list_addr;
+                        assert(list_addrs@[i] == old_list_addrs[i]);
+                    }
+                    assert(list_addrs@[list_addrs@.len() - 1] == rm.list_addr);
                 }
             }
             else {
@@ -221,8 +232,7 @@ impl<PM, K> KeyTable<PM, K>
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
         assert(keys@.durable =~= recovered_state);
         assert(item_addrs@ =~= recovered_state.item_addrs());
-        assert(list_addrs@.insert(0) =~= recovered_state.list_addrs());
-        list_addrs.insert(0);
+        assert(list_addrs@.to_set().insert(0) =~= recovered_state.list_addrs());
 
         Ok((keys, item_addrs, list_addrs))
     }

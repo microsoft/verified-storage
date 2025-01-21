@@ -147,7 +147,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
-        assert(lists@.durable.m.dom() == list_addrs@);
+        assert(lists@.durable.m.dom() == list_addrs@.to_set().insert(0));
 
         let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
             status: Ghost(KvStoreStatus::Quiescent),

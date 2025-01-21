@@ -33,7 +33,7 @@ impl<PM, L> ListTable<PM, L>
     pub exec fn start<K>(
         journal: &Journal<TrustedKvPermission, PM>,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
-        list_addrs: &HashSet<u64>,
+        list_addrs: &Vec<u64>,
         sm: &ListTableStaticMetadata,
     ) -> (result: Result<Self, KvError>)
         where
@@ -45,19 +45,19 @@ impl<PM, L> ListTable<PM, L>
             journal@.journaled_addrs == Set::<int>::empty(),
             journal@.durable_state == journal@.read_state,
             journal@.read_state == journal@.commit_state,
-            Self::recover(journal@.read_state, list_addrs@, *sm) is Some,
+            Self::recover(journal@.read_state, list_addrs@.to_set().insert(0), *sm) is Some,
             sm.valid::<L>(),
-            list_addrs@.contains(0),
         ensures
             match result {
                 Ok(lists) => {
-                    let recovered_state = Self::recover(journal@.read_state, list_addrs@, *sm).unwrap();
+                    let recovered_state =
+                        Self::recover(journal@.read_state, list_addrs@.to_set().insert(0), *sm).unwrap();
                     &&& lists.valid(journal@)
                     &&& lists@.sm == *sm
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
-                    &&& recovered_state.m.dom() == list_addrs@
+                    &&& recovered_state.m.dom() == list_addrs@.to_set().insert(0)
                     &&& recovered_state.m[0] == Seq::<L>::empty()
                 },
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
