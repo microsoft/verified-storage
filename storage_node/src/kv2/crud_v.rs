@@ -36,7 +36,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     pub exec fn untrusted_read_item(
         &self,
         key: &K,
-    ) -> (result: Result<&I, KvError>)
+    ) -> (result: Result<I, KvError>)
         requires 
             self.valid(),
         ensures
@@ -61,8 +61,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             Some(i) => i,
         };
         let item_addr = row_metadata.item_addr;
-        let item = match self.items.read(item_addr, Ghost(self.journal@)) {
+        let item = match self.items.read(item_addr, &self.journal) {
             Ok(i) => i,
+            Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             Err(_) => { assert(false); return Err(KvError::KeyNotFound); },
         };
         Ok(item)

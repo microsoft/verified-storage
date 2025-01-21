@@ -210,7 +210,7 @@ where
     pub exec fn read_item(
         &self,
         key: &K,
-    ) -> (result: Result<&I, KvError>)
+    ) -> (result: Result<I, KvError>)
         requires 
             self.valid(),
         ensures 

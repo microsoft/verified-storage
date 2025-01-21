@@ -30,19 +30,29 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read(&self, item_addr: u64, jv: Ghost<JournalView>) -> (result: Result<&I, KvError>)
+    pub exec fn read(&self, row_addr: u64, journal: &Journal<TrustedKvPermission, PM>) -> (result: Result<I, KvError>)
         requires
-            self.valid(jv@),
+            journal.valid(),
+            self.valid(journal@),
             self@.tentative.is_some(),
-            self@.tentative.unwrap().m.contains_key(item_addr),
+            self@.tentative.unwrap().m.contains_key(row_addr),
         ensures
             match result {
-                Ok(item) => self@.tentative.unwrap().m[item_addr] == item,
+                Ok(item) => self@.tentative.unwrap().m[row_addr] == item,
+                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 _ => false,
             }
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        proof {
+            self.lemma_valid_implications(journal@);
+            broadcast use group_validate_row_addr;
+        }
+
+        match exec_recover_object::<PM, I>(journal.get_pm_region_ref(), row_addr + self.sm.row_item_start,
+                                           row_addr + self.sm.row_item_crc_start) {
+            Some(item) => Ok(item),
+            None => Err(KvError::CRCMismatch),
+        }
     }
 
     pub exec fn create(
