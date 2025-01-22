@@ -1,15 +1,19 @@
 #![allow(unused_imports)]
-use crate::block_list::*;
+use journal::Journal;
+
+use crate::journaled_block_list::*;
+use crate::journaled_singleton_list::*;
 use crate::list::*;
 use crate::mem_pool::*;
 use crate::mock_pool::*;
-use crate::singleton_list::*;
 use crate::table::*;
 use std::time::Instant;
 
 mod block_list;
 mod err;
 mod journal;
+mod journaled_block_list;
+mod journaled_singleton_list;
 mod list;
 mod mem_pool;
 mod mock_pool;
@@ -21,6 +25,7 @@ const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
 const CDB_TRUE: u64 = 0xab21aa73069531b7; // CRC(b"1")
 
 const MEM_POOL_SIZE: usize = 1024 * 1024 * 1024;
+const JOURNAL_POOL_SIZE: usize = 512;
 const LIST_LEN: u64 = 50000;
 const ITERATIONS: u64 = 5;
 
@@ -225,11 +230,15 @@ fn run_singleton_append_experiment<const N: usize>() {
         let mut table: SingletonListTable<N> = SingletonListTable::new(0, mock_pool.len());
         let mut list: DurableSingletonList<N> = DurableSingletonList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let value = [0; N];
 
         let start = Instant::now();
         for _ in 0..LIST_LEN {
-            list.append(&mut mock_pool, &mut table, &value).unwrap();
+            list.append(&mut mock_pool, &mut table, &mut journal, &value)
+                .unwrap();
         }
         let elapsed = start.elapsed();
         // let elements_per_ms = LIST_LEN as u128 / elapsed.as_millis();
@@ -255,10 +264,14 @@ fn run_singleton_read_experiment<const N: usize>() {
         let mut table: SingletonListTable<N> = SingletonListTable::new(0, mock_pool.len());
         let mut list: DurableSingletonList<N> = DurableSingletonList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let value = [0; N];
 
         for _ in 0..LIST_LEN {
-            list.append(&mut mock_pool, &mut table, &value).unwrap();
+            list.append(&mut mock_pool, &mut table, &mut journal, &value)
+                .unwrap();
         }
 
         let start = Instant::now();
@@ -285,10 +298,14 @@ fn run_singleton_trim_experiment<const N: usize>(trim_len: u64) {
         let mut table: SingletonListTable<N> = SingletonListTable::new(0, mock_pool.len());
         let mut list: DurableSingletonList<N> = DurableSingletonList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let value = [0; N];
 
         for _ in 0..LIST_LEN {
-            list.append(&mut mock_pool, &mut table, &value).unwrap();
+            list.append(&mut mock_pool, &mut table, &mut journal, &value)
+                .unwrap();
         }
 
         let start = Instant::now();
@@ -315,11 +332,15 @@ fn run_block_append_experiment<const N: usize, const M: usize>() {
         let mut table: BlockListTable<N, M> = BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<N, M> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let value = [0; N];
 
         let start = Instant::now();
         for _ in 0..LIST_LEN {
-            list.append(&mut mock_pool, &mut table, &value).unwrap();
+            list.append(&mut mock_pool, &mut table, &mut journal, &value)
+                .unwrap();
         }
         let elapsed = start.elapsed();
         // let elements_per_ms = LIST_LEN as u128 / elapsed.as_millis();
@@ -346,10 +367,14 @@ fn run_block_read_experiment<const N: usize, const M: usize>() {
         let mut table: BlockListTable<N, M> = BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<N, M> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let value = [0; N];
 
         for _ in 0..LIST_LEN {
-            list.append(&mut mock_pool, &mut table, &value).unwrap();
+            list.append(&mut mock_pool, &mut table, &mut journal, &value)
+                .unwrap();
         }
 
         let start = Instant::now();
@@ -378,10 +403,14 @@ fn run_block_trim_experiment<const N: usize, const M: usize>(trim_len: u64) {
         let mut table: BlockListTable<N, M> = BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<N, M> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let value = [0; N];
 
         for _ in 0..LIST_LEN {
-            list.append(&mut mock_pool, &mut table, &value).unwrap();
+            list.append(&mut mock_pool, &mut table, &mut journal, &value)
+                .unwrap();
         }
 
         let start = Instant::now();
