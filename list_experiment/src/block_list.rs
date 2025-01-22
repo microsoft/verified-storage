@@ -1,3 +1,4 @@
+use crate::err::Error;
 use crate::list::*;
 use crate::table::*;
 
@@ -53,5 +54,14 @@ impl<const N: usize, const M: usize> ListTable for BlockListTable<N, M> {
     // Note that it returns the absolute address of the row, not the row index.
     fn allocate_row(&mut self) -> Option<u64> {
         self.free_list.pop()
+    }
+
+    fn free_row(&mut self, addr: u64) -> Result<(), Error> {
+        if !self.metadata.validate_addr(addr) {
+            Err(Error::InvalidAddr)
+        } else {
+            self.free_list.push(addr);
+            Ok(())
+        }
     }
 }

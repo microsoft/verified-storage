@@ -18,4 +18,20 @@ pub trait PmCopy: Sized {
         // for reads up to size_of::<Self>().
         unsafe { core::slice::from_raw_parts(ptr, core::mem::size_of::<Self>()) }
     }
+
+    // SAFETY: bytes must be a properly-aligned valid value for Self.
+    // Unlike in the verified version, this trait does not require
+    // that these safety properties are checked.
+    unsafe fn from_bytes(bytes: &[u8]) -> &Self {
+        if bytes.len() != core::mem::size_of::<Self>() {
+            panic!(
+                "byte slice of len {:?} does not match expected length {:?}",
+                bytes.len(),
+                core::mem::size_of::<Self>()
+            );
+        } else {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
+        }
+    }
 }
