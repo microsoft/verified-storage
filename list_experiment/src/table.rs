@@ -1,3 +1,5 @@
+use crate::err::Error;
+
 pub const NULL_ADDR: usize = 0;
 
 pub struct TableMetadata {
@@ -16,7 +18,7 @@ impl TableMetadata {
     }
 
     pub fn validate_addr(&self, addr: u64) -> bool {
-        self.start <= addr && addr < (self.start + (self.num_rows * self.row_size))
+        addr > 0 && self.start <= addr && addr < (self.start + (self.num_rows * self.row_size))
     }
 
     pub fn row_addr_to_index(&self, addr: u64) -> u64 {
@@ -32,4 +34,5 @@ impl TableMetadata {
 pub trait ListTable {
     fn new(mem_start: u64, mem_size: u64) -> Self;
     fn allocate_row(&mut self) -> Option<u64>;
+    fn free_row(&mut self, addr: u64) -> Result<(), Error>;
 }
