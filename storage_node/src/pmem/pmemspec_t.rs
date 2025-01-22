@@ -55,21 +55,6 @@ use deps_hack::crc64fast::Digest;
 
 verus! {
 
-    // map_err
-    #[verifier::external_fn_specification]
-    pub fn map_err<T, E, F, O: FnOnce(E) -> F>(result: Result<T, E>, op: O) -> (mapped_result: Result<T, F>)
-        requires 
-            result.is_err() ==> op.requires((result.get_Err_0(),)), 
-        ensures 
-            result.is_err() ==> mapped_result.is_err() && op.ensures(
-                (result.get_Err_0(),),
-                mapped_result.get_Err_0(),
-            ),
-            result.is_ok() ==> mapped_result == Result::<T, F>::Ok(result.get_Ok_0()),
-    {
-        result.map_err(op)
-    }
-
     // This function is used to copy bytes from a slice to a newly-allocated vector.
     // `std::slice::copy_from_slice` requires that the source and destination have the
     // same length, so this function allocates a buffer with the correct length, 
