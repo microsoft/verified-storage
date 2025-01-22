@@ -49,27 +49,6 @@ impl DurableSingletonListNodeNextPtr {
 
 impl PmCopy for DurableSingletonListNodeNextPtr {}
 
-#[derive(Debug)]
-pub struct VolatileSingletonListNode<const N: usize> {
-    val: [u8; N],
-    next: Option<Box<VolatileSingletonListNode<N>>>,
-}
-
-impl<const N: usize> VolatileListNode for VolatileSingletonListNode<N> {
-    fn next(&self) -> Option<&Self> {
-        match &self.next {
-            None => None,
-            Some(node) => Some(&node),
-        }
-    }
-}
-
-impl<const N: usize> VolatileSingletonListNode<N> {
-    pub fn get_val(&self) -> &[u8; N] {
-        &self.val
-    }
-}
-
 pub struct SingletonListTable<const N: usize> {
     metadata: TableMetadata,
     free_list: Vec<u64>,
@@ -98,11 +77,11 @@ impl<const N: usize> ListTable for SingletonListTable<N> {
     // This function allocates and returns a free row in the table, returning None
     // if the table is full.
     // Note that it returns the absolute address of the row, not the row index.
-    fn allocate_row(&mut self) -> Option<u64> {
+    fn allocate_node(&mut self) -> Option<u64> {
         self.free_list.pop()
     }
 
-    fn free_row(&mut self, addr: u64) -> Result<(), Error> {
+    fn free_node(&mut self, addr: u64) -> Result<(), Error> {
         if !self.metadata.validate_addr(addr) {
             Err(Error::InvalidAddr)
         } else {
@@ -164,7 +143,7 @@ impl<const N: usize> DurableSingletonList<N> {
     ) -> Result<(), Error> {
         // 1. allocate a row in the table. Return an error
         // if there are no free rows
-        let new_tail_row_addr = match table.allocate_row() {
+        let new_tail_row_addr = match table.allocate_node() {
             Some(row_addr) => row_addr,
             None => return Err(Error::OutOfSpace),
         };
@@ -241,7 +220,7 @@ impl<const N: usize> DurableSingletonList<N> {
             let (_current_node, next_addr) =
                 self.read_node_at_addr(mem_pool, table, current_addr)?;
 
-            table.free_row(current_addr)?;
+            table.free_node(current_addr)?;
 
             current_addr = next_addr;
 
@@ -261,7 +240,7 @@ impl<const N: usize> DurableSingletonList<N> {
         mem_pool: &M,
         table: &SingletonListTable<N>,
         addr: u64,
-    ) -> Result<(VolatileSingletonListNode<N>, u64), Error> {
+    ) -> Result<([u8; N], u64), Error> {
         // 1. check that the address is valid
         if !table.metadata.validate_addr(addr) {
             return Err(Error::InvalidAddr);
@@ -280,6 +259,9 @@ impl<const N: usize> DurableSingletonList<N> {
             .try_into()
             .unwrap();
         let cdb = u64::from_le_bytes(bytes);
+        if cdb != CDB_FALSE && cdb != CDB_TRUE {
+            return Err(Error::InvalidCDB);
+        }
         let next_pointer_addr = Self::get_next_pointer_offset(addr, cdb);
 
         // 4. read the next pointer and check its CRC
@@ -292,37 +274,30 @@ impl<const N: usize> DurableSingletonList<N> {
             return Err(Error::InvalidCRC);
         }
 
-        // 5. return the node and its next pointer in volatile memory
-        let volatile_node = VolatileSingletonListNode {
-            val: node.val,
-            next: None,
-        };
-        Ok((volatile_node, next_ptr.next))
+        Ok((node.val, next_ptr.next))
     }
 
     pub fn read_full_list<M: MemoryPool>(
         &self,
         mem_pool: &M,
         table: &SingletonListTable<N>,
-    ) -> Result<Option<VolatileSingletonListNode<N>>, Error> {
+    ) -> Result<Vec<[u8; N]>, Error> {
         if self.head_addr == 0 {
-            Ok(None)
+            Ok(Vec::new())
         } else {
+            let mut output_vec = Vec::with_capacity(self.len as usize);
             let current_addr = self.head_addr;
-            let (mut head_node, mut next_addr) =
-                self.read_node_at_addr(mem_pool, table, current_addr)?;
-            let mut current_node = &mut head_node;
+            let (val, mut next_addr) = self.read_node_at_addr(mem_pool, table, current_addr)?;
+            // let mut current_node = &mut head_node;
+            output_vec.push(val);
 
             while next_addr != 0 {
-                let (next_node, new_next_addr) =
-                    self.read_node_at_addr(mem_pool, table, next_addr)?;
-                current_node.next = Some(Box::new(next_node));
-                current_node = current_node.next.as_mut().unwrap();
-
+                let (val, new_next_addr) = self.read_node_at_addr(mem_pool, table, next_addr)?;
+                output_vec.push(val);
                 next_addr = new_next_addr;
             }
 
-            Ok(Some(head_node))
+            Ok(output_vec)
         }
     }
 }
