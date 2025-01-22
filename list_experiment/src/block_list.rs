@@ -298,7 +298,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
             M as u64 - self.offset_of_first_entry
         };
 
-        if valid_elements_in_head < trim_len {
+        if valid_elements_in_head > trim_len {
             // after trimming, there is still at least one valid
             // node in the head
             self.offset_of_first_entry += trim_len;
@@ -347,6 +347,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
         if current_addr == NULL_ADDR as u64 {
             self.tail_addr = current_addr;
         }
+        self.len -= num_trimmed;
 
         Ok(())
     }
@@ -410,7 +411,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
             let valid_entries_in_block: usize = if current_addr == self.tail_addr {
                 self.num_valid_elements_in_tail as usize
             } else {
-                M
+                M - first_index
             };
             for i in first_index..first_index + valid_entries_in_block {
                 let node = vals[i];
