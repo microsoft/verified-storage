@@ -53,6 +53,7 @@ fn singleton_append_experiments() {
     run_singleton_append_experiment::<32>();
     run_singleton_append_experiment::<64>();
     run_singleton_append_experiment::<128>();
+    run_singleton_append_experiment::<256>();
     run_singleton_append_experiment::<512>();
     run_singleton_append_experiment::<1024>();
 
@@ -68,6 +69,7 @@ fn singleton_read_experiments() {
     run_singleton_read_experiment::<32>();
     run_singleton_read_experiment::<64>();
     run_singleton_read_experiment::<128>();
+    run_singleton_read_experiment::<256>();
     run_singleton_read_experiment::<512>();
     run_singleton_read_experiment::<1024>();
 
@@ -84,6 +86,7 @@ fn singleton_trim_experiments() {
     run_singleton_trim_experiment::<32>(trim_len);
     run_singleton_trim_experiment::<64>(trim_len);
     run_singleton_trim_experiment::<128>(trim_len);
+    run_singleton_trim_experiment::<256>(trim_len);
     run_singleton_trim_experiment::<512>(trim_len);
     run_singleton_trim_experiment::<1024>(trim_len);
 
@@ -99,6 +102,7 @@ fn block_append_experiments() {
     run_block_append_experiment::<32, 8>();
     run_block_append_experiment::<64, 8>();
     run_block_append_experiment::<128, 8>();
+    run_block_append_experiment::<256, 8>();
     run_block_append_experiment::<512, 8>();
     run_block_append_experiment::<1024, 8>();
 
@@ -109,6 +113,7 @@ fn block_append_experiments() {
     run_block_append_experiment::<32, 2>();
     run_block_append_experiment::<64, 2>();
     run_block_append_experiment::<128, 2>();
+    run_block_append_experiment::<256, 2>();
     run_block_append_experiment::<512, 2>();
     run_block_append_experiment::<1024, 2>();
 
@@ -119,6 +124,7 @@ fn block_append_experiments() {
     run_block_append_experiment::<32, 16>();
     run_block_append_experiment::<64, 16>();
     run_block_append_experiment::<128, 16>();
+    run_block_append_experiment::<256, 16>();
     run_block_append_experiment::<512, 16>();
     run_block_append_experiment::<1024, 16>();
 
@@ -134,6 +140,7 @@ fn block_read_experiments() {
     run_block_read_experiment::<32, 8>();
     run_block_read_experiment::<64, 8>();
     run_block_read_experiment::<128, 8>();
+    run_block_read_experiment::<256, 8>();
     run_block_read_experiment::<512, 8>();
     run_block_read_experiment::<1024, 8>();
 
@@ -144,6 +151,7 @@ fn block_read_experiments() {
     run_block_read_experiment::<32, 2>();
     run_block_read_experiment::<64, 2>();
     run_block_read_experiment::<128, 2>();
+    run_block_read_experiment::<256, 2>();
     run_block_read_experiment::<512, 2>();
     run_block_read_experiment::<1024, 2>();
 
@@ -154,6 +162,7 @@ fn block_read_experiments() {
     run_block_read_experiment::<32, 16>();
     run_block_read_experiment::<64, 16>();
     run_block_read_experiment::<128, 16>();
+    run_block_read_experiment::<256, 16>();
     run_block_read_experiment::<512, 16>();
     run_block_read_experiment::<1024, 16>();
 
@@ -170,6 +179,7 @@ fn block_trim_experiments() {
     run_block_trim_experiment::<32, 8>(trim_len);
     run_block_trim_experiment::<64, 8>(trim_len);
     run_block_trim_experiment::<128, 8>(trim_len);
+    run_block_trim_experiment::<256, 8>(trim_len);
     run_block_trim_experiment::<512, 8>(trim_len);
     run_block_trim_experiment::<1024, 8>(trim_len);
 
@@ -180,6 +190,7 @@ fn block_trim_experiments() {
     run_block_trim_experiment::<32, 2>(trim_len);
     run_block_trim_experiment::<64, 2>(trim_len);
     run_block_trim_experiment::<128, 2>(trim_len);
+    run_block_trim_experiment::<256, 2>(trim_len);
     run_block_trim_experiment::<512, 2>(trim_len);
     run_block_trim_experiment::<1024, 2>(trim_len);
 
@@ -190,6 +201,7 @@ fn block_trim_experiments() {
     run_block_trim_experiment::<32, 16>(trim_len);
     run_block_trim_experiment::<64, 16>(trim_len);
     run_block_trim_experiment::<128, 16>(trim_len);
+    run_block_trim_experiment::<256, 16>(trim_len);
     run_block_trim_experiment::<512, 16>(trim_len);
     run_block_trim_experiment::<1024, 16>(trim_len);
 
