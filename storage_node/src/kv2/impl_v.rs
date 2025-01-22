@@ -292,8 +292,8 @@ where
                 Err(_) => false,
             },
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        assert(self@.tentative.get_keys() =~= self.keys@.tentative.unwrap().key_info.dom());
+        Ok(self.keys.get_keys(&self.journal))
     }
 
 }

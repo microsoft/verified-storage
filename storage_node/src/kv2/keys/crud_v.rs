@@ -584,6 +584,25 @@ impl<PM, K> KeyTable<PM, K>
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
         Ok(())
     }
+
+    #[verifier::external_body]
+    pub exec fn get_keys(
+        &self,
+        journal: &Journal<TrustedKvPermission, PM>,
+    ) -> (result: Vec<K>)
+        requires
+            self.valid(journal@),
+            self@.tentative is Some,
+        ensures
+            result@.to_set() == self@.tentative.unwrap().key_info.dom(),
+            result@.no_duplicates(),
+    {
+        // This assertion isn't tested because of our use of
+        // `external_body`. But, to be confident that this is correct,
+        // I removed the `external_body` and verified it.
+        assert(self.m@.dom() == self@.tentative.unwrap().key_info.dom());
+        self.m.keys().cloned().collect()
+    }
 }
 
 }
