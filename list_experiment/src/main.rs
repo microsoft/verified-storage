@@ -9,6 +9,7 @@ use std::time::Instant;
 
 mod block_list;
 mod err;
+mod journal;
 mod list;
 mod mem_pool;
 mod mock_pool;
