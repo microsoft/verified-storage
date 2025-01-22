@@ -1,12 +1,16 @@
-use crate::block_list::*;
+use crate::journal::*;
+use crate::journaled_block_list::*;
+use crate::journaled_singleton_list::*;
 use crate::list::*;
 use crate::mem_pool::*;
 use crate::mock_pool::*;
-use crate::singleton_list::*;
 use crate::table::*;
+
+const JOURNAL_POOL_SIZE: usize = 512;
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -15,21 +19,33 @@ mod tests {
         let mut list_table: SingletonListTable<8> = SingletonListTable::new(0, mock_pool.len());
         let mut list: DurableSingletonList<8> = DurableSingletonList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
+        println!("created journal");
+
         // construct the list
         let mut i: u64 = 0;
         while i < 4 {
             let val_bytes = i.to_le_bytes();
-            list.append(&mut mock_pool, &mut list_table, &val_bytes)
+            list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
                 .unwrap();
             i += 1;
         }
 
+        println!("constructed list");
+
         // read the list back in and check that it has the correct values
         let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
+
+        println!("read list\n");
+
         assert!(vec_list.len() == 4);
         for i in 0..4 {
             assert!(u64::from_le_bytes(vec_list[i]) == i as u64);
         }
+
+        println!("done");
     }
 
     #[test]
@@ -38,11 +54,14 @@ mod tests {
         let mut list_table: SingletonListTable<8> = SingletonListTable::new(0, mock_pool.len());
         let mut list: DurableSingletonList<8> = DurableSingletonList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         // create the list
         let mut i: u64 = 0;
         while i < 4 {
             let val_bytes = i.to_le_bytes();
-            list.append(&mut mock_pool, &mut list_table, &val_bytes)
+            list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
                 .unwrap();
             i += 1;
         }
@@ -68,10 +87,13 @@ mod tests {
             BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<ELEMENT_SIZE, ROWS_PER_BLOCK> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let mut i: u64 = 0;
         while i < list_len {
             let val_bytes = i.to_le_bytes();
-            list.append(&mut mock_pool, &mut list_table, &val_bytes)
+            list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
                 .unwrap();
             i += 1;
         }
@@ -96,10 +118,13 @@ mod tests {
             BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<ELEMENT_SIZE, ROWS_PER_BLOCK> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let mut i: u64 = 0;
         while i < list_len {
             let val_bytes = i.to_le_bytes();
-            list.append(&mut mock_pool, &mut list_table, &val_bytes)
+            list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
                 .unwrap();
             i += 1;
         }
@@ -116,7 +141,7 @@ mod tests {
         // we can append new elements successfully
         let val: u64 = 1;
         let val_bytes = val.to_le_bytes();
-        list.append(&mut mock_pool, &mut list_table, &val_bytes)
+        list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
             .unwrap();
         let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
         assert!(vec_list.len() == (list_len - trim_len) as usize + 1);
@@ -138,10 +163,13 @@ mod tests {
             BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<ELEMENT_SIZE, ROWS_PER_BLOCK> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let mut i: u64 = 0;
         while i < list_len {
             let val_bytes = i.to_le_bytes();
-            list.append(&mut mock_pool, &mut list_table, &val_bytes)
+            list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
                 .unwrap();
             i += 1;
         }
@@ -158,7 +186,7 @@ mod tests {
         // we can append new elements successfully
         let val: u64 = 1;
         let val_bytes = val.to_le_bytes();
-        list.append(&mut mock_pool, &mut list_table, &val_bytes)
+        list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
             .unwrap();
         let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
         assert!(vec_list.len() == (list_len - trim_len) as usize + 1);
@@ -180,10 +208,13 @@ mod tests {
             BlockListTable::new(0, mock_pool.len());
         let mut list: DurableBlockList<ELEMENT_SIZE, ROWS_PER_BLOCK> = DurableBlockList::new();
 
+        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
+        let mut journal = Journal::new(journal_mock_pool);
+
         let mut i: u64 = 0;
         while i < list_len {
             let val_bytes = i.to_le_bytes();
-            list.append(&mut mock_pool, &mut list_table, &val_bytes)
+            list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
                 .unwrap();
             i += 1;
         }
@@ -201,7 +232,7 @@ mod tests {
         // we can append new elements successfully
         let val: u64 = 1;
         let val_bytes = val.to_le_bytes();
-        list.append(&mut mock_pool, &mut list_table, &val_bytes)
+        list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
             .unwrap();
         let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
         assert!(vec_list.len() == 1);
