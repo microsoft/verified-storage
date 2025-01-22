@@ -274,6 +274,83 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
         Ok(())
     }
 
+    pub fn trim<P: MemoryPool>(
+        &mut self,
+        mem_pool: &mut P,
+        table: &mut BlockListTable<N, M>,
+        trim_len: u64,
+    ) -> Result<(), Error> {
+        // check that the list is long enough to trim this many elements
+        if trim_len > self.len {
+            return Err(Error::ListTooShort);
+        }
+
+        let mut current_addr = self.head_addr;
+        let mut num_trimmed;
+
+        // determine how many elements are in the head node
+        // and how many should be trimmed. if it's all of them,
+        // we'll free the head; if not, we'll just update the
+        // offset of the first entry
+        let valid_elements_in_head = if self.head_addr == self.tail_addr {
+            self.num_valid_elements_in_tail
+        } else {
+            M as u64 - self.offset_of_first_entry
+        };
+
+        if valid_elements_in_head < trim_len {
+            // after trimming, there is still at least one valid
+            // node in the head
+            self.offset_of_first_entry += trim_len;
+            if self.head_addr == self.tail_addr {
+                self.num_valid_elements_in_tail -= trim_len;
+            }
+            num_trimmed = trim_len;
+        } else {
+            // trimming will require us to free the head node
+            num_trimmed = valid_elements_in_head;
+            let (_next_node, next_addr) = self.read_block_at_addr(mem_pool, table, current_addr)?;
+            table.free_node(current_addr)?;
+            current_addr = next_addr;
+        }
+
+        // TODO: does this handle things properly if you trim the
+        // WHOLE list?
+        while num_trimmed < trim_len {
+            // determine if we need to deallocate the whole current block
+            // or just part of it
+            let valid_elements_in_current_node = if current_addr == self.tail_addr {
+                self.num_valid_elements_in_tail
+            } else {
+                M as u64
+            };
+            if trim_len - num_trimmed >= valid_elements_in_current_node {
+                // we need to free the whole block
+                let (_next_node, next_addr) =
+                    self.read_block_at_addr(mem_pool, table, current_addr)?;
+                table.free_node(current_addr)?;
+                current_addr = next_addr;
+                num_trimmed += valid_elements_in_current_node;
+            } else {
+                // we will keep the current block but invalidate
+                // some of its elements. this should only happen
+                // if we're in the tail node. we've already taken
+                // care of the head node, so we can assume that
+                // the first valid entry is at 0.
+                let left_to_trim = trim_len - num_trimmed;
+                self.offset_of_first_entry = left_to_trim;
+                num_trimmed += left_to_trim;
+            }
+        }
+
+        self.head_addr = current_addr;
+        if current_addr == NULL_ADDR as u64 {
+            self.tail_addr = current_addr;
+        }
+
+        Ok(())
+    }
+
     fn read_block_at_addr<P: MemoryPool>(
         &self,
         mem_pool: &P,
