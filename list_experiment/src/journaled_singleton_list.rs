@@ -145,6 +145,7 @@ impl<const N: usize> DurableSingletonList<N> {
         // directly to it. we can also directly write the next pointer
         mem_pool.write(new_tail_row_addr, new_node_bytes)?;
         mem_pool.write(Self::get_next_pointer_offset(new_tail_row_addr), next_bytes)?;
+        mem_pool.flush();
 
         // 3. update the old tail by journaling
         let old_tail_row_addr: u64 = self.tail_addr as u64;
@@ -155,12 +156,12 @@ impl<const N: usize> DurableSingletonList<N> {
 
             // journal the new update
             journal.append(next_offset, new_next_tail_bytes)?;
-            // commit the journal
+            // commit the journal (includes flush)
             journal.commit()?;
 
             // write the update to the list element and clear the journal
             mem_pool.write(next_offset, new_next_tail_bytes)?;
-            // TODO: mempool flush
+            mem_pool.flush();
             journal.clear();
         } else {
             // if the tail is null, the list is empty, so we
