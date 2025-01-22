@@ -6,6 +6,8 @@ pub trait MemoryPool: Sized {
     fn write(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Error>;
 
     fn read(&self, offset: u64, len: u64) -> Result<Vec<u8>, Error>;
+
+    fn flush(&self);
 }
 
 // Not the same PmCopy used in the verified code! Does not perform

@@ -41,4 +41,6 @@ impl MemoryPool for MockPool {
             ))
         }
     }
+
+    fn flush(&self) {}
 }

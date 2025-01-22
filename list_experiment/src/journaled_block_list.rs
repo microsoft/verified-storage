@@ -188,6 +188,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
                 let next_bytes = next_ptr.to_bytes();
 
                 mem_pool.write(Self::get_next_pointer_offset(new_block_addr), &next_bytes)?;
+                mem_pool.flush();
 
                 // now, update the previous tail to point to the new tail.
                 let old_tail_block_addr = self.tail_addr;
@@ -199,6 +200,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
                 journal.commit()?;
 
                 mem_pool.write(next_new_offset, new_next_tail_bytes)?;
+                mem_pool.flush();
                 journal.clear();
 
                 // increment the list length and set the new tail.

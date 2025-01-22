@@ -45,8 +45,6 @@ impl<P: MemoryPool> Journal<P> {
         Ok(())
     }
 
-    // TODO: commit, update length with a cdb on
-
     pub fn commit(&mut self) -> Result<(), Error> {
         if self.len + size_of::<u64>() as u64 > self.mem_pool.len() {
             return Err(Error::OutOfSpace);
@@ -55,7 +53,7 @@ impl<P: MemoryPool> Journal<P> {
         // TODO: this should also update some metadata stored in the mem pool
         let crc = self.crc_digest.sum64();
         self.mem_pool.write(self.len, &crc.to_le_bytes())?;
-        // TODO: mempool flush
+        self.mem_pool.flush();
 
         Ok(())
     }
