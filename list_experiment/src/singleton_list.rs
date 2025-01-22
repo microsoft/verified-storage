@@ -59,7 +59,7 @@ impl<const N: usize> ListTable for SingletonListTable<N> {
     // singleton list nodes. Determines how many rows the table can have
     // based on provided total table size in bytes `mem_size`.
     fn new(mem_start: u64, mem_size: u64) -> Self {
-        let row_size = DurableSingletonList::<N>::row_size().try_into().unwrap();
+        let row_size = DurableSingletonList::<N>::row_size() as u64;
         let num_rows = mem_size / row_size;
 
         let metadata = TableMetadata::new(mem_start, num_rows, row_size);
@@ -139,7 +139,7 @@ impl<const N: usize> DurableSingletonList<N> {
         &mut self,
         mem_pool: &mut M,
         table: &mut SingletonListTable<N>,
-        val: [u8; N],
+        val: &[u8; N],
     ) -> Result<(), Error> {
         // 1. allocate a row in the table. Return an error
         // if there are no free rows
@@ -151,7 +151,7 @@ impl<const N: usize> DurableSingletonList<N> {
         // 2. build the new node and write it to the new row
 
         // value + crc
-        let new_node = DurableSingletonListNode::new(val);
+        let new_node = DurableSingletonListNode::new(*val);
         let new_node_bytes = new_node.to_bytes();
 
         let cdb = CDB_FALSE;
@@ -288,7 +288,6 @@ impl<const N: usize> DurableSingletonList<N> {
             let mut output_vec = Vec::with_capacity(self.len as usize);
             let current_addr = self.head_addr;
             let (val, mut next_addr) = self.read_node_at_addr(mem_pool, table, current_addr)?;
-            // let mut current_node = &mut head_node;
             output_vec.push(val);
 
             while next_addr != 0 {

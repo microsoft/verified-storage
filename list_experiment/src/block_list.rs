@@ -163,7 +163,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
         &mut self,
         mem_pool: &mut P,
         table: &mut BlockListTable<N, M>,
-        val: [u8; N],
+        val: &[u8; N],
     ) -> Result<(), Error> {
         if self.len > 0 {
             // there is already at least one node in the list
@@ -173,7 +173,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
                 // there is space in the tail for the new element
                 let new_row_index = self.num_valid_elements_in_tail;
                 let addr = Self::row_offset_in_block(self.tail_addr, new_row_index);
-                let new_element = DurableBlockListRow::new(val);
+                let new_element = DurableBlockListRow::new(*val);
                 let new_element_bytes = new_element.to_bytes();
 
                 mem_pool.write(addr, new_element_bytes)?;
@@ -193,7 +193,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
 
                 // write the new element to the first row in the block
                 let addr = Self::row_offset_in_block(new_block_addr, 0);
-                let new_element = DurableBlockListRow::new(val);
+                let new_element = DurableBlockListRow::new(*val);
                 let new_element_bytes = new_element.to_bytes();
                 mem_pool.write(addr, new_element_bytes)?;
 
@@ -249,7 +249,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
             };
             // write the new element to the first row in the block
             let addr = Self::row_offset_in_block(new_block_addr, 0);
-            let new_element = DurableBlockListRow::new(val);
+            let new_element = DurableBlockListRow::new(*val);
             let new_element_bytes = new_element.to_bytes();
             mem_pool.write(addr, new_element_bytes)?;
 
@@ -312,10 +312,9 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
             let (_next_node, next_addr) = self.read_block_at_addr(mem_pool, table, current_addr)?;
             table.free_node(current_addr)?;
             current_addr = next_addr;
+            self.offset_of_first_entry = 0;
         }
 
-        // TODO: does this handle things properly if you trim the
-        // WHOLE list?
         while num_trimmed < trim_len {
             // determine if we need to deallocate the whole current block
             // or just part of it

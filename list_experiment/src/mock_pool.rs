@@ -20,7 +20,7 @@ impl MemoryPool for MockPool {
     fn write(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Error> {
         if offset >= self.len() {
             Err(Error::InvalidAddr)
-        } else if offset + bytes.len() as u64 >= self.len() {
+        } else if offset + bytes.len() as u64 > self.len() {
             Err(Error::OutOfBounds)
         } else {
             self.contents[offset as usize..offset as usize + bytes.len()].copy_from_slice(bytes);
@@ -31,7 +31,7 @@ impl MemoryPool for MockPool {
     fn read(&self, offset: u64, len: u64) -> Result<Vec<u8>, Error> {
         if offset >= self.len() {
             Err(Error::InvalidAddr)
-        } else if offset + len >= self.len() {
+        } else if offset + len > self.len() {
             Err(Error::OutOfBounds)
         } else {
             Ok(Vec::from_iter(
