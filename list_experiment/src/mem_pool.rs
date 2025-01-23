@@ -1,6 +1,8 @@
 use crate::err::Error;
 
 pub trait MemoryPool: Sized {
+    fn start_addr(&self) -> u64;
+
     fn len(&self) -> u64;
 
     fn write(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Error>;
