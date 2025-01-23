@@ -3,6 +3,7 @@
 pub mod abort_v;
 pub mod commit_v;
 pub mod crud_v;
+pub mod elements_v;
 pub mod impl_t;
 pub mod impl_v;
 pub mod inv_v;
@@ -26,7 +27,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
-use std::hash::Hash;
+use elements_v::*;
 use impl_t::*;
 use impl_v::*;
 use inv_v::*;
@@ -36,6 +37,7 @@ use lists::*;
 use recover_v::*;
 use setup_v::*;
 use spec_t::*;
+use std::hash::Hash;
 
 verus! {
 
@@ -55,6 +57,7 @@ where
     keys: KeyTable<PM, K>,
     items: ItemTable<PM, I>,
     lists: ListTable<PM, L>,
+    empty_list: Vec<L>,
 }
 
 impl<PM, K, I, L> View for UntrustedKvStoreImpl<PM, K, I, L>

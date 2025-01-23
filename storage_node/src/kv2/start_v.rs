@@ -157,6 +157,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             keys,
             items,
             lists,
+            empty_list: Vec::<L>::new(),
         };
         Ok(kv)
     }

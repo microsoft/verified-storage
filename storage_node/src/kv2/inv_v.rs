@@ -93,6 +93,7 @@ where
         &&& self.inv_components_valid()
         &&& self.inv_components_correspond()
         &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
+        &&& self.empty_list@ == Seq::<L>::empty()
     }
 
     pub(super) proof fn lemma_recover_static_metadata_depends_only_on_my_area(
