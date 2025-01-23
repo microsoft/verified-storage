@@ -10,6 +10,7 @@ use crate::table::*;
 use std::time::Instant;
 
 mod block_list;
+mod dll;
 mod err;
 mod journal;
 mod journaled_block_list;
@@ -17,6 +18,7 @@ mod journaled_singleton_list;
 mod key_table;
 mod kv;
 mod list;
+mod list_cache;
 mod mem_pool;
 mod mock_pool;
 mod singleton_kv;
