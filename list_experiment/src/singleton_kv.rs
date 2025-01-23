@@ -5,7 +5,7 @@ use crc64fast::Digest;
 
 use crate::{
     err::Error, journal::Journal, journaled_singleton_list::*, key_table::KeyTable, kv::KV,
-    DurableTable, MemoryPool, PmCopy, NULL_ADDR,
+    list_cache::ListCache, DurableTable, MemoryPool, PmCopy, NULL_ADDR,
 };
 
 pub struct SingletonKV<K: PmCopy, const N: usize> {
@@ -14,7 +14,13 @@ pub struct SingletonKV<K: PmCopy, const N: usize> {
     list_table: SingletonListTable<N>,
     journal: Journal,
 
-    key_to_index: HashMap<K, u64>,
+    key_index: HashMap<K, IndexMetadata>,
+    list_cache: ListCache<N>,
+}
+
+struct IndexMetadata {
+    key_table_index: u64,
+    list_head: u64,
 }
 
 #[derive(Default)]
@@ -24,16 +30,17 @@ struct SingletonMetadata {
 
 impl PmCopy for SingletonMetadata {}
 
-impl<P, K, const N: usize> KV<P, K> for SingletonKV<K, N>
+impl<P, K, const N: usize> KV<P, K, N> for SingletonKV<K, N>
 where
     P: MemoryPool,
-    K: PmCopy + Eq + PartialEq + Hash,
+    K: PmCopy + Eq + PartialEq + Hash + Copy,
 {
     fn setup(
         mem_pool: &mut P,
         key_table_size: u64,
         list_table_size: u64,
         journal_size: u64,
+        cache_capacity: u64,
     ) -> Result<Self, Error> {
         if key_table_size + list_table_size + journal_size > mem_pool.len() {
             return Err(Error::InvalidMemPoolSize);
@@ -52,7 +59,8 @@ where
             key_table,
             list_table,
             journal,
-            key_to_index: HashMap::new(),
+            key_index: HashMap::new(),
+            list_cache: ListCache::new(cache_capacity),
         })
     }
 
@@ -62,8 +70,26 @@ where
     fn insert(&mut self, mem_pool: &mut P, key: &K) -> Result<(), Error> {
         let key_table_row = self.key_table.insert(mem_pool, key)?;
 
-        self.key_to_index.insert(*key, key_table_row);
+        self.key_index.insert(
+            *key,
+            IndexMetadata {
+                key_table_index: key_table_row,
+                list_head: NULL_ADDR as u64,
+            },
+        );
 
         Ok(())
+    }
+
+    fn append(&mut self, mem_pool: &mut P, key: &K, list_entry: &[u8; N]) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn trim(&mut self, mem_pool: &mut P, key: &K, trim_len: u64) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn read_list(&self, mem_pool: &P, key: &K) -> Result<Vec<[u8; N]>, Error> {
+        todo!()
     }
 }

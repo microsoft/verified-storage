@@ -61,7 +61,7 @@ impl<const N: usize> DurableTable for SingletonListTable<N> {
     // based on provided total table size in bytes `mem_size`.
     fn new(mem_start: u64, mem_size: u64) -> Self {
         let row_size = DurableSingletonList::<N>::row_size() as u64;
-        let num_rows = (mem_size / row_size);
+        let num_rows = mem_size / row_size;
 
         let metadata = TableMetadata::new(mem_start, num_rows, row_size);
         let mut free_list = Vec::with_capacity(num_rows as usize);

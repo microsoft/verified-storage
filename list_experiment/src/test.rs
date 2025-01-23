@@ -1,3 +1,4 @@
+use crate::dll::*;
 use crate::journal::*;
 use crate::journaled_block_list::*;
 use crate::journaled_singleton_list::*;
@@ -12,6 +13,8 @@ mod tests {
     const POOL_SIZE: u64 = 4096;
     const JOURNAL_SIZE: u64 = 512;
     const LIST_TABLE_SIZE: u64 = POOL_SIZE - JOURNAL_SIZE;
+
+    use crate::list_cache::ListCache;
 
     use super::*;
 
@@ -227,5 +230,80 @@ mod tests {
         let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
         assert!(vec_list.len() == 1);
         assert!(u64::from_le_bytes(vec_list[0]) == 1);
+    }
+
+    #[test]
+    fn dll1() {
+        let num_nodes: u64 = 64;
+        let mut dll = DoublyLinkedList::<u64>::new();
+
+        for i in 0..num_nodes {
+            let new_node = DoublyLinkedListNode::new(i);
+            let _ = dll.push_front(Box::new(new_node));
+        }
+
+        for i in 0..num_nodes {
+            let node = dll.pop_back();
+            println!("{:?}", node);
+            assert!(node.is_some());
+            assert!(*node.unwrap().get_value() == i);
+        }
+    }
+
+    #[test]
+    fn dll2() {
+        let num_nodes: u64 = 64;
+        let mut dll = DoublyLinkedList::<u64>::new();
+        let mut node_vec = Vec::new();
+
+        for i in 0..num_nodes {
+            let new_node = DoublyLinkedListNode::new(i);
+            let node_ptr = dll.push_front(Box::new(new_node));
+            node_vec.push(node_ptr);
+        }
+
+        // random node from the interior of the list
+        let node_to_remove = node_vec[13];
+        let node = dll.remove(node_to_remove);
+        assert!(*node.get_value() == 13);
+
+        let mut i = 0;
+        while !dll.is_empty() {
+            let node = dll.pop_back();
+            assert!(node.is_some());
+            let val = *node.unwrap().get_value();
+            assert!(val != 13);
+            assert!(val == i);
+
+            i += 1;
+            if i == 13 {
+                i += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn lru1() {
+        let mut list_cache = ListCache::<8>::new(2);
+        let index0 = 0;
+        let index1 = 1;
+        let index2 = 2;
+
+        let node_addrs = Vec::new();
+
+        list_cache.put(index0, node_addrs.clone());
+        list_cache.put(index1, node_addrs.clone());
+        list_cache.put(index2, node_addrs.clone());
+
+        // index0 should have been evicted
+        assert!(list_cache.get(index0).is_none());
+
+        // index1 is most recently accessed
+        list_cache.get(index1);
+        // inserting index0 should evict index2
+        list_cache.put(index0, node_addrs.clone());
+
+        assert!(list_cache.get(index0).is_some());
+        assert!(list_cache.get(index2).is_none());
     }
 }
