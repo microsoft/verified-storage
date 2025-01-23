@@ -37,51 +37,6 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_read_item_and_list(&mut self, key: &K) -> (result: Result<(&I, &[L]), KvError>)
-        requires
-            old(self).valid(),
-        ensures
-            self.valid(),
-            self@ == old(self)@,
-            match result {
-                Ok((item, lst)) => {
-                    &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
-                    &&& item == i
-                    &&& lst@ == l
-                },
-                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
-                Err(e) => {
-                    &&& self@.tentative.read_item_and_list(*key) matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
-
-    pub exec fn untrusted_read_list_entry_at_index(&mut self, key: &K, idx: u64) -> (result: Result<&L, KvError>)
-        requires
-            old(self).valid()
-        ensures
-            self.valid(),
-            self@ == old(self)@,
-            match result {
-                Ok(list_entry) => {
-                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
-                    &&& *list_entry == e
-                },
-                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
-                Err(e) => {
-                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
-
     pub exec fn untrusted_append_to_list(
         &mut self,
         key: &K,

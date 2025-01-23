@@ -382,7 +382,7 @@ where
     pub exec fn read_item_and_list(
         &mut self,
         key: &K,
-    ) -> (result: Result<(&I, &[L]), KvError>)
+    ) -> (result: Result<(I, &[L]), KvError>)
         requires 
             old(self).valid(),
         ensures

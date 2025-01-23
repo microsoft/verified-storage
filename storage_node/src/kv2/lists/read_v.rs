@@ -51,6 +51,38 @@ impl<PM, L> ListTable<PM, L>
         assume(false);
         Err(KvError::NotImplemented)
     }
+
+    pub exec fn read_entry_at_index(
+        &mut self,
+        row_addr: u64,
+        idx: u64,
+        journal: &Journal<TrustedKvPermission, PM>
+    ) -> (result: Result<&L, KvError>)
+        requires
+            old(self).valid(journal@),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(row_addr),
+        ensures
+            self.valid(journal@),
+            self@ == old(self)@,
+            match result {
+                Ok(element) => {
+                    let elements = self@.tentative.unwrap().m[row_addr];
+                    &&& idx < elements.len()
+                    &&& element == elements[idx as int]
+                },
+                Err(KvError::IndexOutOfRange{ upper_bound }) => {
+                    let elements = self@.tentative.unwrap().m[row_addr];
+                    &&& idx >= elements.len()
+                    &&& upper_bound == elements.len()
+                },
+                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
+                _ => false,
+            }
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
 }
 
 }

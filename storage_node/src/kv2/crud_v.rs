@@ -60,8 +60,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             None => { return Err(KvError::KeyNotFound); },
             Some(i) => i,
         };
-        let item_addr = row_metadata.item_addr;
-        let item = match self.items.read(item_addr, &self.journal) {
+        let item = match self.items.read(row_metadata.item_addr, &self.journal) {
             Ok(i) => i,
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             Err(_) => { assert(false); return Err(KvError::KeyNotFound); },
