@@ -13,6 +13,10 @@ impl MockPool {
 }
 
 impl MemoryPool for MockPool {
+    fn start_addr(&self) -> u64 {
+        0
+    }
+
     fn len(&self) -> u64 {
         self.contents.len() as u64
     }

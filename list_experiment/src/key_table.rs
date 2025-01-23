@@ -13,8 +13,23 @@ pub struct KeyTable<K: PmCopy, M: PmCopy> {
 
 impl<K: PmCopy, M: PmCopy> KeyTable<K, M> {
     fn row_size() -> u64 {
-        // key, metadata, crc, and cdb
-        (size_of::<K>() + size_of::<M>() + size_of::<u64>() * 2) as u64
+        // key, metadata, crc
+        // we aren't including the CDB here because it doesn't
+        // come into play with list operations and we aren't implementing
+        // recovery right now
+        (size_of::<K>() + size_of::<M>() + size_of::<u64>()) as u64
+    }
+
+    pub fn key_addr(row_addr: u64) -> u64 {
+        row_addr
+    }
+
+    pub fn metadata_addr(row_addr: u64) -> u64 {
+        Self::key_addr(row_addr) + size_of::<K>() as u64
+    }
+
+    pub fn crc_addr(row_addr: u64) -> u64 {
+        Self::metadata_addr(row_addr) + size_of::<M>() as u64
     }
 }
 
