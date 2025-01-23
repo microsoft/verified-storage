@@ -226,7 +226,7 @@ impl<PM, K> KeyTable<PM, K>
             pending_deallocations: Vec::<u64>::new(),
             memory_mapping: Ghost(memory_mapping),
             undo_records: Vec::<KeyUndoRecord<K>>::new(),
-            phantom: Ghost(None),
+            phantom: Ghost(core::marker::PhantomData),
         };
 
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();

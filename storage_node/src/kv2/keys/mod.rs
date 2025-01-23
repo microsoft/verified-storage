@@ -120,7 +120,7 @@ pub struct KeyTable<PM, K>
     pending_deallocations: Vec<u64>,
     memory_mapping: Ghost<KeyMemoryMapping<K>>,
     undo_records: Vec<KeyUndoRecord<K>>,
-    phantom: Ghost<Option<core::marker::PhantomData<PM>>>,
+    phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
 impl<PM, K> KeyTable<PM, K>
