@@ -58,7 +58,7 @@ impl<PM, K> KeyTable<PM, K>
                     &&& keys@.durable == recovered_state
                     &&& keys@.tentative == Some(recovered_state)
                     &&& item_addrs@ == recovered_state.item_addrs()
-                    &&& list_addrs@.to_set().insert(0) == recovered_state.list_addrs()
+                    &&& list_addrs@.to_set() == recovered_state.list_addrs()
                     &&& !list_addrs@.contains(0)
                 },
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
@@ -232,7 +232,7 @@ impl<PM, K> KeyTable<PM, K>
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
         assert(keys@.durable =~= recovered_state);
         assert(item_addrs@ =~= recovered_state.item_addrs());
-        assert(list_addrs@.to_set().insert(0) =~= recovered_state.list_addrs());
+        assert(list_addrs@.to_set() =~= recovered_state.list_addrs());
 
         Ok((keys, item_addrs, list_addrs))
     }

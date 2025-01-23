@@ -45,20 +45,19 @@ impl<PM, L> ListTable<PM, L>
             journal@.journaled_addrs == Set::<int>::empty(),
             journal@.durable_state == journal@.read_state,
             journal@.read_state == journal@.commit_state,
-            Self::recover(journal@.read_state, list_addrs@.to_set().insert(0), *sm) is Some,
+            Self::recover(journal@.read_state, list_addrs@.to_set(), *sm) is Some,
             sm.valid::<L>(),
         ensures
             match result {
                 Ok(lists) => {
                     let recovered_state =
-                        Self::recover(journal@.read_state, list_addrs@.to_set().insert(0), *sm).unwrap();
+                        Self::recover(journal@.read_state, list_addrs@.to_set(), *sm).unwrap();
                     &&& lists.valid(journal@)
                     &&& lists@.sm == *sm
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
-                    &&& recovered_state.m.dom() == list_addrs@.to_set().insert(0)
-                    &&& recovered_state.m[0] == Seq::<L>::empty()
+                    &&& recovered_state.m.dom() == list_addrs@.to_set()
                 },
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 Err(_) => false,

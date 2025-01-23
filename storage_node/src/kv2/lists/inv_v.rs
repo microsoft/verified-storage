@@ -44,15 +44,9 @@ impl<PM, L> ListTable<PM, L>
         requires
             self.valid(jv),
         ensures
-            self@.durable.m.contains_key(0),
-            self@.durable.m[0] == Seq::<L>::empty(),
             Self::recover(jv.durable_state, self@.durable.m.dom(), self@.sm) == Some(self@.durable),
-            self@.tentative is Some ==> {
-                let tentative = self@.tentative.unwrap();
-                &&& tentative.m.contains_key(0)
-                &&& tentative.m[0] == Seq::<L>::empty()
-                &&& Self::recover(jv.commit_state, tentative.m.dom(), self@.sm) == self@.tentative
-            },
+            self@.tentative is Some ==>
+                Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) == self@.tentative,
     {
         assume(false);
     }

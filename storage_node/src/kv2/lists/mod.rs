@@ -191,8 +191,7 @@ impl<PM, L> ListTable<PM, L>
             pm@.len() == old(pm)@.len(),
             match result {
                 Ok(sm) => {
-                    &&& Self::recover(pm@.read_state, Set::<u64>::empty().insert(0), sm)
-                        == Some(ListTableSnapshot::<L>::init())
+                    &&& Self::recover(pm@.read_state, Set::<u64>::empty(), sm) == Some(ListTableSnapshot::<L>::init())
                     &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.start() as int, sm.end() as int)
                     &&& sm.valid::<L>()
                     &&& min_start <= sm.start() <= sm.end() <= max_end

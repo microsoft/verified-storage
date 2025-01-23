@@ -99,7 +99,7 @@ impl<K> KeyTableSnapshot<K>
 
     pub open spec fn list_addrs(self) -> Set<u64>
     {
-        self.list_info.dom().insert(0)
+        self.list_info.dom()
     }
 
     pub open spec fn create(self, k: K, item_addr: u64) -> Self

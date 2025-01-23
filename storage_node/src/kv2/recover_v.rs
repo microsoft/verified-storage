@@ -164,7 +164,8 @@ pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
             logical_range_gaps_policy,
             m: Map::<K, (I, Seq<L>)>::new(
                 |k: K| keys.dom().contains(k),
-                |k: K| (items[keys[k].item_addr], lists[keys[k].list_addr]),
+                |k: K| (items[keys[k].item_addr],
+                        if keys[k].list_addr == 0 { Seq::<L>::empty() } else { lists[keys[k].list_addr] }),
             )
         }
     )
@@ -280,7 +281,9 @@ pub(super) open spec fn combine_component_snapshots<K, I, L>(
         logical_range_gaps_policy,
         m: Map::<K, (I, Seq<L>)>::new(
             |k: K| keys.key_info.dom().contains(k),
-            |k: K| (items.m[keys.key_info[k].item_addr], lists.m[keys.key_info[k].list_addr]),
+            |k: K| (items.m[keys.key_info[k].item_addr],
+                    if keys.key_info[k].list_addr == 0 { Seq::<L>::empty() }
+                    else { lists.m[keys.key_info[k].list_addr] }),
         )
     }
 }

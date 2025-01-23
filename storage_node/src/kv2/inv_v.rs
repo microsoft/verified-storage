@@ -83,19 +83,6 @@ where
         }
     }
 
-    pub(super) open spec fn inv_lists_map_zero_to_empty(self) -> bool
-        recommends
-            self.inv_tentative_components_exist()
-    {
-        &&& self.lists@.durable.m.contains_key(0)
-        &&& self.lists@.durable.m[0] == Seq::<L>::empty()
-        &&& !(self.status@ is MustAbort) ==> {
-            let tentative_lists = self.lists@.tentative.unwrap();
-            &&& tentative_lists.m.contains_key(0)
-            &&& tentative_lists.m[0] == Seq::<L>::empty()
-        }
-    }
-
     pub(super) open spec fn inv(self) -> bool
     {
         &&& self.inv_journal_ok()
@@ -106,7 +93,6 @@ where
         &&& self.inv_components_valid()
         &&& self.inv_components_correspond()
         &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
-        &&& self.inv_lists_map_zero_to_empty()
     }
 
     pub(super) proof fn lemma_recover_static_metadata_depends_only_on_my_area(
