@@ -8,6 +8,7 @@ pub mod read_v;
 pub mod recover_v;
 pub mod spec_v;
 pub mod start_v;
+pub mod update_v;
 
 use builtin::*;
 use builtin_macros::*;
@@ -32,6 +33,7 @@ use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
 use super::spec_t::*;
+use update_v::*;
 
 verus! {
 

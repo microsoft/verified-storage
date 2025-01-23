@@ -368,6 +368,107 @@ where
                old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item).unwrap());
         Ok(())
     }
+
+    pub exec fn untrusted_update_list_entry_at_index(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_list_entry: L,
+        Tracked(perm): Tracked<&TrustedKvPermission>
+    ) -> (result: Result<(), KvError>)
+        requires
+            old(self).valid(),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+        ensures
+            self.valid(),
+            self@.constants_match(old(self)@),
+            match result {
+                Ok(()) => {
+                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                        matches Ok(new_self)
+                    &&& self@.tentative == new_self
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@.abort()
+                    &&& !self@.pm_constants.impervious_to_corruption()
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@.abort()
+                    // TODO
+                },
+                Err(e) => {
+                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                        matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        proof {
+            self.keys.lemma_valid_implications(self.journal@);
+        }
+
+        let (key_addr, former_rm) = match self.keys.read(key, Ghost(self.journal@)) {
+            Some(info) => info,
+            None => { return Err(KvError::KeyNotFound); },
+        };
+
+        if former_rm.list_addr == 0 {
+            return Err(KvError::IndexOutOfRange{ upper_bound: 0 });
+        }
+
+        self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
+
+        let ghost self_before_list_update = self.lemma_prepare_for_list_table_update(perm);
+        let result = self.lists.update(former_rm.list_addr, idx, new_list_entry, &mut self.journal, Tracked(perm));
+        proof { self.lemma_reflect_list_table_update(self_before_list_update); }
+
+        let list_addr = match result {
+            Ok(i) => i,
+            Err(KvError::CRCMismatch) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::CRCMismatch);
+            },
+            Err(KvError::OutOfSpace) => {
+                self.status = Ghost(KvStoreStatus::MustAbort);
+                self.internal_abort(Tracked(perm));
+                return Err(KvError::OutOfSpace);
+            },
+            Err(KvError::IndexOutOfRange{ upper_bound }) => {
+                self.status = Ghost(KvStoreStatus::Quiescent);
+                return Err(KvError::IndexOutOfRange{ upper_bound });
+            },
+            Err(KvError::LogicalRangeUpdateNotAllowed{ old_start, old_end, new_start, new_end }) => {
+                self.status = Ghost(KvStoreStatus::Quiescent);
+                return Err(KvError::LogicalRangeUpdateNotAllowed{ old_start, old_end, new_start, new_end });
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        if list_addr != former_rm.list_addr {
+            let ghost self_before_key_update = self.lemma_prepare_for_key_table_update(perm);
+            let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
+            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal, Tracked(perm));
+            proof { self.lemma_reflect_key_table_update(self_before_key_update); }
+
+            match result {
+                Ok(()) => {},
+                Err(KvError::OutOfSpace) => {
+                    self.status = Ghost(KvStoreStatus::MustAbort);
+                    self.internal_abort(Tracked(perm));
+                    return Err(KvError::OutOfSpace);
+                },
+                _ => { assert(false); return Err(KvError::InternalError); },
+            };
+        }
+
+        self.status = Ghost(KvStoreStatus::Quiescent);
+
+        assert(self@.tentative =~=
+               old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry).unwrap());
+        Ok(())
+    }
 }
 
 }

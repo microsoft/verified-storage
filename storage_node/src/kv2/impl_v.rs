@@ -37,45 +37,6 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_update_list_entry_at_index(
-        &mut self,
-        key: &K,
-        idx: usize,
-        new_list_entry: L,
-        Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError>)
-        requires
-            old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
-        ensures
-            self.valid(),
-            self@.constants_match(old(self)@),
-            match result {
-                Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
-                        matches Ok(new_self)
-                    &&& self@.tentative == new_self
-                },
-                Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
-                }, 
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
-                    // TODO
-                },
-                Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
-                        matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
-
     pub exec fn untrusted_update_list_entry_at_index_and_item(
         &mut self,
         key: &K,

@@ -50,6 +50,13 @@ impl<L> ListTableSnapshot<L>
     {
         Self{ m: self.m.insert(new_list_addr, seq![new_list_entry]) }
     }
+
+    pub open spec fn update_entry_at_index(&self, old_list_addr: u64, new_list_addr: u64, idx: usize,
+                                           new_list_entry: L) -> Self
+    {
+        let new_list = self.m[old_list_addr].update(idx as int, new_list_entry);
+        Self{ m: self.m.remove(old_list_addr).insert(new_list_addr, new_list) }
+    }
 }
 
 #[verifier::ext_equal]
