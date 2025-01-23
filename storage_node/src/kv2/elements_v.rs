@@ -112,7 +112,7 @@ where
         Ok((item, lst))
     }
 
-    pub exec fn untrusted_read_list_entry_at_index(&mut self, key: &K, idx: u64) -> (result: Result<&L, KvError>)
+    pub exec fn untrusted_read_list_entry_at_index(&mut self, key: &K, idx: usize) -> (result: Result<&L, KvError>)
         requires
             old(self).valid()
         ensures

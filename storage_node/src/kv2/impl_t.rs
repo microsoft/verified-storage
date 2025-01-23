@@ -427,7 +427,7 @@ where
         self.untrusted_kv_impl.untrusted_read_list(key)
     }
 
-    pub exec fn read_list_entry_at_index(&mut self, key: &K, idx: u64) -> (result: Result<&L, KvError>)
+    pub exec fn read_list_entry_at_index(&mut self, key: &K, idx: usize) -> (result: Result<&L, KvError>)
         requires
             old(self).valid(),
         ensures

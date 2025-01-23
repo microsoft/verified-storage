@@ -55,7 +55,7 @@ impl<PM, L> ListTable<PM, L>
     pub exec fn read_entry_at_index(
         &mut self,
         row_addr: u64,
-        idx: u64,
+        idx: usize,
         journal: &Journal<TrustedKvPermission, PM>
     ) -> (result: Result<&L, KvError>)
         requires
