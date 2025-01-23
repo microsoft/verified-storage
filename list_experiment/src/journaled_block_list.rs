@@ -69,7 +69,7 @@ pub struct BlockListTable<const N: usize, const M: usize> {
     free_list: Vec<u64>,
 }
 
-impl<const N: usize, const M: usize> ListTable for BlockListTable<N, M> {
+impl<const N: usize, const M: usize> DurableTable for BlockListTable<N, M> {
     // Creates a free list and metadata structure for a table to store
     // singleton list nodes. Determines how many rows the table can have
     // based on provided total table size in bytes `mem_size`.
@@ -92,11 +92,11 @@ impl<const N: usize, const M: usize> ListTable for BlockListTable<N, M> {
     // This function allocates and returns a free row in the table, returning None
     // if the table is full.
     // Note that it returns the absolute address of the row, not the row index.
-    fn allocate_node(&mut self) -> Option<u64> {
+    fn allocate(&mut self) -> Option<u64> {
         self.free_list.pop()
     }
 
-    fn free_node(&mut self, addr: u64) -> Result<(), Error> {
+    fn free(&mut self, addr: u64) -> Result<(), Error> {
         if !self.metadata.validate_addr(addr) {
             Err(Error::InvalidAddr)
         } else {
@@ -147,7 +147,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
         &mut self,
         mem_pool: &mut P,
         table: &mut BlockListTable<N, M>,
-        journal: &mut Journal<P>,
+        journal: &mut Journal,
         val: &[u8; N],
     ) -> Result<(), Error> {
         if self.len > 0 {
@@ -171,7 +171,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
             } else {
                 // there is not space in the tail for the new element.
                 // we need to allocate a new block and append it as the tail
-                let new_block_addr = match table.allocate_node() {
+                let new_block_addr = match table.allocate() {
                     Some(node_addr) => node_addr,
                     None => return Err(Error::OutOfSpace),
                 };
@@ -196,8 +196,8 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
                 let new_next_tail_bytes = new_next_tail.to_bytes();
                 let next_new_offset = Self::get_next_pointer_offset(old_tail_block_addr);
 
-                journal.append(next_new_offset, new_next_tail_bytes)?;
-                journal.commit()?;
+                journal.append(mem_pool, next_new_offset, new_next_tail_bytes)?;
+                journal.commit(mem_pool)?;
 
                 mem_pool.write(next_new_offset, new_next_tail_bytes)?;
                 mem_pool.flush();
@@ -212,7 +212,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
         } else {
             // the list is empty. we need to set up the head node
             // allocate a new block to be the head node
-            let new_block_addr = match table.allocate_node() {
+            let new_block_addr = match table.allocate() {
                 Some(node_addr) => node_addr,
                 None => return Err(Error::OutOfSpace),
             };
@@ -278,7 +278,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
             // trimming will require us to free the head node
             num_trimmed = valid_elements_in_head;
             let (_next_node, next_addr) = self.read_block_at_addr(mem_pool, table, current_addr)?;
-            table.free_node(current_addr)?;
+            table.free(current_addr)?;
             current_addr = next_addr;
             self.offset_of_first_entry = 0;
         }
@@ -295,7 +295,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
                 // we need to free the whole block
                 let (_next_node, next_addr) =
                     self.read_block_at_addr(mem_pool, table, current_addr)?;
-                table.free_node(current_addr)?;
+                table.free(current_addr)?;
                 current_addr = next_addr;
                 num_trimmed += valid_elements_in_current_node;
             } else {

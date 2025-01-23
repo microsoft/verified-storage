@@ -14,9 +14,12 @@ mod err;
 mod journal;
 mod journaled_block_list;
 mod journaled_singleton_list;
+mod key_table;
+mod kv;
 mod list;
 mod mem_pool;
 mod mock_pool;
+mod singleton_kv;
 mod singleton_list;
 mod table;
 mod test;
@@ -24,8 +27,9 @@ mod test;
 const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
 const CDB_TRUE: u64 = 0xab21aa73069531b7; // CRC(b"1")
 
-const MEM_POOL_SIZE: usize = 1024 * 1024 * 1024;
-const JOURNAL_POOL_SIZE: usize = 512;
+const MEM_POOL_SIZE: u64 = 1024 * 1024 * 1024;
+const JOURNAL_SIZE: u64 = 512;
+const LIST_TABLE_SIZE: u64 = MEM_POOL_SIZE - JOURNAL_SIZE;
 const LIST_LEN: u64 = 50000;
 const ITERATIONS: u64 = 5;
 
@@ -227,11 +231,10 @@ fn run_singleton_append_experiment<const N: usize>() {
     let mut times: Vec<u128> = Vec::new();
     for _ in 0..ITERATIONS {
         let mut mock_pool = MockPool::new(MEM_POOL_SIZE);
-        let mut table: SingletonListTable<N> = SingletonListTable::new(0, mock_pool.len());
+        let mut table: SingletonListTable<N> = SingletonListTable::new(0, LIST_TABLE_SIZE);
         let mut list: DurableSingletonList<N> = DurableSingletonList::new();
 
-        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
-        let mut journal = Journal::new(journal_mock_pool);
+        let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
 
         let value = [0; N];
 
@@ -261,11 +264,10 @@ fn run_singleton_read_experiment<const N: usize>() {
     let mut times: Vec<u128> = Vec::new();
     for _ in 0..ITERATIONS {
         let mut mock_pool = MockPool::new(MEM_POOL_SIZE);
-        let mut table: SingletonListTable<N> = SingletonListTable::new(0, mock_pool.len());
+        let mut table: SingletonListTable<N> = SingletonListTable::new(0, LIST_TABLE_SIZE);
         let mut list: DurableSingletonList<N> = DurableSingletonList::new();
 
-        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
-        let mut journal = Journal::new(journal_mock_pool);
+        let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
 
         let value = [0; N];
 
@@ -295,11 +297,10 @@ fn run_singleton_trim_experiment<const N: usize>(trim_len: u64) {
     let mut times = Vec::new();
     for _ in 0..ITERATIONS {
         let mut mock_pool = MockPool::new(MEM_POOL_SIZE);
-        let mut table: SingletonListTable<N> = SingletonListTable::new(0, mock_pool.len());
+        let mut table: SingletonListTable<N> = SingletonListTable::new(0, LIST_TABLE_SIZE);
         let mut list: DurableSingletonList<N> = DurableSingletonList::new();
 
-        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
-        let mut journal = Journal::new(journal_mock_pool);
+        let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
 
         let value = [0; N];
 
@@ -329,11 +330,10 @@ fn run_block_append_experiment<const N: usize, const M: usize>() {
     let mut times = Vec::new();
     for _ in 0..ITERATIONS {
         let mut mock_pool = MockPool::new(MEM_POOL_SIZE);
-        let mut table: BlockListTable<N, M> = BlockListTable::new(0, mock_pool.len());
+        let mut table: BlockListTable<N, M> = BlockListTable::new(0, LIST_TABLE_SIZE);
         let mut list: DurableBlockList<N, M> = DurableBlockList::new();
 
-        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
-        let mut journal = Journal::new(journal_mock_pool);
+        let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
 
         let value = [0; N];
 
@@ -364,11 +364,10 @@ fn run_block_read_experiment<const N: usize, const M: usize>() {
     let mut times = Vec::new();
     for _ in 0..ITERATIONS {
         let mut mock_pool = MockPool::new(MEM_POOL_SIZE);
-        let mut table: BlockListTable<N, M> = BlockListTable::new(0, mock_pool.len());
+        let mut table: BlockListTable<N, M> = BlockListTable::new(0, LIST_TABLE_SIZE);
         let mut list: DurableBlockList<N, M> = DurableBlockList::new();
 
-        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
-        let mut journal = Journal::new(journal_mock_pool);
+        let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
 
         let value = [0; N];
 
@@ -400,11 +399,10 @@ fn run_block_trim_experiment<const N: usize, const M: usize>(trim_len: u64) {
     let mut times = Vec::new();
     for _ in 0..ITERATIONS {
         let mut mock_pool = MockPool::new(MEM_POOL_SIZE);
-        let mut table: BlockListTable<N, M> = BlockListTable::new(0, mock_pool.len());
+        let mut table: BlockListTable<N, M> = BlockListTable::new(0, LIST_TABLE_SIZE);
         let mut list: DurableBlockList<N, M> = DurableBlockList::new();
 
-        let journal_mock_pool = MockPool::new(JOURNAL_POOL_SIZE);
-        let mut journal = Journal::new(journal_mock_pool);
+        let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
 
         let value = [0; N];
 

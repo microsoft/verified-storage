@@ -31,8 +31,8 @@ impl TableMetadata {
 }
 
 // methods for list tables of different durable layouts
-pub trait ListTable {
+pub trait DurableTable {
     fn new(mem_start: u64, mem_size: u64) -> Self;
-    fn allocate_node(&mut self) -> Option<u64>;
-    fn free_node(&mut self, addr: u64) -> Result<(), Error>;
+    fn allocate(&mut self) -> Option<u64>;
+    fn free(&mut self, addr: u64) -> Result<(), Error>;
 }
