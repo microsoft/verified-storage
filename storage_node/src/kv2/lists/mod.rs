@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 pub mod abort_v;
+pub mod append_v;
 pub mod commit_v;
 pub mod crud_v;
 pub mod inv_v;
@@ -12,6 +13,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use append_v::*;
 use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
@@ -206,6 +208,11 @@ impl<PM, L> ListTable<PM, L>
     {
         assume(false);
         Err(KvError::OutOfSpace)
+    }
+
+    pub closed spec fn validate_list_addr(&self, addr: u64) -> bool
+    {
+        self.sm.table.validate_row_addr(addr)
     }
 
     pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool

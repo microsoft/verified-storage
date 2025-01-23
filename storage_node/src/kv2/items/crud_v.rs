@@ -181,7 +181,7 @@ impl<PM, I> ItemTable<PM, I>
                         tentative: None,
                         ..old(self)@
                     })
-                }
+                },
                 _ => false,
             },
     {

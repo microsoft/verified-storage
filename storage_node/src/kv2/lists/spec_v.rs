@@ -39,6 +39,17 @@ impl<L> ListTableSnapshot<L>
     {
         Self{ m: self.m.remove(list_addr) }
     }
+
+    pub open spec fn append(&self, old_list_addr: u64, new_list_addr: u64, new_list_entry: L) -> Self
+    {
+        let new_list = self.m[old_list_addr].push(new_list_entry);
+        Self{ m: self.m.remove(old_list_addr).insert(new_list_addr, new_list) }
+    }
+
+    pub open spec fn create_singleton(&self, new_list_addr: u64, new_list_entry: L) -> Self
+    {
+        Self{ m: self.m.insert(new_list_addr, seq![new_list_entry]) }
+    }
 }
 
 #[verifier::ext_equal]
