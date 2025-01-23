@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use crc64fast::Digest;
 
@@ -16,13 +17,18 @@ pub struct SingletonKV<K: PmCopy, const N: usize> {
     key_to_index: HashMap<K, u64>,
 }
 
+#[derive(Default)]
 struct SingletonMetadata {
     list_head: u64,
 }
 
 impl PmCopy for SingletonMetadata {}
 
-impl<P: MemoryPool, K: PmCopy, const N: usize> KV<P, K> for SingletonKV<K, N> {
+impl<P, K, const N: usize> KV<P, K> for SingletonKV<K, N>
+where
+    P: MemoryPool,
+    K: PmCopy + Eq + PartialEq + Hash,
+{
     fn setup(
         mem_pool: &mut P,
         key_table_size: u64,
@@ -50,37 +56,13 @@ impl<P: MemoryPool, K: PmCopy, const N: usize> KV<P, K> for SingletonKV<K, N> {
         })
     }
 
+    // In the real implementation this involves the journal, but we aren't
+    // measuring the performance of this op here or trying to
+    // recover from any failures, so it doesn't matter.
     fn insert(&mut self, mem_pool: &mut P, key: &K) -> Result<(), Error> {
-        // 1. allocate a slot for the new key in the key table
-        let new_key_row = match self.key_table.allocate() {
-            Some(row) => row,
-            None => return Err(Error::OutOfSpace),
-        };
+        let key_table_row = self.key_table.insert(mem_pool, key)?;
 
-        // 2. set up the metadata and crc
-        let metadata = SingletonMetadata {
-            list_head: NULL_ADDR as u64,
-        };
-
-        let mut crc_digest = Digest::new();
-        crc_digest.write(key.to_bytes());
-        crc_digest.write(metadata.to_bytes());
-        let crc = crc_digest.sum64();
-
-        // 3. write them to the entry
-        mem_pool.write(
-            KeyTable::<K, SingletonMetadata>::key_addr(new_key_row),
-            key.to_bytes(),
-        )?;
-        mem_pool.write(
-            KeyTable::<K, SingletonMetadata>::metadata_addr(new_key_row),
-            metadata.to_bytes(),
-        )?;
-        mem_pool.write(
-            KeyTable::<K, SingletonMetadata>::crc_addr(new_key_row),
-            &crc.to_le_bytes(),
-        )?;
-        mem_pool.flush();
+        self.key_to_index.insert(*key, key_table_row);
 
         Ok(())
     }

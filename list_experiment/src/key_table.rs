@@ -1,5 +1,7 @@
+use crc64fast::Digest;
+
 use crate::err::Error;
-use crate::{DurableTable, PmCopy, TableMetadata};
+use crate::{DurableTable, MemoryPool, PmCopy, TableMetadata};
 use core::marker::PhantomData;
 use core::mem::size_of;
 
@@ -64,5 +66,34 @@ impl<K: PmCopy, M: PmCopy> DurableTable for KeyTable<K, M> {
             self.free_list.push(addr);
             Ok(())
         }
+    }
+}
+
+impl<K: PmCopy, M: PmCopy + Default> KeyTable<K, M> {
+    pub fn insert<P: MemoryPool>(&mut self, mem_pool: &mut P, key: &K) -> Result<u64, Error> {
+        // 1. allocate a slot for the new key in the key table
+        let new_key_row = match self.allocate() {
+            Some(row) => row,
+            None => return Err(Error::OutOfSpace),
+        };
+
+        // 2. set up the metadata and crc
+        let metadata = M::default();
+
+        let mut crc_digest = Digest::new();
+        crc_digest.write(key.to_bytes());
+        crc_digest.write(metadata.to_bytes());
+        let crc = crc_digest.sum64();
+
+        // 3. write them to the entry
+        mem_pool.write(KeyTable::<K, M>::key_addr(new_key_row), key.to_bytes())?;
+        mem_pool.write(
+            KeyTable::<K, M>::metadata_addr(new_key_row),
+            metadata.to_bytes(),
+        )?;
+        mem_pool.write(KeyTable::<K, M>::crc_addr(new_key_row), &crc.to_le_bytes())?;
+        mem_pool.flush();
+
+        Ok(new_key_row)
     }
 }
