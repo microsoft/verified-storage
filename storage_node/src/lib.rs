@@ -1,7 +1,6 @@
 #![feature(maybe_uninit_as_bytes)]
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
-#![feature(new_uninit)]
 #![allow(unused_imports)]
 
 use builtin::*;

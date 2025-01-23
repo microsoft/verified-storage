@@ -661,9 +661,9 @@ verus! {
             where
                 PMRegion: PersistentMemoryRegion,
             requires
-                subregion.inv(old::<&mut _>(wrpm_region), perm),
+                subregion.inv(old(wrpm_region), perm),
                 subregion.len() == LogMetadata::spec_size_of() + u64::spec_size_of(),
-                subregion.view(old::<&mut _>(wrpm_region)).no_outstanding_writes(),
+                subregion.view(old(wrpm_region)).no_outstanding_writes(),
                 forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
             ensures
                 subregion.inv(wrpm_region, perm),
