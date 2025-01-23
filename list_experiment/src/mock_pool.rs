@@ -5,9 +5,9 @@ pub struct MockPool {
 }
 
 impl MockPool {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: u64) -> Self {
         Self {
-            contents: vec![0; size],
+            contents: vec![0; size as usize],
         }
     }
 }

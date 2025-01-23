@@ -6,4 +6,5 @@ pub enum Error {
     InvalidCDB,
     InvalidCRC,
     ListTooShort,
+    InvalidMemPoolSize,
 }

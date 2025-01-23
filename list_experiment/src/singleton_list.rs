@@ -54,7 +54,7 @@ pub struct SingletonListTable<const N: usize> {
     free_list: Vec<u64>,
 }
 
-impl<const N: usize> ListTable for SingletonListTable<N> {
+impl<const N: usize> DurableTable for SingletonListTable<N> {
     // Creates a free list and metadata structure for a table to store
     // singleton list nodes. Determines how many rows the table can have
     // based on provided total table size in bytes `mem_size`.
@@ -77,11 +77,11 @@ impl<const N: usize> ListTable for SingletonListTable<N> {
     // This function allocates and returns a free row in the table, returning None
     // if the table is full.
     // Note that it returns the absolute address of the row, not the row index.
-    fn allocate_node(&mut self) -> Option<u64> {
+    fn allocate(&mut self) -> Option<u64> {
         self.free_list.pop()
     }
 
-    fn free_node(&mut self, addr: u64) -> Result<(), Error> {
+    fn free(&mut self, addr: u64) -> Result<(), Error> {
         if !self.metadata.validate_addr(addr) {
             Err(Error::InvalidAddr)
         } else {
@@ -143,7 +143,7 @@ impl<const N: usize> DurableSingletonList<N> {
     ) -> Result<(), Error> {
         // 1. allocate a row in the table. Return an error
         // if there are no free rows
-        let new_tail_row_addr = match table.allocate_node() {
+        let new_tail_row_addr = match table.allocate() {
             Some(row_addr) => row_addr,
             None => return Err(Error::OutOfSpace),
         };
@@ -220,7 +220,7 @@ impl<const N: usize> DurableSingletonList<N> {
             let (_current_node, next_addr) =
                 self.read_node_at_addr(mem_pool, table, current_addr)?;
 
-            table.free_node(current_addr)?;
+            table.free(current_addr)?;
 
             current_addr = next_addr;
 
