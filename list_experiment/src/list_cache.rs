@@ -17,6 +17,10 @@ impl<const N: usize> ListInfo<N> {
     pub fn push_new_tail_addr(&mut self, new_tail_addr: u64) {
         self.node_addrs.push(new_tail_addr)
     }
+
+    pub fn get_addrs(&self) -> &Vec<u64> {
+        &self.node_addrs
+    }
 }
 
 #[derive(Debug)]

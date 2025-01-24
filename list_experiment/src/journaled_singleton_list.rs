@@ -21,6 +21,10 @@ impl<const N: usize> DurableSingletonListNode<N> {
         let crc = digest.sum64();
         crc == self.crc
     }
+
+    pub fn get_val(&self) -> [u8; N] {
+        self.val.clone()
+    }
 }
 
 impl<const N: usize> PmCopy for DurableSingletonListNode<N> {}
@@ -45,6 +49,10 @@ impl DurableSingletonListNodeNextPtr {
         digest.write(&self.next.to_le_bytes());
         let crc = digest.sum64();
         crc == self.crc
+    }
+
+    pub fn next(&self) -> u64 {
+        self.next
     }
 }
 
@@ -221,8 +229,6 @@ impl<const N: usize> DurableSingletonList<N> {
         Ok(())
     }
 
-    // This function returns a volatile node with a `None`` next ptr and
-    // the physical location of the next node in the list
     fn read_node_at_addr<M: MemoryPool>(
         &self,
         mem_pool: &M,

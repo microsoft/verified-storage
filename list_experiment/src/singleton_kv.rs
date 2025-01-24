@@ -194,10 +194,121 @@ where
     }
 }
 
-impl<K: PmCopy, const N: usize> SingletonKV<K, N> {
+impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
+    pub fn read_full_list<P: MemoryPool>(
+        &mut self,
+        mem_pool: &mut P,
+        key: &K,
+    ) -> Result<Vec<[u8; N]>, Error> {
+        // 1. check that the key exists
+        if !self.key_index.contains_key(key) {
+            return Err(Error::KeyNotFound);
+        }
+        let index_metadata = self.key_index.get(key).unwrap();
+        let key_table_index = index_metadata.key_table_index;
+        let list_head = index_metadata.list_head;
+
+        let list_info = self.list_cache.get(key_table_index);
+
+        // 2. check if the list is in the cache
+        if let Some(list_info) = list_info {
+            // the list is in the cache. use the cached addresses to read the nodes
+            // TODO: should we store the list contents in the cache as well and
+            // check for that before reading from storage?
+            let addrs = list_info.get_addrs();
+            let mut output_vec = Vec::new();
+            for addr in addrs {
+                let (val, _) = self.read_node_at_addr(mem_pool, *addr)?;
+                output_vec.push(val);
+            }
+            Ok(output_vec)
+        } else {
+            // the list is not in the cache. add it to the cache, and read the
+            // values to return at the same time
+            let (values, addrs) = self.read_list_addrs_and_vals(mem_pool, list_head)?;
+            self.list_cache.put(key_table_index, addrs);
+            Ok(values)
+        }
+    }
+
+    fn read_list_addrs_and_vals<P: MemoryPool>(
+        &self,
+        mem_pool: &P,
+        list_head: u64,
+    ) -> Result<(Vec<[u8; N]>, Vec<u64>), Error> {
+        if list_head != 0 {
+            let mut current_node_addr = list_head;
+            let mut output_val_vec = Vec::new();
+            let mut output_next_vec = Vec::new();
+
+            let (val, next_addr) = self.read_node_at_addr(mem_pool, current_node_addr)?;
+            output_val_vec.push(val);
+            output_next_vec.push(next_addr);
+            current_node_addr = next_addr;
+
+            // read all of the nodes in the list and record their addresses
+            while current_node_addr != 0 {
+                let (val, next_addr) = self.read_node_at_addr(mem_pool, current_node_addr)?;
+                output_val_vec.push(val);
+                output_next_vec.push(next_addr);
+                current_node_addr = next_addr;
+            }
+
+            Ok((output_val_vec, output_next_vec))
+        } else {
+            Ok((Vec::new(), Vec::new()))
+        }
+    }
+
     fn read_list_addrs<P: MemoryPool>(&self, mem_pool: &P, key: &K) -> Result<Vec<u64>, Error> {
-        // note: zeroes should not be read into this list
-        todo!()
+        // 1. check that the key exists and look up its list head pointer
+        if !self.key_index.contains_key(key) {
+            return Err(Error::KeyNotFound);
+        }
+        let index_metadata = self.key_index.get(key).unwrap();
+        let list_head = index_metadata.list_head;
+
+        let mut current_node_addr = list_head;
+        let mut output_vec = Vec::new();
+
+        // 2. read all of the nodes in the list and record their addresses
+        while current_node_addr != 0 {
+            output_vec.push(current_node_addr);
+            let (_val, next_addr) = self.read_node_at_addr(mem_pool, current_node_addr)?;
+            current_node_addr = next_addr;
+        }
+
+        Ok(output_vec)
+    }
+
+    fn read_node_at_addr<P: MemoryPool>(
+        &self,
+        mem_pool: &P,
+        addr: u64,
+    ) -> Result<([u8; N], u64), Error> {
+        // 1. check that the address is valid
+        if !self.key_table.validate_addr(addr) {
+            return Err(Error::InvalidAddr);
+        }
+
+        // 2. read the node's value and check its CRC
+        let bytes = mem_pool.read(addr, size_of::<DurableSingletonListNode<N>>() as u64)?;
+        let node = unsafe { DurableSingletonListNode::<N>::from_bytes(&bytes) };
+        if !node.check_crc() {
+            return Err(Error::InvalidCRC);
+        }
+
+        // 3. read the next pointer and check its CRC
+        let bytes = mem_pool.read(
+            SingletonListTable::<N>::get_next_pointer_offset(addr),
+            size_of::<DurableSingletonListNodeNextPtr>() as u64,
+        )?;
+        let next_ptr = unsafe { DurableSingletonListNodeNextPtr::from_bytes(&bytes) };
+        if !next_ptr.check_crc() {
+            return Err(Error::InvalidCRC);
+        }
+
+        Ok((node.get_val(), next_ptr.next()))
     }
 
     fn apply_pending_journal_entries<P: MemoryPool>(&self, mem_pool: &mut P) -> Result<(), Error> {

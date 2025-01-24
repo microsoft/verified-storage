@@ -25,6 +25,10 @@ impl<K: PmCopy, M: PmCopy> KeyTable<K, M> {
     pub fn crc_addr(row_addr: u64) -> u64 {
         Self::metadata_addr(row_addr) + size_of::<M>() as u64
     }
+
+    pub fn validate_addr(&self, addr: u64) -> bool {
+        self.metadata.validate_addr(addr)
+    }
 }
 
 impl<K: PmCopy, M: PmCopy> DurableTable for KeyTable<K, M> {
