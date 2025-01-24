@@ -83,7 +83,7 @@ impl<const N: usize> ListCache<N> {
 
         let mut node = self.lru_cache.borrow_mut();
         let list_info = node.get_mut_info_at_index(cache_node_index).unwrap();
-        list_info.node_addrs.push(index);
+        list_info.node_addrs.push(addr);
         Ok(())
     }
 
