@@ -121,9 +121,10 @@ where
 
         // 4. update the list in the cache and obtain the address of the old tail if it exists.
         // we do this at the same time to avoid calling list_cache.get() twice
-        let old_tail = if let Some(list_info) = self.list_cache.get_mut(key_table_index) {
+        let old_tail = if let Some(list_info) = self.list_cache.get(key_table_index) {
             let old_tail = list_info.tail_addr().cloned();
-            list_info.push_new_tail_addr(new_list_node_row);
+            self.list_cache
+                .append_node_addr(key_table_index, new_list_node_row)?;
             old_tail
         } else {
             // this list is not in the cache -- construct its list of addresses

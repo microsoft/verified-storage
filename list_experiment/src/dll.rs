@@ -160,4 +160,13 @@ impl<T> DoublyLinkedList<T> {
 
         Some(node.take_value())
     }
+
+    pub fn get_mut_info_at_index(&mut self, index: usize) -> Option<&mut T> {
+        if index > self.list_vec.len() || self.list_vec[index].is_none() {
+            None
+        } else {
+            let node = self.list_vec.get_mut(index).unwrap().as_mut().unwrap();
+            Some(node.get_value_mut())
+        }
+    }
 }
