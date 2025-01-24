@@ -158,7 +158,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -171,7 +170,6 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -260,7 +258,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -274,9 +271,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
@@ -381,7 +378,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -395,9 +391,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
                         matches Err(e_spec)
                     &&& e == e_spec
@@ -483,7 +479,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -497,9 +492,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
                                                                              *new_item) matches Err(e_spec)
                     &&& e == e_spec
@@ -601,7 +596,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -614,9 +608,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -702,7 +696,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -716,9 +709,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec

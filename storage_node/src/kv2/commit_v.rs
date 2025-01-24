@@ -43,7 +43,6 @@ where
             },
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => self@ == old(self)@.commit(),
                 Err(_) => false,

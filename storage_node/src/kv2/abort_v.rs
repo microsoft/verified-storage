@@ -39,7 +39,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => self@ == old(self)@.abort(),
                 Err(_) => false,
@@ -60,7 +59,6 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             self@ == old(self)@.abort(),
             self.journal@.durable_state == self.journal@.read_state,
     {

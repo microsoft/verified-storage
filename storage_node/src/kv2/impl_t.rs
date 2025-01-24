@@ -126,11 +126,6 @@ where
         &&& self.untrusted_kv_impl.valid()
     }
 
-    pub closed spec fn pm_constants(self) -> PersistentMemoryConstants
-    {
-        self.untrusted_kv_impl.pm_constants()
-    }
-
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
         UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
@@ -238,7 +233,6 @@ where
             old(self).valid(),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -251,12 +245,12 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
+                    // TODO - Whenever we return OutOfSpace, we should establish why
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.create(*key, *item) matches Err(e_spec)
                     &&& e == e_spec
-                    &&& self@ == old(self)@
                 },
             }
     {
@@ -273,7 +267,6 @@ where
             old(self).valid(),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -286,12 +279,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.update_item(*key, *item) matches Err(e_spec)
                     &&& e_spec == e
-                    &&& self@ == old(self)@
                 },
             }
     {
@@ -307,7 +299,6 @@ where
             old(self).valid(),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -320,12 +311,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.delete(*key) matches Err(e_spec)
                     &&& e == e_spec
-                    &&& self@ == old(self)@
                 },
             },
     {
@@ -338,7 +328,6 @@ where
             old(self).valid(),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => self@ == old(self)@.abort(),
                 Err(_) => false,
@@ -353,7 +342,6 @@ where
             old(self).valid(),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => self@ == old(self)@.commit(),
                 Err(_) => false,
@@ -457,7 +445,6 @@ where
             old(self).valid(),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -470,7 +457,6 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -493,7 +479,6 @@ where
             old(self).valid(),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -507,9 +492,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
@@ -530,7 +515,6 @@ where
             old(self).valid(),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -544,9 +528,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
                         matches Err(e_spec)
                     &&& e == e_spec
@@ -568,7 +552,6 @@ where
             old(self).valid(),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -582,9 +565,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
                                                                               *new_item) matches Err(e_spec)
                     &&& e == e_spec
@@ -605,7 +588,6 @@ where
             old(self).valid(),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -618,9 +600,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -640,7 +622,6 @@ where
             old(self).valid(),
         ensures
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
@@ -654,9 +635,9 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec

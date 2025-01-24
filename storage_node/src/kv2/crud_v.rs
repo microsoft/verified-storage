@@ -79,12 +79,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
+                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
                     &&& old(self)@.tentative.create(*key, *item) matches Ok(new_self)
                     &&& self@.tentative == new_self
-                    &&& self@.durable == old(self)@.durable
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
@@ -92,12 +91,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 }
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.create(*key, *item) matches Err(e_spec)
                     &&& e == e_spec
-                    &&& self@ == old(self)@
                 },
             }
     {
@@ -156,12 +154,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
+                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
                     &&& old(self)@.tentative.delete(*key) matches Ok(new_self)
                     &&& self@.tentative == new_self
-                    &&& self@.durable == old(self)@.durable
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
@@ -169,12 +166,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 }
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.delete(*key) matches Err(e_spec)
                     &&& e == e_spec
-                    &&& self@ == old(self)@
                 },
             },
     {
@@ -247,12 +243,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
-            self@.constants_match(old(self)@),
             match result {
                 Ok(()) => {
+                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
                     &&& old(self)@.tentative.update_item(*key, *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
-                    &&& self@.durable == old(self)@.durable
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@.abort()
@@ -260,12 +255,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO
                 },
                 Err(e) => {
+                    &&& self@ == old(self)@
                     &&& old(self)@.tentative.update_item(*key, *new_item) matches Err(e_spec)
                     &&& e_spec == e
-                    &&& self@ == old(self)@
                 },
             }
     {
