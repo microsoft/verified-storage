@@ -43,7 +43,6 @@ impl <Perm, PM> Journal<Perm, PM>
     pub open spec fn write_postconditions(self, old_self: Self, addr: u64, bytes_to_write: Seq<u8>) -> bool
     {
         &&& self.valid()
-        &&& self@.constants_match(old_self@)
         &&& self@.valid()
         &&& self.recover_idempotent()
         &&& self@ == (JournalView{
@@ -145,7 +144,6 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
-            self@.constants_match(old(self)@),
             self.recover_idempotent(),
             ({
                 let space_needed = Self::spec_journal_entry_overhead() + bytes_to_write@.len();

@@ -158,7 +158,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.inv(journal@),
             journal.valid(),
-            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.durable_state == old(journal)@.durable_state,
             match result {
@@ -248,7 +247,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.inv(journal@),
             journal.valid(),
-            journal@.constants_match(old(journal)@),
             journal@.journaled_addrs == old(journal)@.journaled_addrs,
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
@@ -321,7 +319,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -400,7 +397,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -501,7 +497,6 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal@.constants_match(old(journal)@),
             old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {

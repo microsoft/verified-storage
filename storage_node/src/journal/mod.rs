@@ -146,7 +146,6 @@ impl <Perm, PM> Journal<Perm, PM>
             self@.valid(),
             self.recover_idempotent(),
             self@ == old(self)@.abort(),
-            self@.constants_match(old(self)@),
     {
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());

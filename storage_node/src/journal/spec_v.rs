@@ -64,12 +64,6 @@ impl JournalView {
         self.durable_state.len()
     }
 
-    pub open spec fn constants_match(self, other: JournalView) -> bool
-    {
-        &&& self.constants == other.constants
-        &&& self.pm_constants == other.pm_constants
-    }
-
     pub open spec fn matches_in_range(self, other: JournalView, start: int, end: int) -> bool
     {
         &&& self.valid()
@@ -84,6 +78,8 @@ impl JournalView {
 
     pub open spec fn matches_except_in_range(self, other: JournalView, start: int, end: int) -> bool
     {
+        &&& self.constants == other.constants
+        &&& self.pm_constants == other.pm_constants
         &&& self.matches_in_range(other, self.constants.app_area_start as int, start)
         &&& self.matches_in_range(other, end, self.constants.app_area_end as int)
     }

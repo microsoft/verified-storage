@@ -670,7 +670,6 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.valid(),
             self@.valid(),
-            self@.constants_match(old(self)@),
             self.recover_idempotent(),
             self@.committed_from(old(self)@),
     {
