@@ -177,9 +177,7 @@ impl<PM, I> ItemTable<PM, I>
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-        &&& j.constants == constants
-        &&& j.state == s
+        &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, item_addrs, sm) == Self::recover(durable_state, item_addrs, sm)
     }
 

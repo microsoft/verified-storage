@@ -83,6 +83,11 @@ impl <Perm, PM> Journal<Perm, PM>
                                                                      state: self@.durable_state })
     }
 
+    pub open spec fn state_recovery_idempotent(state: Seq<u8>, constants: JournalConstants) -> bool
+    {
+        Self::recover(state) == Some(RecoveredJournal{ constants, state })
+    }
+
     pub open spec fn recovery_equivalent_for_app(state1: Seq<u8>, state2: Seq<u8>) -> bool
     {
         &&& Self::recover(state1) matches Some(j1)

@@ -94,11 +94,7 @@ impl<PM, K> KeyTable<PM, K>
         requires
             sm.valid::<K>(),
             iv.consistent_with_state(initial_durable_state, sm),
-            ({
-                &&& Journal::<TrustedKvPermission, PM>::recover(initial_durable_state) matches Some(j)
-                &&& j.constants == constants
-                &&& j.state == initial_durable_state
-            }),
+            Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -112,9 +108,7 @@ impl<PM, K> KeyTable<PM, K>
                                                          constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-                &&& j.constants == constants
-                &&& j.state == s
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
@@ -127,9 +121,7 @@ impl<PM, K> KeyTable<PM, K>
                                                          constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-                &&& j.constants == constants
-                &&& j.state == s
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)

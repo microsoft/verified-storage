@@ -100,11 +100,7 @@ impl<PM, I> ItemTable<PM, I>
             sm.valid::<I>(),
             iv.valid(sm),
             iv.consistent_with_durable_state(initial_durable_state, sm),
-            ({
-                &&& Journal::<TrustedKvPermission, PM>::recover(initial_durable_state) matches Some(j)
-                &&& j.constants == constants
-                &&& j.state == initial_durable_state
-            }),
+            Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -119,9 +115,7 @@ impl<PM, I> ItemTable<PM, I>
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-                &&& j.constants == constants
-                &&& j.state == s
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
                                                          initial_durable_state, constants, sm)
@@ -136,9 +130,7 @@ impl<PM, I> ItemTable<PM, I>
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-                &&& j.constants == constants
-                &&& j.state == s
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me_specific(s, item_addrs, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)

@@ -225,9 +225,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<TrustedKvPermission, PM>::recover(s) matches Some(j)
-        &&& j.constants == constants
-        &&& j.state == s
+        &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, list_addrs, sm) == Self::recover(durable_state, list_addrs, sm)
     }
 
