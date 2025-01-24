@@ -8,6 +8,7 @@ pub mod read_v;
 pub mod recover_v;
 pub mod spec_v;
 pub mod start_v;
+pub mod trim_v;
 pub mod update_v;
 
 use builtin::*;
@@ -26,14 +27,12 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
 use inv_v::*;
-use read_v::*;
 use spec_v::*;
 use start_v::*;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
 use super::spec_t::*;
-use update_v::*;
 
 verus! {
 

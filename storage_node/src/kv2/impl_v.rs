@@ -37,42 +37,6 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_trim_list(
-        &mut self,
-        key: &K,
-        trim_length: usize,
-        Tracked(perm): Tracked<&TrustedKvPermission>
-    ) -> (result: Result<(), KvError>)
-        requires
-            old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
-        ensures
-            self.valid(),
-            self@.constants_match(old(self)@),
-            match result {
-                Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
-                    &&& self@.tentative == new_self
-                },
-                Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
-                }, 
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
-                    // TODO
-                },
-                Err(e) => {
-                    &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
-    }
-
     pub exec fn untrusted_trim_list_and_update_item(
         &mut self,
         key: &K,
