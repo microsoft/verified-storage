@@ -487,7 +487,7 @@ where
         &mut self,
         key: &K,
         new_list_entry: L,
-        new_item: I,
+        new_item: &I,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -497,7 +497,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -510,7 +510,7 @@ where
                     // TODO
                 },
                 Err(e) => {
-                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -562,7 +562,7 @@ where
         key: &K,
         idx: usize,
         new_list_entry: L,
-        new_item: I,
+        new_item: &I,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -572,8 +572,8 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
-                        matches Ok(new_self)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
+                                                                             *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
@@ -585,8 +585,8 @@ where
                     // TODO
                 },
                 Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
-                        matches Err(e_spec)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
+                                                                              *new_item) matches Err(e_spec)
                     &&& e == e_spec
                 },
             },
@@ -634,7 +634,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        new_item: I,
+        new_item: &I,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -644,7 +644,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -657,7 +657,7 @@ where
                     // TODO
                 },
                 Err(e) => {
-                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },

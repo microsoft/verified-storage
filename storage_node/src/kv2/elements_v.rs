@@ -252,7 +252,7 @@ where
         &mut self,
         key: &K,
         new_list_entry: L,
-        new_item: I,
+        new_item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires
@@ -264,7 +264,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -277,7 +277,7 @@ where
                     // TODO
                 },
                 Err(e) => {
-                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -365,7 +365,7 @@ where
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~=
-               old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, new_item).unwrap());
+               old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item).unwrap());
         Ok(())
     }
 
@@ -475,7 +475,7 @@ where
         key: &K,
         idx: usize,
         new_list_entry: L,
-        new_item: I,
+        new_item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires
@@ -487,8 +487,8 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
-                        matches Ok(new_self)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
+                                                                              *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
@@ -500,8 +500,8 @@ where
                     // TODO
                 },
                 Err(e) => {
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry, new_item)
-                        matches Err(e_spec)
+                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
+                                                                             *new_item) matches Err(e_spec)
                     &&& e == e_spec
                 },
             },
@@ -586,7 +586,7 @@ where
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat,
-                                                                      new_list_entry, new_item).unwrap());
+                                                                      new_list_entry, *new_item).unwrap());
         Ok(())
     }
 
@@ -694,7 +694,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        new_item: I,
+        new_item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires
@@ -706,7 +706,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -719,7 +719,7 @@ where
                     // TODO
                 },
                 Err(e) => {
-                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item)
+                    &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -737,8 +737,8 @@ where
         if trim_length == 0 {
             assert(self@.tentative.read_item_and_list(*key).unwrap().1.skip(trim_length as int) =~=
                    self@.tentative.read_item_and_list(*key).unwrap().1);
-            assert(self@.tentative.trim_list_and_update_item(*key, trim_length as nat, new_item) =~=
-                   self@.tentative.update_item(*key, new_item));
+            assert(self@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item) =~=
+                   self@.tentative.update_item(*key, *new_item));
             return self.untrusted_update_item(key, &new_item, Tracked(perm));
         }
 
@@ -809,7 +809,7 @@ where
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat,
-                                                                                new_item).unwrap());
+                                                                                *new_item).unwrap());
         Ok(())
     }
 }
