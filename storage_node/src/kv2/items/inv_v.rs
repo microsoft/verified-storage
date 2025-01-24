@@ -97,7 +97,6 @@ impl<I> ItemInternalView<I>
     {
         &&& forall|i: int| #![trigger self.free_list[i]]
             0 <= i < self.free_list.len() ==> {
-            &&& sm.table.validate_row_addr(self.free_list[i])
             &&& self.row_info.contains_key(self.free_list[i])
             &&& #[trigger] self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
             &&& pos == i
@@ -107,7 +106,6 @@ impl<I> ItemInternalView<I>
     pub(super) open spec fn pending_allocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
         &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
-            &&& sm.table.validate_row_addr(self.pending_allocations[i])
             &&& self.row_info.contains_key(self.pending_allocations[i])
             &&& match self.row_info[self.pending_allocations[i]] {
                 ItemRowDisposition::InPendingAllocationList{ pos, item } => pos == i,
@@ -120,7 +118,6 @@ impl<I> ItemInternalView<I>
     pub(super) open spec fn pending_deallocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
         &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
-            &&& sm.table.validate_row_addr(self.pending_deallocations[i])
             &&& self.row_info.contains_key(self.pending_deallocations[i])
             &&& match self.row_info[self.pending_deallocations[i]] {
                 ItemRowDisposition::InPendingDeallocationList{ pos, item } => pos == i,
