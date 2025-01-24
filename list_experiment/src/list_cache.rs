@@ -9,6 +9,16 @@ pub struct ListInfo<const N: usize> {
     list_contents: Option<Vec<[u8; N]>>,
 }
 
+impl<const N: usize> ListInfo<N> {
+    pub fn tail_addr(&self) -> Option<&u64> {
+        self.node_addrs.last()
+    }
+
+    pub fn push_new_tail_addr(&mut self, new_tail_addr: u64) {
+        self.node_addrs.push(new_tail_addr)
+    }
+}
+
 #[derive(Debug)]
 pub struct ListCache<const N: usize> {
     current_size: u64,
@@ -32,6 +42,30 @@ impl<const N: usize> ListCache<N> {
             None => return None,
         };
 
+        // move the node to the head of the list if it isn't already there
+        // we don't have to consider the case where the cache does not have
+        // a head, because in that case the list is empty and we already
+        // returned None.
+        if let Some(head_index) = self.lru_cache.head_index() {
+            if cache_node_index != head_index {
+                // remove the node from the cache and pop it onto the front.
+                // we don't have to evict anything because the length of the list
+                // is unchanged by this operation.
+                let node = self.lru_cache.remove(cache_node_index)?;
+                let new_index = self.lru_cache.push_front(node).unwrap();
+                self.cache_map.insert(index, new_index);
+            }
+        }
+
+        self.lru_cache.peek_head()
+    }
+
+    pub fn get_mut(&mut self, index: u64) -> Option<&mut ListInfo<N>> {
+        let cache_node_index = match self.cache_map.get(&index) {
+            Some(node) => *node,
+            None => return None,
+        };
+
         // remove the node from the cache and pop it onto the front.
         // we don't have to evict anything because the length of the list
         // is unchanged by this operation.
@@ -39,7 +73,7 @@ impl<const N: usize> ListCache<N> {
         let new_index = self.lru_cache.push_front(node).unwrap();
         self.cache_map.insert(index, new_index);
 
-        self.lru_cache.peek_head()
+        self.lru_cache.peek_head_mut()
     }
 
     // this will only be called when the list at index is not currently
@@ -67,5 +101,11 @@ impl<const N: usize> ListCache<N> {
         // now we can push the new entry onto the front of the cache list
         let node_ptr = self.lru_cache.push_front(Box::new(list_info)).unwrap();
         self.cache_map.insert(index, node_ptr);
+    }
+
+    pub fn get_tail_addr(&mut self, index: u64) -> Option<u64> {
+        let list_info = self.get(index)?;
+        let last = list_info.node_addrs.last()?;
+        Some(*last)
     }
 }

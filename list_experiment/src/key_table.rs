@@ -14,14 +14,6 @@ pub struct KeyTable<K: PmCopy, M: PmCopy> {
 }
 
 impl<K: PmCopy, M: PmCopy> KeyTable<K, M> {
-    fn row_size() -> u64 {
-        // key, metadata, crc
-        // we aren't including the CDB here because it doesn't
-        // come into play with list operations and we aren't implementing
-        // recovery right now
-        (size_of::<K>() + size_of::<M>() + size_of::<u64>()) as u64
-    }
-
     pub fn key_addr(row_addr: u64) -> u64 {
         row_addr
     }
@@ -37,7 +29,7 @@ impl<K: PmCopy, M: PmCopy> KeyTable<K, M> {
 
 impl<K: PmCopy, M: PmCopy> DurableTable for KeyTable<K, M> {
     fn new(mem_start: u64, mem_size: u64) -> Self {
-        let row_size = Self::row_size();
+        let row_size = Self::row_size() as u64;
         let num_rows = mem_size / row_size;
 
         let metadata = TableMetadata::new(mem_start, num_rows, row_size);
@@ -67,9 +59,17 @@ impl<K: PmCopy, M: PmCopy> DurableTable for KeyTable<K, M> {
             Ok(())
         }
     }
+
+    fn row_size() -> usize {
+        // key, metadata, crc
+        // we aren't including the CDB here because it doesn't
+        // come into play with list operations and we aren't implementing
+        // recovery right now
+        size_of::<K>() + size_of::<M>() + size_of::<u64>()
+    }
 }
 
-impl<K: PmCopy, M: PmCopy + Default> KeyTable<K, M> {
+impl<K: PmCopy + Copy, M: PmCopy + Default + Copy> KeyTable<K, M> {
     pub fn insert<P: MemoryPool>(&mut self, mem_pool: &mut P, key: &K) -> Result<u64, Error> {
         // 1. allocate a slot for the new key in the key table
         let new_key_row = match self.allocate() {
@@ -95,5 +95,25 @@ impl<K: PmCopy, M: PmCopy + Default> KeyTable<K, M> {
         mem_pool.flush();
 
         Ok(new_key_row)
+    }
+
+    pub fn read<P: MemoryPool>(&self, mem_pool: &mut P, addr: u64) -> Result<(K, M), Error> {
+        // read the entry
+        let key_bytes = mem_pool.read(Self::key_addr(addr), size_of::<K>() as u64)?;
+        let metadata_bytes = mem_pool.read(Self::metadata_addr(addr), size_of::<M>() as u64)?;
+        let crc_bytes = mem_pool.read(Self::crc_addr(addr), size_of::<u64>() as u64)?;
+
+        // check the CRC
+        let mut crc_digest = Digest::new();
+        crc_digest.write(&key_bytes);
+        crc_digest.write(&metadata_bytes);
+        let crc = crc_digest.sum64();
+        if crc != u64::from_le_bytes(crc_bytes.try_into().unwrap()) {
+            return Err(Error::InvalidCRC);
+        }
+
+        let key = unsafe { K::from_bytes(&key_bytes) };
+        let metadata = unsafe { M::from_bytes(&metadata_bytes) };
+        Ok((*key, *metadata))
     }
 }

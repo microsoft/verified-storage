@@ -147,6 +147,44 @@ impl Journal {
         mem_pool.flush();
         self.len += size_of::<u64>() as u64;
 
+        // // update the durable length and its crc
+        // let len_bytes = self.len.to_le_bytes();
+        // let mut crc_digest = Digest::new();
+        // crc_digest.write(&len_bytes);
+        // let crc = crc_digest.sum64();
+        // let crc_bytes = crc.to_le_bytes();
+
+        // let current_cdb = self.read_cdb(mem_pool)?;
+        // let inactive_addr = self.inactive_metadata_addr(current_cdb);
+        // mem_pool.write(inactive_addr, &len_bytes)?;
+        // mem_pool.write(inactive_addr + size_of::<u64>() as u64, &crc_bytes)?;
+        // mem_pool.flush();
+        // let new_cdb = if current_cdb == CDB_TRUE {
+        //     CDB_FALSE
+        // } else {
+        //     CDB_TRUE
+        // };
+        // let new_cdb_bytes = new_cdb.to_le_bytes();
+        // mem_pool.write(self.cdb_addr(), &new_cdb_bytes)?;
+        // mem_pool.flush();
+        self.update_inactive_metadata_and_flip_cdb(mem_pool)?;
+
+        Ok(())
+    }
+
+    pub fn clear<P: MemoryPool>(&mut self, mem_pool: &mut P) -> Result<(), Error> {
+        self.crc_digest = Digest::new();
+        self.len = 0;
+
+        self.update_inactive_metadata_and_flip_cdb(mem_pool)?;
+
+        Ok(())
+    }
+
+    fn update_inactive_metadata_and_flip_cdb<P: MemoryPool>(
+        &self,
+        mem_pool: &mut P,
+    ) -> Result<(), Error> {
         // update the durable length and its crc
         let len_bytes = self.len.to_le_bytes();
         let mut crc_digest = Digest::new();
@@ -169,10 +207,5 @@ impl Journal {
         mem_pool.flush();
 
         Ok(())
-    }
-
-    pub fn clear(&mut self) {
-        self.crc_digest = Digest::new();
-        self.len = 0;
     }
 }

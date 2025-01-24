@@ -29,6 +29,10 @@ impl<T> DoublyLinkedListNode<T> {
         &self.value
     }
 
+    pub fn get_value_mut(&mut self) -> &mut T {
+        &mut self.value
+    }
+
     pub fn take_value(self) -> Box<T> {
         self.value
     }
@@ -57,11 +61,28 @@ impl<T> DoublyLinkedList<T> {
         self.len
     }
 
+    pub fn head_index(&self) -> Option<usize> {
+        self.head
+    }
+
     pub fn peek_head(&self) -> Option<&T> {
         if let Some(head_index) = self.head {
             let head = self.list_vec.get(head_index).unwrap();
             if let Some(head) = head {
                 Some(head.get_value())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn peek_head_mut(&mut self) -> Option<&mut T> {
+        if let Some(head_index) = self.head {
+            let head = self.list_vec.get_mut(head_index).unwrap();
+            if let Some(head) = head {
+                Some(head.get_value_mut())
             } else {
                 None
             }

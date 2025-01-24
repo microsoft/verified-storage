@@ -104,6 +104,10 @@ impl<const N: usize, const M: usize> DurableTable for BlockListTable<N, M> {
             Ok(())
         }
     }
+
+    fn row_size() -> usize {
+        size_of::<DurableBlockListRow<N>>() // value + CRC
+    }
 }
 
 pub struct DurableBlockList<const N: usize, const M: usize> {
@@ -125,12 +129,8 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
         }
     }
 
-    const fn row_size() -> usize {
-        size_of::<DurableBlockListRow<N>>() // value + CRC
-    }
-
-    const fn block_size() -> usize {
-        Self::row_size() * M // rows and their CRCs
+    fn block_size() -> usize {
+        BlockListTable::<N, M>::row_size() * M // rows and their CRCs
             + size_of::<u64>() // CDB
             + size_of::<DurableBlockListNodeNextPtr>() * 2 // two next+CRC areas
     }
@@ -140,7 +140,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
     }
 
     fn row_offset_in_block(block_addr: u64, row_index: u64) -> u64 {
-        row_index * Self::row_size() as u64 + block_addr
+        row_index * BlockListTable::<N, M>::row_size() as u64 + block_addr
     }
 
     pub fn append<P: MemoryPool>(
@@ -201,7 +201,7 @@ impl<const N: usize, const M: usize> DurableBlockList<N, M> {
 
                 mem_pool.write(next_new_offset, new_next_tail_bytes)?;
                 mem_pool.flush();
-                journal.clear();
+                journal.clear(mem_pool);
 
                 // increment the list length and set the new tail.
                 // we also need to update the number of valid entries in the tail
