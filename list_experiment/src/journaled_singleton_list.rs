@@ -90,6 +90,18 @@ impl<const N: usize> DurableTable for SingletonListTable<N> {
             Ok(())
         }
     }
+
+    fn row_size() -> usize {
+        size_of::<DurableSingletonListNode<N>>()  // value + CRC
+            + size_of::<u64>()  // CDB
+            + size_of::<DurableSingletonListNodeNextPtr>() * 2 // two next+CRC areas
+    }
+}
+
+impl<const N: usize> SingletonListTable<N> {
+    pub fn get_next_pointer_offset(row_addr: u64) -> u64 {
+        size_of::<DurableSingletonListNode<N>>() as u64 + row_addr
+    }
 }
 
 pub struct DurableSingletonList<const N: usize> {
@@ -117,64 +129,64 @@ impl<const N: usize> DurableSingletonList<N> {
         size_of::<DurableSingletonListNode<N>>() as u64 + row_addr
     }
 
-    pub fn append<M: MemoryPool>(
-        &mut self,
-        mem_pool: &mut M,
-        table: &mut SingletonListTable<N>,
-        journal: &mut Journal,
-        val: &[u8; N],
-    ) -> Result<(), Error> {
-        // 1. allocate a row in the table. Return an error
-        // if there are no free rows
-        let new_tail_row_addr = match table.allocate() {
-            Some(row_addr) => row_addr,
-            None => return Err(Error::OutOfSpace),
-        };
+    // pub fn append<M: MemoryPool>(
+    //     &mut self,
+    //     mem_pool: &mut M,
+    //     table: &mut SingletonListTable<N>,
+    //     journal: &mut Journal,
+    //     val: &[u8; N],
+    // ) -> Result<(), Error> {
+    //     // 1. allocate a row in the table. Return an error
+    //     // if there are no free rows
+    //     let new_tail_row_addr = match table.allocate() {
+    //         Some(row_addr) => row_addr,
+    //         None => return Err(Error::OutOfSpace),
+    //     };
 
-        // 2. build the new node and write it to the new row
+    //     // 2. build the new node and write it to the new row
 
-        // value + crc
-        let new_node = DurableSingletonListNode::new(*val);
-        let new_node_bytes = new_node.to_bytes();
+    //     // value + crc
+    //     let new_node = DurableSingletonListNode::new(*val);
+    //     let new_node_bytes = new_node.to_bytes();
 
-        let next = NULL_ADDR as u64;
-        let next_ptr = DurableSingletonListNodeNextPtr::new(next);
-        let next_bytes = next_ptr.to_bytes();
+    //     let next = NULL_ADDR as u64;
+    //     let next_ptr = DurableSingletonListNodeNextPtr::new(next);
+    //     let next_bytes = next_ptr.to_bytes();
 
-        // row_addr is an absolute address, not an index, so we can write
-        // directly to it. we can also directly write the next pointer
-        mem_pool.write(new_tail_row_addr, new_node_bytes)?;
-        mem_pool.write(Self::get_next_pointer_offset(new_tail_row_addr), next_bytes)?;
-        mem_pool.flush();
+    //     // row_addr is an absolute address, not an index, so we can write
+    //     // directly to it. we can also directly write the next pointer
+    //     mem_pool.write(new_tail_row_addr, new_node_bytes)?;
+    //     mem_pool.write(Self::get_next_pointer_offset(new_tail_row_addr), next_bytes)?;
+    //     mem_pool.flush();
 
-        // 3. update the old tail by journaling
-        let old_tail_row_addr: u64 = self.tail_addr as u64;
-        if old_tail_row_addr != NULL_ADDR as u64 {
-            let new_next_tail = DurableSingletonListNodeNextPtr::new(new_tail_row_addr);
-            let new_next_tail_bytes = new_next_tail.to_bytes();
-            let next_offset = Self::get_next_pointer_offset(old_tail_row_addr);
+    //     // 3. update the old tail by journaling
+    //     let old_tail_row_addr: u64 = self.tail_addr as u64;
+    //     if old_tail_row_addr != NULL_ADDR as u64 {
+    //         let new_next_tail = DurableSingletonListNodeNextPtr::new(new_tail_row_addr);
+    //         let new_next_tail_bytes = new_next_tail.to_bytes();
+    //         let next_offset = Self::get_next_pointer_offset(old_tail_row_addr);
 
-            // journal the new update
-            journal.append(mem_pool, next_offset, new_next_tail_bytes)?;
-            // commit the journal (includes flush)
-            journal.commit(mem_pool)?;
+    //         // journal the new update
+    //         journal.append(mem_pool, next_offset, new_next_tail_bytes)?;
+    //         // commit the journal (includes flush)
+    //         journal.commit(mem_pool)?;
 
-            // write the update to the list element and clear the journal
-            mem_pool.write(next_offset, new_next_tail_bytes)?;
-            mem_pool.flush();
-            journal.clear();
-        } else {
-            // if the tail is null, the list is empty, so we
-            // need to set the head pointer to the newly-created node.
-            self.head_addr = new_tail_row_addr;
-        }
+    //         // write the update to the list element and clear the journal
+    //         mem_pool.write(next_offset, new_next_tail_bytes)?;
+    //         mem_pool.flush();
+    //         journal.clear(mem_pool);
+    //     } else {
+    //         // if the tail is null, the list is empty, so we
+    //         // need to set the head pointer to the newly-created node.
+    //         self.head_addr = new_tail_row_addr;
+    //     }
 
-        // 5. update list struct
-        self.tail_addr = new_tail_row_addr;
-        self.len += 1;
+    //     // 5. update list struct
+    //     self.tail_addr = new_tail_row_addr;
+    //     self.len += 1;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub fn trim<M: MemoryPool>(
         &mut self,

@@ -35,4 +35,5 @@ pub trait DurableTable {
     fn new(mem_start: u64, mem_size: u64) -> Self;
     fn allocate(&mut self) -> Option<u64>;
     fn free(&mut self, addr: u64) -> Result<(), Error>;
+    fn row_size() -> usize;
 }
