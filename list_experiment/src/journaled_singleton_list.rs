@@ -104,6 +104,10 @@ impl<const N: usize> DurableTable for SingletonListTable<N> {
             + size_of::<u64>()  // CDB
             + size_of::<DurableSingletonListNodeNextPtr>() * 2 // two next+CRC areas
     }
+
+    fn validate_addr(&self, addr: u64) -> bool {
+        self.metadata.validate_addr(addr)
+    }
 }
 
 impl<const N: usize> SingletonListTable<N> {

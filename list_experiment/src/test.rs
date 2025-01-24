@@ -36,22 +36,24 @@ mod tests {
         )
         .unwrap();
 
+        let key = 0;
+        kv.insert(&mut mock_pool, &key).unwrap();
+
         // construct the list
         let mut i: u64 = 0;
         while i < kv_entries {
-            kv.insert(&mut mock_pool, &i).unwrap();
             let val_bytes = i.to_le_bytes();
-            kv.append(&mut mock_pool, &i, &val_bytes).unwrap();
+            kv.append(&mut mock_pool, &key, &val_bytes).unwrap();
             i += 1;
         }
 
-        // // read the list back in and check that it has the correct values
-        // let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
+        // read the list back in and check that it has the correct values
+        let vec_list = kv.read_full_list(&mut mock_pool, &key).unwrap();
 
-        // assert!(vec_list.len() == 4);
-        // for i in 0..4 {
-        //     assert!(u64::from_le_bytes(vec_list[i]) == i as u64);
-        // }
+        assert!(vec_list.len() == kv_entries as usize);
+        for i in 0..kv_entries {
+            assert!(u64::from_le_bytes(vec_list[i as usize]) == i as u64);
+        }
     }
 
     // #[test]

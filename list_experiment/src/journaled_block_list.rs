@@ -108,6 +108,10 @@ impl<const N: usize, const M: usize> DurableTable for BlockListTable<N, M> {
     fn row_size() -> usize {
         size_of::<DurableBlockListRow<N>>() // value + CRC
     }
+
+    fn validate_addr(&self, addr: u64) -> bool {
+        self.metadata.validate_addr(addr)
+    }
 }
 
 pub struct DurableBlockList<const N: usize, const M: usize> {
