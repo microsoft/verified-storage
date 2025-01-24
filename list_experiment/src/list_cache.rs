@@ -11,41 +11,35 @@ pub struct ListInfo<const N: usize> {
 
 #[derive(Debug)]
 pub struct ListCache<const N: usize> {
-    capacity: u64,
     current_size: u64,
     lru_cache: DoublyLinkedList<ListInfo<N>>,
-    cache_map: HashMap<u64, *mut DoublyLinkedListNode<ListInfo<N>>>,
+    cache_map: HashMap<u64, usize>,
 }
 
 impl<const N: usize> ListCache<N> {
-    pub fn new(capacity: u64) -> Self {
+    pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0);
         Self {
-            capacity,
             current_size: 0,
-            lru_cache: DoublyLinkedList::new(),
+            lru_cache: DoublyLinkedList::new(capacity),
             cache_map: HashMap::new(),
         }
     }
 
     pub fn get(&mut self, index: u64) -> Option<&ListInfo<N>> {
-        let cache_node = match self.cache_map.get(&index) {
+        let cache_node_index = match self.cache_map.get(&index) {
             Some(node) => *node,
             None => return None,
         };
-        let node = unsafe { &*cache_node };
-        let list_info = node.get_value();
 
         // remove the node from the cache and pop it onto the front.
         // we don't have to evict anything because the length of the list
         // is unchanged by this operation.
-        let cache_node = self.lru_cache.remove(cache_node);
-        self.lru_cache.push_front(cache_node);
+        let node = self.lru_cache.remove(cache_node_index)?;
+        let new_index = self.lru_cache.push_front(node).unwrap();
+        self.cache_map.insert(index, new_index);
 
-        // we don't have to update the cache map because it still points to the correct
-        // node (i think)
-
-        Some(&list_info)
+        self.lru_cache.peek_head()
     }
 
     // this will only be called when the list at index is not currently
@@ -56,12 +50,11 @@ impl<const N: usize> ListCache<N> {
             node_addrs,
             list_contents: None,
         };
-        let new_node = DoublyLinkedListNode::new(list_info);
 
-        if self.current_size == self.capacity {
+        if self.current_size == self.lru_cache.capacity() as u64 {
             // we need to evict the least recently used entry before inserting the new one
             let evicted_node = self.lru_cache.pop_back().unwrap();
-            let evicted_index = evicted_node.get_value().index;
+            let evicted_index = evicted_node.index;
             self.cache_map.remove(&evicted_index);
         } else {
             // current size is less than capacity, so we can insert
@@ -72,7 +65,7 @@ impl<const N: usize> ListCache<N> {
         }
 
         // now we can push the new entry onto the front of the cache list
-        let node_ptr = self.lru_cache.push_front(Box::new(new_node));
+        let node_ptr = self.lru_cache.push_front(Box::new(list_info)).unwrap();
         self.cache_map.insert(index, node_ptr);
     }
 }
