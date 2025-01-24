@@ -209,16 +209,22 @@ impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
         let key_table_index = index_metadata.key_table_index;
         let list_head = index_metadata.list_head;
 
+        println!("list head {:?}", list_head);
+
         let list_info = self.list_cache.get(key_table_index);
+
+        println!("list info {:?}", list_info);
 
         // 2. check if the list is in the cache
         if let Some(list_info) = list_info {
+            println!("list is in the cache");
             // the list is in the cache. use the cached addresses to read the nodes
             // TODO: should we store the list contents in the cache as well and
             // check for that before reading from storage?
             let addrs = list_info.get_addrs();
             let mut output_vec = Vec::new();
             for addr in addrs {
+                println!("reading addr {:?}", addr);
                 let (val, _) = self.read_node_at_addr(mem_pool, *addr)?;
                 output_vec.push(val);
             }
@@ -288,7 +294,9 @@ impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
         addr: u64,
     ) -> Result<([u8; N], u64), Error> {
         // 1. check that the address is valid
-        if !self.key_table.validate_addr(addr) {
+        println!("reading node at addr {:?}", addr);
+        if !self.list_table.validate_addr(addr) {
+            println!("invalid addr");
             return Err(Error::InvalidAddr);
         }
 

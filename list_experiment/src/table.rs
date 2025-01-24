@@ -36,4 +36,5 @@ pub trait DurableTable {
     fn allocate(&mut self) -> Option<u64>;
     fn free(&mut self, addr: u64) -> Result<(), Error>;
     fn row_size() -> usize;
+    fn validate_addr(&self, addr: u64) -> bool;
 }
