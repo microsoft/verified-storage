@@ -158,7 +158,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.inv(journal@),
             journal.valid(),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.durable_state == old(journal)@.durable_state,
             match result {
                 Ok(row_addr) => {
@@ -248,7 +248,7 @@ impl<PM, K> KeyTable<PM, K>
             self.inv(journal@),
             journal.valid(),
             journal@.journaled_addrs == old(journal)@.journaled_addrs,
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
                                 row_addr + self.sm.row_key_crc_start as u64) == Some(*k),
             recover_object::<KeyTableRowMetadata>(
@@ -319,7 +319,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
                     &&& self@ == (KeyTableView {
@@ -397,7 +397,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
                     &&& self@ == (KeyTableView {
@@ -497,7 +497,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(journal@),
             journal.valid(),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
                     &&& self@ == (KeyTableView {

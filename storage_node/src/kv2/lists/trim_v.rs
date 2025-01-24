@@ -45,7 +45,7 @@ impl<PM, L> ListTable<PM, L>
         ensures
             self.valid(journal@),
             journal.valid(),
-            old(journal)@.matches_except_in_range(journal@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(new_row_addr) => {
                     let old_list = old(self)@.tentative.unwrap().m[row_addr];
