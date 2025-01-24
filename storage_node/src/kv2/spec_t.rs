@@ -358,7 +358,7 @@ where
                     Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
                 }
                 else {
-                    let new_list_entries = list_entries.subrange(trim_length as int, list_entries.len() as int);
+                    let new_list_entries = list_entries.skip(trim_length as int);
                     Ok(Self {
                         m: self.m.insert(key, (new_item, new_list_entries)),
                         ..self
