@@ -60,7 +60,7 @@ where
             list_table,
             journal,
             key_index: HashMap::new(),
-            list_cache: ListCache::new(cache_capacity),
+            list_cache: ListCache::new(cache_capacity as usize),
         })
     }
 

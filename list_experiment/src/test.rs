@@ -42,8 +42,6 @@ mod tests {
         for i in 0..4 {
             assert!(u64::from_le_bytes(vec_list[i]) == i as u64);
         }
-
-        println!("done");
     }
 
     #[test]
@@ -234,44 +232,42 @@ mod tests {
 
     #[test]
     fn dll1() {
-        let num_nodes: u64 = 64;
-        let mut dll = DoublyLinkedList::<u64>::new();
+        let num_nodes: usize = 64;
+        let mut dll = DoublyLinkedList::<u64>::new(num_nodes);
 
         for i in 0..num_nodes {
-            let new_node = DoublyLinkedListNode::new(i);
-            let _ = dll.push_front(Box::new(new_node));
+            let _ = dll.push_front(Box::new(i.try_into().unwrap()));
         }
 
         for i in 0..num_nodes {
             let node = dll.pop_back();
-            println!("{:?}", node);
+
             assert!(node.is_some());
-            assert!(*node.unwrap().get_value() == i);
+            assert!(*node.unwrap() == i.try_into().unwrap());
         }
     }
 
     #[test]
     fn dll2() {
-        let num_nodes: u64 = 64;
-        let mut dll = DoublyLinkedList::<u64>::new();
+        let num_nodes: usize = 64;
+        let mut dll = DoublyLinkedList::<u64>::new(num_nodes);
         let mut node_vec = Vec::new();
 
         for i in 0..num_nodes {
-            let new_node = DoublyLinkedListNode::new(i);
-            let node_ptr = dll.push_front(Box::new(new_node));
+            let node_ptr = dll.push_front(Box::new(i.try_into().unwrap()));
             node_vec.push(node_ptr);
         }
 
         // random node from the interior of the list
-        let node_to_remove = node_vec[13];
-        let node = dll.remove(node_to_remove);
-        assert!(*node.get_value() == 13);
+        let node_to_remove = node_vec[13].unwrap();
+        let node = dll.remove(node_to_remove).unwrap();
+        assert!(*node == 13);
 
         let mut i = 0;
         while !dll.is_empty() {
             let node = dll.pop_back();
             assert!(node.is_some());
-            let val = *node.unwrap().get_value();
+            let val = *node.unwrap();
             assert!(val != 13);
             assert!(val == i);
 
