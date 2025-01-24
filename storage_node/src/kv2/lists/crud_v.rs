@@ -42,7 +42,6 @@ impl<PM, L> ListTable<PM, L>
             old(journal).valid(),
             old(self)@.tentative.is_some(),
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            list_addr != 0,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
