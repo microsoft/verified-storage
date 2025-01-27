@@ -23,6 +23,7 @@ use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 use vstd::slice::slice_to_vec;
+use vstd::std_specs::hash::*;
 
 verus! {
 
@@ -572,7 +573,6 @@ impl<PM, K> KeyTable<PM, K>
         Ok(())
     }
 
-    #[verifier::external_body]
     pub exec fn get_keys(
         &self,
         journal: &Journal<TrustedKvPermission, PM>,
@@ -584,11 +584,27 @@ impl<PM, K> KeyTable<PM, K>
             result@.to_set() == self@.tentative.unwrap().key_info.dom(),
             result@.no_duplicates(),
     {
-        // This assertion isn't tested because of our use of
-        // `external_body`. But, to be confident that this is correct,
-        // I removed the `external_body` and verified it.
-        assert(self.m@.dom() == self@.tentative.unwrap().key_info.dom());
-        self.m.keys().cloned().collect()
+        broadcast use vstd::std_specs::hash::group_hash_axioms;
+
+        let keys = self.m.keys();
+        let mut result = Vec::<K>::new();
+        assert(result@ =~= keys@.1.take(0));
+
+        for k in iter: keys
+            invariant
+                result@ == iter@,
+        {
+            assert(iter.keys.take(iter.pos).push(*k) =~= iter.keys.take(iter.pos + 1));
+            result.push(*k);
+        }
+
+        assert(result@.to_set() =~= self@.tentative.unwrap().key_info.dom()) by {
+            assert(keys@.1.to_set() == self.m@.dom());
+            assert(keys@.1.take(keys@.1.len() as int) =~= keys@.1);
+            assert(self.m@.dom() =~= self@.tentative.unwrap().key_info.dom());
+        }
+
+        result
     }
 }
 
