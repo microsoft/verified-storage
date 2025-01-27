@@ -26,23 +26,24 @@ impl<const N: usize> ListInfo<N> {
 
 #[derive(Debug)]
 pub struct ListCache<const N: usize> {
-    current_size: u64,
+    current_size: RefCell<u64>,
     lru_cache: RefCell<DoublyLinkedList<ListInfo<N>>>,
-    cache_map: HashMap<u64, usize>,
+    cache_map: RefCell<HashMap<u64, usize>>,
 }
 
 impl<const N: usize> ListCache<N> {
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0);
         Self {
-            current_size: 0,
+            current_size: RefCell::new(0),
             lru_cache: RefCell::new(DoublyLinkedList::new(capacity)),
-            cache_map: HashMap::new(),
+            cache_map: RefCell::new(HashMap::new()),
         }
     }
 
-    pub fn get(&mut self, index: u64) -> Option<ListInfo<N>> {
-        let cache_node_index = match self.cache_map.get(&index) {
+    pub fn get(&self, index: u64) -> Option<ListInfo<N>> {
+        let mut cache_map = self.cache_map.borrow_mut();
+        let cache_node_index = match cache_map.get(&index) {
             Some(node) => *node,
             None => return None,
         };
@@ -59,7 +60,7 @@ impl<const N: usize> ListCache<N> {
                 // is unchanged by this operation.
                 let node = self.lru_cache.borrow_mut().remove(cache_node_index)?;
                 let new_index = self.lru_cache.borrow_mut().push_front(node).unwrap();
-                self.cache_map.insert(index, new_index);
+                cache_map.insert(index, new_index);
             }
         }
 
@@ -76,7 +77,8 @@ impl<const N: usize> ListCache<N> {
     // `index` is the key table index used for lookups in the cache map,
     // not the index of the cache entry in the internal vector.
     pub fn append_node_addr(&self, index: u64, addr: u64) -> Result<(), Error> {
-        let cache_node_index = match self.cache_map.get(&index) {
+        let cache_map = self.cache_map.borrow_mut();
+        let cache_node_index = match cache_map.get(&index) {
             Some(node) => *node,
             None => return Err(Error::NotInCache),
         };
@@ -89,7 +91,8 @@ impl<const N: usize> ListCache<N> {
 
     // Trims the cache entry at a key index known to be in the cache.
     pub fn trim(&self, index: u64, trim_len: u64) -> Result<(), Error> {
-        let cache_node_index = match self.cache_map.get(&index) {
+        let cache_map = self.cache_map.borrow_mut();
+        let cache_node_index = match cache_map.get(&index) {
             Some(node) => *node,
             None => return Err(Error::NotInCache),
         };
@@ -102,23 +105,26 @@ impl<const N: usize> ListCache<N> {
 
     // this will only be called when the list at index is not currently
     // in the cache
-    pub fn put(&mut self, index: u64, node_addrs: Vec<u64>) {
+    pub fn put(&self, index: u64, node_addrs: Vec<u64>) {
+        let mut cache_map = self.cache_map.borrow_mut();
         let list_info: ListInfo<N> = ListInfo {
             index,
             node_addrs,
             list_contents: None,
         };
 
-        if self.current_size == self.lru_cache.borrow().capacity() as u64 {
+        let mut current_size = self.current_size.borrow_mut();
+
+        if *current_size == self.lru_cache.borrow().capacity() as u64 {
             // we need to evict the least recently used entry before inserting the new one
             let evicted_node = self.lru_cache.borrow_mut().pop_back().unwrap();
             let evicted_index = evicted_node.index;
-            self.cache_map.remove(&evicted_index);
+            cache_map.remove(&evicted_index);
         } else {
             // current size is less than capacity, so we can insert
             // without evicting. this will increase the current size
             // of the cache
-            self.current_size += 1;
+            *current_size += 1;
         }
 
         // now we can push the new entry onto the front of the cache list
@@ -127,7 +133,7 @@ impl<const N: usize> ListCache<N> {
             .borrow_mut()
             .push_front(Box::new(list_info))
             .unwrap();
-        self.cache_map.insert(index, node_ptr);
+        cache_map.insert(index, node_ptr);
     }
 
     pub fn get_tail_addr(&mut self, index: u64) -> Option<u64> {

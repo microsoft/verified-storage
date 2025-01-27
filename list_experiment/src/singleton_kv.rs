@@ -247,13 +247,13 @@ where
     }
 
     fn read_list(&self, mem_pool: &P, key: &K) -> Result<Vec<[u8; N]>, Error> {
-        todo!()
+        self.read_full_list(mem_pool, key)
     }
 }
 
 impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
     pub fn read_full_list<P: MemoryPool>(
-        &mut self,
+        &self,
         mem_pool: &P,
         key: &K,
     ) -> Result<Vec<[u8; N]>, Error> {
