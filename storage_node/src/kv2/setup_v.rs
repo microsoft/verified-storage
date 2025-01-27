@@ -131,7 +131,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(recover_static_metadata::<K, I, L>(pm@.read_state, *jc) =~= Some(*sm));
     }
     
-    pub exec fn untrusted_setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
+    pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
         where
             PM: PersistentMemoryRegion,
             K: Hash + PmCopy + std::fmt::Debug,
@@ -145,7 +145,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
-                    &&& Self::untrusted_recover(pm@.durable_state)
+                    &&& Self::recover(pm@.durable_state)
                         == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
                 },
                 Err(KvError::InvalidParameter) => !ps.valid(),

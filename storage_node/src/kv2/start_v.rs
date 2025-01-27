@@ -33,7 +33,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub fn untrusted_start(
+    pub fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission, PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<AtomicKvStore<K, I, L>>,
@@ -41,9 +41,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     ) -> (result: Result<Self, KvError>)
         requires
             wrpm.inv(),
-            Self::untrusted_recover(wrpm@.durable_state) == Some(state),
+            Self::recover(wrpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(state),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(state),
         ensures
             match result {
                 Ok(kv) => {

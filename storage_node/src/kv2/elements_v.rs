@@ -30,7 +30,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_read_list(&mut self, key: &K) -> (result: Result<&[L], KvError>)
+    pub exec fn read_list(&mut self, key: &K) -> (result: Result<&[L], KvError>)
         requires
             old(self).valid(),
         ensures
@@ -65,7 +65,7 @@ where
         self.lists.read(list_addr, &self.journal)
     }
 
-    pub exec fn untrusted_read_item_and_list(&mut self, key: &K) -> (result: Result<(I, &[L]), KvError>)
+    pub exec fn read_item_and_list(&mut self, key: &K) -> (result: Result<(I, &[L]), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -112,7 +112,7 @@ where
         Ok((item, lst))
     }
 
-    pub exec fn untrusted_read_list_entry_at_index(&mut self, key: &K, idx: usize) -> (result: Result<&L, KvError>)
+    pub exec fn read_list_entry_at_index(&mut self, key: &K, idx: usize) -> (result: Result<&L, KvError>)
         requires
             old(self).valid()
         ensures
@@ -147,7 +147,7 @@ where
         self.lists.read_entry_at_index(list_addr, idx, &self.journal)
     }
 
-    pub exec fn untrusted_append_to_list(
+    pub exec fn tentatively_append_to_list(
         &mut self,
         key: &K,
         new_list_entry: L,
@@ -155,7 +155,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             match result {
@@ -246,7 +246,7 @@ where
         Ok(())
     }
 
-    pub exec fn untrusted_append_to_list_and_update_item(
+    pub exec fn tentatively_append_to_list_and_update_item(
         &mut self,
         key: &K,
         new_list_entry: L,
@@ -255,7 +255,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             match result {
@@ -366,7 +366,7 @@ where
         Ok(())
     }
 
-    pub exec fn untrusted_update_list_entry_at_index(
+    pub exec fn tentatively_update_list_entry_at_index(
         &mut self,
         key: &K,
         idx: usize,
@@ -375,7 +375,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             match result {
@@ -466,7 +466,7 @@ where
         Ok(())
     }
 
-    pub exec fn untrusted_update_list_entry_at_index_and_item(
+    pub exec fn tentatively_update_list_entry_at_index_and_item(
         &mut self,
         key: &K,
         idx: usize,
@@ -476,7 +476,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             match result {
@@ -585,7 +585,7 @@ where
         Ok(())
     }
 
-    pub exec fn untrusted_trim_list(
+    pub exec fn tentatively_trim_list(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -593,7 +593,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             match result {
@@ -684,7 +684,7 @@ where
         Ok(())
     }
 
-    pub exec fn untrusted_trim_list_and_update_item(
+    pub exec fn tentatively_trim_list_and_update_item(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -693,7 +693,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures
             self.valid(),
             match result {
@@ -732,7 +732,7 @@ where
                    self@.tentative.read_item_and_list(*key).unwrap().1);
             assert(self@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item) =~=
                    self@.tentative.update_item(*key, *new_item));
-            return self.untrusted_update_item(key, &new_item, Tracked(perm));
+            return self.tentatively_update_item(key, &new_item, Tracked(perm));
         }
 
         if former_rm.list_addr == 0 {

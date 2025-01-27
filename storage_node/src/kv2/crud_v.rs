@@ -33,7 +33,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_read_item(
+    pub exec fn read_item(
         &self,
         key: &K,
     ) -> (result: Result<I, KvError>)
@@ -68,7 +68,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         Ok(item)
     }
 
-    pub exec fn untrusted_create(
+    pub exec fn tentatively_create(
         &mut self,
         key: &K,
         item: &I,
@@ -76,7 +76,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             match result {
@@ -144,14 +144,14 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         Ok(())
     }
 
-    pub exec fn untrusted_delete(
+    pub exec fn tentatively_delete(
         &mut self,
         key: &K,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             match result {
@@ -232,7 +232,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
     // This function performs a tentative update to the item of the specified key 
     // as part of an ongoing transaction.
-    pub exec fn untrusted_update_item(
+    pub exec fn tentatively_update_item(
         &mut self,
         key: &K,
         new_item: &I,
@@ -240,7 +240,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             match result {

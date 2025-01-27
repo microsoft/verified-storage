@@ -31,15 +31,15 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_commit(
+    pub exec fn commit(
         &mut self, 
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| Self::untrusted_recover(s) == Some(old(self)@.durable)
-                ||| Self::untrusted_recover(s) == Some(old(self)@.tentative)
+                ||| Self::recover(s) == Some(old(self)@.durable)
+                ||| Self::recover(s) == Some(old(self)@.tentative)
             },
         ensures 
             self.valid(),

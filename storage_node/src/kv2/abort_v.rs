@@ -30,13 +30,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_abort(
+    pub exec fn abort(
         &mut self,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             match result {
@@ -56,7 +56,7 @@ where
         requires 
             old(self).inv(),
             old(self).status@ is MustAbort,
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::untrusted_recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
         ensures 
             self.valid(),
             self@ == old(self)@.abort(),

@@ -105,7 +105,7 @@ where
         self.journal@.pm_constants
     }
 
-    pub closed spec fn untrusted_recover(bytes: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
+    pub closed spec fn recover(bytes: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
     {
         recover_journal_then_kv::<PM, K, I, L>(bytes)
     }

@@ -37,7 +37,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn untrusted_get_keys(&self) -> (result: Result<Vec<K>, KvError>)
+    pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError>)
         requires
             self.valid(),
         ensures
