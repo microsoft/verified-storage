@@ -113,111 +113,112 @@ where
 
         let mut new_index_metadata = *index_metadata;
 
-        if list_head != NULL_ADDR as u64 {
-            // the list is not empty, but we may have a cache miss
-
-            // 2. obtain the address of the current tail
+        // we don't have to allocate -- the list is not empty and there is space in the tail.
+        if 0 < index_metadata.num_live_elem_in_tail
+            && index_metadata.num_live_elem_in_tail < M as u64
+        {
             let tail_addr = self.list_cache.get_tail_addr(key_table_index);
-
-            // 3. determine if there is space in the tail for the new value.
-            // if there is, we can write it there.
-            // if not, or the list is empty, we need to allocate a new node.
-
-            let mut need_to_allocate = true;
-            if let Some(tail_addr) = tail_addr {
-                if index_metadata.num_live_elem_in_tail < M as u64 {
-                    // there is space in the tail for the new element, so
-                    // we can write it there directly.
-                    let new_row_index = index_metadata.num_live_elem_in_tail;
-                    let new_elem_addr =
-                        BlockListTable::<N, M>::row_offset_in_block(tail_addr, new_row_index);
-                    let new_element = DurableBlockListRow::new(*list_entry);
-                    let new_element_bytes = new_element.to_bytes();
-
-                    mem_pool.write(new_elem_addr, new_element_bytes)?;
-                    mem_pool.flush();
-                    need_to_allocate = false;
-                }
-
-                new_index_metadata.num_live_elem_in_tail += 1;
+            let tail_addr = if let Some(tail_addr) = tail_addr {
+                tail_addr
             } else {
                 // cache miss. read the list from storage
-                // TODO @hayley tuesday
+                let list_addrs = self.read_list_addrs(mem_pool, key)?;
+                let tail_addr = *list_addrs.last().unwrap();
+                self.list_cache.put(key_table_index, list_addrs);
+                tail_addr
+            };
+
+            let new_row_index = index_metadata.num_live_elem_in_tail;
+            let new_elem_addr =
+                BlockListTable::<N, M>::row_offset_in_block(tail_addr, new_row_index);
+            let new_element = DurableBlockListRow::new(*list_entry);
+            let new_element_bytes = new_element.to_bytes();
+
+            mem_pool.write(new_elem_addr, new_element_bytes)?;
+            mem_pool.flush();
+
+            new_index_metadata.num_live_elem_in_tail += 1;
+        } else {
+            // either the list is empty, or its tail node is full
+
+            // allocate a new block
+            let new_block_addr = match self.list_table.allocate() {
+                Some(node_addr) => node_addr,
+                None => return Err(Error::OutOfSpace),
+            };
+
+            let new_row_index = 0;
+
+            // write the new element and a null next pointer to that block
+            let new_elem_addr =
+                BlockListTable::<N, M>::row_offset_in_block(new_block_addr, new_row_index);
+            let new_element = DurableBlockListRow::new(*list_entry);
+            let new_element_bytes = new_element.to_bytes();
+            mem_pool.write(new_elem_addr, new_element_bytes)?;
+
+            let next = NULL_ADDR as u64;
+            let next_ptr = DurableBlockListNodeNextPtr::new(next);
+            let next_bytes = next_ptr.to_bytes();
+            mem_pool.write(
+                BlockListTable::<N, M>::get_next_pointer_offset(new_block_addr),
+                next_bytes,
+            )?;
+            mem_pool.flush();
+
+            // set up the metadata depending on whether the list was empty or not
+            let mut new_index_metadata = *index_metadata;
+            if index_metadata.list_head == NULL_ADDR as u64 {
+                // list is empty
+                new_index_metadata.list_head = new_block_addr;
+                new_index_metadata.index_of_first_element = new_row_index;
+                new_index_metadata.num_live_elem_in_tail = 1;
+            } else {
+                // list is not empty
+                new_index_metadata.num_live_elem_in_tail = 1;
+            }
+
+            // add the new node to the cache
+            if self.list_cache.contains(key_table_index) {
+                // cache hit. we can just append the new node
+                self.list_cache
+                    .append_node_addr(key_table_index, new_block_addr)?;
+            } else {
+                // cache miss. we need to read it into the cache
+                let mut list_addrs = self.read_list_addrs(mem_pool, key)?;
+                list_addrs.push(new_block_addr);
+                self.list_cache.put(key_table_index, list_addrs);
             }
         }
 
-        // if need_to_allocate {
-        //     // either the list is empty or there wasn't room for the new element
-        //     // in the tail node.
+        // update the index
+        self.key_index.insert(*key, new_index_metadata);
 
-        //     // allocate a new block
-        //     let new_block_addr = match self.list_table.allocate() {
-        //         Some(node_addr) => node_addr,
-        //         None => return Err(Error::OutOfSpace),
-        //     };
+        // update the key table
+        let new_durable_metadata = BlockMetadata::from_index_metadata(&new_index_metadata);
 
-        //     let new_row_index = 0;
+        // update key table via journal
+        let mut crc_digest = Digest::new();
+        crc_digest.write(key.to_bytes());
+        crc_digest.write(new_durable_metadata.to_bytes());
+        let crc = crc_digest.sum64();
 
-        //     // write the new element and a null next pointer to that block
-        //     let new_elem_addr =
-        //         BlockListTable::<N, M>::row_offset_in_block(new_block_addr, new_row_index);
-        //     let new_element = DurableBlockListRow::new(*list_entry);
-        //     let new_element_bytes = new_element.to_bytes();
-        //     mem_pool.write(new_elem_addr, new_element_bytes)?;
+        let metadata_addr = KeyTable::<K, BlockMetadata>::metadata_addr(key_table_index);
+        let crc_addr = KeyTable::<K, BlockMetadata>::crc_addr(key_table_index);
 
-        //     let next = NULL_ADDR as u64;
-        //     let next_ptr = DurableBlockListNodeNextPtr::new(next);
-        //     let next_bytes = next_ptr.to_bytes();
-        //     mem_pool.write(
-        //         BlockListTable::<N, M>::get_next_pointer_offset(new_block_addr),
-        //         next_bytes,
-        //     )?;
-        //     mem_pool.flush();
+        // append journal entries
+        self.journal
+            .append(mem_pool, metadata_addr, new_durable_metadata.to_bytes())?;
+        self.pending_journal_entries
+            .push((metadata_addr, new_durable_metadata.to_bytes().to_vec()));
+        self.journal
+            .append(mem_pool, crc_addr, &crc.to_le_bytes())?;
+        self.pending_journal_entries
+            .push((crc_addr, crc.to_le_bytes().to_vec()));
 
-        //     if tail_addr.is_some() {
-        //         // list is not empty. we don't have to update the head but
-        //         // we DO have to update the cache
-        //         new_index_metadata.num_live_elem_in_tail = 1;
-        //     } else {
-        //         // list is empty, we do have to update the head
-        //         new_index_metadata.list_head = new_block_addr;
-        //         new_index_metadata.num_live_elem_in_tail = 1;
-        //     }
-        // }
-
-        // // 4. Update the index and key table
-        // // we don't have to read from storage here -- we already know the
-        // // key and have all the info we need to recalculate its CRC
-
-        // // update index
-        // // we need to obtain the new BlockMetadata before updating the index to
-        // // satisfy the borrow checker
-        // let new_metadata = BlockMetadata::from_index_metadata(&index_metadata);
-        // self.key_index.insert(*key, new_index_metadata);
-
-        // // update key table via journal
-        // let mut crc_digest = Digest::new();
-        // crc_digest.write(key.to_bytes());
-        // crc_digest.write(new_metadata.to_bytes());
-        // let crc = crc_digest.sum64();
-
-        // let metadata_addr = KeyTable::<K, BlockMetadata>::metadata_addr(key_table_index);
-        // let crc_addr = KeyTable::<K, BlockMetadata>::crc_addr(key_table_index);
-
-        // // append journal entries
-        // self.journal
-        //     .append(mem_pool, metadata_addr, new_metadata.to_bytes())?;
-        // self.pending_journal_entries
-        //     .push((metadata_addr, new_metadata.to_bytes().to_vec()));
-        // self.journal
-        //     .append(mem_pool, crc_addr, &crc.to_le_bytes())?;
-        // self.pending_journal_entries
-        //     .push((crc_addr, crc.to_le_bytes().to_vec()));
-
-        // // commit and apply journal
-        // self.journal.commit(mem_pool)?;
-        // self.apply_pending_journal_entries(mem_pool)?;
-        // self.journal.clear(mem_pool)?;
+        // commit and apply journal
+        self.journal.commit(mem_pool)?;
+        self.apply_pending_journal_entries(mem_pool)?;
+        self.journal.clear(mem_pool)?;
 
         Ok(())
     }
@@ -231,12 +232,60 @@ where
     }
 }
 
-impl<K: PmCopy, const N: usize, const M: usize> BlockKV<K, N, M> {
+impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<K, N, M> {
     fn apply_pending_journal_entries<P: MemoryPool>(&self, mem_pool: &mut P) -> Result<(), Error> {
         for (dst, bytes) in &self.pending_journal_entries {
             mem_pool.write(*dst, &bytes)?;
         }
 
         Ok(())
+    }
+
+    fn read_list_addrs<P: MemoryPool>(&self, mem_pool: &P, key: &K) -> Result<Vec<u64>, Error> {
+        // 1. check that the key exists and look up its list head pointer
+        if !self.key_index.contains_key(key) {
+            return Err(Error::KeyNotFound);
+        }
+        let index_metadata = self.key_index.get(key).unwrap();
+        let list_head = index_metadata.list_head;
+
+        let mut current_node_addr = list_head;
+        let mut output_vec = Vec::new();
+
+        // 2. read all of the nodes in the list and record their addresses
+        while current_node_addr != 0 {
+            output_vec.push(current_node_addr);
+            let next_addr = self.read_next_node_at_addr(mem_pool, current_node_addr)?;
+            current_node_addr = next_addr;
+        }
+
+        Ok(output_vec)
+    }
+
+    fn read_next_node_at_addr<P: MemoryPool>(&self, mem_pool: &P, addr: u64) -> Result<u64, Error> {
+        // 1. check that the address is valid
+        if !self.list_table.validate_addr(addr) {
+            println!("invalid addr");
+            return Err(Error::InvalidAddr);
+        }
+
+        // // 2. read the node's value and check its CRC
+        // let bytes = mem_pool.read(addr, size_of::<DurableBlockListNode<N, M>>() as u64)?;
+        // let node = unsafe { DurableBlockListNode::<N, M>::from_bytes(&bytes) };
+        // if !node.check_crc() {
+        //     return Err(Error::InvalidCRC);
+        // }
+
+        // 3. read the next pointer and check its CRC
+        let bytes = mem_pool.read(
+            BlockListTable::<N, M>::get_next_pointer_offset(addr),
+            size_of::<DurableBlockListNodeNextPtr>() as u64,
+        )?;
+        let next_ptr = unsafe { DurableBlockListNodeNextPtr::from_bytes(&bytes) };
+        if !next_ptr.check_crc() {
+            return Err(Error::InvalidCRC);
+        }
+
+        Ok(next_ptr.next())
     }
 }

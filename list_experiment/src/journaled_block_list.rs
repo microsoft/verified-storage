@@ -60,6 +60,10 @@ impl DurableBlockListNodeNextPtr {
         let crc = digest.sum64();
         crc == self.crc
     }
+
+    pub fn next(&self) -> u64 {
+        self.crc
+    }
 }
 
 impl PmCopy for DurableBlockListNodeNextPtr {}

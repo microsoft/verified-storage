@@ -73,6 +73,14 @@ impl<const N: usize> ListCache<N> {
         }
     }
 
+    pub fn contains(&self, index: u64) -> bool {
+        let cache_map = self.cache_map.borrow();
+        match cache_map.get(&index) {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
     // Updates the tail address at a key index known to be in the cache.
     // `index` is the key table index used for lookups in the cache map,
     // not the index of the cache entry in the internal vector.
