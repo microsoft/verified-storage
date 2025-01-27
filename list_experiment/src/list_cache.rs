@@ -87,6 +87,19 @@ impl<const N: usize> ListCache<N> {
         Ok(())
     }
 
+    // Trims the cache entry at a key index known to be in the cache.
+    pub fn trim(&self, index: u64, trim_len: u64) -> Result<(), Error> {
+        let cache_node_index = match self.cache_map.get(&index) {
+            Some(node) => *node,
+            None => return Err(Error::NotInCache),
+        };
+        let mut node = self.lru_cache.borrow_mut();
+        let list_info = node.get_mut_info_at_index(cache_node_index).unwrap();
+
+        list_info.node_addrs.drain(0..trim_len as usize);
+        Ok(())
+    }
+
     // this will only be called when the list at index is not currently
     // in the cache
     pub fn put(&mut self, index: u64, node_addrs: Vec<u64>) {

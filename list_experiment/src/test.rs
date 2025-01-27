@@ -56,32 +56,44 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn trim_singleton_list_on_mock() {
-    //     let mut mock_pool = MockPool::new(POOL_SIZE);
-    //     let mut list_table: SingletonListTable<8> = SingletonListTable::new(0, LIST_TABLE_SIZE);
-    //     let mut list: DurableSingletonList<8> = DurableSingletonList::new();
+    #[test]
+    fn trim_singleton_list_on_mock() {
+        let kv_entries = 16;
 
-    //     let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
+        let mut mock_pool = MockPool::new(POOL_SIZE);
+        let mut kv: SingletonKV<u64, 8> = SingletonKV::setup(
+            &mut mock_pool,
+            KEY_TABLE_SIZE,
+            LIST_TABLE_SIZE,
+            JOURNAL_SIZE,
+            CACHE_CAPACITY,
+        )
+        .unwrap();
 
-    //     // create the list
-    //     let mut i: u64 = 0;
-    //     while i < 4 {
-    //         let val_bytes = i.to_le_bytes();
-    //         list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
-    //             .unwrap();
-    //         i += 1;
-    //     }
+        let key = 0;
+        kv.insert(&mut mock_pool, &key).unwrap();
 
-    //     // trim the list
-    //     list.trim(&mut mock_pool, &mut list_table, 2).unwrap();
+        // construct the list
+        let mut i: u64 = 0;
+        while i < kv_entries {
+            let val_bytes = i.to_le_bytes();
+            kv.append(&mut mock_pool, &key, &val_bytes).unwrap();
+            i += 1;
+        }
 
-    //     // check that the list has the correct values
-    //     let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
-    //     assert!(vec_list.len() == 2);
-    //     assert!(u64::from_le_bytes(vec_list[0]) == 2);
-    //     assert!(u64::from_le_bytes(vec_list[1]) == 3);
-    // }
+        // trim the list
+        kv.trim(&mut mock_pool, &key, 2).unwrap();
+
+        // check that the list has the correct values
+        let vec_list = kv.read_full_list(&mock_pool, &key).unwrap();
+        assert!(vec_list.len() == 14);
+        let mut i: u64 = 2;
+        for val in &vec_list {
+            let val_bytes = i.to_le_bytes();
+            assert!(val_bytes == *val);
+            i += 1;
+        }
+    }
 
     // #[test]
     // fn create_block_list_on_mock() {
