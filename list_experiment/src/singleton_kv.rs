@@ -350,12 +350,11 @@ impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
         addr: u64,
     ) -> Result<([u8; N], u64), Error> {
         // 1. check that the address is valid
-        println!("reading node at addr {:?}", addr);
         if !self.list_table.validate_addr(addr) {
-            println!("invalid addr");
             return Err(Error::InvalidAddr);
         }
 
+        // TODO: don't read this if you don't have to
         // 2. read the node's value and check its CRC
         let bytes = mem_pool.read(addr, size_of::<DurableSingletonListNode<N>>() as u64)?;
         let node = unsafe { DurableSingletonListNode::<N>::from_bytes(&bytes) };
