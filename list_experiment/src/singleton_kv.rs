@@ -187,7 +187,63 @@ where
     }
 
     fn trim(&mut self, mem_pool: &mut P, key: &K, trim_len: u64) -> Result<(), Error> {
-        todo!()
+        // 1. check that the key exists
+        if !self.key_index.contains_key(key) {
+            return Err(Error::KeyNotFound);
+        }
+        let index_metadata = self.key_index.get(key).unwrap();
+        let key_table_index = index_metadata.key_table_index;
+
+        // 2. free the first `trim_len` nodes in the list
+        // if we get a cache miss, read the list into the cache first and then trim
+        // TODO: would be faster to do the trim simultaneously with the traversal
+        // in that case
+        let new_head = if let Some(list_info) = self.list_cache.get(key_table_index) {
+            let node_addrs = list_info.get_addrs();
+            let new_head = node_addrs[trim_len as usize];
+            self.free_trimmed_nodes(node_addrs, trim_len)?;
+            self.list_cache.trim(key_table_index, trim_len)?;
+            new_head
+        } else {
+            let node_addrs = self.read_list_addrs(mem_pool, key)?;
+            self.free_trimmed_nodes(&node_addrs, trim_len)?;
+            let new_head = node_addrs[trim_len as usize];
+            // cache put takes ownership of node addrs, so we only insert it
+            // once we have trimmed it
+            self.list_cache.put(key_table_index, node_addrs);
+            new_head
+        };
+
+        // 4. update the new head pointer via the journal
+        let (key, metadata) = self.key_table.read(mem_pool, key_table_index)?;
+        let mut new_metadata = metadata;
+        new_metadata.list_head = new_head;
+        let mut crc_digest = Digest::new();
+        crc_digest.write(key.to_bytes());
+        crc_digest.write(new_metadata.to_bytes());
+        let crc = crc_digest.sum64();
+
+        let metadata_addr = KeyTable::<K, SingletonMetadata>::metadata_addr(key_table_index);
+        let crc_addr = KeyTable::<K, SingletonMetadata>::crc_addr(key_table_index);
+
+        // append to the journal
+        self.journal
+            .append(mem_pool, metadata_addr, new_metadata.to_bytes())?;
+        self.pending_journal_entries
+            .push((metadata_addr, new_metadata.to_bytes().to_vec()));
+        self.journal
+            .append(mem_pool, crc_addr, &crc.to_le_bytes())?;
+        self.pending_journal_entries
+            .push((crc_addr, crc.to_le_bytes().to_vec()));
+
+        // 5. Commit and apply the journal entries
+        self.journal.commit(mem_pool)?;
+
+        self.apply_pending_journal_entries(mem_pool)?;
+
+        self.journal.clear(mem_pool)?;
+
+        Ok(())
     }
 
     fn read_list(&self, mem_pool: &P, key: &K) -> Result<Vec<[u8; N]>, Error> {
@@ -198,7 +254,7 @@ where
 impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
     pub fn read_full_list<P: MemoryPool>(
         &mut self,
-        mem_pool: &mut P,
+        mem_pool: &P,
         key: &K,
     ) -> Result<Vec<[u8; N]>, Error> {
         // 1. check that the key exists
@@ -209,22 +265,16 @@ impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
         let key_table_index = index_metadata.key_table_index;
         let list_head = index_metadata.list_head;
 
-        println!("list head {:?}", list_head);
-
         let list_info = self.list_cache.get(key_table_index);
-
-        println!("list info {:?}", list_info);
 
         // 2. check if the list is in the cache
         if let Some(list_info) = list_info {
-            println!("list is in the cache");
             // the list is in the cache. use the cached addresses to read the nodes
             // TODO: should we store the list contents in the cache as well and
             // check for that before reading from storage?
             let addrs = list_info.get_addrs();
             let mut output_vec = Vec::new();
             for addr in addrs {
-                println!("reading addr {:?}", addr);
                 let (val, _) = self.read_node_at_addr(mem_pool, *addr)?;
                 output_vec.push(val);
             }
@@ -323,6 +373,15 @@ impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
     fn apply_pending_journal_entries<P: MemoryPool>(&self, mem_pool: &mut P) -> Result<(), Error> {
         for (dst, bytes) in &self.pending_journal_entries {
             mem_pool.write(*dst, &bytes)?;
+        }
+
+        Ok(())
+    }
+
+    fn free_trimmed_nodes(&mut self, node_addrs: &Vec<u64>, trim_len: u64) -> Result<(), Error> {
+        for i in 0..trim_len {
+            let addr = node_addrs[i as usize];
+            self.list_table.free(addr)?;
         }
 
         Ok(())
