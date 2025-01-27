@@ -48,7 +48,7 @@ mod tests {
         }
 
         // read the list back in and check that it has the correct values
-        let vec_list = kv.read_full_list(&mut mock_pool, &key).unwrap();
+        let vec_list = kv.read_list(&mut mock_pool, &key).unwrap();
 
         assert!(vec_list.len() == kv_entries as usize);
         for i in 0..kv_entries {
@@ -85,7 +85,7 @@ mod tests {
         kv.trim(&mut mock_pool, &key, 2).unwrap();
 
         // check that the list has the correct values
-        let vec_list = kv.read_full_list(&mock_pool, &key).unwrap();
+        let vec_list = kv.read_list(&mock_pool, &key).unwrap();
         assert!(vec_list.len() == 14);
         let mut i: u64 = 2;
         for val in &vec_list {
