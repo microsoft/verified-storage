@@ -9,7 +9,7 @@ use crate::mock_pool::*;
 use crate::table::*;
 use std::time::Instant;
 
-// mod block_list;
+mod block_kv;
 mod dll;
 mod err;
 mod journal;
@@ -22,7 +22,6 @@ mod list_cache;
 mod mem_pool;
 mod mock_pool;
 mod singleton_kv;
-// mod singleton_list;
 mod table;
 mod test;
 

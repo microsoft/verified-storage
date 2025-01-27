@@ -30,7 +30,7 @@ struct IndexMetadata {
     list_head: u64,
 }
 
-impl PmCopy for IndexMetadata {}
+// impl PmCopy for IndexMetadata {}
 
 #[derive(Default, Copy, Clone)]
 struct SingletonMetadata {
@@ -153,12 +153,12 @@ where
                 .push((next_offset, new_next_tail_bytes.to_vec()));
         } else {
             // list is empty. we need to update the head in the key table
-            // we need to read the whole entry into memory so we can calculate
-            // its new CRC
+            // we don't have to read from storage here -- we already know the
+            // key and have all the info we need to recalculate the CRC
 
-            let (key, metadata) = self.key_table.read(mem_pool, key_table_index)?;
-            let mut new_metadata = metadata;
-            new_metadata.list_head = new_list_node_row;
+            let new_metadata = SingletonMetadata {
+                list_head: new_list_node_row,
+            };
             let mut crc_digest = Digest::new();
             crc_digest.write(key.to_bytes());
             crc_digest.write(new_metadata.to_bytes());
@@ -174,6 +174,9 @@ where
                 .append(mem_pool, crc_addr, &crc.to_le_bytes())?;
             self.pending_journal_entries
                 .push((crc_addr, crc.to_le_bytes().to_vec()));
+
+            let index_metadata = self.key_index.get_mut(&key).unwrap();
+            index_metadata.list_head = new_list_node_row;
         }
 
         // 6. Commit and apply the journal entries
@@ -213,6 +216,9 @@ where
             self.list_cache.put(key_table_index, node_addrs);
             new_head
         };
+
+        let index_metadata = self.key_index.get_mut(&key).unwrap();
+        index_metadata.list_head = new_head;
 
         // 4. update the new head pointer via the journal
         let (key, metadata) = self.key_table.read(mem_pool, key_table_index)?;
