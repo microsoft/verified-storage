@@ -461,6 +461,101 @@ impl<PM, K> KeyTable<PM, K>
         Ok(())
     }
 
+    #[inline]
+    exec fn update_step1(
+        &mut self,
+        k: &K,
+        row_addr: u64,
+        new_rm: KeyTableRowMetadata,
+        former_rm: KeyTableRowMetadata,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+    ) -> (result: Result<(), KvError>)
+        requires
+            old(self).valid(old(journal)@),
+            old(journal).valid(),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().key_info.contains_key(*k),
+            old(self).key_corresponds_to_key_addr(*k, row_addr),
+            old(self)@.tentative.unwrap().key_info[*k] == former_rm,
+            ({
+                ||| new_rm.item_addr == former_rm.item_addr
+                ||| !old(self)@.tentative.unwrap().item_addrs().contains(new_rm.item_addr)
+            }),
+            ({
+                ||| new_rm.list_addr == 0
+                ||| new_rm.list_addr == former_rm.list_addr
+                ||| !old(self)@.tentative.unwrap().list_addrs().contains(new_rm.list_addr)
+            }),
+        ensures
+            journal.valid(),
+            match result {
+                Ok(()) => {
+                    &&& self == Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) }
+                    &&& self.inv(journal@)
+                    &&& self.internal_view().consistent_with_journaled_addrs(journal@.journaled_addrs, self.sm)
+                    &&& journal@.matches_except_in_range(old(journal)@, row_addr + self.sm.row_metadata_start,
+                                                       row_addr + self.sm.row_metadata_crc_start + u64::spec_size_of())
+                    &&& recover_object::<KeyTableRowMetadata>(
+                        journal@.commit_state, row_addr + self.sm.row_metadata_start,
+                        row_addr + self.sm.row_metadata_crc_start
+                    ) == Some(new_rm)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int)
+                    &&& self.valid(journal@)
+                    &&& self@ == KeyTableView { tentative: None, ..old(self)@ }
+                },
+                _ => false,
+            },
+    {
+        proof {
+            journal.lemma_valid_implications();
+            self.lemma_valid_implications(journal@);
+            broadcast use pmcopy_axioms;
+            broadcast use group_validate_row_addr;
+            broadcast use group_update_bytes_effect;
+        }
+
+        self.status = Ghost(KeyTableStatus::Inconsistent);
+
+        let metadata_addr = row_addr + self.sm.row_metadata_start;
+        let rm_bytes = slice_to_vec(new_rm.as_byte_slice());
+        match journal.journal_write(metadata_addr, rm_bytes) {
+            Ok(()) => {},
+            Err(JournalError::NotEnoughSpace) => {
+                self.status = Ghost(KeyTableStatus::Quiescent);
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            },
+            _ => {
+                assert(false);
+                self.status = Ghost(KeyTableStatus::Quiescent);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        };
+
+        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
+        let rm_crc = calculate_crc(&new_rm);
+        let rm_crc_bytes = slice_to_vec(rm_crc.as_byte_slice());
+        match journal.journal_write(rm_crc_addr, rm_crc_bytes) {
+            Ok(()) => {},
+            Err(JournalError::NotEnoughSpace) => {
+                self.status = Ghost(KeyTableStatus::Quiescent);
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            },
+            _ => {
+                assert(false);
+                self.status = Ghost(KeyTableStatus::Quiescent);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        };
+
+        Ok(())
+    }
+
     pub exec fn update(
         &mut self,
         k: &K,
@@ -507,44 +602,10 @@ impl<PM, K> KeyTable<PM, K>
                 _ => false,
             },
     {
-        proof {
-            journal.lemma_valid_implications();
-            self.lemma_valid_implications(journal@);
-            broadcast use pmcopy_axioms;
-            broadcast use group_validate_row_addr;
-            broadcast use group_update_bytes_effect;
+        match self.update_step1(k, row_addr, new_rm, former_rm, journal) {
+            Ok(()) => {},
+            Err(e) => { return Err(e); },
         }
-
-        let metadata_addr = row_addr + self.sm.row_metadata_start;
-        let rm_bytes = slice_to_vec(new_rm.as_byte_slice());
-        match journal.journal_write(metadata_addr, rm_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
-
-        let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
-        let rm_crc = calculate_crc(&new_rm);
-        let rm_crc_bytes = slice_to_vec(rm_crc.as_byte_slice());
-        match journal.journal_write(rm_crc_addr, rm_crc_bytes) {
-            Ok(()) => {},
-            Err(JournalError::NotEnoughSpace) => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            },
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        };
 
         assert(self.memory_mapping@.valid(self.sm));
         assert(self.memory_mapping == old(self).memory_mapping);
@@ -567,6 +628,8 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
         }
+
+        self.status = Ghost(KeyTableStatus::Quiescent);
 
         assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
