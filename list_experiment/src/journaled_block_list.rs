@@ -28,13 +28,17 @@ impl<const N: usize> DurableBlockListRow<N> {
         let crc = digest.sum64();
         crc == self.crc
     }
+
+    pub fn get_val(&self) -> [u8; N] {
+        self.val
+    }
 }
 
 impl<const N: usize> PmCopy for DurableBlockListRow<N> {}
 
 #[derive(Debug)]
 pub struct DurableBlockListNode<const N: usize, const M: usize> {
-    vals: [DurableBlockListRow<N>; M],
+    pub vals: [DurableBlockListRow<N>; M],
 }
 
 impl<const N: usize, const M: usize> PmCopy for DurableBlockListNode<N, M> {}

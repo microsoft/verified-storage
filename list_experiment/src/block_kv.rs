@@ -228,7 +228,7 @@ where
     }
 
     fn read_list(&self, mem_pool: &P, key: &K) -> Result<Vec<[u8; N]>, Error> {
-        todo!()
+        self.read_full_list(mem_pool, key)
     }
 }
 
@@ -239,6 +239,105 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
         }
 
         Ok(())
+    }
+
+    fn read_full_list<P: MemoryPool>(&self, mem_pool: &P, key: &K) -> Result<Vec<[u8; N]>, Error> {
+        // 1. check that the key exists
+        if !self.key_index.contains_key(key) {
+            return Err(Error::KeyNotFound);
+        }
+
+        let index_metadata = self.key_index.get(key).unwrap();
+        let key_table_index = index_metadata.key_table_index;
+
+        // 2. check if the list is in the cache
+        let list_info = self.list_cache.get(key_table_index);
+
+        if let Some(list_info) = list_info {
+            // list is in the cache. read the values at the cached addresses
+            // without following any stored pointers
+            let addrs = list_info.get_addrs();
+            let mut output_vec = Vec::new();
+
+            for i in 0..addrs.len() {
+                let start_index = if i == 0 {
+                    index_metadata.index_of_first_element
+                } else {
+                    0
+                };
+                let num_valid_elements = if i == addrs.len() - 1 {
+                    index_metadata.num_live_elem_in_tail
+                } else {
+                    M as u64
+                };
+                let addr = addrs[i];
+
+                let mut vals =
+                    self.read_value_at_addr(mem_pool, addr, start_index, num_valid_elements)?;
+
+                output_vec.append(&mut vals);
+            }
+            Ok(output_vec)
+        } else {
+            // the list is not in the cache. add it to the cache, and read the
+            // values to return at the same time
+            let (vals, addrs) = self.read_list_addrs_and_vals(
+                mem_pool,
+                index_metadata.list_head,
+                index_metadata.index_of_first_element,
+                index_metadata.num_live_elem_in_tail,
+            )?;
+            todo!()
+        }
+    }
+
+    fn read_list_addrs_and_vals<P: MemoryPool>(
+        &self,
+        mem_pool: &P,
+        list_head: u64,
+        head_start_index: u64,
+        num_live_elem_in_tail: u64,
+    ) -> Result<(Vec<[u8; N]>, Vec<u64>), Error> {
+        if list_head != 0 {
+            let mut current_node_addr = list_head;
+            let mut current_start_index = head_start_index;
+            let mut output_val_vec = Vec::new();
+            let mut output_next_vec = vec![list_head];
+
+            let mut next_ptr = self.read_next(mem_pool, list_head)?;
+
+            while next_ptr != NULL_ADDR as u64 {
+                // read starting from the current start index to the end of the node.
+                // this node can't be the tail, so we know that all rows in this
+                // range are valid.
+                let mut values = self.read_value_at_addr(
+                    mem_pool,
+                    current_node_addr,
+                    current_start_index,
+                    M as u64 - current_start_index,
+                )?;
+                output_val_vec.append(&mut values);
+
+                output_next_vec.push(next_ptr);
+                current_node_addr = next_ptr;
+                current_start_index = 0; // after the head, they all start at 0
+                next_ptr = self.read_next(mem_pool, next_ptr)?;
+            }
+
+            // current_node_addr is now the tail of the list. read the number
+            // of live elements in the tail.
+            let mut values = self.read_value_at_addr(
+                mem_pool,
+                current_node_addr,
+                current_start_index,
+                num_live_elem_in_tail,
+            )?;
+            output_val_vec.append(&mut values);
+
+            Ok((output_val_vec, output_next_vec))
+        } else {
+            Ok((Vec::new(), Vec::new()))
+        }
     }
 
     fn read_list_addrs<P: MemoryPool>(&self, mem_pool: &P, key: &K) -> Result<Vec<u64>, Error> {
@@ -255,28 +354,44 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
         // 2. read all of the nodes in the list and record their addresses
         while current_node_addr != 0 {
             output_vec.push(current_node_addr);
-            let next_addr = self.read_next_node_at_addr(mem_pool, current_node_addr)?;
+            let next_addr = self.read_next(mem_pool, current_node_addr)?;
             current_node_addr = next_addr;
         }
 
         Ok(output_vec)
     }
 
-    fn read_next_node_at_addr<P: MemoryPool>(&self, mem_pool: &P, addr: u64) -> Result<u64, Error> {
+    fn read_next<P: MemoryPool>(&self, mem_pool: &P, addr: u64) -> Result<u64, Error> {
         // 1. check that the address is valid
         if !self.list_table.validate_addr(addr) {
             println!("invalid addr");
             return Err(Error::InvalidAddr);
         }
 
-        // // 2. read the node's value and check its CRC
-        // let bytes = mem_pool.read(addr, size_of::<DurableBlockListNode<N, M>>() as u64)?;
-        // let node = unsafe { DurableBlockListNode::<N, M>::from_bytes(&bytes) };
-        // if !node.check_crc() {
-        //     return Err(Error::InvalidCRC);
-        // }
+        self.read_next_ptr_at_addr(mem_pool, addr)
+    }
 
-        // 3. read the next pointer and check its CRC
+    fn read_value_at_addr<P: MemoryPool>(
+        &self,
+        mem_pool: &P,
+        addr: u64,
+        start_index: u64,
+        num_values: u64,
+    ) -> Result<Vec<[u8; N]>, Error> {
+        let mut output_vec = Vec::new();
+        let bytes = mem_pool.read(addr, size_of::<DurableBlockListNode<N, M>>() as u64)?;
+        let node = unsafe { DurableBlockListNode::<N, M>::from_bytes(&bytes) };
+        for i in start_index..start_index + num_values {
+            let row = node.vals[i as usize];
+            if !row.check_crc() {
+                return Err(Error::InvalidCRC);
+            }
+            output_vec.push(row.get_val());
+        }
+        Ok(output_vec)
+    }
+
+    fn read_next_ptr_at_addr<P: MemoryPool>(&self, mem_pool: &P, addr: u64) -> Result<u64, Error> {
         let bytes = mem_pool.read(
             BlockListTable::<N, M>::get_next_pointer_offset(addr),
             size_of::<DurableBlockListNodeNextPtr>() as u64,
@@ -285,7 +400,28 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
         if !next_ptr.check_crc() {
             return Err(Error::InvalidCRC);
         }
-
         Ok(next_ptr.next())
+    }
+
+    fn read_value_and_next_at_addr<P: MemoryPool>(
+        &self,
+        mem_pool: &P,
+        addr: u64,
+        start_index: u64,
+        num_values: u64,
+    ) -> Result<(Vec<[u8; N]>, u64), Error> {
+        // 1. check that the address is valid
+        if !self.list_table.validate_addr(addr) {
+            println!("invalid addr");
+            return Err(Error::InvalidAddr);
+        }
+
+        // 2. read each row in the node, check CRC, and put in the output vec
+        let output_vec = self.read_value_at_addr(mem_pool, addr, start_index, num_values)?;
+
+        // 3. read the next pointer and check its CRC
+        let next = self.read_next_ptr_at_addr(mem_pool, addr)?;
+
+        Ok((output_vec, next))
     }
 }
