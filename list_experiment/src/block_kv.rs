@@ -109,10 +109,11 @@ where
         }
         let index_metadata = self.key_index.get(key).unwrap();
         let key_table_index = index_metadata.key_table_index;
-        let list_head = index_metadata.list_head;
 
         let mut new_index_metadata = *index_metadata;
 
+        // 2. write the new row, either to an existing node or a newly allocated one
+        // if there is no space in the tail (or there is no tail)
         // we don't have to allocate -- the list is not empty and there is space in the tail.
         if 0 < index_metadata.num_live_elem_in_tail
             && index_metadata.num_live_elem_in_tail < M as u64
@@ -189,10 +190,10 @@ where
             }
         }
 
-        // update the index
+        // 3. update the index
         self.key_index.insert(*key, new_index_metadata);
 
-        // update the key table
+        // 4. update the key table
         let new_durable_metadata = BlockMetadata::from_index_metadata(&new_index_metadata);
 
         // update key table via journal
@@ -204,7 +205,7 @@ where
         let metadata_addr = KeyTable::<K, BlockMetadata>::metadata_addr(key_table_index);
         let crc_addr = KeyTable::<K, BlockMetadata>::crc_addr(key_table_index);
 
-        // append journal entries
+        // 5. append journal entries
         self.journal
             .append(mem_pool, metadata_addr, new_durable_metadata.to_bytes())?;
         self.pending_journal_entries
@@ -214,7 +215,7 @@ where
         self.pending_journal_entries
             .push((crc_addr, crc.to_le_bytes().to_vec()));
 
-        // commit and apply journal
+        // 6. commit and apply journal
         self.journal.commit(mem_pool)?;
         self.apply_pending_journal_entries(mem_pool)?;
         self.journal.clear(mem_pool)?;
@@ -223,7 +224,92 @@ where
     }
 
     fn trim(&mut self, mem_pool: &mut P, key: &K, trim_len: u64) -> Result<(), Error> {
-        todo!()
+        // 1. check that the key exists
+        if !self.key_index.contains_key(key) {
+            return Err(Error::KeyNotFound);
+        }
+        let index_metadata = self.key_index.get(key).unwrap();
+        let key_table_index = index_metadata.key_table_index;
+        let index_of_first_element = index_metadata.index_of_first_element;
+        let num_live_elem_in_tail = index_metadata.num_live_elem_in_tail;
+
+        // 2. determine how many nodes will be deallocated, the new start index in the head, and the
+        // new num of live elements in the tail. These won't ALL change every time, but
+        // we'll rewrite the whole data structure that contains them regardless.
+        // we first need to get the list of node addrs
+        let (new_head, new_index, new_num_live) =
+            if let Some(list_info) = self.list_cache.get(key_table_index) {
+                // the entry is already in the cache
+                let node_addrs = list_info.get_addrs();
+                let (to_dealloc, new_index, new_num_live) = self.get_block_trim_numbers(
+                    node_addrs,
+                    trim_len,
+                    index_of_first_element,
+                    num_live_elem_in_tail,
+                )?;
+
+                if to_dealloc == node_addrs.len() as u64 {
+                    (0, 0, 0)
+                } else {
+                    let new_head = node_addrs[to_dealloc as usize];
+                    self.list_cache.trim(key_table_index, to_dealloc)?;
+                    self.free_trimmed_nodes(node_addrs, to_dealloc)?;
+                    (new_head, new_index, new_num_live)
+                }
+            } else {
+                // the entry is not in the cache
+                let mut node_addrs = self.read_list_addrs(mem_pool, key)?;
+
+                let (to_dealloc, new_index, new_num_live) = self.get_block_trim_numbers(
+                    &node_addrs,
+                    trim_len,
+                    index_of_first_element,
+                    num_live_elem_in_tail,
+                )?;
+                if to_dealloc == node_addrs.len() as u64 {
+                    (0, 0, 0)
+                } else {
+                    self.free_trimmed_nodes(&node_addrs, to_dealloc)?;
+                    node_addrs.drain(0..to_dealloc as usize);
+                    let new_head = node_addrs[0];
+                    self.list_cache.put(key_table_index, node_addrs);
+                    (new_head, new_index, new_num_live)
+                }
+            };
+
+        let new_index_metadata = self.key_index.get_mut(key).unwrap();
+        new_index_metadata.list_head = new_head;
+        new_index_metadata.index_of_first_element = new_index;
+        new_index_metadata.num_live_elem_in_tail = new_num_live;
+
+        let new_block_metadata = BlockMetadata::from_index_metadata(&new_index_metadata);
+
+        let mut crc_digest = Digest::new();
+        crc_digest.write(key.to_bytes());
+        crc_digest.write(new_block_metadata.to_bytes());
+        let crc = crc_digest.sum64();
+
+        let metadata_addr = KeyTable::<K, BlockMetadata>::metadata_addr(key_table_index);
+        let crc_addr = KeyTable::<K, BlockMetadata>::crc_addr(key_table_index);
+
+        // append to the journal
+        self.journal
+            .append(mem_pool, metadata_addr, new_block_metadata.to_bytes())?;
+        self.pending_journal_entries
+            .push((metadata_addr, new_block_metadata.to_bytes().to_vec()));
+        self.journal
+            .append(mem_pool, crc_addr, &crc.to_le_bytes())?;
+        self.pending_journal_entries
+            .push((crc_addr, crc.to_le_bytes().to_vec()));
+
+        // 5. Commit and apply the journal entries
+        self.journal.commit(mem_pool)?;
+
+        self.apply_pending_journal_entries(mem_pool)?;
+
+        self.journal.clear(mem_pool)?;
+
+        Ok(())
     }
 
     fn read_list(&self, mem_pool: &P, key: &K) -> Result<Vec<[u8; N]>, Error> {
@@ -422,5 +508,100 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
         let next = self.read_next_ptr_at_addr(mem_pool, addr)?;
 
         Ok((output_vec, next))
+    }
+
+    // First u64 in return tuple is the number of physical nodes to deallocate
+    // Second u64 in return tuple is the new index_of_first_element value
+    // Third u64 in return tuple is the new num_live_elem_in_tail value
+    // Return an error if the list is too short to trim `trim_len` elements
+    fn get_block_trim_numbers(
+        &self,
+        node_addrs: &Vec<u64>,
+        trim_len: u64,
+        index_of_first_element: u64,
+        num_live_elem_in_tail: u64,
+    ) -> Result<(u64, u64, u64), Error> {
+        // length of the list = (node_addrs.len() - 2) * M
+
+        // number of elements in the list (not nodes)
+        let list_len = if node_addrs.len() > 2 {
+            // the list has more than just a head and tail node
+            ((node_addrs.len() as u64 - 2) * M as u64)
+                + num_live_elem_in_tail
+                + (M as u64 - index_of_first_element)
+        } else if node_addrs.len() == 2 {
+            // the list has only a head and tail node, and they are different
+            num_live_elem_in_tail + (M as u64 - index_of_first_element)
+        } else if node_addrs.len() == 1 {
+            // the list has a single node, which is both the head and tail
+            num_live_elem_in_tail
+        } else {
+            return Err(Error::ListTooShort);
+        };
+
+        // return an error if the trim len is longer than the list
+        if list_len < trim_len {
+            Err(Error::ListTooShort)
+        } else if list_len == trim_len {
+            // we're emptying out the list. deallocate all nodes, set the other
+            // two values to 0
+            Ok((node_addrs.len() as u64, 0, 0))
+        } else {
+            let mut output_index = index_of_first_element;
+            let mut output_num_live = num_live_elem_in_tail;
+            let mut dealloc_count = 0;
+
+            // let nodes_in_head = M as u64 - index_of_first_element;
+            let nodes_in_head = if node_addrs.len() > 1 {
+                M as u64 - index_of_first_element
+            } else {
+                num_live_elem_in_tail
+            };
+
+            if trim_len < M as u64 - index_of_first_element {
+                // we are trimming fewer nodes than there are in the head.
+                // we need to update the index of the first element but
+                // otherwise are done
+                output_index += trim_len;
+                if node_addrs.len() == 1 {
+                    // if this node is the tail node, we need to
+                    // update the number of live nodes in it too
+                    output_num_live -= trim_len;
+                }
+                Ok((0, output_index, output_num_live))
+            } else {
+                // otherwise, we're deallocating the head (and possibly other
+                // nodes as well)
+
+                let mut to_trim = trim_len - nodes_in_head;
+                dealloc_count += 1; //deallocating at least the head
+
+                // now -- to_trim / M should give us the number of full
+                // nodes that we need to deallocate
+                let nodes_to_dealloc = to_trim / M as u64;
+                dealloc_count += nodes_to_dealloc;
+                to_trim -= nodes_to_dealloc * M as u64;
+
+                // the remaining nodes will be in a node we don't deallocate
+                // which will become the new head.
+                output_index = to_trim; // TODO: I think this will work?
+
+                // we only update the number of live elements in the tail
+                // if there is one node left
+                if node_addrs.len() as u64 - dealloc_count == 1 {
+                    output_num_live = M as u64 - output_index;
+                }
+
+                Ok((dealloc_count, output_index, output_num_live))
+            }
+        }
+    }
+
+    fn free_trimmed_nodes(&mut self, node_addrs: &Vec<u64>, to_dealloc: u64) -> Result<(), Error> {
+        for i in 0..to_dealloc {
+            let addr = node_addrs[i as usize];
+            self.list_table.free(addr)?;
+        }
+        Ok(())
     }
 }
