@@ -352,6 +352,8 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
                 };
                 let num_valid_elements = if i == addrs.len() - 1 {
                     index_metadata.num_live_elem_in_tail
+                } else if i == 0 {
+                    M as u64 - start_index
                 } else {
                     M as u64
                 };
@@ -372,7 +374,10 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
                 index_metadata.index_of_first_element,
                 index_metadata.num_live_elem_in_tail,
             )?;
-            todo!()
+
+            self.list_cache.put(key_table_index, addrs);
+
+            Ok(vals)
         }
     }
 
@@ -449,7 +454,6 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
     fn read_next<P: MemoryPool>(&self, mem_pool: &P, addr: u64) -> Result<u64, Error> {
         // 1. check that the address is valid
         if !self.list_table.validate_addr(addr) {
-            println!("invalid addr");
             return Err(Error::InvalidAddr);
         }
 
