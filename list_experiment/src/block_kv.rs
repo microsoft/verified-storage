@@ -24,7 +24,7 @@ pub struct BlockKV<K: PmCopy, const N: usize, const M: usize> {
     pending_journal_entries: Vec<(u64, Vec<u8>)>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct IndexMetadata {
     key_table_index: u64,
     list_head: u64,
@@ -166,7 +166,6 @@ where
             mem_pool.flush();
 
             // set up the metadata depending on whether the list was empty or not
-            let mut new_index_metadata = *index_metadata;
             if index_metadata.list_head == NULL_ADDR as u64 {
                 // list is empty
                 new_index_metadata.list_head = new_block_addr;
