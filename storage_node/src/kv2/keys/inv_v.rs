@@ -599,22 +599,16 @@ impl<K> KeyInternalView<K>
                                                                                   self.pending_deallocations)
     }
 
-    pub(super) open spec fn consistent_with_journal(self, jv: JournalView, sm: KeyTableStaticMetadata) -> bool
-    {
-        &&& self.consistent_with_state(jv.commit_state, sm)
-        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs, sm)
-    }
-
-    pub(super) open spec fn consistent_with_journal_after_undo(
+    pub(super) open spec fn consistent_with_state_after_undo(
         self,
         undo_records: Seq<KeyUndoRecord<K>>,
-        jv: JournalView,
+        s: Seq<u8>,
         sm: KeyTableStaticMetadata,
     ) -> bool
     {
         &&& self.apply_undo_records(undo_records, sm) matches Some(undone_self)
         &&& undone_self.valid(sm)
-        &&& undone_self.consistent_with_state(jv.durable_state, sm)
+        &&& undone_self.consistent_with_state(s, sm)
         &&& undone_self.pending_deallocations == Seq::<u64>::empty()
     }
 
@@ -673,9 +667,11 @@ impl<PM, K> KeyTable<PM, K>
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.internal_view().valid(self.sm)
-        &&& !(self.status@ is Inconsistent) && !self.must_abort@ ==>
-            self.internal_view().consistent_with_journal(jv, self.sm)
-        &&& self.internal_view().consistent_with_journal_after_undo(self.undo_records@, jv, self.sm)
+        &&& !(self.status@ is Inconsistent) && !self.must_abort@ ==> {
+            &&& self.internal_view().consistent_with_state(jv.commit_state, self.sm)
+            &&& self.internal_view().consistent_with_journaled_addrs(jv.journaled_addrs, self.sm)
+        }
+        &&& self.internal_view().consistent_with_state_after_undo(self.undo_records@, jv.durable_state, self.sm)
         &&& forall|i: int| 0 <= i < self.free_list@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
         &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
