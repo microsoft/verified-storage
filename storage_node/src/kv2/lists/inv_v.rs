@@ -411,7 +411,10 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative is Some ==>
                 Self::recover(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm) == self@.tentative,
     {
-        assume(false);
+        self.durable_mapping@.lemma_corresponds_implies_equals_new(jv.durable_state, self@.durable.m.dom(), self@.sm);
+        if !self.must_abort@ {
+            self.tentative_mapping@.lemma_corresponds_implies_equals_new(jv.commit_state, self@.tentative.unwrap().m.dom(), self@.sm);
+        }
     }
 
     pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)
