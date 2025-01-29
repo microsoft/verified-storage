@@ -26,6 +26,7 @@ verus! {
 
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
+#[verifier::reject_recursive_types(L)]
 pub struct KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
@@ -229,7 +230,7 @@ where
         key: &K,
         item: &I,
     ) -> (result: Result<(), KvError>)
-        requires 
+        requires
             old(self).valid(),
         ensures 
             self.valid(),

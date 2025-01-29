@@ -100,6 +100,7 @@ impl ListTableStaticMetadata
 }
 
 #[verifier::ext_equal]
+#[verifier::reject_recursive_types(L)]
 pub struct ListTable<PM, L>
     where
         PM: PersistentMemoryRegion,
@@ -109,8 +110,8 @@ pub struct ListTable<PM, L>
     sm: ListTableStaticMetadata,
     must_abort: Ghost<bool>,
     logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    durable_snapshot: Ghost<ListTableSnapshot<L>>,
-    tentative_snapshot: Ghost<ListTableSnapshot<L>>,
+    durable_mapping: Ghost<ListRecoveryMapping<L>>,
+    tentative_mapping: Ghost<ListRecoveryMapping<L>>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
@@ -124,8 +125,8 @@ impl<PM, L> ListTable<PM, L>
         ListTableView::<L>{
             sm: self.sm,
             logical_range_gaps_policy: self.logical_range_gaps_policy,
-            durable: self.durable_snapshot@,
-            tentative: if self.must_abort@ { None } else { Some(self.tentative_snapshot@) },
+            durable: self.durable_mapping@.as_snapshot(),
+            tentative: if self.must_abort@ { None } else { Some(self.tentative_mapping@.as_snapshot()) },
         }
     }
 

@@ -43,6 +43,7 @@ verus! {
 
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
+#[verifier::reject_recursive_types(L)]
 pub struct UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
