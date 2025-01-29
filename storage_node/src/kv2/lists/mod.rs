@@ -30,6 +30,7 @@ use inv_v::*;
 use recover_v::*;
 use spec_v::*;
 use start_v::*;
+use std::collections::hash_map::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
@@ -110,8 +111,17 @@ pub struct ListTable<PM, L>
     sm: ListTableStaticMetadata,
     must_abort: Ghost<bool>,
     logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    durable_list_addrs: Ghost<Set<u64>>,
+    tentative_list_addrs: Ghost<Set<u64>>,
     durable_mapping: Ghost<ListRecoveryMapping<L>>,
     tentative_mapping: Ghost<ListRecoveryMapping<L>>,
+    row_info: Ghost<Map<u64, ListRowDisposition<L>>>,
+    durable_changes: Ghost<Map<u64, usize>>,
+    m: HashMap<u64, ListTableEntry<L>>,
+    changes: Vec<ListTableTentativeChange>,
+    free_list: Vec<u64>,
+    pending_allocations: Vec<u64>,
+    pending_deallocations: Vec<u64>,
     phantom: Ghost<core::marker::PhantomData<PM>>,
 }
 
