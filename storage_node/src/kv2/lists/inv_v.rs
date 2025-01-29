@@ -66,6 +66,7 @@ pub(super) enum ListTableEntryView<L>
         entry: ListTableDurableEntry
     },
     TrimmedAndOrAppended{
+        which_change: usize,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
@@ -73,10 +74,16 @@ pub(super) enum ListTableEntryView<L>
         appended_elements: Seq<L>,
     },
     Updated{
+        which_change: usize,
         durable: ListTableDurableEntry,
         tentative_addrs: Seq<u64>,
         tentative_elements: Seq<L>
     },
+    Created{
+        which_change: usize,
+        tentative_addrs: Seq<u64>,
+        tentative_elements: Seq<L>
+    }
 }
 
 #[verifier::ext_equal]
@@ -88,6 +95,7 @@ pub(super) enum ListTableEntry<L>
         entry: ListTableDurableEntry
     },
     TrimmedAndOrAppended{
+        which_change: usize,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
@@ -95,6 +103,7 @@ pub(super) enum ListTableEntry<L>
         appended_elements: Vec<L>,
     },
     Updated{
+        which_change: usize,
         durable: ListTableDurableEntry,
         tentative_addrs: Vec<u64>,
         tentative_elements: Vec<L>
@@ -109,10 +118,14 @@ impl<L> ListTableEntry<L>
     {
         match self {
             ListTableEntry::Durable{ entry } => ListTableEntryView::Durable{ entry },
-            ListTableEntry::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_addrs, appended_elements } =>
-                ListTableEntryView::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_addrs: appended_addrs@, appended_elements: appended_elements@ },
-            ListTableEntry::Updated{ durable, tentative_addrs, tentative_elements } =>
-                ListTableEntryView::Updated{ durable, tentative_addrs: tentative_addrs@, tentative_elements: tentative_elements@ },
+            ListTableEntry::TrimmedAndOrAppended{ which_change, durable, tentative, num_trimmed,
+                                                  appended_addrs, appended_elements } =>
+                ListTableEntryView::TrimmedAndOrAppended{ which_change, durable, tentative, num_trimmed,
+                                                          appended_addrs: appended_addrs@,
+                                                          appended_elements: appended_elements@ },
+            ListTableEntry::Updated{ which_change, durable, tentative_addrs, tentative_elements } =>
+                ListTableEntryView::Updated{ which_change, durable, tentative_addrs: tentative_addrs@,
+                                             tentative_elements: tentative_elements@ },
         }
     }
 }
@@ -121,12 +134,13 @@ impl<L> ListTableEntryView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn durable_entry(self) -> ListTableDurableEntry
+    pub(super) open spec fn durable_entry(self) -> Option<ListTableDurableEntry>
     {
         match self {
-            ListTableEntryView::Durable{ entry } => entry,
-            ListTableEntryView::TrimmedAndOrAppended{ durable, .. } => durable,
-            ListTableEntryView::Updated{ durable, .. } => durable,
+            ListTableEntryView::Durable{ entry } => Some(entry),
+            ListTableEntryView::TrimmedAndOrAppended{ durable, .. } => Some(durable),
+            ListTableEntryView::Updated{ durable, .. } => Some(durable),
+            ListTableEntryView::Created{ .. } => None,
         }
     }
 
@@ -134,7 +148,8 @@ impl<L> ListTableEntryView<L>
     {
         match self {
             ListTableEntryView::Durable{ entry } => entry.consistent_with_recovery_state(mapping),
-            ListTableEntryView::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_addrs, appended_elements } => {
+            ListTableEntryView::TrimmedAndOrAppended{ which_change, durable, tentative, num_trimmed,
+                                                      appended_addrs, appended_elements } => {
                 let addrs = mapping.list_info[tentative.head];
                 let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
                 &&& mapping.list_info.contains_key(tentative.head)
@@ -151,7 +166,16 @@ impl<L> ListTableEntryView<L>
                     &&& elements == appended_elements.skip(appended_elements.len() - elements.len())
                 }
             },
-            ListTableEntryView::Updated{ durable, tentative_addrs, tentative_elements } => {
+            ListTableEntryView::Updated{ which_change, durable, tentative_addrs, tentative_elements } => {
+                let addrs = mapping.list_info[tentative_addrs[0]];
+                let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
+                &&& 0 < tentative_addrs.len()
+                &&& mapping.list_info.contains_key(tentative_addrs[0])
+                &&& tentative_addrs == addrs
+                &&& tentative_elements == elements
+                &&& tentative_addrs.len() == tentative_elements.len()
+            },
+            ListTableEntryView::Created{ which_change, tentative_addrs, tentative_elements } => {
                 let addrs = mapping.list_info[tentative_addrs[0]];
                 let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
                 &&& 0 < tentative_addrs.len()
@@ -207,57 +231,93 @@ impl<L> ListInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn resolve_change(self, change: ListTableTentativeChange) -> Option<ListTableDurableEntry>
+    pub(super) open spec fn revert_change(self, change: ListTableTentativeChange) -> Option<ListTableDurableEntry>
     {
         match change {
             ListTableTentativeChange::Updated{ tentative_list_addr } => {
                 if self.m.contains_key(tentative_list_addr) {
-                    Some(self.m[tentative_list_addr].durable_entry())
+                    self.m[tentative_list_addr].durable_entry()
                 }
                 else {
                     None
                 }
             },
-            ListTableTentativeChange::Created{ tentative_list_addr } => {
-                if self.m.contains_key(tentative_list_addr) {
-                    Some(self.m[tentative_list_addr].durable_entry())
-                }
-                else {
-                    None
-                }
-            },
-            ListTableTentativeChange::Deleted{ durable_list_addr, entry } =>
-                Some(entry),
+            ListTableTentativeChange::Created{ tentative_list_addr } => None,
+            ListTableTentativeChange::Deleted{ durable_list_addr, entry } => Some(entry),
         }
     }
 
     pub(super) open spec fn valid(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|list_addr: u64| #[trigger] self.durable_mapping.list_info.contains_key(list_addr) ==> {
-            if self.durable_changes.contains_key(list_addr) {
-                let which_change = self.durable_changes[list_addr];
-                &&& 0 <= which_change < self.changes.len()
-                &&& self.resolve_change(self.changes[which_change as int]) matches Some(entry)
-                &&& entry.head == list_addr
-            }
-            else {
-                &&& self.m.contains_key(list_addr)
-                &&& self.m[list_addr] is Durable
-            }
-        }
+        &&& self.durable_mapping_reflected_in_changes_or_m()
+        &&& self.changes_reflected_in_m()
         &&& forall|list_addr: u64| #[trigger] self.tentative_mapping.list_info.contains_key(list_addr) ==>
                 self.m.contains_key(list_addr)
-        &&& self.m_consistent_with_durable_recovery_state()        
+        &&& self.m_consistent_with_durable_recovery_state()
         &&& self.m_consistent_with_tentative_recovery_state()
         &&& self.deletions_consistent_with_durable_recovery_state()
         &&& self.row_info_complete(sm)
         &&& self.per_row_info_consistent(sm)
     }
 
+    pub(super) open spec fn durable_mapping_reflected_in_changes_or_m(self) -> bool
+    {
+        &&& forall|list_addr: u64| #[trigger] self.durable_mapping.list_info.contains_key(list_addr) ==> {
+            if self.durable_changes.contains_key(list_addr) {
+                let which_change = self.durable_changes[list_addr];
+                &&& 0 <= which_change < self.changes.len()
+                &&& self.revert_change(self.changes[which_change as int]) matches Some(entry) ==>
+                    entry.head == list_addr
+            }
+            else {
+                &&& self.m.contains_key(list_addr)
+                &&& self.m[list_addr] is Durable
+            }
+        }
+    }
+
+    pub(super) open spec fn changes_reflected_in_m(self) -> bool
+    {
+        &&& forall|which_change: int| 0 <= which_change < self.changes.len() ==>
+            match #[trigger] self.changes[which_change] {
+                ListTableTentativeChange::Updated{ tentative_list_addr } => {
+                    &&& self.m.contains_key(tentative_list_addr)
+                    &&& match self.m[tentative_list_addr] {
+                        ListTableEntryView::<L>::Durable{ .. } => false,
+                        ListTableEntryView::<L>::Created{ .. } => false,
+                        ListTableEntryView::<L>::TrimmedAndOrAppended{ which_change: wc, durable, .. } => {
+                            &&& wc == which_change
+                            &&& self.durable_changes.contains_key(durable.head)
+                            &&& self.durable_changes[durable.head] == which_change
+                        },
+                        ListTableEntryView::<L>::Updated{ which_change: wc, durable, .. } => {
+                            &&& wc == which_change
+                            &&& self.durable_changes.contains_key(durable.head)
+                            &&& self.durable_changes[durable.head] == which_change
+                        },
+                    }
+                },
+                ListTableTentativeChange::Created{ tentative_list_addr } => {
+                    &&& self.m.contains_key(tentative_list_addr)
+                    &&& match self.m[tentative_list_addr] {
+                        ListTableEntryView::<L>::Durable{ .. } => false,
+                        ListTableEntryView::<L>::Updated{ .. } => false,
+                        ListTableEntryView::<L>::TrimmedAndOrAppended{ .. } => false,
+                        ListTableEntryView::<L>::Created{ which_change: wc, .. } =>
+                            wc == which_change,
+                    }
+                },
+                ListTableTentativeChange::Deleted{ durable_list_addr, entry } => {
+                    &&& !self.m.contains_key(durable_list_addr)
+                },
+            }
+    }
+
     pub(super) open spec fn m_consistent_with_durable_recovery_state(self) -> bool
     {
         &&& forall|list_addr: u64| #[trigger] self.m.contains_key(list_addr) ==>
-                self.m[list_addr].durable_entry().consistent_with_recovery_state(self.durable_mapping)
+                (self.m[list_addr].durable_entry() matches Some(entry) ==>
+                 entry.consistent_with_recovery_state(self.durable_mapping))
     }
 
     pub(super) open spec fn m_consistent_with_tentative_recovery_state(self) -> bool
