@@ -2,6 +2,7 @@
 use block_kv::BlockKV;
 use journal::Journal;
 use kv::KV;
+use rand::seq::SliceRandom;
 use singleton_kv::SingletonKV;
 
 use crate::block_list::*;
@@ -11,6 +12,8 @@ use crate::mock_pool::*;
 use crate::singleton_list::*;
 use crate::table::*;
 use std::time::Instant;
+
+use rand::rng;
 
 mod block_kv;
 mod block_list;
@@ -35,8 +38,10 @@ const MEM_POOL_SIZE: u64 = 1024 * 1024 * 1024;
 const KEY_TABLE_SIZE: u64 = 1024 * 1024 * 8;
 const LIST_TABLE_SIZE: u64 = 1024 * 1024 * 512;
 const JOURNAL_SIZE: u64 = MEM_POOL_SIZE - KEY_TABLE_SIZE - LIST_TABLE_SIZE;
-const CACHE_CAPACITY: u64 = 16;
-const LIST_LEN: u64 = 50000;
+const CACHE_CAPACITY: u64 = 4;
+// const LIST_LEN: u64 = 50000;
+const LIST_LEN: u64 = 5000;
+const NUM_KEYS: u64 = 10;
 const ITERATIONS: u64 = 5;
 
 impl PmCopy for u64 {}
@@ -64,7 +69,7 @@ fn trim_experiments() {
 
 fn singleton_append_experiments() {
     println!("singleton append,");
-    println!("element size,ms elapsed,");
+    println!("element size,us elapsed,");
 
     run_singleton_append_experiment::<8>();
     run_singleton_append_experiment::<16>();
@@ -80,7 +85,7 @@ fn singleton_append_experiments() {
 
 fn singleton_read_experiments() {
     println!("singleton read,");
-    println!("element size,ms elapsed,");
+    println!("element size,us elapsed,");
 
     run_singleton_read_experiment::<8>();
     run_singleton_read_experiment::<16>();
@@ -96,7 +101,7 @@ fn singleton_read_experiments() {
 
 fn singleton_trim_experiments() {
     println!("singleton trim,");
-    println!("element size,trim_size,ms elapsed,");
+    println!("element size,trim_size,us elapsed,");
 
     let trim_len = 1;
     run_singleton_trim_experiment::<8>(trim_len);
@@ -113,7 +118,7 @@ fn singleton_trim_experiments() {
 
 fn block_append_experiments() {
     println!("block append,");
-    println!("element size,block_size,ms elapsed,");
+    println!("element size,block_size,us elapsed,");
 
     run_block_append_experiment::<8, 8>();
     run_block_append_experiment::<16, 8>();
@@ -151,7 +156,7 @@ fn block_append_experiments() {
 
 fn block_read_experiments() {
     println!("block read,");
-    println!("element size,block_size,ms elapsed,");
+    println!("element size,block_size,us elapsed,");
 
     run_block_read_experiment::<8, 8>();
     run_block_read_experiment::<16, 8>();
@@ -189,7 +194,7 @@ fn block_read_experiments() {
 
 fn block_trim_experiments() {
     println!("block trim,");
-    println!("element size,block_size,trim_size,ms elapsed,");
+    println!("element size,block_size,trim_size,us elapsed,");
 
     let trim_len = 1;
     run_block_trim_experiment::<8, 8>(trim_len);
@@ -248,15 +253,19 @@ fn run_singleton_append_experiment<const N: usize>() {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
+        for key in 0..NUM_KEYS {
+            kv.insert(&mut mock_pool, &key).unwrap();
+        }
 
         let value = [0; N];
 
         let start = Instant::now();
-        for _ in 0..LIST_LEN {
-            kv.append(&mut mock_pool, &key, &value).unwrap();
+        for key in 0..NUM_KEYS {
+            for _ in 0..LIST_LEN {
+                kv.append(&mut mock_pool, &key, &value).unwrap();
+            }
         }
+
         let elapsed = start.elapsed();
         // let elements_per_ms = LIST_LEN as u128 / elapsed.as_millis();
         // let kb_appended: u128 = ((N * LIST_LEN as usize) / 1024).try_into().unwrap();
@@ -269,7 +278,7 @@ fn run_singleton_append_experiment<const N: usize>() {
         //     elements_per_ms,
         //     kb_per_ms,
         // );
-        times.push(elapsed.as_millis());
+        times.push(elapsed.as_micros());
     }
     println!("{:?},{:?},", N, avg_duration(times));
 }
@@ -287,17 +296,27 @@ fn run_singleton_read_experiment<const N: usize>() {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
+        for key in 0..NUM_KEYS {
+            kv.insert(&mut mock_pool, &key).unwrap();
+        }
 
         let value = [0; N];
 
-        for _ in 0..LIST_LEN {
-            kv.append(&mut mock_pool, &key, &value).unwrap();
+        for key in 0..NUM_KEYS {
+            for _ in 0..LIST_LEN {
+                kv.append(&mut mock_pool, &key, &value).unwrap();
+            }
         }
 
+        // read all lists in a random order
+        let mut order: Vec<u64> = (0..NUM_KEYS).collect();
+        let mut rng = rand::rng();
+        order.shuffle(&mut rng);
+
         let start = Instant::now();
-        let _vec = kv.read_full_list(&mock_pool, &key).unwrap();
+        for key in order {
+            let _vec = kv.read_full_list(&mock_pool, &key).unwrap();
+        }
         let elapsed = start.elapsed();
         // let kb_read: u128 = ((N * LIST_LEN as usize) / 1024).try_into().unwrap();
         // let kb_per_ms = kb_read / elapsed.as_millis();
@@ -308,7 +327,7 @@ fn run_singleton_read_experiment<const N: usize>() {
         //     elapsed.as_millis(),
         //     kb_per_ms,
         // );
-        times.push(elapsed.as_millis());
+        times.push(elapsed.as_micros());
     }
     println!("{:?},{:?},", N, avg_duration(times));
 }
@@ -326,18 +345,27 @@ fn run_singleton_trim_experiment<const N: usize>(trim_len: u64) {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
+        for key in 0..NUM_KEYS {
+            kv.insert(&mut mock_pool, &key).unwrap();
+        }
 
         let value = [0; N];
 
-        for _ in 0..LIST_LEN {
-            kv.append(&mut mock_pool, &key, &value).unwrap();
+        for key in 0..NUM_KEYS {
+            for _ in 0..LIST_LEN {
+                kv.append(&mut mock_pool, &key, &value).unwrap();
+            }
         }
 
+        let mut order: Vec<u64> = (0..NUM_KEYS).collect();
+        let mut rng = rand::rng();
+        order.shuffle(&mut rng);
+
         let start = Instant::now();
-        for _ in 0..LIST_LEN {
-            kv.trim(&mut mock_pool, &key, trim_len).unwrap();
+        for key in order {
+            for _ in 0..LIST_LEN {
+                kv.trim(&mut mock_pool, &key, trim_len).unwrap();
+            }
         }
         let elapsed = start.elapsed();
 
@@ -347,7 +375,7 @@ fn run_singleton_trim_experiment<const N: usize>(trim_len: u64) {
         //     trim_len,
         //     elapsed.as_millis(),
         // );
-        times.push(elapsed.as_millis());
+        times.push(elapsed.as_micros());
     }
     println!("{:?},{:?},{:?},", N, trim_len, avg_duration(times));
 }
@@ -365,13 +393,16 @@ fn run_block_append_experiment<const N: usize, const M: usize>() {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
+        for key in 0..NUM_KEYS {
+            kv.insert(&mut mock_pool, &key).unwrap();
+        }
         let value = [0; N];
 
         let start = Instant::now();
-        for _ in 0..LIST_LEN {
-            kv.append(&mut mock_pool, &key, &value).unwrap();
+        for key in 0..NUM_KEYS {
+            for _ in 0..LIST_LEN {
+                kv.append(&mut mock_pool, &key, &value).unwrap();
+            }
         }
         let elapsed = start.elapsed();
         // let elements_per_ms = LIST_LEN as u128 / elapsed.as_millis();
@@ -386,7 +417,7 @@ fn run_block_append_experiment<const N: usize, const M: usize>() {
         //     elements_per_ms,
         //     kb_per_ms,
         // );
-        times.push(elapsed.as_millis());
+        times.push(elapsed.as_micros());
     }
     println!("{:?},{:?},{:?},", N, M, avg_duration(times));
 }
@@ -404,17 +435,26 @@ fn run_block_read_experiment<const N: usize, const M: usize>() {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
+        for key in 0..NUM_KEYS {
+            kv.insert(&mut mock_pool, &key).unwrap();
+        }
 
         let value = [0; N];
 
-        for _ in 0..LIST_LEN {
-            kv.append(&mut mock_pool, &key, &value).unwrap();
+        for key in 0..NUM_KEYS {
+            for _ in 0..LIST_LEN {
+                kv.append(&mut mock_pool, &key, &value).unwrap();
+            }
         }
 
+        let mut order: Vec<u64> = (0..NUM_KEYS).collect();
+        let mut rng = rand::rng();
+        order.shuffle(&mut rng);
+
         let start = Instant::now();
-        let _vec = kv.read_list(&mock_pool, &key).unwrap();
+        for key in order {
+            let _vec = kv.read_list(&mock_pool, &key).unwrap();
+        }
         let elapsed = start.elapsed();
         // let kb_read: u128 = ((N * LIST_LEN as usize) / 1024).try_into().unwrap();
         // let kb_per_ms = kb_read / elapsed.as_millis();
@@ -427,7 +467,7 @@ fn run_block_read_experiment<const N: usize, const M: usize>() {
         //     kb_per_ms,
         // );
 
-        times.push(elapsed.as_millis());
+        times.push(elapsed.as_micros());
     }
     println!("{:?},{:?},{:?},", N, M, avg_duration(times));
 }
@@ -445,17 +485,26 @@ fn run_block_trim_experiment<const N: usize, const M: usize>(trim_len: u64) {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
+        for key in 0..NUM_KEYS {
+            kv.insert(&mut mock_pool, &key).unwrap();
+        }
         let value = [0; N];
 
-        for _ in 0..LIST_LEN {
-            kv.append(&mut mock_pool, &key, &value).unwrap();
+        for key in 0..NUM_KEYS {
+            for _ in 0..LIST_LEN {
+                kv.append(&mut mock_pool, &key, &value).unwrap();
+            }
         }
 
+        let mut order: Vec<u64> = (0..NUM_KEYS).collect();
+        let mut rng = rand::rng();
+        order.shuffle(&mut rng);
+
         let start = Instant::now();
-        for _ in 0..LIST_LEN {
-            kv.trim(&mut mock_pool, &key, trim_len).unwrap();
+        for key in order {
+            for _ in 0..LIST_LEN {
+                kv.trim(&mut mock_pool, &key, trim_len).unwrap();
+            }
         }
         let elapsed = start.elapsed();
 
@@ -466,7 +515,7 @@ fn run_block_trim_experiment<const N: usize, const M: usize>(trim_len: u64) {
         //     trim_len,
         //     elapsed.as_millis(),
         // );
-        times.push(elapsed.as_millis());
+        times.push(elapsed.as_micros());
     }
     println!("{:?},{:?},{:?},{:?},", N, M, trim_len, avg_duration(times));
 }

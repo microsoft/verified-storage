@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Index;
 use std::{collections::HashMap, mem::size_of};
@@ -14,7 +15,7 @@ use crate::{
     DurableTable, MemoryPool, PmCopy, NULL_ADDR,
 };
 
-pub struct SingletonKV<K: PmCopy, const N: usize> {
+pub struct SingletonKV<K: PmCopy + Debug, const N: usize> {
     // durable stuff
     key_table: KeyTable<K, SingletonMetadata>,
     list_table: SingletonListTable<N>,
@@ -42,7 +43,7 @@ impl PmCopy for SingletonMetadata {}
 impl<P, K, const N: usize> KV<P, K, N> for SingletonKV<K, N>
 where
     P: MemoryPool,
-    K: PmCopy + Eq + PartialEq + Hash + Copy,
+    K: PmCopy + Eq + PartialEq + Hash + Copy + Debug,
 {
     fn setup(
         mem_pool: &mut P,
@@ -258,7 +259,7 @@ where
     }
 }
 
-impl<K: PmCopy + Eq + PartialEq + Hash, const N: usize> SingletonKV<K, N> {
+impl<K: PmCopy + Eq + PartialEq + Hash + Debug, const N: usize> SingletonKV<K, N> {
     pub fn read_full_list<P: MemoryPool>(
         &self,
         mem_pool: &P,
