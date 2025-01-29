@@ -66,7 +66,7 @@ impl DurableBlockListNodeNextPtr {
     }
 
     pub fn next(&self) -> u64 {
-        self.crc
+        self.next
     }
 }
 

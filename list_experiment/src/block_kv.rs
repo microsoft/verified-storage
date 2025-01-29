@@ -129,7 +129,11 @@ where
                 tail_addr
             };
 
-            let new_row_index = index_metadata.num_live_elem_in_tail;
+            let new_row_index = if tail_addr == index_metadata.list_head {
+                index_metadata.index_of_first_element + index_metadata.num_live_elem_in_tail
+            } else {
+                index_metadata.num_live_elem_in_tail
+            };
             let new_elem_addr =
                 BlockListTable::<N, M>::row_offset_in_block(tail_addr, new_row_index);
             let new_element = DurableBlockListRow::new(*list_entry);
@@ -248,12 +252,13 @@ where
                     num_live_elem_in_tail,
                 )?;
 
+                self.list_cache.trim(key_table_index, to_dealloc)?;
+                self.free_trimmed_nodes(node_addrs, to_dealloc)?;
+
                 if to_dealloc == node_addrs.len() as u64 {
                     (0, 0, 0)
                 } else {
                     let new_head = node_addrs[to_dealloc as usize];
-                    self.list_cache.trim(key_table_index, to_dealloc)?;
-                    self.free_trimmed_nodes(node_addrs, to_dealloc)?;
                     (new_head, new_index, new_num_live)
                 }
             } else {
@@ -266,10 +271,11 @@ where
                     index_of_first_element,
                     num_live_elem_in_tail,
                 )?;
+                self.free_trimmed_nodes(&node_addrs, to_dealloc)?;
                 if to_dealloc == node_addrs.len() as u64 {
+                    self.list_cache.put(key_table_index, Vec::new());
                     (0, 0, 0)
                 } else {
-                    self.free_trimmed_nodes(&node_addrs, to_dealloc)?;
                     node_addrs.drain(0..to_dealloc as usize);
                     let new_head = node_addrs[0];
                     self.list_cache.put(key_table_index, node_addrs);
@@ -470,6 +476,7 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
         let mut output_vec = Vec::new();
         let bytes = mem_pool.read(addr, size_of::<DurableBlockListNode<N, M>>() as u64)?;
         let node = unsafe { DurableBlockListNode::<N, M>::from_bytes(&bytes) };
+
         for i in start_index..start_index + num_values {
             let row = node.vals[i as usize];
             if !row.check_crc() {
@@ -501,7 +508,6 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
     ) -> Result<(Vec<[u8; N]>, u64), Error> {
         // 1. check that the address is valid
         if !self.list_table.validate_addr(addr) {
-            println!("invalid addr");
             return Err(Error::InvalidAddr);
         }
 
@@ -593,7 +599,7 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
                 // we only update the number of live elements in the tail
                 // if there is one node left
                 if node_addrs.len() as u64 - dealloc_count == 1 {
-                    output_num_live = M as u64 - output_index;
+                    output_num_live = num_live_elem_in_tail - output_index;
                 }
 
                 Ok((dealloc_count, output_index, output_num_live))
