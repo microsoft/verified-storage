@@ -130,6 +130,54 @@ mod tests {
         }
     }
 
+    fn block_trim_test_mock_pool<const M: usize>(
+        mock_pool: &mut MockPool,
+        kv: &mut BlockKV<u64, 8, M>,
+        list_len: u64,
+        trim_len: u64,
+    ) {
+        let key = 0;
+        kv.insert(mock_pool, &key).unwrap();
+
+        // construct the list
+        let mut i: u64 = 0;
+        while i < list_len {
+            let val_bytes = i.to_le_bytes();
+            kv.append(mock_pool, &key, &val_bytes).unwrap();
+            i += 1;
+        }
+
+        println!("list constructed");
+
+        kv.trim(mock_pool, &key, trim_len).unwrap();
+
+        println!("list trimmed");
+
+        // list can be read and has correct contents
+        let vec_list = kv.read_list(mock_pool, &key).unwrap();
+        println!("vec list: {:?}", vec_list);
+        assert!(vec_list.len() == (list_len - trim_len) as usize);
+        for i in 0..vec_list.len() {
+            assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
+        }
+
+        println!("list read");
+
+        // we can append new elements successfully
+        let val: u64 = 1;
+        let val_bytes = val.to_le_bytes();
+        kv.append(mock_pool, &key, &val_bytes).unwrap();
+        let vec_list = kv.read_list(mock_pool, &key).unwrap();
+        assert!(vec_list.len() == (list_len - trim_len) as usize + 1);
+        for i in 0..vec_list.len() - 1 {
+            assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
+        }
+        assert!(u64::from_le_bytes(vec_list[vec_list.len() - 1]) == 1);
+
+        println!("appended to list");
+    }
+
+    // trim some but not all nodes from the head
     #[test]
     fn trim_block_list_on_mock1() {
         const ELEMENT_SIZE: usize = 8;
@@ -147,122 +195,158 @@ mod tests {
         )
         .unwrap();
 
-        let key = 0;
-        kv.insert(&mut mock_pool, &key).unwrap();
-
-        // construct the list
-        let mut i: u64 = 0;
-        while i < list_len {
-            let val_bytes = i.to_le_bytes();
-            kv.append(&mut mock_pool, &key, &val_bytes).unwrap();
-            i += 1;
-        }
-
-        kv.trim(&mut mock_pool, &key, trim_len).unwrap();
-
-        let vec_list = kv.read_list(&mock_pool, &key).unwrap();
-        assert!(vec_list.len() == (list_len - trim_len) as usize);
-        for i in 0..vec_list.len() {
-            assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
-        }
-
-        // we can append new elements successfully
-        let val: u64 = 1;
-        let val_bytes = val.to_le_bytes();
-        kv.append(&mut mock_pool, &key, &val_bytes).unwrap();
-        let vec_list = kv.read_list(&mock_pool, &key).unwrap();
-        assert!(vec_list.len() == (list_len - trim_len) as usize + 1);
-        for i in 0..vec_list.len() - 1 {
-            assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
-        }
-        assert!(u64::from_le_bytes(vec_list[vec_list.len() - 1]) == 1);
+        block_trim_test_mock_pool(&mut mock_pool, &mut kv, list_len, trim_len);
     }
 
-    // #[test]
-    // fn trim_block_list_on_mock2() {
-    //     const ELEMENT_SIZE: usize = 8;
-    //     const ROWS_PER_BLOCK: usize = 4;
-    //     let list_len = 7;
-    //     let trim_len = 4;
+    // trim some nodes from head and some from the next node
+    #[test]
+    fn trim_block_list_on_mock2() {
+        const ELEMENT_SIZE: usize = 8;
+        const ROWS_PER_BLOCK: usize = 4;
+        let list_len = 7;
+        let trim_len = 5;
 
-    //     let mut mock_pool = MockPool::new(POOL_SIZE);
-    //     let mut list_table: BlockListTable<ELEMENT_SIZE, ROWS_PER_BLOCK> =
-    //         BlockListTable::new(0, LIST_TABLE_SIZE);
-    //     let mut list: DurableBlockList<ELEMENT_SIZE, ROWS_PER_BLOCK> = DurableBlockList::new();
+        let mut mock_pool = MockPool::new(POOL_SIZE);
+        let mut kv: BlockKV<u64, ELEMENT_SIZE, ROWS_PER_BLOCK> = BlockKV::setup(
+            &mut mock_pool,
+            KEY_TABLE_SIZE,
+            LIST_TABLE_SIZE,
+            JOURNAL_SIZE,
+            CACHE_CAPACITY,
+        )
+        .unwrap();
 
-    //     let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
+        block_trim_test_mock_pool(&mut mock_pool, &mut kv, list_len, trim_len);
+    }
 
-    //     let mut i: u64 = 0;
-    //     while i < list_len {
-    //         let val_bytes = i.to_le_bytes();
-    //         list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
-    //             .unwrap();
-    //         i += 1;
-    //     }
+    // trim multiple full nodes
+    #[test]
+    fn trim_block_list_on_mock3() {
+        const ELEMENT_SIZE: usize = 8;
+        const ROWS_PER_BLOCK: usize = 4;
+        let list_len = 22;
+        let trim_len = 8;
 
-    //     list.trim(&mut mock_pool, &mut list_table, trim_len)
-    //         .unwrap();
+        let mut mock_pool = MockPool::new(POOL_SIZE);
+        let mut kv: BlockKV<u64, ELEMENT_SIZE, ROWS_PER_BLOCK> = BlockKV::setup(
+            &mut mock_pool,
+            KEY_TABLE_SIZE,
+            LIST_TABLE_SIZE,
+            JOURNAL_SIZE,
+            CACHE_CAPACITY,
+        )
+        .unwrap();
 
-    //     let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
-    //     assert!(vec_list.len() == (list_len - trim_len) as usize);
-    //     for i in 0..vec_list.len() {
-    //         assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
-    //     }
+        block_trim_test_mock_pool(&mut mock_pool, &mut kv, list_len, trim_len);
+    }
 
-    //     // we can append new elements successfully
-    //     let val: u64 = 1;
-    //     let val_bytes = val.to_le_bytes();
-    //     list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
-    //         .unwrap();
-    //     let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
-    //     assert!(vec_list.len() == (list_len - trim_len) as usize + 1);
-    //     for i in 0..vec_list.len() - 1 {
-    //         assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
-    //     }
-    //     assert!(u64::from_le_bytes(vec_list[vec_list.len() - 1]) == 1);
-    // }
+    // trim entire multiple node list
+    #[test]
+    fn trim_block_list_on_mock4() {
+        const ELEMENT_SIZE: usize = 8;
+        const ROWS_PER_BLOCK: usize = 4;
+        let list_len = 22;
+        let trim_len = 22;
 
-    // #[test]
-    // fn trim_block_list_on_mock3() {
-    //     const ELEMENT_SIZE: usize = 8;
-    //     const ROWS_PER_BLOCK: usize = 4;
-    //     let list_len = 7;
-    //     let trim_len = 7;
+        let mut mock_pool = MockPool::new(POOL_SIZE);
+        let mut kv: BlockKV<u64, ELEMENT_SIZE, ROWS_PER_BLOCK> = BlockKV::setup(
+            &mut mock_pool,
+            KEY_TABLE_SIZE,
+            LIST_TABLE_SIZE,
+            JOURNAL_SIZE,
+            CACHE_CAPACITY,
+        )
+        .unwrap();
 
-    //     let mut mock_pool = MockPool::new(POOL_SIZE);
-    //     let mut list_table: BlockListTable<ELEMENT_SIZE, ROWS_PER_BLOCK> =
-    //         BlockListTable::new(0, LIST_TABLE_SIZE);
-    //     let mut list: DurableBlockList<ELEMENT_SIZE, ROWS_PER_BLOCK> = DurableBlockList::new();
+        block_trim_test_mock_pool(&mut mock_pool, &mut kv, list_len, trim_len);
+    }
 
-    //     let mut journal = Journal::setup(&mut mock_pool, LIST_TABLE_SIZE, JOURNAL_SIZE).unwrap();
+    #[test]
+    fn trim_and_append_block_list_on_mock() {
+        const ELEMENT_SIZE: usize = 8;
+        const ROWS_PER_BLOCK: usize = 4;
+        let list_len = 22;
+        let trim_len = 13;
 
-    //     let mut i: u64 = 0;
-    //     while i < list_len {
-    //         let val_bytes = i.to_le_bytes();
-    //         list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
-    //             .unwrap();
-    //         i += 1;
-    //     }
+        let mut mock_pool = MockPool::new(POOL_SIZE);
+        let mut kv: BlockKV<u64, ELEMENT_SIZE, ROWS_PER_BLOCK> = BlockKV::setup(
+            &mut mock_pool,
+            KEY_TABLE_SIZE,
+            LIST_TABLE_SIZE,
+            JOURNAL_SIZE,
+            CACHE_CAPACITY,
+        )
+        .unwrap();
 
-    //     list.trim(&mut mock_pool, &mut list_table, trim_len)
-    //         .unwrap();
+        block_trim_test_mock_pool(&mut mock_pool, &mut kv, list_len, trim_len);
 
-    //     let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
-    //     assert!(vec_list.len() == (list_len - trim_len) as usize);
-    //     for i in 0..vec_list.len() {
-    //         assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
-    //     }
-    //     assert!(vec_list.len() == 0);
+        let key = 0;
+        let old_len: usize = (list_len - trim_len + 1) as usize;
 
-    //     // we can append new elements successfully
-    //     let val: u64 = 1;
-    //     let val_bytes = val.to_le_bytes();
-    //     list.append(&mut mock_pool, &mut list_table, &mut journal, &val_bytes)
-    //         .unwrap();
-    //     let vec_list = list.read_full_list(&mock_pool, &list_table).unwrap();
-    //     assert!(vec_list.len() == 1);
-    //     assert!(u64::from_le_bytes(vec_list[0]) == 1);
-    // }
+        // append enough additional nodes to trigger allocation
+        let append_count: u64 = 8;
+        for i in 0..append_count {
+            let val_bytes = i.to_le_bytes();
+            kv.append(&mut mock_pool, &key, &val_bytes).unwrap();
+        }
+
+        let vec_list = kv.read_list(&mock_pool, &key).unwrap();
+
+        for i in 0..vec_list.len() - append_count as usize - 1 {
+            assert!(u64::from_le_bytes(vec_list[i]) == i as u64 + trim_len);
+        }
+        assert!(u64::from_le_bytes(vec_list[old_len - 1]) == 1);
+        for i in 0..append_count as usize {
+            assert!(u64::from_le_bytes(vec_list[old_len + i]) == i as u64);
+        }
+    }
+
+    #[test]
+    fn cache_evict_block() {
+        const ELEMENT_SIZE: usize = 8;
+        const ROWS_PER_BLOCK: usize = 4;
+        let cache_capacity = 2;
+
+        let mut mock_pool = MockPool::new(POOL_SIZE);
+        let mut kv: BlockKV<u64, ELEMENT_SIZE, ROWS_PER_BLOCK> = BlockKV::setup(
+            &mut mock_pool,
+            KEY_TABLE_SIZE,
+            LIST_TABLE_SIZE,
+            JOURNAL_SIZE,
+            cache_capacity,
+        )
+        .unwrap();
+
+        // Add more keys than fit in the cache and append to their lists
+        let key1 = 1;
+        kv.insert(&mut mock_pool, &key1).unwrap();
+        kv.append(&mut mock_pool, &key1, &key1.to_le_bytes())
+            .unwrap();
+
+        let key2 = 2;
+        kv.insert(&mut mock_pool, &key2).unwrap();
+        kv.append(&mut mock_pool, &key2, &key2.to_le_bytes())
+            .unwrap();
+
+        let key3 = 3;
+        kv.insert(&mut mock_pool, &key3).unwrap();
+        kv.append(&mut mock_pool, &key3, &key3.to_le_bytes())
+            .unwrap();
+
+        // cache contains key2 and key3. we should be able to read key1's list
+        let key1_list = kv.read_list(&mock_pool, &key1).unwrap();
+        assert!(key1_list == vec![1u64.to_le_bytes()]);
+
+        // cache now contains key1 and key2. we should be able to read key3's list
+        let key3_list = kv.read_list(&mock_pool, &key3).unwrap();
+        assert!(key3_list == vec![3u64.to_le_bytes()]);
+
+        // cache now contains key1 and key3. we should be able to append to key2's list
+        kv.append(&mut mock_pool, &key2, &key2.to_le_bytes())
+            .unwrap();
+        let key2_list = kv.read_list(&mock_pool, &key2).unwrap();
+        assert!(key2_list == vec![2u64.to_le_bytes(); 2]);
+    }
 
     #[test]
     fn dll1() {
@@ -314,7 +398,7 @@ mod tests {
 
     #[test]
     fn lru1() {
-        let mut list_cache = ListCache::<8>::new(2);
+        let list_cache = ListCache::<8>::new(2);
         let index0 = 0;
         let index1 = 1;
         let index2 = 2;
