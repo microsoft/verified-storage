@@ -1,10 +1,10 @@
+use crate::block_list::*;
 use crate::dll::*;
 use crate::journal::*;
-use crate::journaled_block_list::*;
-use crate::journaled_singleton_list::*;
 use crate::list::*;
 use crate::mem_pool::*;
 use crate::mock_pool::*;
+use crate::singleton_list::*;
 use crate::table::*;
 
 #[cfg(test)]

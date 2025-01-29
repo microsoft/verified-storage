@@ -5,9 +5,9 @@ use std::{collections::HashMap, mem::size_of};
 use crc64fast::Digest;
 
 use crate::{
+    block_list::*,
     err::Error,
     journal::Journal,
-    journaled_block_list::*,
     key_table::KeyTable,
     kv::KV,
     list_cache::{ListCache, ListInfo},
