@@ -27,6 +27,7 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
 use inv_v::*;
+use recover_v::*;
 use spec_v::*;
 use start_v::*;
 use std::hash::Hash;
@@ -41,33 +42,14 @@ pub use spec_v::{ListTableSnapshot, ListTableView};
 #[repr(C)]
 #[derive(PmCopy, Copy)]
 #[verifier::ext_equal]
-struct ListTableRowMetadata
-{
-    next_row_start: u64,
-    num_block_elements: u64,
-    num_trimmed_elements: u64,
-}
-
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-#[verifier::ext_equal]
 pub struct ListTableStaticMetadata
 {
     table: TableMetadata,
-    num_lists_to_cache: u64,
     list_entry_size: u64,
-    num_elements_per_block: u64,
-    num_list_blocks: u64,
-    row_size: u64,
-    row_metadata_start: u64,
-    row_metadata_end: u64,
-    row_metadata_crc_start: u64,
-    row_block_start: u64,
-    row_block_end: u64,
-    block_element_size: u64,
-    block_element_list_entry_start: u64,
-    block_element_list_entry_end: u64,
-    block_element_crc_start: u64,
+    row_next_start: u64,
+    row_next_crc_start: u64,
+    row_element_start: u64,
+    row_element_crc_start: u64,
 }
 
 impl ListTableStaticMetadata
@@ -76,16 +58,13 @@ impl ListTableStaticMetadata
         where
             L: PmCopy,
     {
-        &&& 0 < self.num_lists_to_cache
         &&& self.list_entry_size == L::spec_size_of()
         &&& self.table.valid()
         &&& self.table.start <= self.table.end
-        &&& self.row_metadata_end - self.row_metadata_start == ListTableRowMetadata::spec_size_of()
-        &&& self.row_metadata_end <= self.row_block_start
-        &&& self.num_elements_per_block * self.block_element_size <= self.row_block_end - self.row_block_start
-        &&& self.block_element_list_entry_end - self.block_element_list_entry_start == self.list_entry_size
-        &&& self.block_element_list_entry_end <= self.block_element_crc_start
-        &&& self.block_element_crc_start + u64::spec_size_of() <= self.block_element_size
+        &&& self.row_next_start + u64::spec_size_of() <= self.row_next_crc_start
+        &&& self.row_next_crc_start + u64::spec_size_of() <= self.row_element_start
+        &&& self.row_element_start + self.list_entry_size <= self.row_element_crc_start
+        &&& self.row_element_crc_start + u64::spec_size_of() <= self.table.row_size
     }
 
     pub closed spec fn spec_start(self) -> u64
@@ -162,7 +141,10 @@ impl<PM, L> ListTable<PM, L>
         sm: ListTableStaticMetadata,
     ) -> Option<ListTableSnapshot<L>>
     {
-        arbitrary()
+        match ListRecoveryMapping::<L>::new(s, addrs, sm) {
+            None => None,
+            Some(mapping) => Some(mapping.as_snapshot())
+        }
     }
 
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters, min_start: nat) -> nat

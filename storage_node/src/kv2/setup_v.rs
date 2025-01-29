@@ -31,9 +31,7 @@ exec fn check_setup_parameters(ps: &SetupParameters) -> (result: bool)
         result == ps.valid(),
 {
     if ps.num_keys == 0 { false }
-    else if ps.num_list_entries_per_block == 0 { false }
-    else if ps.num_list_blocks == 0 { false }
-    else if ps.num_lists_to_cache == 0 { false }
+    else if ps.num_list_entries == 0 { false }
     else if ps.max_operations_per_transaction == 0 { false }
     else { true }
 }

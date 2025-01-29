@@ -50,6 +50,17 @@ impl<PM, L> ListTable<PM, L>
     {
         assume(false);
     }
+
+    pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)
+        requires
+            self.valid(old_jv),
+            old_jv.matches_in_range(new_jv, self@.sm.start() as int, self@.sm.end() as int),
+            old_jv.constants == new_jv.constants,
+        ensures
+            self.valid(new_jv),
+    {
+        assume(false);
+    }
 }
 
 }
