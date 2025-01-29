@@ -20,7 +20,7 @@ mod tests {
 
     use super::*;
 
-    impl PmCopy for u64 {}
+    // impl PmCopy for u64 {}
 
     #[test]
     fn create_singleton_list_on_mock() {
