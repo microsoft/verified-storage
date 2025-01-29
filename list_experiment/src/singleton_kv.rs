@@ -204,14 +204,22 @@ where
         // in that case
         let new_head = if let Some(list_info) = self.list_cache.get(key_table_index) {
             let node_addrs = list_info.get_addrs();
-            let new_head = node_addrs[trim_len as usize];
+            let new_head = if node_addrs.len() > trim_len as usize {
+                node_addrs[trim_len as usize]
+            } else {
+                0
+            };
             self.free_trimmed_nodes(node_addrs, trim_len)?;
             self.list_cache.trim(key_table_index, trim_len)?;
             new_head
         } else {
             let mut node_addrs = self.read_list_addrs(mem_pool, key)?;
+            let new_head = if node_addrs.len() > trim_len as usize {
+                node_addrs[trim_len as usize]
+            } else {
+                0
+            };
             self.free_trimmed_nodes(&node_addrs, trim_len)?;
-            let new_head = node_addrs[trim_len as usize];
             node_addrs.drain(0..trim_len as usize);
             // cache put takes ownership of node addrs, so we only insert it
             // once we have trimmed it
