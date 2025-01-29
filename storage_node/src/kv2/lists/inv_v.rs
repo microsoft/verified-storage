@@ -69,6 +69,7 @@ pub(super) enum ListTableEntryView<L>
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
+        appended_addrs: Seq<u64>,
         appended_elements: Seq<L>,
     },
     Updated{
@@ -90,6 +91,7 @@ pub(super) enum ListTableEntry<L>
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
+        appended_addrs: Vec<u64>,
         appended_elements: Vec<L>,
     },
     Updated{
@@ -107,8 +109,8 @@ impl<L> ListTableEntry<L>
     {
         match self {
             ListTableEntry::Durable{ entry } => ListTableEntryView::Durable{ entry },
-            ListTableEntry::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_elements } =>
-                ListTableEntryView::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_elements: appended_elements@ },
+            ListTableEntry::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_addrs, appended_elements } =>
+                ListTableEntryView::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_addrs: appended_addrs@, appended_elements: appended_elements@ },
             ListTableEntry::Updated{ durable, tentative_addrs, tentative_elements } =>
                 ListTableEntryView::Updated{ durable, tentative_addrs: tentative_addrs@, tentative_elements: tentative_elements@ },
         }
@@ -132,18 +134,21 @@ impl<L> ListTableEntryView<L>
     {
         match self {
             ListTableEntryView::Durable{ entry } => entry.consistent_with_recovery_state(mapping),
-            ListTableEntryView::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_elements } => {
+            ListTableEntryView::TrimmedAndOrAppended{ durable, tentative, num_trimmed, appended_addrs, appended_elements } => {
                 let addrs = mapping.list_info[tentative.head];
                 let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
                 &&& mapping.list_info.contains_key(tentative.head)
                 &&& tentative.consistent_with_recovery_state(mapping)
                 &&& 0 < addrs.len()
+                &&& appended_addrs.len() == appended_elements.len()
                 &&& durable.length + appended_elements.len() - num_trimmed == tentative.length
                 &&& if elements.len() >= appended_elements.len() {
-                    elements.skip(elements.len() - appended_elements.len()) == appended_elements
+                    &&& elements.skip(elements.len() - appended_elements.len()) == appended_elements
+                    &&& addrs.skip(addrs.len() - appended_addrs.len()) == appended_addrs
                 }
                 else {
-                    elements == appended_elements.skip(appended_elements.len() - elements.len())
+                    &&& addrs == appended_addrs.skip(appended_addrs.len() - addrs.len())
+                    &&& elements == appended_elements.skip(appended_elements.len() - elements.len())
                 }
             },
             ListTableEntryView::Updated{ durable, tentative_addrs, tentative_elements } => {
@@ -153,6 +158,7 @@ impl<L> ListTableEntryView<L>
                 &&& mapping.list_info.contains_key(tentative_addrs[0])
                 &&& tentative_addrs == addrs
                 &&& tentative_elements == elements
+                &&& tentative_addrs.len() == tentative_elements.len()
             },
         }
     }    
@@ -277,6 +283,15 @@ impl<L> ListInternalView<L>
         &&& self.tentative_mapping.corresponds(s, self.tentative_list_addrs, sm)
     }
 
+    pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>, sm: ListTableStaticMetadata) -> bool
+    {
+        &&& forall|i: int, addr: int| #![trigger self.free_list[i], journaled_addrs.contains(addr)] {
+            let row_addr = self.free_list[i];
+            &&& 0 <= i < self.free_list.len()
+            &&& row_addr <= addr < row_addr + sm.table.row_size
+        } ==> !journaled_addrs.contains(addr)
+    }
+
     pub(super) open spec fn row_info_complete(self, sm: ListTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: u64|
@@ -368,6 +383,7 @@ impl<PM, L> ListTable<PM, L>
         &&& self.internal_view().corresponds_to_durable_state(jv.durable_state, self.sm)
         &&& self.internal_view().corresponds_to_durable_state(jv.read_state, self.sm)
         &&& self.internal_view().corresponds_to_tentative_state(jv.commit_state, self.sm)
+        &&& self.internal_view().consistent_with_journaled_addrs(jv.journaled_addrs, self.sm)
     }
 
     pub(super) open spec fn internal_view(self) -> ListInternalView<L>
