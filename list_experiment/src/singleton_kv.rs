@@ -7,10 +7,10 @@ use crc64fast::Digest;
 use crate::{
     err::Error,
     journal::Journal,
-    journaled_singleton_list::*,
     key_table::KeyTable,
     kv::KV,
     list_cache::{ListCache, ListInfo},
+    singleton_list::*,
     DurableTable, MemoryPool, PmCopy, NULL_ADDR,
 };
 

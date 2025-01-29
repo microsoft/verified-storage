@@ -1,20 +1,19 @@
 #![allow(unused_imports)]
 use journal::Journal;
 
-use crate::journaled_block_list::*;
-use crate::journaled_singleton_list::*;
+use crate::block_list::*;
 use crate::list::*;
 use crate::mem_pool::*;
 use crate::mock_pool::*;
+use crate::singleton_list::*;
 use crate::table::*;
 use std::time::Instant;
 
 mod block_kv;
+mod block_list;
 mod dll;
 mod err;
 mod journal;
-mod journaled_block_list;
-mod journaled_singleton_list;
 mod key_table;
 mod kv;
 mod list;
@@ -22,6 +21,7 @@ mod list_cache;
 mod mem_pool;
 mod mock_pool;
 mod singleton_kv;
+mod singleton_list;
 mod table;
 mod test;
 
