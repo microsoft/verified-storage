@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::{cell::RefCell, ptr::NonNull, rc::Rc};
 
 #[derive(Debug)]

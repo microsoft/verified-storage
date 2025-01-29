@@ -21,10 +21,6 @@ impl TableMetadata {
         addr > 0 && self.start <= addr && addr < (self.start + (self.num_rows * self.row_size))
     }
 
-    pub fn row_addr_to_index(&self, addr: u64) -> u64 {
-        (addr - self.start) / self.row_size
-    }
-
     pub fn row_index_to_addr(&self, index: u64) -> u64 {
         (index * self.row_size) + self.start
     }

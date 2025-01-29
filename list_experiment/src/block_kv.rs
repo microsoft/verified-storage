@@ -499,27 +499,6 @@ impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<
         Ok(next_ptr.next())
     }
 
-    fn read_value_and_next_at_addr<P: MemoryPool>(
-        &self,
-        mem_pool: &P,
-        addr: u64,
-        start_index: u64,
-        num_values: u64,
-    ) -> Result<(Vec<[u8; N]>, u64), Error> {
-        // 1. check that the address is valid
-        if !self.list_table.validate_addr(addr) {
-            return Err(Error::InvalidAddr);
-        }
-
-        // 2. read each row in the node, check CRC, and put in the output vec
-        let output_vec = self.read_value_at_addr(mem_pool, addr, start_index, num_values)?;
-
-        // 3. read the next pointer and check its CRC
-        let next = self.read_next_ptr_at_addr(mem_pool, addr)?;
-
-        Ok((output_vec, next))
-    }
-
     // First u64 in return tuple is the number of physical nodes to deallocate
     // Second u64 in return tuple is the new index_of_first_element value
     // Third u64 in return tuple is the new num_live_elem_in_tail value
