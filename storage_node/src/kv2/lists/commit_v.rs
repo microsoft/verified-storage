@@ -69,8 +69,6 @@ impl<PM, L> ListTable<PM, L>
             self.valid(jv_after_commit),
             self@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
     {
-        assume(false);
-        /*
         let ghost new_row_info =
             Map::<u64, ListRowDisposition<L>>::new(
                 |row_addr: u64| self.row_info@.contains_key(row_addr),
@@ -94,16 +92,14 @@ impl<PM, L> ListTable<PM, L>
         broadcast use group_validate_row_addr;
 
         assert(self.valid(jv_after_commit)) by {
-            assume(false);
             assert(self.sm.valid::<L>());
-            assert(self.internal_view().valid(self.sm));
+            assume(self.internal_view().valid(self.sm));
             assume(self.internal_view().corresponds_to_durable_state(jv_after_commit.durable_state, self.sm));
             assume(self.internal_view().corresponds_to_durable_state(jv_after_commit.read_state, self.sm));
             assume(self.internal_view().corresponds_to_tentative_state(jv_after_commit.commit_state, self.sm));
             assume(self.internal_view().consistent_with_journaled_addrs(jv_after_commit.journaled_addrs, self.sm));
         }
         assert(self@ =~= (ListTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));
-        */
     }
 }
 

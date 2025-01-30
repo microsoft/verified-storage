@@ -144,15 +144,20 @@ impl<L> ListTableEntryView<L>
         }
     }
 
-    pub(super) open spec fn consistent_with_tentative_recovery_state(self, mapping: ListRecoveryMapping<L>) -> bool
+    pub(super) open spec fn consistent_with_tentative_recovery_mapping(self, list_addr: u64,
+                                                                     mapping: ListRecoveryMapping<L>) -> bool
     {
         match self {
-            ListTableEntryView::Durable{ entry } => entry.consistent_with_recovery_state(mapping),
+            ListTableEntryView::Durable{ entry } => {
+                &&& entry.head == list_addr
+                &&& entry.consistent_with_recovery_state(mapping)
+            },
             ListTableEntryView::TrimmedAndOrAppended{ which_change, durable, tentative, num_trimmed,
                                                       appended_addrs, appended_elements } => {
                 let addrs = mapping.list_info[tentative.head];
                 let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
-                &&& mapping.list_info.contains_key(tentative.head)
+                &&& tentative.head == list_addr
+                &&& mapping.list_info.contains_key(list_addr)
                 &&& tentative.consistent_with_recovery_state(mapping)
                 &&& 0 < addrs.len()
                 &&& appended_addrs.len() == appended_elements.len()
@@ -170,7 +175,8 @@ impl<L> ListTableEntryView<L>
                 let addrs = mapping.list_info[tentative_addrs[0]];
                 let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
                 &&& 0 < tentative_addrs.len()
-                &&& mapping.list_info.contains_key(tentative_addrs[0])
+                &&& tentative_addrs[0] == list_addr
+                &&& mapping.list_info.contains_key(list_addr)
                 &&& tentative_addrs == addrs
                 &&& tentative_elements == elements
                 &&& tentative_addrs.len() == tentative_elements.len()
@@ -179,7 +185,8 @@ impl<L> ListTableEntryView<L>
                 let addrs = mapping.list_info[tentative_addrs[0]];
                 let elements = addrs.map(|_i, addr| mapping.row_info[addr].element);
                 &&& 0 < tentative_addrs.len()
-                &&& mapping.list_info.contains_key(tentative_addrs[0])
+                &&& tentative_addrs[0] == list_addr
+                &&& mapping.list_info.contains_key(list_addr)
                 &&& tentative_addrs == addrs
                 &&& tentative_elements == elements
                 &&& tentative_addrs.len() == tentative_elements.len()
@@ -253,9 +260,9 @@ impl<L> ListInternalView<L>
         &&& self.changes_reflected_in_m()
         &&& forall|list_addr: u64| #[trigger] self.tentative_mapping.list_info.contains_key(list_addr) ==>
                 self.m.contains_key(list_addr)
-        &&& self.m_consistent_with_durable_recovery_state()
-        &&& self.m_consistent_with_tentative_recovery_state()
-        &&& self.deletions_consistent_with_durable_recovery_state()
+        &&& self.m_consistent_with_durable_recovery_mapping()
+        &&& self.m_consistent_with_tentative_recovery_mapping()
+        &&& self.deletions_consistent_with_durable_recovery_mapping()
         &&& self.row_info_complete(sm)
         &&& self.per_row_info_consistent(sm)
     }
@@ -313,20 +320,20 @@ impl<L> ListInternalView<L>
             }
     }
 
-    pub(super) open spec fn m_consistent_with_durable_recovery_state(self) -> bool
+    pub(super) open spec fn m_consistent_with_durable_recovery_mapping(self) -> bool
     {
         &&& forall|list_addr: u64| #[trigger] self.m.contains_key(list_addr) ==>
                 (self.m[list_addr].durable_entry() matches Some(entry) ==>
                  entry.consistent_with_recovery_state(self.durable_mapping))
     }
 
-    pub(super) open spec fn m_consistent_with_tentative_recovery_state(self) -> bool
+    pub(super) open spec fn m_consistent_with_tentative_recovery_mapping(self) -> bool
     {
         &&& forall|list_addr: u64| #[trigger] self.m.contains_key(list_addr) ==>
-                self.m[list_addr].consistent_with_tentative_recovery_state(self.tentative_mapping)
+                self.m[list_addr].consistent_with_tentative_recovery_mapping(list_addr, self.tentative_mapping)
     }
 
-    pub(super) open spec fn deletions_consistent_with_durable_recovery_state(self) -> bool
+    pub(super) open spec fn deletions_consistent_with_durable_recovery_mapping(self) -> bool
     {
         &&& forall|i: int| 0 <= i < self.changes.len() ==>
             (#[trigger] self.changes[i] matches ListTableTentativeChange::Deleted{ durable_list_addr, entry } ==>
@@ -343,7 +350,11 @@ impl<L> ListInternalView<L>
         &&& self.tentative_mapping.corresponds(s, self.tentative_list_addrs, sm)
     }
 
-    pub(super) open spec fn consistent_with_journaled_addrs(self, journaled_addrs: Set<int>, sm: ListTableStaticMetadata) -> bool
+    pub(super) open spec fn consistent_with_journaled_addrs(
+        self,
+        journaled_addrs: Set<int>,
+        sm: ListTableStaticMetadata
+    ) -> bool
     {
         &&& forall|i: int, addr: int| #![trigger self.free_list[i], journaled_addrs.contains(addr)] {
             let row_addr = self.free_list[i];
