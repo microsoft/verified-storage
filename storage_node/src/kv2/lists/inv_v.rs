@@ -428,6 +428,8 @@ impl<PM, L> ListTable<PM, L>
 {
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
+        &&& jv.constants.app_area_start <= self.sm.start()
+        &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.sm.valid::<L>()
         &&& self.internal_view().valid(self.sm)
         &&& self.internal_view().corresponds_to_durable_state(jv.durable_state, self.sm)

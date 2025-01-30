@@ -89,9 +89,15 @@ pub trait LogicalRange {
     spec fn spec_end(&self) -> usize;
 
     #[verifier::when_used_as_spec(spec_start)]
-    fn start(&self) -> usize;
+    fn start(&self) -> (result: usize)
+        ensures
+            result == self.start(),
+        ;
     #[verifier::when_used_as_spec(spec_end)]
-    fn end(&self) -> usize;
+    fn end(&self) -> (result: usize)
+        ensures
+            result == self.end()
+        ;
 }
 
 pub open spec fn end_of_range<L>(list_entries: Seq<L>) -> usize
