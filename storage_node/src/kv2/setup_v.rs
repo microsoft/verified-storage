@@ -44,16 +44,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: OverflowingU64)
-        where
-            PM: PersistentMemoryRegion,
-            L: PmCopy,
         ensures
             result@ == Self::spec_space_needed_for_journal_capacity(*ps),
     {
         let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
         let overhead_times_four = OverflowingU64::new(overhead).mul(4);
         let eight_u64_size = size_of::<u64>() * 8;
-        let bytes_per_operation = overhead_times_four.add_usize(size_of::<L>()).add_usize(eight_u64_size);
+        let bytes_per_operation = overhead_times_four.add_usize(eight_u64_size);
         OverflowingU64::new(ps.max_operations_per_transaction).mul_overflowing_u64(&bytes_per_operation)
     }
     
