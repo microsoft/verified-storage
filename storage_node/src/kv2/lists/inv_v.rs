@@ -221,7 +221,7 @@ impl<L> ListTableInternalView<L>
         &&& forall|list_addr: u64| #[trigger] self.m.contains_key(list_addr) ==>
                (self.m[list_addr] matches ListTableEntryView::Durable{ entry } ==> {
                    let addrs = self.durable_mapping.list_info[list_addr];
-                   let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
+                   let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
                    &&& 0 < addrs.len()
                    &&& self.durable_mapping.list_info.contains_key(list_addr)
                    &&& self.durable_mapping.row_info.contains_key(addrs.last())
@@ -240,7 +240,7 @@ impl<L> ListTableInternalView<L>
                let entry = self.deletions[i];
                let list_addr = entry.head;
                let addrs = self.durable_mapping.list_info[list_addr];
-               let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
+               let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
                &&& 0 < addrs.len()
                &&& self.durable_mapping.list_info.contains_key(list_addr)
                &&& self.durable_mapping.row_info.contains_key(addrs.last())
