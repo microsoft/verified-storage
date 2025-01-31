@@ -118,14 +118,6 @@ impl<PM, L> ListTable<PM, L>
                         &&& old(self).m@[list_addr] is Updated
                     },
                 },
-            forall|i: int| 0 <= i < old(self).creates.len() ==>
-                match #[trigger] old(self).creates[i] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& old(self).m@[list_addr] is Created
-                    },
-                },
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
@@ -169,14 +161,6 @@ impl<PM, L> ListTable<PM, L>
                     match #[trigger] self.updates[i] {
                         None => true,
                         Some(list_addr) => !self.m@.contains_key(list_addr),
-                    },
-                forall|i: int| 0 <= i < self.creates.len() ==>
-                    match #[trigger] self.creates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& self.m@.contains_key(list_addr)
-                            &&& self.m@[list_addr] is Created
-                        },
                     },
         {
             broadcast use group_hash_axioms;
