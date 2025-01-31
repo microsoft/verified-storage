@@ -248,8 +248,6 @@ impl<PM, L> ListTable<PM, L>
             },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
     {
-        broadcast use group_hash_axioms;
-
         let mut which_create = 0;
         let num_creates = self.creates.len();
 

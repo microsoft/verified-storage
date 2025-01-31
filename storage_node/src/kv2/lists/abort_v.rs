@@ -23,6 +23,7 @@ use super::recover_v::*;
 use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+use vstd::std_specs::hash::*;
 
 verus! {
 
@@ -107,23 +108,350 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    exec fn update_m_to_reflect_abort_of_updates(&mut self)
+        requires
+            forall|i: int| 0 <= i < old(self).updates.len() ==>
+                match #[trigger] old(self).updates[i] {
+                    None => true,
+                    Some(list_addr) => {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& old(self).m@[list_addr] is Updated
+                    },
+                },
+            forall|i: int| 0 <= i < old(self).creates.len() ==>
+                match #[trigger] old(self).creates[i] {
+                    None => true,
+                    Some(list_addr) => {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& old(self).m@[list_addr] is Created
+                    },
+                },
+        ensures
+            self == (Self{ m: self.m, ..*old(self) }),
+            forall|i: int| 0 <= i < self.updates.len() ==>
+                match #[trigger] old(self).updates[i] {
+                    None => true,
+                    Some(list_addr) => !self.m@.contains_key(list_addr),
+                },
+            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+                &&& old(self).m@.contains_key(list_addr)
+                &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+            },
+            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
+                (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
+            forall|i: int| 0 <= i < self.creates.len() ==>
+                match #[trigger] self.creates[i] {
+                    None => true,
+                    Some(list_addr) => {
+                        &&& self.m@.contains_key(list_addr)
+                        &&& self.m@[list_addr] is Created
+                    },
+                },
+    {
+        let mut which_update = 0;
+        let num_updates = self.updates.len();
+
+        while which_update < num_updates
+            invariant
+                self == (Self{ m: self.m, ..*old(self) }),
+                0 <= which_update <= num_updates,
+                num_updates == self.updates.len(),
+                forall|i: int| 0 <= i < old(self).updates.len() ==>
+                    match #[trigger] old(self).updates[i] {
+                        None => true,
+                        Some(list_addr) => {
+                            &&& old(self).m@.contains_key(list_addr)
+                            &&& old(self).m@[list_addr] is Updated
+                        },
+                    },
+                forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                },
+                forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
+                    (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
+                forall|i: int| 0 <= i < which_update ==>
+                    match #[trigger] self.updates[i] {
+                        None => true,
+                        Some(list_addr) => !self.m@.contains_key(list_addr),
+                    },
+                forall|i: int| 0 <= i < self.creates.len() ==>
+                    match #[trigger] self.creates[i] {
+                        None => true,
+                        Some(list_addr) => {
+                            &&& self.m@.contains_key(list_addr)
+                            &&& self.m@[list_addr] is Created
+                        },
+                    },
+        {
+            broadcast use group_hash_axioms;
+            match self.updates[which_update] {
+                None => {},
+                Some(list_addr) => { self.m.remove(&list_addr); },
+            };
+            which_update += 1;
+        }
+    }
+
+    exec fn update_m_to_reflect_abort_of_creates(&mut self)
+        requires
+            forall|i: int| 0 <= i < old(self).creates.len() ==>
+                match #[trigger] old(self).creates[i] {
+                    None => true,
+                    Some(list_addr) => {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& old(self).m@[list_addr] is Created
+                    },
+                },
+        ensures
+            self == (Self{ m: self.m, ..*old(self) }),
+            forall|i: int| 0 <= i < self.creates.len() ==>
+                match #[trigger] old(self).creates[i] {
+                    None => true,
+                    Some(list_addr) => !self.m@.contains_key(list_addr),
+                },
+            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+                &&& old(self).m@.contains_key(list_addr)
+                &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+            },
+            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
+                (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
+    {
+        let mut which_create = 0;
+        let num_creates = self.creates.len();
+
+        while which_create < num_creates
+            invariant
+                self == (Self{ m: self.m, ..*old(self) }),
+                0 <= which_create <= num_creates,
+                num_creates == self.creates.len(),
+                forall|i: int| 0 <= i < old(self).creates.len() ==>
+                    match #[trigger] old(self).creates[i] {
+                        None => true,
+                        Some(list_addr) => {
+                            &&& old(self).m@.contains_key(list_addr)
+                            &&& old(self).m@[list_addr] is Created
+                        },
+                    },
+                forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                },
+                forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
+                    (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
+                forall|i: int| 0 <= i < which_create ==>
+                    match #[trigger] self.creates[i] {
+                        None => true,
+                        Some(list_addr) => !self.m@.contains_key(list_addr),
+                    },
+        {
+            broadcast use group_hash_axioms;
+            match self.creates[which_create] {
+                None => {},
+                Some(list_addr) => { self.m.remove(&list_addr); },
+            };
+            which_create += 1;
+        }
+    }
+
+    exec fn update_m_to_reflect_abort_of_deletions(&mut self)
+        requires
+            forall|list_addr: u64| #[trigger] old(self).internal_view().deletions_inverse.contains_key(list_addr) ==> {
+                let which_deletion = old(self).internal_view().deletions_inverse[list_addr];
+                &&& 0 <= which_deletion < old(self).internal_view().deletions.len()
+                &&& old(self).internal_view().deletions[which_deletion as int].head == list_addr
+            },
+            forall|i: int| #![trigger old(self).internal_view().deletions[i]]
+                0 <= i < old(self).internal_view().deletions.len() ==> {
+                    let entry = old(self).internal_view().deletions[i];
+                    &&& old(self).internal_view().deletions_inverse.contains_key(entry.head)
+                    &&& old(self).internal_view().deletions_inverse[entry.head] == i
+                },
+            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> old(self).m@[list_addr] is Durable,
+        ensures
+            self == (Self{ m: self.m, ..*old(self) }),
+            forall|i: int| #![trigger self.deletions[i]] 0 <= i < self.deletions.len() ==> {
+                let entry = self.deletions[i];
+                &&& self.m@.contains_key(entry.head)
+                &&& self.m@[entry.head] == ListTableEntry::<L>::Durable{ entry }
+            },
+            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+                if self.deletions_inverse@.contains_key(list_addr) {
+                    let entry = self.deletions@[self.deletions_inverse@[list_addr] as int];
+                    &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{ entry }
+                }
+                else {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                }
+            },
+            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> {
+                ||| {
+                       &&& old(self).deletions_inverse@.contains_key(list_addr)
+                       &&& self.m@.contains_key(list_addr)
+                       &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
+                           entry: self.deletions@[self.deletions_inverse@[list_addr] as int]
+                       }
+                    }
+                ||| {
+                       &&& self.m@.contains_key(list_addr)
+                       &&& self.m@[list_addr] == old(self).m@[list_addr]
+                   }
+            },
+    {
+        let mut which_deletion = 0;
+        let num_deletions = self.deletions.len();
+
+        while which_deletion < num_deletions
+            invariant
+                self == (Self{ m: self.m, ..*old(self) }),
+                0 <= which_deletion <= num_deletions,
+                num_deletions == self.deletions.len(),
+                forall|list_addr: u64| #[trigger] self.internal_view().deletions_inverse.contains_key(list_addr) ==> {
+                    let which_deletion = self.internal_view().deletions_inverse[list_addr];
+                    &&& 0 <= which_deletion < self.internal_view().deletions.len()
+                    &&& self.internal_view().deletions[which_deletion as int].head == list_addr
+                },
+                forall|i: int| #![trigger self.internal_view().deletions[i]]
+                    0 <= i < self.internal_view().deletions.len() ==> {
+                        let entry = self.internal_view().deletions[i];
+                        &&& self.internal_view().deletions_inverse.contains_key(entry.head)
+                        &&& self.internal_view().deletions_inverse[entry.head] == i
+                    },
+                forall|i: int| #![trigger self.deletions[i]] 0 <= i < which_deletion ==> {
+                    let entry = self.deletions[i];
+                    &&& self.m@.contains_key(entry.head)
+                    &&& self.m@[entry.head] == ListTableEntry::<L>::Durable{ entry }
+                },
+                forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> self.m@[list_addr] is Durable,
+                forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+                    ||| {
+                        &&& self.internal_view().deletions_inverse.contains_key(list_addr)
+                        &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
+                            entry: self.deletions@[self.internal_view().deletions_inverse[list_addr] as int]
+                        }
+                    }
+                    ||| {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                    }
+                },
+                forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> {
+                    ||| {
+                           &&& old(self).deletions_inverse@.contains_key(list_addr)
+                           &&& self.m@.contains_key(list_addr)
+                           &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
+                               entry: self.deletions@[self.deletions_inverse@[list_addr] as int]
+                           }
+                        }
+                    ||| {
+                           &&& self.m@.contains_key(list_addr)
+                           &&& self.m@[list_addr] == old(self).m@[list_addr]
+                       }
+            },
+        {
+            broadcast use group_hash_axioms;
+            let ghost prev_self = *self;
+            let entry = self.deletions[which_deletion].clone();
+            assert(entry == self.deletions[which_deletion as int]);
+            self.m.insert(entry.head, ListTableEntry::<L>::Durable{ entry });
+            assert(self.internal_view().deletions_inverse == prev_self.internal_view().deletions_inverse);
+            assert(self.internal_view().deletions == prev_self.internal_view().deletions);
+            which_deletion += 1;
+        }
+
+        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies {
+                if self.deletions_inverse@.contains_key(list_addr) {
+                    let entry = self.deletions@[self.deletions_inverse@[list_addr] as int];
+                    &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{ entry }
+                }
+                else {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                }
+            } by {
+            if self.deletions_inverse@.contains_key(list_addr) {
+                assert(self.internal_view().deletions_inverse.contains_key(list_addr));
+            }
+        }
+    }
+
+    exec fn update_m_to_reflect_abort(&mut self, Ghost(jv): Ghost<JournalView>)
+        requires
+            old(self).valid(jv),
+        ensures
+            self == (Self{ m: self.m, ..*old(self) }),
+            self.internal_view().m == old(self).internal_view().abort().m,
+    {
+        self.update_m_to_reflect_abort_of_updates();
+
+        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies !(self.m@[list_addr] is Updated)
+        by {
+            assert(old(self).internal_view().m.contains_key(list_addr));
+        }
+
+        self.update_m_to_reflect_abort_of_creates();
+
+        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies !(self.m@[list_addr] is Created)
+        by {
+            assert(old(self).internal_view().m.contains_key(list_addr));
+        }
+
+        assert(self.internal_view().deletions_inverse == old(self).internal_view().deletions_inverse);
+        assert(self.internal_view().deletions == old(self).internal_view().deletions);
+        assert(self.internal_view().deletions_inverse_is_inverse_of_deletions());
+        
+        self.update_m_to_reflect_abort_of_deletions();
+
+        proof {
+            let m1 = self.internal_view().m;
+            let m2 = old(self).internal_view().abort().m;
+            assert(forall|list_addr: u64| m2.contains_key(list_addr) ==> m1.contains_key(list_addr));
+            assert(forall|list_addr: u64| m1.contains_key(list_addr) ==> m2.contains_key(list_addr));
+        }
+        
+        assert(self.internal_view().m =~= old(self).internal_view().abort().m);
+    }
+    
     pub exec fn abort(
         &mut self,
-        jv_before_abort: Ghost<JournalView>,
-        jv_after_abort: Ghost<JournalView>,
+        Ghost(jv_before_abort): Ghost<JournalView>,
+        Ghost(jv_after_abort): Ghost<JournalView>,
     )
         requires
-            old(self).valid(jv_before_abort@),
-            jv_before_abort@.valid(),
-            jv_after_abort@.valid(),
-            jv_after_abort == jv_before_abort@.abort(),
+            old(self).valid(jv_before_abort),
+            jv_before_abort.valid(),
+            jv_after_abort.valid(),
+            jv_after_abort == jv_before_abort.abort(),
         ensures
-            self.valid(jv_after_abort@),
+            self.valid(jv_after_abort),
             self@ == (ListTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
     {
-        // Play back the undo list from back to front
+        let ghost new_iv = self.internal_view().abort();
+
+        proof {
+            self.internal_view().lemma_abort_works(jv_before_abort.durable_state, self.sm);
+        }
+
+        self.update_m_to_reflect_abort(Ghost(jv_before_abort));
+        self.tentative_list_addrs = self.durable_list_addrs;
+        self.tentative_mapping = self.durable_mapping;
+        self.deletions_inverse = Ghost(new_iv.deletions_inverse);
+        self.deletions.clear();
+        self.updates.clear();
+        self.creates.clear();
+        self.row_info = Ghost(new_iv.row_info);
+        self.free_list.append(&mut self.pending_allocations);
+        self.pending_allocations.clear();
+        self.pending_deallocations.clear();
         self.must_abort = Ghost(false);
-        assume(false); // unimplemented
+
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+
+        assert(self.internal_view() =~= old(self).internal_view().abort());
+
+        assert(self.valid(jv_after_abort));
+        assert(self@ =~= (ListTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }));
     }
 }
 

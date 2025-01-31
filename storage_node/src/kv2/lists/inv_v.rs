@@ -31,6 +31,8 @@ pub(super) enum ListTableStatus {
 }
 
 #[verifier::ext_equal]
+#[derive(PmCopy, Copy)]
+#[repr(C)]
 pub(super) struct ListTableDurableEntry
 {
     pub head: u64,
