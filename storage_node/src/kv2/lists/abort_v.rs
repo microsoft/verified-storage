@@ -128,6 +128,7 @@ impl<PM, L> ListTable<PM, L>
                 },
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
+            self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
             forall|i: int| 0 <= i < self.updates.len() ==>
                 match #[trigger] old(self).updates[i] {
                     None => true,
@@ -137,16 +138,10 @@ impl<PM, L> ListTable<PM, L>
                 &&& old(self).m@.contains_key(list_addr)
                 &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
             },
-            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
-                (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
-            forall|i: int| 0 <= i < self.creates.len() ==>
-                match #[trigger] self.creates[i] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& self.m@.contains_key(list_addr)
-                        &&& self.m@[list_addr] is Created
-                    },
-                },
+            forall|list_addr: u64| {
+                &&& #[trigger] old(self).m@.contains_key(list_addr)
+                &&& !(old(self).m[list_addr] is Updated)
+            } ==> self.m@.contains_key(list_addr),
     {
         let mut which_update = 0;
         let num_updates = self.updates.len();
@@ -168,8 +163,10 @@ impl<PM, L> ListTable<PM, L>
                     &&& old(self).m@.contains_key(list_addr)
                     &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
                 },
-                forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
-                    (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
+                forall|list_addr: u64| {
+                    &&& #[trigger] old(self).m@.contains_key(list_addr)
+                    &&& !(old(self).m[list_addr] is Updated)
+                } ==> self.m@.contains_key(list_addr),
                 forall|i: int| 0 <= i < which_update ==>
                     match #[trigger] self.updates[i] {
                         None => true,
@@ -205,6 +202,7 @@ impl<PM, L> ListTable<PM, L>
                 },
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
+            self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
             forall|i: int| 0 <= i < self.creates.len() ==>
                 match #[trigger] old(self).creates[i] {
                     None => true,
@@ -256,16 +254,16 @@ impl<PM, L> ListTable<PM, L>
 
     exec fn update_m_to_reflect_abort_of_deletes(&mut self)
         requires
-            forall|list_addr: u64| #[trigger] old(self).internal_view().deletes_inverse.contains_key(list_addr) ==> {
-                let which_delete = old(self).internal_view().deletes_inverse[list_addr];
+            forall|list_addr: u64| #[trigger] old(self).deletes_inverse@.contains_key(list_addr) ==> {
+                let which_delete = old(self).deletes_inverse@[list_addr];
                 &&& 0 <= which_delete < old(self).internal_view().deletes.len()
                 &&& old(self).internal_view().deletes[which_delete as int].head == list_addr
             },
             forall|i: int| #![trigger old(self).internal_view().deletes[i]]
                 0 <= i < old(self).internal_view().deletes.len() ==> {
                     let entry = old(self).internal_view().deletes[i];
-                    &&& old(self).internal_view().deletes_inverse.contains_key(entry.head)
-                    &&& old(self).internal_view().deletes_inverse[entry.head] == i
+                    &&& old(self).deletes_inverse@.contains_key(entry.head)
+                    &&& old(self).deletes_inverse@[entry.head] == i
                 },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> old(self).m@[list_addr] is Durable,
         ensures
@@ -307,16 +305,16 @@ impl<PM, L> ListTable<PM, L>
                 self == (Self{ m: self.m, ..*old(self) }),
                 0 <= which_delete <= num_deletes,
                 num_deletes == self.deletes.len(),
-                forall|list_addr: u64| #[trigger] self.internal_view().deletes_inverse.contains_key(list_addr) ==> {
-                    let which_delete = self.internal_view().deletes_inverse[list_addr];
+                forall|list_addr: u64| #[trigger] self.deletes_inverse@.contains_key(list_addr) ==> {
+                    let which_delete = self.deletes_inverse@[list_addr];
                     &&& 0 <= which_delete < self.internal_view().deletes.len()
                     &&& self.internal_view().deletes[which_delete as int].head == list_addr
                 },
                 forall|i: int| #![trigger self.internal_view().deletes[i]]
                     0 <= i < self.internal_view().deletes.len() ==> {
                         let entry = self.internal_view().deletes[i];
-                        &&& self.internal_view().deletes_inverse.contains_key(entry.head)
-                        &&& self.internal_view().deletes_inverse[entry.head] == i
+                        &&& self.deletes_inverse@.contains_key(entry.head)
+                        &&& self.deletes_inverse@[entry.head] == i
                     },
                 forall|i: int| #![trigger self.deletes[i]] 0 <= i < which_delete ==> {
                     let entry = self.deletes[i];
@@ -326,9 +324,9 @@ impl<PM, L> ListTable<PM, L>
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> self.m@[list_addr] is Durable,
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     ||| {
-                        &&& self.internal_view().deletes_inverse.contains_key(list_addr)
+                        &&& self.deletes_inverse@.contains_key(list_addr)
                         &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
-                            entry: self.deletes@[self.internal_view().deletes_inverse[list_addr] as int]
+                            entry: self.deletes@[self.deletes_inverse@[list_addr] as int]
                         }
                     }
                     ||| {
@@ -355,24 +353,9 @@ impl<PM, L> ListTable<PM, L>
             let entry = self.deletes[which_delete].clone();
             assert(entry == self.deletes[which_delete as int]);
             self.m.insert(entry.head, ListTableEntry::<L>::Durable{ entry });
-            assert(self.internal_view().deletes_inverse == prev_self.internal_view().deletes_inverse);
+            assert(self.deletes_inverse@ == prev_self.deletes_inverse@);
             assert(self.internal_view().deletes == prev_self.internal_view().deletes);
             which_delete += 1;
-        }
-
-        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies {
-                if self.deletes_inverse@.contains_key(list_addr) {
-                    let entry = self.deletes@[self.deletes_inverse@[list_addr] as int];
-                    &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{ entry }
-                }
-                else {
-                    &&& old(self).m@.contains_key(list_addr)
-                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
-                }
-            } by {
-            if self.deletes_inverse@.contains_key(list_addr) {
-                assert(self.internal_view().deletes_inverse.contains_key(list_addr));
-            }
         }
     }
 
@@ -384,22 +367,12 @@ impl<PM, L> ListTable<PM, L>
             self.internal_view().m == old(self).internal_view().abort().m,
     {
         self.update_m_to_reflect_abort_of_updates();
-
-        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies !(self.m@[list_addr] is Updated)
-        by {
-            assert(old(self).internal_view().m.contains_key(list_addr));
-        }
-
         self.update_m_to_reflect_abort_of_creates();
 
-        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies !(self.m@[list_addr] is Created)
+        assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies self.m@[list_addr] is Durable
         by {
             assert(old(self).internal_view().m.contains_key(list_addr));
         }
-
-        assert(self.internal_view().deletes_inverse == old(self).internal_view().deletes_inverse);
-        assert(self.internal_view().deletes == old(self).internal_view().deletes);
-        assert(self.internal_view().deletes_inverse_is_inverse_of_deletes());
         
         self.update_m_to_reflect_abort_of_deletes();
 
