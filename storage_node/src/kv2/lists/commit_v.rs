@@ -162,13 +162,10 @@ impl<PM, L> ListTable<PM, L>
     {
         broadcast use group_hash_axioms;
 
-        let mut which_update = 0;
         let num_updates = self.updates.len();
-
-        while which_update < num_updates
+        for which_update in 0..num_updates
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                0 <= which_update <= num_updates,
                 num_updates == self.updates.len(),
                 forall|i: int| 0 <= i < old(self).updates.len() ==>
                     match #[trigger] old(self).updates[i] {
@@ -211,7 +208,6 @@ impl<PM, L> ListTable<PM, L>
                     self.m.insert(list_addr, new_entry);
                 },
             };
-            which_update += 1;
         }
     }
 
@@ -248,13 +244,10 @@ impl<PM, L> ListTable<PM, L>
             },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
     {
-        let mut which_create = 0;
         let num_creates = self.creates.len();
-
-        while which_create < num_creates
+        for which_create in 0..num_creates
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                0 <= which_create <= num_creates,
                 num_creates == self.creates.len(),
                 forall|i: int| 0 <= i < old(self).creates.len() ==>
                     match #[trigger] old(self).creates[i] {
@@ -297,7 +290,6 @@ impl<PM, L> ListTable<PM, L>
                     self.m.insert(list_addr, new_entry);
                 },
             };
-            which_create += 1;
         }
     }
 

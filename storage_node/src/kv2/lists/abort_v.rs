@@ -143,13 +143,11 @@ impl<PM, L> ListTable<PM, L>
                 &&& !(old(self).m[list_addr] is Updated)
             } ==> self.m@.contains_key(list_addr),
     {
-        let mut which_update = 0;
         let num_updates = self.updates.len();
 
-        while which_update < num_updates
+        for which_update in 0..num_updates
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                0 <= which_update <= num_updates,
                 num_updates == self.updates.len(),
                 forall|i: int| 0 <= i < old(self).updates.len() ==>
                     match #[trigger] old(self).updates[i] {
@@ -186,7 +184,6 @@ impl<PM, L> ListTable<PM, L>
                 None => {},
                 Some(list_addr) => { self.m.remove(&list_addr); },
             };
-            which_update += 1;
         }
     }
 
@@ -215,13 +212,10 @@ impl<PM, L> ListTable<PM, L>
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
                 (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
     {
-        let mut which_create = 0;
         let num_creates = self.creates.len();
-
-        while which_create < num_creates
+        for which_create in 0..num_creates
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                0 <= which_create <= num_creates,
                 num_creates == self.creates.len(),
                 forall|i: int| 0 <= i < old(self).creates.len() ==>
                     match #[trigger] old(self).creates[i] {
@@ -248,7 +242,6 @@ impl<PM, L> ListTable<PM, L>
                 None => {},
                 Some(list_addr) => { self.m.remove(&list_addr); },
             };
-            which_create += 1;
         }
     }
 
@@ -297,13 +290,11 @@ impl<PM, L> ListTable<PM, L>
                    }
             },
     {
-        let mut which_delete = 0;
         let num_deletes = self.deletes.len();
 
-        while which_delete < num_deletes
+        for which_delete in 0..num_deletes
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                0 <= which_delete <= num_deletes,
                 num_deletes == self.deletes.len(),
                 forall|list_addr: u64| #[trigger] self.deletes_inverse@.contains_key(list_addr) ==> {
                     let which_delete = self.deletes_inverse@[list_addr];
@@ -352,7 +343,6 @@ impl<PM, L> ListTable<PM, L>
             let ghost prev_self = *self;
             let entry = self.deletes[which_delete];
             self.m.insert(entry.head, ListTableEntry::<L>::Durable{ entry });
-            which_delete += 1;
         }
     }
 
