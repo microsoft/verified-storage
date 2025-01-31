@@ -111,21 +111,15 @@ impl<PM, L> ListTable<PM, L>
     exec fn update_m_to_reflect_abort_of_updates(&mut self)
         requires
             forall|i: int| 0 <= i < old(self).updates.len() ==>
-                match #[trigger] old(self).updates[i] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& old(self).m@[list_addr] is Updated
-                    },
-                },
+                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& old(self).m@[list_addr] is Updated
+                }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
             forall|i: int| 0 <= i < self.updates.len() ==>
-                match #[trigger] old(self).updates[i] {
-                    None => true,
-                    Some(list_addr) => !self.m@.contains_key(list_addr),
-                },
+                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
             forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
                 &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
@@ -142,13 +136,10 @@ impl<PM, L> ListTable<PM, L>
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_updates == self.updates.len(),
                 forall|i: int| 0 <= i < old(self).updates.len() ==>
-                    match #[trigger] old(self).updates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& old(self).m@.contains_key(list_addr)
-                            &&& old(self).m@[list_addr] is Updated
-                        },
-                    },
+                    (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& old(self).m@[list_addr] is Updated
+                    }),
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
@@ -158,10 +149,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& !(old(self).m[list_addr] is Updated)
                 } ==> self.m@.contains_key(list_addr),
                 forall|i: int| 0 <= i < which_update ==>
-                    match #[trigger] self.updates[i] {
-                        None => true,
-                        Some(list_addr) => !self.m@.contains_key(list_addr),
-                    },
+                    (#[trigger] self.updates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
         {
             broadcast use group_hash_axioms;
             match self.updates[which_update] {
@@ -174,21 +162,15 @@ impl<PM, L> ListTable<PM, L>
     exec fn update_m_to_reflect_abort_of_creates(&mut self)
         requires
             forall|i: int| 0 <= i < old(self).creates.len() ==>
-                match #[trigger] old(self).creates[i] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& old(self).m@[list_addr] is Created
-                    },
-                },
+                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& old(self).m@[list_addr] is Created
+                }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
             forall|i: int| 0 <= i < self.creates.len() ==>
-                match #[trigger] old(self).creates[i] {
-                    None => true,
-                    Some(list_addr) => !self.m@.contains_key(list_addr),
-                },
+                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
             forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
                 &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
@@ -202,13 +184,10 @@ impl<PM, L> ListTable<PM, L>
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_creates == self.creates.len(),
                 forall|i: int| 0 <= i < old(self).creates.len() ==>
-                    match #[trigger] old(self).creates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& old(self).m@.contains_key(list_addr)
-                            &&& old(self).m@[list_addr] is Created
-                        },
-                    },
+                    (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& old(self).m@[list_addr] is Created
+                    }),
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
@@ -216,10 +195,7 @@ impl<PM, L> ListTable<PM, L>
                 forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
                     (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
                 forall|i: int| 0 <= i < which_create ==>
-                    match #[trigger] self.creates[i] {
-                        None => true,
-                        Some(list_addr) => !self.m@.contains_key(list_addr),
-                    },
+                    (#[trigger] self.creates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
         {
             broadcast use group_hash_axioms;
             match self.creates[which_create] {
