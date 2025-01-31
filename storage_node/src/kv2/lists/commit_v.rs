@@ -69,8 +69,8 @@ impl<L> ListTableInternalView<L>
             tentative_mapping: self.tentative_mapping,
             row_info: self.commit_row_info(),
             m: self.commit_m(),
-            deletions_inverse: Map::<u64, usize>::empty(),
-            deletions: Seq::<ListTableDurableEntry>::empty(),
+            deletes_inverse: Map::<u64, usize>::empty(),
+            deletes: Seq::<ListTableDurableEntry>::empty(),
             updates: Seq::<Option<u64>>::empty(),
             creates: Seq::<Option<u64>>::empty(),
             free_list: self.free_list + self.pending_deallocations,
@@ -337,8 +337,8 @@ impl<PM, L> ListTable<PM, L>
         self.update_m_to_reflect_commit(Ghost(jv_before_commit));
         self.durable_list_addrs = self.tentative_list_addrs;
         self.durable_mapping = self.tentative_mapping;
-        self.deletions_inverse = Ghost(new_iv.deletions_inverse);
-        self.deletions.clear();
+        self.deletes_inverse = Ghost(new_iv.deletes_inverse);
+        self.deletes.clear();
         self.updates.clear();
         self.creates.clear();
         self.row_info = Ghost(new_iv.row_info);

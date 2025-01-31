@@ -155,8 +155,8 @@ pub(super) struct ListTableInternalView<L>
     pub tentative_mapping: ListRecoveryMapping<L>,
     pub row_info: Map<u64, ListRowDisposition<L>>,
     pub m: Map<u64, ListTableEntryView<L>>,
-    pub deletions_inverse: Map<u64, usize>,
-    pub deletions: Seq<ListTableDurableEntry>,
+    pub deletes_inverse: Map<u64, usize>,
+    pub deletes: Seq<ListTableDurableEntry>,
     pub updates: Seq<Option<u64>>,
     pub creates: Seq<Option<u64>>,
     pub free_list: Seq<u64>,
@@ -177,8 +177,8 @@ impl<L> ListTableInternalView<L>
                 self.m.contains_key(list_addr)
         &&& self.m_consistent_with_durable_recovery_mapping()
         &&& self.m_consistent_with_tentative_recovery_mapping()
-        &&& self.deletions_consistent_with_durable_recovery_mapping()
-        &&& self.deletions_inverse_is_inverse_of_deletions()
+        &&& self.deletes_consistent_with_durable_recovery_mapping()
+        &&& self.deletes_inverse_is_inverse_of_deletes()
         &&& self.row_info_complete(sm)
         &&& self.per_row_info_consistent(sm)
     }
@@ -186,10 +186,10 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn durable_mapping_reflected_in_changes_or_m(self) -> bool
     {
         &&& forall|list_addr: u64| #[trigger] self.durable_mapping.list_info.contains_key(list_addr) ==> {
-            if self.deletions_inverse.contains_key(list_addr) {
-                let which_deletion = self.deletions_inverse[list_addr];
-                &&& 0 <= which_deletion < self.deletions.len()
-                &&& self.deletions[which_deletion as int].head == list_addr
+            if self.deletes_inverse.contains_key(list_addr) {
+                let which_delete = self.deletes_inverse[list_addr];
+                &&& 0 <= which_delete < self.deletes.len()
+                &&& self.deletes[which_delete as int].head == list_addr
             }
             else {
                 &&& self.m.contains_key(list_addr)
@@ -236,10 +236,10 @@ impl<L> ListTableInternalView<L>
                })
     }
 
-    pub(super) open spec fn deletions_consistent_with_durable_recovery_mapping(self) -> bool
+    pub(super) open spec fn deletes_consistent_with_durable_recovery_mapping(self) -> bool
     {
-        &&& forall|i: int| #![trigger self.deletions[i]] 0 <= i < self.deletions.len() ==> {
-               let entry = self.deletions[i];
+        &&& forall|i: int| #![trigger self.deletes[i]] 0 <= i < self.deletes.len() ==> {
+               let entry = self.deletes[i];
                let list_addr = entry.head;
                let addrs = self.durable_mapping.list_info[list_addr];
                let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
@@ -250,8 +250,8 @@ impl<L> ListTableInternalView<L>
                &&& entry.tail == addrs.last()
                &&& entry.length == addrs.len()
                &&& entry.end_of_logical_range == end_of_range(elements)
-               &&& self.deletions_inverse.contains_key(list_addr)
-               &&& self.deletions_inverse[list_addr] == i
+               &&& self.deletes_inverse.contains_key(list_addr)
+               &&& self.deletes_inverse[list_addr] == i
                &&& addrs.len() == elements.len()
                &&& addrs.len() <= usize::MAX
         }
@@ -312,12 +312,12 @@ impl<L> ListTableInternalView<L>
                }
     }
 
-    pub(super) open spec fn deletions_inverse_is_inverse_of_deletions(self) -> bool
+    pub(super) open spec fn deletes_inverse_is_inverse_of_deletes(self) -> bool
     {
-        &&& forall|list_addr: u64| #[trigger] self.deletions_inverse.contains_key(list_addr) ==> {
-            let which_deletion = self.deletions_inverse[list_addr];
-            &&& 0 <= which_deletion < self.deletions.len()
-            &&& self.deletions[which_deletion as int].head == list_addr
+        &&& forall|list_addr: u64| #[trigger] self.deletes_inverse.contains_key(list_addr) ==> {
+            let which_delete = self.deletes_inverse[list_addr];
+            &&& 0 <= which_delete < self.deletes.len()
+            &&& self.deletes[which_delete as int].head == list_addr
         }
     }
 
@@ -449,8 +449,8 @@ impl<PM, L> ListTable<PM, L>
             tentative_mapping: self.tentative_mapping@,
             row_info: self.row_info@,
             m: self.m@.map_values(|e: ListTableEntry<L>| e@),
-            deletions_inverse: self.deletions_inverse@,
-            deletions: self.deletions@,
+            deletes_inverse: self.deletes_inverse@,
+            deletes: self.deletes@,
             updates: self.updates@,
             creates: self.creates@,
             free_list: self.free_list@,
