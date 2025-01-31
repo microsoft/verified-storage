@@ -132,15 +132,13 @@ impl<L> ListTableEntryView<L>
 }
 
 #[verifier::ext_equal]
-pub(super) enum ListRowDisposition<L>
-    where
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+pub(super) enum ListRowDisposition
 {
-    NowhereFree{ element: L },
+    NowhereFree,
     InFreeList{ pos: nat },
-    InPendingDeallocationList{ pos: nat, element: L },
-    InPendingAllocationList{ pos: nat, element: L },
-    InBothPendingLists{ alloc_pos: nat, dealloc_pos: nat, element: L },
+    InPendingDeallocationList{ pos: nat },
+    InPendingAllocationList{ pos: nat },
+    InBothPendingLists{ alloc_pos: nat, dealloc_pos: nat },
 }
 
 #[verifier::ext_equal]
@@ -153,7 +151,7 @@ pub(super) struct ListTableInternalView<L>
     pub tentative_list_addrs: Set<u64>,
     pub durable_mapping: ListRecoveryMapping<L>,
     pub tentative_mapping: ListRecoveryMapping<L>,
-    pub row_info: Map<u64, ListRowDisposition<L>>,
+    pub row_info: Map<u64, ListRowDisposition>,
     pub m: Map<u64, ListTableEntryView<L>>,
     pub deletes_inverse: Map<u64, usize>,
     pub deletes: Seq<ListTableDurableEntry>,
@@ -357,20 +355,20 @@ impl<L> ListTableInternalView<L>
         forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
             &&& sm.table.validate_row_addr(row_addr)
             &&& match self.row_info[row_addr] {
-                  ListRowDisposition::NowhereFree{ element } => true,
+                  ListRowDisposition::NowhereFree => true,
                   ListRowDisposition::InFreeList{ pos } => {
                       &&& 0 <= pos < self.free_list.len()
                       &&& self.free_list[pos as int] == row_addr
                   },
-                  ListRowDisposition::InPendingAllocationList{ pos, element } => {
+                  ListRowDisposition::InPendingAllocationList{ pos } => {
                       &&& 0 <= pos < self.pending_allocations.len()
                       &&& self.pending_allocations[pos as int] == row_addr
                   },
-                  ListRowDisposition::InPendingDeallocationList{ pos, element } => {
+                  ListRowDisposition::InPendingDeallocationList{ pos } => {
                       &&& 0 <= pos < self.pending_deallocations.len()
                       &&& self.pending_deallocations[pos as int] == row_addr
                   },
-                  ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, element } => {
+                  ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => {
                       &&& 0 <= alloc_pos < self.pending_allocations.len()
                       &&& self.pending_allocations[alloc_pos as int] == row_addr
                       &&& 0 <= dealloc_pos < self.pending_deallocations.len()
@@ -395,8 +393,8 @@ impl<L> ListTableInternalView<L>
         &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
             &&& self.row_info.contains_key(self.pending_allocations[i])
             &&& match self.row_info[self.pending_allocations[i]] {
-                ListRowDisposition::InPendingAllocationList{ pos, element } => pos == i,
-                ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, element } => alloc_pos == i,
+                ListRowDisposition::InPendingAllocationList{ pos } => pos == i,
+                ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => alloc_pos == i,
                 _ => false,
             }
         }
@@ -407,8 +405,8 @@ impl<L> ListTableInternalView<L>
         &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
             &&& self.row_info.contains_key(self.pending_deallocations[i])
             &&& match self.row_info[self.pending_deallocations[i]] {
-                ListRowDisposition::InPendingDeallocationList{ pos, element } => pos == i,
-                ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, element } => dealloc_pos == i,
+                ListRowDisposition::InPendingDeallocationList{ pos } => pos == i,
+                ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => dealloc_pos == i,
                 _ => false,
             }
         }

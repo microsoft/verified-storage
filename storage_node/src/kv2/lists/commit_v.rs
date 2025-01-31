@@ -44,17 +44,17 @@ impl<L> ListTableInternalView<L>
         )
     }
 
-    pub(super) open spec fn commit_row_info(self) -> Map<u64, ListRowDisposition<L>>
+    pub(super) open spec fn commit_row_info(self) -> Map<u64, ListRowDisposition>
     {
-        Map::<u64, ListRowDisposition<L>>::new(
+        Map::<u64, ListRowDisposition>::new(
             |row_addr: u64| self.row_info.contains_key(row_addr),
             |row_addr: u64| match self.row_info[row_addr] {
-                ListRowDisposition::<L>::InPendingAllocationList{ pos, element } =>
-                    ListRowDisposition::<L>::NowhereFree{ element },
-                ListRowDisposition::<L>::InPendingDeallocationList{ pos, element } =>
-                    ListRowDisposition::<L>::InFreeList{ pos: self.free_list.len() + pos },
-                ListRowDisposition::<L>::InBothPendingLists{ alloc_pos, dealloc_pos, element } =>
-                    ListRowDisposition::<L>::InFreeList{ pos: self.free_list.len() + dealloc_pos },
+                ListRowDisposition::InPendingAllocationList{ pos } =>
+                    ListRowDisposition::NowhereFree,
+                ListRowDisposition::InPendingDeallocationList{ pos } =>
+                    ListRowDisposition::InFreeList{ pos: self.free_list.len() + pos },
+                ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } =>
+                    ListRowDisposition::InFreeList{ pos: self.free_list.len() + dealloc_pos },
                 _ => self.row_info[row_addr],
             },
         )

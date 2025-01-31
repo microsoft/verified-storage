@@ -136,13 +136,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let items = match ItemTable::<PM, I>::start::<K>(&journal, &item_addrs, &sm.items) {
+        let items = match ItemTable::<PM, I>::start(&journal, &item_addrs, &sm.items) {
             Ok(i) => i,
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let lists = match ListTable::<PM, L>::start::<K>(&journal, logical_range_gaps_policy, &list_addrs, &sm.lists) {
+        let lists = match ListTable::<PM, L>::start(&journal, logical_range_gaps_policy, &list_addrs, &sm.lists) {
             Ok(i) => i,
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },

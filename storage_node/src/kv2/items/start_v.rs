@@ -31,13 +31,11 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn start<K>(
+    pub exec fn start(
         journal: &Journal<TrustedKvPermission, PM>,
         item_addrs: &HashSet<u64>,
         sm: &ItemTableStaticMetadata,
     ) -> (result: Result<Self, KvError>)
-        where
-            K: std::fmt::Debug,
         requires
             journal.valid(),
             journal.recover_idempotent(),
