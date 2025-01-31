@@ -256,12 +256,12 @@ impl<PM, L> ListTable<PM, L>
         requires
             forall|list_addr: u64| #[trigger] old(self).deletes_inverse@.contains_key(list_addr) ==> {
                 let which_delete = old(self).deletes_inverse@[list_addr];
-                &&& 0 <= which_delete < old(self).internal_view().deletes.len()
-                &&& old(self).internal_view().deletes[which_delete as int].head == list_addr
+                &&& 0 <= which_delete < old(self).deletes@.len()
+                &&& old(self).deletes@[which_delete as int].head == list_addr
             },
-            forall|i: int| #![trigger old(self).internal_view().deletes[i]]
-                0 <= i < old(self).internal_view().deletes.len() ==> {
-                    let entry = old(self).internal_view().deletes[i];
+            forall|i: int| #![trigger old(self).deletes@[i]]
+                0 <= i < old(self).deletes@.len() ==> {
+                    let entry = old(self).deletes@[i];
                     &&& old(self).deletes_inverse@.contains_key(entry.head)
                     &&& old(self).deletes_inverse@[entry.head] == i
                 },
@@ -307,12 +307,12 @@ impl<PM, L> ListTable<PM, L>
                 num_deletes == self.deletes.len(),
                 forall|list_addr: u64| #[trigger] self.deletes_inverse@.contains_key(list_addr) ==> {
                     let which_delete = self.deletes_inverse@[list_addr];
-                    &&& 0 <= which_delete < self.internal_view().deletes.len()
-                    &&& self.internal_view().deletes[which_delete as int].head == list_addr
+                    &&& 0 <= which_delete < self.deletes@.len()
+                    &&& self.deletes@[which_delete as int].head == list_addr
                 },
-                forall|i: int| #![trigger self.internal_view().deletes[i]]
-                    0 <= i < self.internal_view().deletes.len() ==> {
-                        let entry = self.internal_view().deletes[i];
+                forall|i: int| #![trigger self.deletes@[i]]
+                    0 <= i < self.deletes@.len() ==> {
+                        let entry = self.deletes@[i];
                         &&& self.deletes_inverse@.contains_key(entry.head)
                         &&& self.deletes_inverse@[entry.head] == i
                     },
@@ -350,11 +350,8 @@ impl<PM, L> ListTable<PM, L>
         {
             broadcast use group_hash_axioms;
             let ghost prev_self = *self;
-            let entry = self.deletes[which_delete].clone();
-            assert(entry == self.deletes[which_delete as int]);
+            let entry = self.deletes[which_delete];
             self.m.insert(entry.head, ListTableEntry::<L>::Durable{ entry });
-            assert(self.deletes_inverse@ == prev_self.deletes_inverse@);
-            assert(self.internal_view().deletes == prev_self.internal_view().deletes);
             which_delete += 1;
         }
     }
