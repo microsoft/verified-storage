@@ -6,6 +6,7 @@ pub mod crud_v;
 pub mod inv_v;
 pub mod read_v;
 pub mod recover_v;
+pub mod setup_v;
 pub mod spec_v;
 pub mod start_v;
 pub mod trim_v;
@@ -46,7 +47,7 @@ pub use spec_v::{ListTableSnapshot, ListTableView};
 pub struct ListTableStaticMetadata
 {
     table: TableMetadata,
-    list_entry_size: u64,
+    element_size: u64,
     row_next_start: u64,
     row_next_crc_start: u64,
     row_element_start: u64,
@@ -59,12 +60,12 @@ impl ListTableStaticMetadata
         where
             L: PmCopy,
     {
-        &&& self.list_entry_size == L::spec_size_of()
+        &&& self.element_size == L::spec_size_of()
         &&& self.table.valid()
         &&& self.table.start <= self.table.end
         &&& self.row_next_start + u64::spec_size_of() <= self.row_next_crc_start
         &&& self.row_next_crc_start + u64::spec_size_of() <= self.row_element_start
-        &&& self.row_element_start + self.list_entry_size <= self.row_element_crc_start
+        &&& self.row_element_start + self.element_size <= self.row_element_crc_start
         &&& self.row_element_crc_start + u64::spec_size_of() <= self.table.row_size
     }
 
@@ -159,51 +160,22 @@ impl<PM, L> ListTable<PM, L>
             Some(mapping) => Some(mapping.as_snapshot())
         }
     }
-
+    
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters, min_start: nat) -> nat
-    {
-        arbitrary()
-    }
-
-    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &OverflowingU64) -> (result: OverflowingU64)
-        ensures
-            result@ == Self::spec_space_needed_for_setup(*ps, min_start@),
-    {
-        assume(false);
-        OverflowingU64::new(0)
-    }
-
-    pub exec fn setup(
-        pm: &mut PM,
-        ps: &SetupParameters,
-        min_start: u64,
-        max_end: u64,
-    ) -> (result: Result<ListTableStaticMetadata, KvError>)
-        requires
-            old(pm).inv(),
-            old(pm)@.valid(),
+        recommends
             ps.valid(),
-            min_start <= max_end <= old(pm)@.len(),
-        ensures
-            pm.inv(),
-            pm.constants() == old(pm).constants(),
-            pm@.valid(),
-            pm@.len() == old(pm)@.len(),
-            match result {
-                Ok(sm) => {
-                    &&& Self::recover(pm@.read_state, Set::<u64>::empty(), sm) == Some(ListTableSnapshot::<L>::init())
-                    &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.start() as int, sm.end() as int)
-                    &&& sm.valid::<L>()
-                    &&& min_start <= sm.start() <= sm.end() <= max_end
-                    &&& sm.end() - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)
-                    &&& sm.num_rows() == ps.num_keys
-                },
-                Err(KvError::OutOfSpace) => max_end < Self::spec_space_needed_for_setup(*ps, min_start as nat),
-                _ => false,
-            },
     {
-        assume(false);
-        Err(KvError::OutOfSpace)
+        // let row_next_start = 0;
+        let row_next_crc_start = u64::spec_size_of();
+        let row_element_start = row_next_crc_start + u64::spec_size_of();
+        let row_element_crc_start = row_element_start + L::spec_size_of();
+        let row_size = row_element_crc_start + u64::spec_size_of();
+        let num_rows = ps.num_list_entries;
+        let table_size = num_rows as int * row_size;
+        let initial_space = if min_start > u64::MAX { 0 } else {
+            space_needed_for_alignment(min_start as int, u64::spec_size_of() as int)
+        };
+        (initial_space + table_size) as nat
     }
 
     pub closed spec fn validate_list_addr(&self, addr: u64) -> bool
