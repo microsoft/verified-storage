@@ -130,27 +130,21 @@ impl<PM, L> ListTable<PM, L>
     exec fn update_m_to_reflect_commit_of_updates(&mut self)
         requires
             forall|which_update: int| 0 <= which_update < old(self).updates.len() ==>
-                match #[trigger] old(self).updates[which_update] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& (old(self).m@[list_addr] matches
-                            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                                &&& 0 < tentative_addrs.len()
-                                &&& tentative_addrs.len() == tentative_elements.len()
-                            })
-                    },
-                },
+                (#[trigger] old(self).updates[which_update] matches Some(list_addr) ==> {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& (old(self).m@[list_addr] matches
+                        ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
+                            &&& 0 < tentative_addrs.len()
+                            &&& tentative_addrs.len() == tentative_elements.len()
+                        })
+                }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             forall|i: int| 0 <= i < self.updates.len() ==>
-                match #[trigger] old(self).updates[i] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& self.m@.contains_key(list_addr)
-                        &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                    }
-                },
+                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                    &&& self.m@.contains_key(list_addr)
+                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
+                }),
             forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
                 &&& {
@@ -168,17 +162,14 @@ impl<PM, L> ListTable<PM, L>
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_updates == self.updates.len(),
                 forall|i: int| 0 <= i < old(self).updates.len() ==>
-                    match #[trigger] old(self).updates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& old(self).m@.contains_key(list_addr)
-                            &&& (old(self).m@[list_addr] matches
-                                ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                                    &&& 0 < tentative_addrs.len()
-                                    &&& tentative_addrs.len() == tentative_elements.len()
-                                })
-                        },
-                    },
+                    (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& (old(self).m@[list_addr] matches
+                            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
+                                &&& 0 < tentative_addrs.len()
+                                &&& tentative_addrs.len() == tentative_elements.len()
+                            })
+                    }),
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& {
@@ -188,15 +179,12 @@ impl<PM, L> ListTable<PM, L>
                 },
                 forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
                 forall|i: int| 0 <= i < which_update ==>
-                    match #[trigger] self.updates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& old(self).m@.contains_key(list_addr)
-                            &&& self.m@.contains_key(list_addr)
-                            &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                            &&& self.m@[list_addr]@ == self.m@[list_addr]@.commit()
-                        }
-                    },
+                    (#[trigger] self.updates[i] matches Some(list_addr) ==> {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& self.m@.contains_key(list_addr)
+                        &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
+                        &&& self.m@[list_addr]@ == self.m@[list_addr]@.commit()
+                    }),
         {
             broadcast use group_hash_axioms;
             match self.updates[which_update] {
@@ -214,27 +202,21 @@ impl<PM, L> ListTable<PM, L>
     exec fn update_m_to_reflect_commit_of_creates(&mut self)
         requires
             forall|which_create: int| 0 <= which_create < old(self).creates.len() ==>
-                match #[trigger] old(self).creates[which_create] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& (old(self).m@[list_addr] matches
-                            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                                &&& 0 < tentative_addrs.len()
-                                &&& tentative_addrs.len() == tentative_elements.len()
-                            })
-                    },
-                },
+                (#[trigger] old(self).creates[which_create] matches Some(list_addr) ==> {
+                    &&& old(self).m@.contains_key(list_addr)
+                    &&& (old(self).m@[list_addr] matches
+                        ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
+                            &&& 0 < tentative_addrs.len()
+                            &&& tentative_addrs.len() == tentative_elements.len()
+                        })
+                }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             forall|i: int| 0 <= i < self.creates.len() ==>
-                match #[trigger] old(self).creates[i] {
-                    None => true,
-                    Some(list_addr) => {
-                        &&& self.m@.contains_key(list_addr)
-                        &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                    }
-                },
+                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+                    &&& self.m@.contains_key(list_addr)
+                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
+                }),
             forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
                 &&& {
@@ -250,17 +232,14 @@ impl<PM, L> ListTable<PM, L>
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_creates == self.creates.len(),
                 forall|i: int| 0 <= i < old(self).creates.len() ==>
-                    match #[trigger] old(self).creates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& old(self).m@.contains_key(list_addr)
-                            &&& (old(self).m@[list_addr] matches
-                                ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                                    &&& 0 < tentative_addrs.len()
-                                    &&& tentative_addrs.len() == tentative_elements.len()
-                                })
-                        },
-                    },
+                    (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& (old(self).m@[list_addr] matches
+                            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
+                                &&& 0 < tentative_addrs.len()
+                                &&& tentative_addrs.len() == tentative_elements.len()
+                            })
+                    }),
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& {
@@ -270,15 +249,12 @@ impl<PM, L> ListTable<PM, L>
                 },
                 forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
                 forall|i: int| 0 <= i < which_create ==>
-                    match #[trigger] self.creates[i] {
-                        None => true,
-                        Some(list_addr) => {
-                            &&& old(self).m@.contains_key(list_addr)
-                            &&& self.m@.contains_key(list_addr)
-                            &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                            &&& self.m@[list_addr]@ == self.m@[list_addr]@.commit()
-                        }
-                    },
+                    (#[trigger] self.creates[i] matches Some(list_addr) ==> {
+                        &&& old(self).m@.contains_key(list_addr)
+                        &&& self.m@.contains_key(list_addr)
+                        &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
+                        &&& self.m@[list_addr]@ == self.m@[list_addr]@.commit()
+                    }),
         {
             broadcast use group_hash_axioms;
             match self.creates[which_create] {
