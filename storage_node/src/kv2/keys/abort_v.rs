@@ -125,32 +125,6 @@ impl<PM, K> KeyTable<PM, K>
         // applying the undo records emptied it.
         assert(self.pending_deallocations@ == Seq::<u64>::empty());
 
-        assert(self@.durable == old(self)@.durable) by {
-            let old_mapping =
-                old(self).internal_view()
-                        .apply_undo_records(old(self).undo_records@, old(self).sm)
-                        .unwrap().memory_mapping;
-            let mapping = self.internal_view().memory_mapping;
-        
-            assert(self@.durable.key_info =~= old(self)@.durable.key_info) by {
-                assert(forall|k: K| #[trigger] old(self)@.durable.key_info.contains_key(k) ==>
-                       old_mapping.row_info.contains_key(old_mapping.key_info[k]));
-                assert(forall|k: K| #[trigger] self@.durable.key_info.contains_key(k) ==>
-                       mapping.row_info.contains_key(mapping.key_info[k]));
-            }
-            assert(self@.durable.item_info =~= old(self)@.durable.item_info) by {
-                assert(forall|item_addr: u64| #[trigger] old(self)@.durable.item_info.contains_key(item_addr) ==>
-                       old_mapping.row_info.contains_key(old_mapping.item_info[item_addr]));
-                assert(forall|item_addr: u64| #[trigger] self@.durable.item_info.contains_key(item_addr) ==>
-                       mapping.row_info.contains_key(mapping.item_info[item_addr]));
-            }
-            assert(self@.durable.list_info =~= old(self)@.durable.list_info) by {
-                assert(forall|list_addr: u64| #[trigger] old(self)@.durable.list_info.contains_key(list_addr) ==>
-                       old_mapping.row_info.contains_key(old_mapping.list_info[list_addr]));
-                assert(forall|list_addr: u64| #[trigger] self@.durable.list_info.contains_key(list_addr) ==>
-                       mapping.row_info.contains_key(mapping.list_info[list_addr]));
-            }
-        }
         assert(self@ =~= (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }));
     }
 }
