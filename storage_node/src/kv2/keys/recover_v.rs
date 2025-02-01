@@ -91,33 +91,36 @@ impl<K> KeyRecoveryMapping<K>
 
     pub(super) open spec fn key_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        forall|k: K| #[trigger] self.key_info.contains_key(k) ==>
-        {
-            let row_addr = self.key_info[k];
-            &&& sm.table.validate_row_addr(row_addr)
-            &&& self.row_info[row_addr] matches Some((k2, _))
-            &&& k2 == k
-        }
+        forall|k: K| #![trigger self.row_info.contains_key(self.key_info[k])]
+            self.key_info.contains_key(k) ==> {
+                let row_addr = self.key_info[k];
+                &&& sm.table.validate_row_addr(row_addr)
+                &&& self.row_info.contains_key(row_addr)
+                &&& self.row_info[row_addr] matches Some((k2, _))
+                &&& k2 == k
+            }
     }
 
     pub(super) open spec fn item_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==>
-        {
-            let row_addr = self.item_info[item_addr];
-            &&& sm.table.validate_row_addr(row_addr)
-            &&& self.row_info[row_addr] matches Some((_, rm))
-            &&& rm.item_addr == item_addr
-        }
+        forall|item_addr: u64| #![trigger self.row_info.contains_key(self.item_info[item_addr])]
+            self.item_info.contains_key(item_addr) ==> {
+                let row_addr = self.item_info[item_addr];
+                &&& sm.table.validate_row_addr(row_addr)
+                &&& self.row_info.contains_key(row_addr)
+                &&& self.row_info[row_addr] matches Some((_, rm))
+                &&& rm.item_addr == item_addr
+            }
     }
 
     pub(super) open spec fn list_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& !self.list_info.contains_key(0)
-        &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
-            {
+        &&& forall|list_addr: u64| #![trigger self.row_info.contains_key(self.list_info[list_addr])]
+            self.list_info.contains_key(list_addr) ==> {
                 let row_addr = self.list_info[list_addr];
                 &&& sm.table.validate_row_addr(row_addr)
+                &&& self.row_info.contains_key(self.list_info[list_addr])
                 &&& self.row_info[row_addr] matches Some((_, rm))
                 &&& rm.list_addr == list_addr
             }
@@ -138,7 +141,18 @@ impl<K> KeyRecoveryMapping<K>
         ensures
             self == other,
     { 
-        assert(self =~= other);
+        assert(self =~= other) by {
+            assert(forall|k: K| #[trigger] self.key_info.contains_key(k) ==> self.row_info.contains_key(self.key_info[k]));
+            assert(forall|k: K| #[trigger] other.key_info.contains_key(k) ==> other.row_info.contains_key(other.key_info[k]));
+            assert(forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==>
+                   self.row_info.contains_key(self.item_info[item_addr]));
+            assert(forall|item_addr: u64| #[trigger] other.item_info.contains_key(item_addr) ==>
+                   other.row_info.contains_key(other.item_info[item_addr]));
+            assert(forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
+                   self.row_info.contains_key(self.list_info[list_addr]));
+            assert(forall|list_addr: u64| #[trigger] other.list_info.contains_key(list_addr) ==>
+                   other.row_info.contains_key(other.list_info[list_addr]));
+        }
     }
 
     pub(super) proof fn lemma_corresponds_implies_equals_new(self, s: Seq<u8>, sm: KeyTableStaticMetadata)
@@ -191,6 +205,13 @@ impl<PM, K> KeyTable<PM, K>
         assert(mapping1.corresponds(s2, sm)) by {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
+
+            assert(forall|k: K| #[trigger] mapping1.key_info.contains_key(k) ==>
+                   mapping1.row_info.contains_key(mapping1.key_info[k]));
+            assert(forall|item_addr: u64| #[trigger] mapping1.item_info.contains_key(item_addr) ==>
+                   mapping1.row_info.contains_key(mapping1.item_info[item_addr]));
+            assert(forall|list_addr: u64| #[trigger] mapping1.list_info.contains_key(list_addr) ==>
+                   mapping1.row_info.contains_key(mapping1.list_info[list_addr]));
         }
         mapping1.lemma_corresponds_implies_equals_new(s2, sm);
     }
