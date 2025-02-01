@@ -452,19 +452,6 @@ impl<K> KeyMemoryMapping<K>
             None
         }
     }
-
-    pub(super) proof fn lemma_consistent_with_state_implies_corresponds(
-        self,
-        s: Seq<u8>,
-        sm: KeyTableStaticMetadata
-    )
-        requires
-            self.valid(sm),
-            self.consistent_with_state(s, sm),
-        ensures
-            self.as_recovery_mapping().corresponds(s, sm),
-    {
-    }
 }
 
 #[verifier::reject_recursive_types(K)]
@@ -717,20 +704,22 @@ impl<PM, K> KeyTable<PM, K>
             Self::recover(jv.durable_state, self@.sm) == Some(self@.durable),
             self@.tentative is Some ==> Self::recover(jv.commit_state, self@.sm) == self@.tentative,
     {
-        let mapping = 
+        assert(Self::recover(jv.durable_state, self@.sm) is Some) by {
             self.internal_view()
                 .apply_undo_records(self.undo_records@, self.sm)
                 .unwrap()
-                .memory_mapping;
-        mapping.lemma_consistent_with_state_implies_corresponds(jv.durable_state, self@.sm);
-        assert(mapping.as_recovery_mapping().corresponds(jv.durable_state, self@.sm));
-        mapping.as_recovery_mapping().lemma_corresponds_implies_equals_new(jv.durable_state, self@.sm);
+                .memory_mapping
+                .as_recovery_mapping()
+                .lemma_corresponds_implies_equals_new(jv.durable_state, self@.sm);
+        }
         assert(Self::recover(jv.durable_state, self@.sm) =~= Some(self@.durable));
 
         if self@.tentative is Some {
-            self.memory_mapping@.lemma_consistent_with_state_implies_corresponds(jv.commit_state, self@.sm);
-            assert(self.memory_mapping@.as_recovery_mapping().corresponds(jv.commit_state, self@.sm));
-            self.memory_mapping@.as_recovery_mapping().lemma_corresponds_implies_equals_new(jv.commit_state, self@.sm);
+            assert(Self::recover(jv.commit_state, self@.sm) is Some) by {
+                self.memory_mapping@
+                    .as_recovery_mapping()
+                    .lemma_corresponds_implies_equals_new(jv.commit_state, self@.sm);
+            }
             assert(Self::recover(jv.commit_state, self@.sm) =~= self@.tentative);
         }
     }
