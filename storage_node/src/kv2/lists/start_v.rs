@@ -40,9 +40,14 @@ impl<PM, L> ListTable<PM, L>
         list_addr: u64,
     ) -> (result: Result<ListTableDurableEntry, KvError>)
         requires
+            journal.valid(),
+            journal@.constants.app_area_start <= sm.start(),
+            sm.end() <= journal@.constants.app_area_end,
+            sm.valid::<L>(),
             mapping.corresponds(journal@.read_state, list_addrs, *sm),
             list_addrs.contains(list_addr),
             mapping.list_info.contains_key(list_addr),
+            list_addr != 0,
         ensures
             match result {
                 Ok(entry) => {
@@ -67,8 +72,73 @@ impl<PM, L> ListTable<PM, L>
                 Err(_) => false,
             },
     {
-        assume(false);
-        Err(KvError::CRCMismatch)
+        proof {
+            journal.lemma_valid_implications();
+        }
+
+        let mut current_addr = list_addr;
+        let pm = journal.get_pm_region_ref();
+        let mut num_elements_processed: usize = 0;
+        let ghost row_addrs = mapping.list_info[list_addr];
+        let ghost elements = row_addrs.map(|_i, row_addr| mapping.row_info[row_addr].element);
+        
+        loop
+            invariant
+                sm.valid::<L>(),
+                sm.table.end <= pm@.len(),
+                sm.table.end <= journal@.constants.app_area_end, // and thus all our addresses fit in a `u64`
+                current_addr != 0,
+                num_elements_processed < row_addrs.len(),
+                row_addrs.len() <= usize::MAX,
+                current_addr == row_addrs[num_elements_processed as int],
+                mapping.corresponds(pm@.read_state, list_addrs, *sm),
+                list_addrs.contains(list_addr),
+                mapping.list_info.contains_key(list_addr),
+                row_addrs == mapping.list_info[list_addr],
+                elements == row_addrs.map(|_i, row_addr| mapping.row_info[row_addr].element),
+                pm.inv(),
+                pm.constants() == journal@.pm_constants,
+                forall|row_addr: u64| #[trigger] old(row_addrs_used)@.contains(row_addr)
+                    ==> row_addrs_used@.contains(row_addr),
+                forall|i: int| 0 <= i < num_elements_processed ==> row_addrs_used@.contains(#[trigger] row_addrs[i]),
+                forall|row_addr: u64| #[trigger] row_addrs_used@.contains(row_addr) ==> {
+                    ||| old(row_addrs_used)@.contains(row_addr)
+                    ||| row_addrs.contains(row_addr)
+                },
+            decreases
+                row_addrs.len() - num_elements_processed,
+        {
+            broadcast use group_hash_axioms;
+            broadcast use group_validate_row_addr;
+
+            assert(sm.table.validate_row_addr(current_addr));
+            assert(row_addrs.contains(current_addr));
+            row_addrs_used.insert(current_addr);
+
+            let next_addr = match exec_recover_object::<PM, u64>(pm, current_addr + sm.row_next_start,
+                                                                 current_addr + sm.row_next_crc_start) {
+                Some(n) => n,
+                None => { return Err(KvError::CRCMismatch); },
+            };
+
+            if next_addr == 0 {
+                let element = match exec_recover_object::<PM, L>(pm, current_addr + sm.row_element_start,
+                                                                 current_addr + sm.row_element_crc_start) {
+                    Some(e) => e,
+                    None => { return Err(KvError::CRCMismatch); },
+                };
+                let entry = ListTableDurableEntry{
+                    head: list_addr,
+                    tail: current_addr,
+                    length: num_elements_processed + 1,
+                    end_of_logical_range: element.end(),
+                };
+                return Ok(entry);
+            }
+
+            current_addr = next_addr;
+            num_elements_processed = num_elements_processed + 1;
+        }
     }
 
     exec fn read_all_lists(
@@ -78,9 +148,14 @@ impl<PM, L> ListTable<PM, L>
         Ghost(mapping): Ghost<ListRecoveryMapping<L>>,
     ) -> (result: Result<(HashSet<u64>, HashMap<u64, ListTableEntry<L>>), KvError>)
         requires
+            journal.valid(),
+            journal@.constants.app_area_start <= sm.start(),
+            sm.end() <= journal@.constants.app_area_end,
+            sm.valid::<L>(),
             mapping.corresponds(journal@.read_state, list_addrs@.to_set(), *sm),
             forall|list_addr: u64| #[trigger] list_addrs@.contains(list_addr)
                 <==> mapping.list_info.contains_key(list_addr),
+            !list_addrs@.contains(0),
         ensures
             match result {
                 Ok((row_addrs_used, m)) => {
@@ -110,6 +185,11 @@ impl<PM, L> ListTable<PM, L>
         let num_lists = list_addrs.len();
         for which_list in 0..num_lists
             invariant
+                journal.valid(),
+                journal@.constants.app_area_start <= sm.start(),
+                sm.end() <= journal@.constants.app_area_end,
+                sm.valid::<L>(),
+                !list_addrs@.contains(0),
                 num_lists == list_addrs.len(),
                 mapping.corresponds(journal@.read_state, list_addrs@.to_set(), *sm),
                 forall|i: int, j: int| #![trigger mapping.list_info[list_addrs@[i]][j]] 0 <= i < which_list ==> {
@@ -269,6 +349,7 @@ impl<PM, L> ListTable<PM, L>
             sm.end() <= journal@.constants.app_area_end,
             Self::recover(journal@.read_state, list_addrs@.to_set(), *sm) is Some,
             sm.valid::<L>(),
+            !list_addrs@.contains(0),
         ensures
             match result {
                 Ok(lists) => {

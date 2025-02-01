@@ -87,7 +87,7 @@ impl<L> ListRecoveryMapping<L>
     {
         &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==>
         {
-            &&& 0 < self.list_info[head].len()
+            &&& 0 < self.list_info[head].len() <= usize::MAX
             &&& self.list_info[head][0] == head
             &&& list_addrs.contains(head)
         }
