@@ -261,13 +261,13 @@ impl<K> KeyMemoryMapping<K>
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
             &&& sm.table.validate_row_addr(row_addr)
             &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k, rm } ==> {
-                    &&& self.key_info.contains_key(k)
-                    &&& self.key_info[k] == row_addr
-                    &&& self.item_info.contains_key(rm.item_addr)
-                    &&& self.item_info[rm.item_addr] == row_addr
-                    &&& rm.list_addr != 0 ==> self.list_info.contains_key(rm.list_addr)
-                    &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == row_addr
-                }
+                   &&& self.key_info.contains_key(k)
+                   &&& self.key_info[k] == row_addr
+                   &&& self.item_info.contains_key(rm.item_addr)
+                   &&& self.item_info[rm.item_addr] == row_addr
+                   &&& rm.list_addr != 0 ==> self.list_info.contains_key(rm.list_addr)
+                   &&& rm.list_addr != 0 ==> self.list_info[rm.list_addr] == row_addr
+               }
         }
     }
 
