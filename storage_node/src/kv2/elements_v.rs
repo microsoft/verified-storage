@@ -315,6 +315,20 @@ where
         self.status = Ghost(KvStoreStatus::Quiescent);
 
         assert(self@.tentative =~= old(self)@.tentative.append_to_list(*key, new_list_entry).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs());
+        
+        if former_rm.list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().insert(list_addr));
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~=
+                   old_snapshot.list_addrs().remove(former_rm.list_addr).insert(list_addr));
+        }
+        
         Ok(())
     }
 
@@ -405,6 +419,21 @@ where
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~=
                old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~=
+               old_snapshot.item_addrs().remove(former_rm.item_addr).insert(new_rm.item_addr));
+        
+        if former_rm.list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().insert(list_addr));
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~=
+                   old_snapshot.list_addrs().remove(former_rm.list_addr).insert(list_addr));
+        }
+
         Ok(())
     }
 
@@ -505,6 +534,20 @@ where
 
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs());
+        
+        if former_rm.list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().insert(list_addr));
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~=
+                   old_snapshot.list_addrs().remove(former_rm.list_addr).insert(list_addr));
+        }
+
         Ok(())
     }
 
@@ -624,6 +667,21 @@ where
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat,
                                                                       new_list_entry, *new_item).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~=
+               old_snapshot.item_addrs().remove(former_rm.item_addr).insert(new_rm.item_addr));
+        
+        if former_rm.list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().insert(list_addr));
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~=
+                   old_snapshot.list_addrs().remove(former_rm.list_addr).insert(list_addr));
+        }
+
         Ok(())
     }
 
@@ -723,6 +781,20 @@ where
         self.status = Ghost(KvStoreStatus::Quiescent);
 
         assert(self@.tentative =~= old(self)@.tentative.trim_list(*key, trim_length as nat).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs());
+
+        if list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().remove(former_rm.list_addr));
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~=
+                   old_snapshot.list_addrs().remove(former_rm.list_addr).insert(list_addr));
+        }
+        
         Ok(())
     }
 
@@ -845,6 +917,21 @@ where
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat,
                                                                                 *new_item).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~=
+               old_snapshot.item_addrs().remove(former_rm.item_addr).insert(new_rm.item_addr));
+
+        if list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().remove(former_rm.list_addr));
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~=
+                   old_snapshot.list_addrs().remove(former_rm.list_addr).insert(list_addr));
+        }
+
         Ok(())
     }
 }

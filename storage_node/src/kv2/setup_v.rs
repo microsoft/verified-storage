@@ -225,11 +225,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(KeyTable::<PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state, key_sm);
         }
+        assert(empty_keys.item_addrs() =~= Set::<u64>::empty());
         assert(ItemTable::<PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
                == Some(ItemTableSnapshot::<I>::init())) by {
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
                                                                       empty_keys.item_addrs(), item_sm);
         }
+        assert(empty_keys.list_addrs() =~= Set::<u64>::empty());
         assert(ListTable::<PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
                == Some(ListTableSnapshot::<L>::init())) by {
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,

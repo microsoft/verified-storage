@@ -141,6 +141,26 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         self.status = Ghost(KvStoreStatus::Quiescent);
 
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().insert(item_addr)) by {
+            assert forall|other_item_addr: u64| {
+                &&& new_snapshot.item_addrs().contains(other_item_addr)
+                &&& other_item_addr != item_addr
+            } implies old_snapshot.item_addrs().contains(other_item_addr) by {
+                assert(old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr == other_item_addr);
+            }
+        }
+        
+        assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs()) by {
+            assert forall|other_list_addr: u64| new_snapshot.list_addrs().contains(other_list_addr)
+                implies old_snapshot.list_addrs().contains(other_list_addr) by {
+                assert(old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr == other_list_addr);
+            }
+        }
+
         Ok(())
     }
 
@@ -221,11 +241,17 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         assert(self@.tentative =~= old(self)@.tentative.delete(*key).unwrap());
 
-        // It's a little bit tricky to see that the key table's set of
-        // list addresses still matches the list table's domain, due
-        // to the special treatment of the 0 address. So we need to
-        // invoke extensional equality to establish that equivalence.
-        assert(self.keys@.tentative.unwrap().list_addrs() =~= self.lists@.tentative.unwrap().m.dom());
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().remove(rm.item_addr));
+
+        if rm.list_addr == 0 {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs());
+        }
+        else {
+            assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs().remove(rm.list_addr));
+        }
 
         Ok(())
     }
@@ -311,6 +337,13 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.update_item(*key, *new_item).unwrap());
+
+        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
+        let ghost new_snapshot = self.keys@.tentative.unwrap();
+
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().insert(item_addr).remove(former_rm.item_addr));
+        assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs());
+        
         Ok(())
     }
 }

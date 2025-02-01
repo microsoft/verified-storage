@@ -68,21 +68,23 @@ impl<K> KeyTableSnapshot<K>
 
     pub open spec fn item_info_valid(self) -> bool
     {
-        &&& forall|addr: u64| #[trigger] self.item_info.contains_key(addr) ==> {
-            let k = self.item_info[addr];
-            &&& self.key_info.contains_key(k)
-            &&& self.key_info[k].item_addr == addr
-        }
+        &&& forall|addr: u64| #![trigger self.key_info[self.item_info[addr]]]
+               self.item_info.contains_key(addr) ==> {
+                   let k = self.item_info[addr];
+                   &&& self.key_info.contains_key(k)
+                   &&& self.key_info[k].item_addr == addr
+               }
     }
 
     pub open spec fn list_info_valid(self) -> bool
     {
         &&& !self.list_info.contains_key(0)
-        &&& forall|addr: u64| #[trigger] self.list_info.contains_key(addr) ==> {
-            let k = self.list_info[addr];
-            &&& self.key_info.contains_key(k)
-            &&& self.key_info[k].list_addr == addr
-        }
+        &&& forall|addr: u64| #![trigger self.key_info[self.list_info[addr]]]
+               self.list_info.contains_key(addr) ==> {
+                   let k = self.list_info[addr];
+                   &&& self.key_info.contains_key(k)
+                   &&& self.key_info[k].list_addr == addr
+               }
     }
 
     pub open spec fn valid(self) -> bool
@@ -94,12 +96,14 @@ impl<K> KeyTableSnapshot<K>
 
     pub open spec fn item_addrs(self) -> Set<u64>
     {
-        self.item_info.dom()
+        Set::<u64>::new(|item_addr: u64| self.item_info.contains_key(item_addr) &&
+                                         self.key_info.contains_key(self.item_info[item_addr]))
     }
 
     pub open spec fn list_addrs(self) -> Set<u64>
     {
-        self.list_info.dom()
+        Set::<u64>::new(|list_addr: u64| self.list_info.contains_key(list_addr) &&
+                                         self.key_info.contains_key(self.list_info[list_addr]))
     }
 
     pub open spec fn create(self, k: K, item_addr: u64) -> Self
