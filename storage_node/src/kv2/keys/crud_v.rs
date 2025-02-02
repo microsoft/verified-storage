@@ -365,8 +365,8 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use group_validate_row_addr;
         }
 
-        assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().create(*k, item_addr)));
+        assert(self.valid(journal@));
         Ok(())
     }
 
@@ -456,8 +456,8 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use group_validate_row_addr;
         }
 
-        assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(*k)));
+        assert(self.valid(journal@));
         Ok(())
     }
 
@@ -631,8 +631,8 @@ impl<PM, K> KeyTable<PM, K>
 
         self.status = Ghost(KeyTableStatus::Quiescent);
 
-        assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
+        assert(self.valid(journal@));
         Ok(())
     }
 
