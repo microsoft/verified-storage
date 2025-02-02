@@ -382,7 +382,7 @@ impl<K> KeyMemoryMapping<K>
                 _ => true,
             }
         }
-        &&& forall|k: K| #[trigger] m.contains_key(k) ==> {
+        &&& forall|k: K| #![trigger self.row_info.contains_key(m[k].row_addr)] m.contains_key(k) ==> {
             &&& self.row_info.contains_key(m[k].row_addr)
             &&& self.row_info[m[k].row_addr] == (KeyRowDisposition::InHashTable{ k, rm: m[k].rm })
         }
