@@ -64,8 +64,7 @@ impl<K> KeyRecoveryMapping<K>
     
     pub(super) open spec fn row_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) ==>
-                self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64| sm.table.validate_row_addr(row_addr) ==> #[trigger] self.row_info.contains_key(row_addr)
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==>
             {
                 let cdb = recover_cdb(s, row_addr + sm.row_cdb_start);
@@ -158,7 +157,49 @@ impl<K> KeyRecoveryMapping<K>
         ensures
             self.as_snapshot() == other.as_snapshot(),
     {
-        assert(self.as_snapshot() =~= other.as_snapshot());
+        let ss = self.as_snapshot();
+        let os = other.as_snapshot();
+
+        assert(ss.key_info =~= os.key_info) by {
+            assert forall|k: K| #[trigger] ss.key_info.contains_key(k) implies
+                       os.key_info.contains_key(k) && os.key_info[k] == ss.key_info[k] by {
+                assert(self.row_info.contains_key(self.key_info[k]));
+                assert(other.row_info.contains_key(self.key_info[k]));
+            }
+            assert forall|k: K| #[trigger] os.key_info.contains_key(k) implies
+                           ss.key_info.contains_key(k) && ss.key_info[k] == os.key_info[k] by {
+                assert(other.row_info.contains_key(other.key_info[k]));
+                assert(self.row_info.contains_key(other.key_info[k]));
+            }
+        }
+
+        assert(ss.item_info =~= os.item_info) by {
+            assert forall|item_addr: u64| #[trigger] ss.item_info.contains_key(item_addr) implies
+                       os.item_info.contains_key(item_addr) && os.item_info[item_addr] == ss.item_info[item_addr] by {
+                assert(self.row_info.contains_key(self.item_info[item_addr]));
+                assert(other.row_info.contains_key(self.item_info[item_addr]));
+            }
+            assert forall|item_addr: u64| #[trigger] os.item_info.contains_key(item_addr) implies
+                       ss.item_info.contains_key(item_addr) && ss.item_info[item_addr] == os.item_info[item_addr] by {
+                assert(other.row_info.contains_key(other.item_info[item_addr]));
+                assert(self.row_info.contains_key(other.item_info[item_addr]));
+            }
+        }
+
+        assert(ss.list_info =~= os.list_info) by {
+            assert forall|list_addr: u64| #[trigger] ss.list_info.contains_key(list_addr) implies
+                       os.list_info.contains_key(list_addr) && os.list_info[list_addr] == ss.list_info[list_addr] by {
+                assert(self.row_info.contains_key(self.list_info[list_addr]));
+                assert(other.row_info.contains_key(self.list_info[list_addr]));
+            }
+            assert forall|list_addr: u64| #[trigger] os.list_info.contains_key(list_addr) implies
+                       ss.list_info.contains_key(list_addr) && ss.list_info[list_addr] == os.list_info[list_addr] by {
+                assert(other.row_info.contains_key(other.list_info[list_addr]));
+                assert(self.row_info.contains_key(other.list_info[list_addr]));
+            }
+        }
+
+        assert(ss =~= os);
     }
 
     pub(super) proof fn lemma_corresponds_implies_equals_new(self, s: Seq<u8>, sm: KeyTableStaticMetadata)

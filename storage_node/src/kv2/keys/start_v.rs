@@ -155,8 +155,9 @@ impl<PM, K> KeyTable<PM, K>
                 broadcast use group_update_bytes_effect;
                 broadcast use pmcopy_axioms;
                 sm.table.lemma_row_addr_successor_is_valid(row_addr);
+                assert(recovery_mapping.row_info.contains_key(row_addr));
             }
-    
+
             let cdb_addr = row_addr + sm.row_cdb_start;
             let cdb = exec_recover_cdb::<PM>(pm, cdb_addr);
             if cdb.is_none() {

@@ -501,6 +501,8 @@ impl<PM, K> KeyTable<PM, K>
 
         let ghost mm = self.internal_view().memory_mapping;
         let ghost old_mm = old(self).internal_view().memory_mapping;
+        assert(old(self).memory_mapping@.row_info.contains_key(row_addr));
+
         assert(mm.consistent(self.sm)) by {
             assert(mm.key_info_consistent()) by {
                 assert forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
@@ -719,6 +721,8 @@ impl<PM, K> KeyTable<PM, K>
 
         let ghost mm = self.internal_view().memory_mapping;
         let ghost old_mm = old(self).internal_view().memory_mapping;
+        assert(old(self).memory_mapping@.row_info.contains_key(row_addr));
+
         assert(mm.consistent(self.sm)) by {
             assert(mm.key_info_consistent()) by {
                 assert forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
