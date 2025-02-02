@@ -501,6 +501,7 @@ impl<PM, K> KeyTable<PM, K>
 
         assert(old(self).memory_mapping@.row_info.contains_key(row_addr));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(*k)));
+        assert(self.internal_view().valid(self.sm));
         assert(self.valid(journal@));
         Ok(())
     }
@@ -717,10 +718,14 @@ impl<PM, K> KeyTable<PM, K>
                     assert(old_mm.list_info.contains_key(list_addr) ==>
                            old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
                 }
+                assert(!mm.list_info.contains_key(0)) by {
+                    assert(!old_mm.list_info.contains_key(0));
+                }
             }
         }
 
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
+        assert(self.internal_view().valid(self.sm));
         assert(self.valid(journal@));
         Ok(())
     }

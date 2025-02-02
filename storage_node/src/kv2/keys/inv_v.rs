@@ -481,15 +481,19 @@ impl<K> KeyInternalView<K>
     pub(super) open spec fn valid(self, sm: KeyTableStaticMetadata) -> bool
     {
         &&& self.memory_mapping.valid(sm)
-        &&& forall|k: K| #[trigger] self.memory_mapping.key_info.contains_key(k) ==> {
-            let row_addr = self.memory_mapping.key_info[k];
-            &&& self.m.contains_key(k)
-            &&& self.m[k].row_addr == row_addr
-            &&& self.memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm }
-            &&& k2 == k
-            &&& rm == self.m[k].rm
-        }
-        &&& forall|k: K| self.m.contains_key(k) ==> #[trigger] self.memory_mapping.key_info.contains_key(k)
+        &&& forall|k: K| self.memory_mapping.key_info.contains_key(k) ==> {
+               let row_addr = self.memory_mapping.key_info[k];
+               &&& #[trigger] self.m.contains_key(k)
+               &&& self.m[k].row_addr == row_addr
+               &&& self.memory_mapping.row_info.contains_key(row_addr)
+               &&& self.memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm }
+               &&& k2 == k
+               &&& rm == self.m[k].rm
+           }
+        &&& forall|k: K| #[trigger] self.m.contains_key(k) ==> {
+               &&& self.memory_mapping.key_info.contains_key(k)
+               &&& self.memory_mapping.row_info.contains_key(self.memory_mapping.key_info[k])
+           }
     }
 
     pub(super) open spec fn consistent_with_journaled_addrs(
