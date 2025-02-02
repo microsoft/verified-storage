@@ -150,7 +150,7 @@ impl<PM, K> KeyTable<PM, K>
     {
         match KeyRecoveryMapping::<K>::new(s, sm) {
             None => None,
-            Some(mapping) => Some(Self::recover_keys_from_mapping(mapping)),
+            Some(mapping) => Some(mapping.as_snapshot()),
         }
     }
 

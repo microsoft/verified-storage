@@ -171,7 +171,7 @@ impl<PM, K> KeyTable<PM, K>
             if cdb {
                 let key_addr = row_addr + sm.row_key_start;
                 let key_crc_addr = row_addr + sm.row_key_crc_start;
-                let k = match exec_recover_object::<PM, K>(pm, key_addr, key_crc_addr) {
+                let key = match exec_recover_object::<PM, K>(pm, key_addr, key_crc_addr) {
                     None => { return Err(KvError::CRCMismatch); },
                     Some(k) => k,
                 };
@@ -182,10 +182,10 @@ impl<PM, K> KeyTable<PM, K>
                     Some(r) => r,
                 };
                 proof {
-                    memory_mapping = memory_mapping.initialize_row(row_addr, k, rm);
+                    memory_mapping = memory_mapping.initialize_row(row_addr, key, rm);
                 }
                 let concrete_key_info = ConcreteKeyInfo{ row_addr, rm };
-                m.insert(k, concrete_key_info);
+                m.insert(key, concrete_key_info);
                 item_addrs.insert(rm.item_addr);
                 if rm.list_addr != 0 {
                     list_addrs.push(rm.list_addr);
@@ -207,12 +207,53 @@ impl<PM, K> KeyTable<PM, K>
                 free_list.push(row_addr);
             }
 
+            assert(memory_mapping.consistent(*sm)) by {
+                assert(memory_mapping.key_info_consistent()) by {
+                    assert forall|k: K| #![trigger memory_mapping.row_info.contains_key(memory_mapping.key_info[k])]
+                        memory_mapping.key_info.contains_key(k) implies {
+                            let row_addr = memory_mapping.key_info[k];
+                            &&& memory_mapping.row_info.contains_key(row_addr)
+                            &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+                            &&& k == k2
+                        } by {
+                        assert(old_memory_mapping.key_info.contains_key(k) ==>
+                               old_memory_mapping.row_info.contains_key(old_memory_mapping.key_info[k]));
+                    }
+                }
+                assert(memory_mapping.item_info_consistent()) by {
+                    assert forall|item_addr: u64|
+                        #![trigger memory_mapping.row_info.contains_key(memory_mapping.item_info[item_addr])]
+                        memory_mapping.item_info.contains_key(item_addr) ==> {
+                            let row_addr = memory_mapping.item_info[item_addr];
+                            &&& memory_mapping.row_info.contains_key(row_addr)
+                            &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                            &&& rm.item_addr == item_addr
+                        } by {
+                        assert(old_memory_mapping.item_info.contains_key(item_addr) ==>
+                               old_memory_mapping.row_info.contains_key(old_memory_mapping.item_info[item_addr]));
+                    }
+                }
+                assert(memory_mapping.list_info_consistent()) by {
+                    assert forall|list_addr: u64|
+                        #![trigger memory_mapping.row_info.contains_key(memory_mapping.list_info[list_addr])]
+                        memory_mapping.list_info.contains_key(list_addr) ==> {
+                            let row_addr = memory_mapping.list_info[list_addr];
+                            &&& memory_mapping.row_info.contains_key(row_addr)
+                            &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                            &&& rm.list_addr == list_addr
+                        } by {
+                        assert(old_memory_mapping.list_info.contains_key(list_addr) ==>
+                               old_memory_mapping.row_info.contains_key(old_memory_mapping.list_info[list_addr]));
+                    }
+                }
+            }
+
             row_index = row_index + 1;
             row_addr = row_addr + sm.table.row_size;
         }
-    
+
         assert forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr)
-            implies memory_mapping.row_info.contains_key(row_addr) by {
+                implies memory_mapping.row_info.contains_key(row_addr) by {
             let row_index = sm.table.row_addr_to_index(row_addr);
             broadcast use group_validate_row_addr;
         }
@@ -231,12 +272,33 @@ impl<PM, K> KeyTable<PM, K>
 
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
         assert(keys@.durable =~= recovered_state);
-        assert(item_addrs@ =~= recovered_state.item_addrs());
-        assert(list_addrs@.to_set() =~= recovered_state.list_addrs());
 
+        assert(item_addrs@ =~= recovered_state.item_addrs()) by {
+            assert forall|item_addr| #[trigger] item_addrs@.contains(item_addr)
+                       implies recovered_state.item_addrs().contains(item_addr) by {
+                assert(recovery_mapping.item_info.contains_key(item_addr));
+                assert(recovery_mapping.row_info.contains_key(recovery_mapping.item_info[item_addr]));
+            }
+        }
+
+        assert(list_addrs@.to_set() =~= recovered_state.list_addrs()) by {
+            assert forall|list_addr| #[trigger] list_addrs@.to_set().contains(list_addr)
+                       implies recovered_state.list_addrs().contains(list_addr) by {
+                assert(recovery_mapping.list_info.contains_key(list_addr));
+                assert(recovery_mapping.row_info.contains_key(recovery_mapping.list_info[list_addr]));
+            }
+        }
+
+        assert(keys.internal_view().valid(*sm)) by {
+            assert forall|k: K| #[trigger] keys.internal_view().memory_mapping.key_info.contains_key(k) implies
+                keys.internal_view().m.contains_key(k) by {
+                let mm = keys.internal_view().memory_mapping;
+                assert(mm.key_info.contains_key(k) ==> mm.row_info.contains_key(mm.key_info[k]));
+            }
+        }
+        
         Ok((keys, item_addrs, list_addrs))
     }
 }
 
 }
-

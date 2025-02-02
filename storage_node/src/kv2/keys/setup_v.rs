@@ -118,11 +118,12 @@ impl<PM, K> KeyTable<PM, K>
         }
     
         let ghost mapping = KeyRecoveryMapping::<K>::new_empty(sm.table);
-        assert(KeyRecoveryMapping::<K>::new(pm@.read_state, *sm) == Some(mapping)) by {
+        assert(KeyRecoveryMapping::<K>::new(pm@.read_state, *sm) matches Some(recovery_mapping)
+               && recovery_mapping.as_snapshot() == mapping.as_snapshot()) by {
             assert(mapping.corresponds(pm@.read_state, *sm));
             mapping.lemma_corresponds_implies_equals_new(pm@.read_state, *sm);
         }
-        assert(Self::recover_keys_from_mapping(mapping) =~= KeyTableSnapshot::<K>::init());
+        assert(mapping.as_snapshot() =~= KeyTableSnapshot::<K>::init());
     }
     
     pub exec fn setup(

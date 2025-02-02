@@ -216,15 +216,17 @@ impl<K> KeyMemoryMapping<K>
                 },
             ),
             key_info: Map::<K, u64>::new(
-                |k: K| self.key_info.contains_key(k),
+                |k: K| self.key_info.contains_key(k) && self.row_info.contains_key(self.key_info[k]),
                 |k: K| self.key_info[k] as u64,
             ),
             item_info: Map::<u64, u64>::new(
-                |item_addr: u64| self.item_info.contains_key(item_addr),
+                |item_addr: u64| self.item_info.contains_key(item_addr)
+                                 && self.row_info.contains_key(self.item_info[item_addr]),
                 |item_addr: u64| self.item_info[item_addr] as u64,
             ),
             list_info: Map::<u64, u64>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr),
+                |list_addr: u64| self.list_info.contains_key(list_addr)
+                                 && self.row_info.contains_key(self.list_info[list_addr]),
                 |list_addr: u64| self.list_info[list_addr] as u64,
             ),
         }
@@ -234,15 +236,17 @@ impl<K> KeyMemoryMapping<K>
     {
         KeyTableSnapshot::<K>{
             key_info: Map::<K, KeyTableRowMetadata>::new(
-                |k: K| self.key_info.contains_key(k),
+                |k: K| self.key_info.contains_key(k) && self.row_info.contains_key(self.key_info[k]),
                 |k: K| self.row_info[self.key_info[k]]->rm,
             ),
             item_info: Map::<u64, K>::new(
-                |item_addr: u64| self.item_info.contains_key(item_addr),
+                |item_addr: u64| self.item_info.contains_key(item_addr)
+                                 && self.row_info.contains_key(self.item_info[item_addr]),
                 |item_addr: u64| self.row_info[self.item_info[item_addr]]->k
             ),
             list_info: Map::<u64, K>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr),
+                |list_addr: u64| self.list_info.contains_key(list_addr)
+                                 && self.row_info.contains_key(self.list_info[list_addr]),
                 |list_addr: u64| self.row_info[self.list_info[list_addr]]->k
             ),
         }
@@ -273,33 +277,36 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn key_info_consistent(self) -> bool
     {
-        &&& forall|k: K| #[trigger] self.key_info.contains_key(k) ==> {
-            let row_addr = self.key_info[k];
-            &&& self.row_info.contains_key(row_addr)
-            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
-            &&& k == k2
-        }
+        &&& forall|k: K| #![trigger self.row_info.contains_key(self.key_info[k])]
+               self.key_info.contains_key(k) ==> {
+                   let row_addr = self.key_info[k];
+                   &&& self.row_info.contains_key(row_addr)
+                   &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+                   &&& k == k2
+               }
     }
-
+    
     pub(super) open spec fn item_info_consistent(self) -> bool
     {
-        &&& forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==> {
-            let row_addr = self.item_info[item_addr];
-            &&& self.row_info.contains_key(row_addr)
-            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
-            &&& rm.item_addr == item_addr
-        }
+        &&& forall|item_addr: u64| #![trigger self.row_info.contains_key(self.item_info[item_addr])]
+               self.item_info.contains_key(item_addr) ==> {
+                   let row_addr = self.item_info[item_addr];
+                   &&& self.row_info.contains_key(row_addr)
+                   &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                   &&& rm.item_addr == item_addr
+               }
     }
 
     pub(super) open spec fn list_info_consistent(self) -> bool
     {
         &&& !self.list_info.contains_key(0)
-        &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==> {
-            let row_addr = self.list_info[list_addr];
-            &&& self.row_info.contains_key(row_addr)
-            &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
-            &&& rm.list_addr == list_addr
-        }
+        &&& forall|list_addr: u64| #![trigger self.row_info.contains_key(self.list_info[list_addr])]
+               self.list_info.contains_key(list_addr) ==> {
+                   let row_addr = self.list_info[list_addr];
+                   &&& self.row_info.contains_key(row_addr)
+                   &&& self.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                   &&& rm.list_addr == list_addr
+               }
     }
 
     pub(super) open spec fn consistent(self, sm: KeyTableStaticMetadata) -> bool

@@ -89,63 +89,83 @@ impl<K> KeyRecoveryMapping<K>
             }
     }
 
-    pub(super) open spec fn key_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn key_info_corresponds(self) -> bool
     {
-        forall|k: K| #[trigger] self.key_info.contains_key(k) ==>
-        {
-            let row_addr = self.key_info[k];
-            &&& sm.table.validate_row_addr(row_addr)
-            &&& self.row_info[row_addr] matches Some((k2, _))
-            &&& k2 == k
-        }
+        forall|k: K| #![trigger self.row_info.contains_key(self.key_info[k])]
+            self.key_info.contains_key(k) ==> {
+                let row_addr = self.key_info[k];
+                &&& self.row_info.contains_key(row_addr)
+                &&& self.row_info[row_addr] matches Some((k2, _))
+                &&& k2 == k
+            }
     }
 
-    pub(super) open spec fn item_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn item_info_corresponds(self) -> bool
     {
-        forall|item_addr: u64| #[trigger] self.item_info.contains_key(item_addr) ==>
-        {
-            let row_addr = self.item_info[item_addr];
-            &&& sm.table.validate_row_addr(row_addr)
-            &&& self.row_info[row_addr] matches Some((_, rm))
-            &&& rm.item_addr == item_addr
-        }
+        forall|item_addr: u64| #![trigger self.row_info.contains_key(self.item_info[item_addr])]
+            self.item_info.contains_key(item_addr) ==> {
+                let row_addr = self.item_info[item_addr];
+                &&& self.row_info.contains_key(row_addr)
+                &&& self.row_info[row_addr] matches Some((_, rm))
+                &&& rm.item_addr == item_addr
+            }
     }
 
-    pub(super) open spec fn list_info_corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
+    pub(super) open spec fn list_info_corresponds(self) -> bool
     {
         &&& !self.list_info.contains_key(0)
-        &&& forall|list_addr: u64| #[trigger] self.list_info.contains_key(list_addr) ==>
-            {
-                let row_addr = self.list_info[list_addr];
-                &&& sm.table.validate_row_addr(row_addr)
-                &&& self.row_info[row_addr] matches Some((_, rm))
-                &&& rm.list_addr == list_addr
-            }
+        &&& forall|list_addr: u64| #![trigger self.row_info.contains_key(self.list_info[list_addr])]
+               self.list_info.contains_key(list_addr) ==> {
+                   let row_addr = self.list_info[list_addr];
+                   &&& self.row_info.contains_key(row_addr)
+                   &&& self.row_info[row_addr] matches Some((_, rm))
+                   &&& rm.list_addr == list_addr
+               }
     }
 
     pub(super) open spec fn corresponds(self, s: Seq<u8>, sm: KeyTableStaticMetadata) -> bool
     {
         &&& self.row_info_corresponds(s, sm)
-        &&& self.key_info_corresponds(s, sm)
-        &&& self.item_info_corresponds(s, sm)
-        &&& self.list_info_corresponds(s, sm)
+        &&& self.key_info_corresponds()
+        &&& self.item_info_corresponds()
+        &&& self.list_info_corresponds()
     }
 
+    pub(super) open spec fn as_snapshot(self: KeyRecoveryMapping<K>) -> KeyTableSnapshot<K>
+    {
+        KeyTableSnapshot::<K>{
+            key_info: Map::<K, KeyTableRowMetadata>::new(
+                |k: K| self.key_info.contains_key(k) && self.row_info.contains_key(self.key_info[k]),
+                |k: K| self.row_info[self.key_info[k]].unwrap().1,
+            ),
+            item_info: Map::<u64, K>::new(
+                |item_addr: u64| self.item_info.contains_key(item_addr)
+                                 && self.row_info.contains_key(self.item_info[item_addr]),
+                |item_addr: u64| self.row_info[self.item_info[item_addr]].unwrap().0,
+            ),
+            list_info: Map::<u64, K>::new(
+                |list_addr: u64| self.list_info.contains_key(list_addr)
+                                 && self.row_info.contains_key(self.list_info[list_addr]),
+                |list_addr: u64| self.row_info[self.list_info[list_addr]].unwrap().0,
+            ),
+        }
+    }
+    
     pub(super) proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>, sm: KeyTableStaticMetadata)
         requires
             self.corresponds(s, sm),
             other.corresponds(s, sm),
         ensures
-            self == other,
-    { 
-        assert(self =~= other);
+            self.as_snapshot() == other.as_snapshot(),
+    {
+        assert(self.as_snapshot() =~= other.as_snapshot());
     }
 
     pub(super) proof fn lemma_corresponds_implies_equals_new(self, s: Seq<u8>, sm: KeyTableStaticMetadata)
         requires
             self.corresponds(s, sm),
         ensures
-            Self::new(s, sm) == Some(self),
+            Self::new(s, sm) matches Some(mapping) && mapping.as_snapshot() == self.as_snapshot(),
     {
         self.lemma_uniqueness(Self::new(s, sm).unwrap(), s, sm);
     }
@@ -156,24 +176,6 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn recover_keys_from_mapping(mapping: KeyRecoveryMapping<K>) -> KeyTableSnapshot<K>
-    {
-        KeyTableSnapshot::<K>{
-            key_info: Map::<K, KeyTableRowMetadata>::new(
-                |k: K| mapping.key_info.contains_key(k),
-                |k: K| mapping.row_info[mapping.key_info[k]].unwrap().1,
-            ),
-            item_info: Map::<u64, K>::new(
-                |item_addr: u64| mapping.item_info.contains_key(item_addr),
-                |item_addr: u64| mapping.row_info[mapping.item_info[item_addr]].unwrap().0,
-            ),
-            list_info: Map::<u64, K>::new(
-                |list_addr: u64| mapping.list_info.contains_key(list_addr),
-                |list_addr: u64| mapping.row_info[mapping.list_info[list_addr]].unwrap().0,
-            ),
-        }
-    }
-    
     pub proof fn lemma_recover_depends_only_on_my_area(
         s1: Seq<u8>,
         s2: Seq<u8>,
