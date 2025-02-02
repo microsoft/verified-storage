@@ -125,6 +125,17 @@ impl<PM, K> KeyTable<PM, K>
         // applying the undo records emptied it.
         assert(self.pending_deallocations@ == Seq::<u64>::empty());
 
+        assert(self@.durable =~= old(self)@.durable) by {
+            let old_iv = old(self).internal_view().apply_undo_records(old(self).undo_records@, self.sm).unwrap();
+            self.internal_view().memory_mapping.as_recovery_mapping().lemma_uniqueness(
+                old_iv.memory_mapping.as_recovery_mapping(),
+                jv_before_abort.durable_state,
+                self.sm
+            );
+            old_iv.lemma_as_snapshot_same_as_memory_mapping_as_snapshot(old(self).sm);
+            self.internal_view().lemma_as_snapshot_same_as_memory_mapping_as_snapshot(self.sm);
+        }
+
         assert(self@ =~= (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }));
     }
 }

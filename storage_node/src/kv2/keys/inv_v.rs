@@ -252,12 +252,19 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
+    pub(super) proof fn lemma_as_snapshot_same_as_recovery_mapping_as_snapshot(self, sm: KeyTableStaticMetadata)
+        requires
+            self.consistent(sm),
+        ensures
+            self.as_snapshot() == self.as_recovery_mapping().as_snapshot(),
+    {
+        assert(self.as_snapshot() =~= self.as_recovery_mapping().as_snapshot());
+    }
+
     pub(super) open spec fn complete(self, sm: KeyTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: u64|
-            #![trigger sm.table.validate_row_addr(row_addr)]
-            #![trigger self.row_info.contains_key(row_addr)]
-            sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+            sm.table.validate_row_addr(row_addr) ==> #[trigger] self.row_info.contains_key(row_addr)
     }
 
     pub(super) open spec fn row_info_consistent(self, sm: KeyTableStaticMetadata) -> bool
@@ -624,6 +631,15 @@ impl<K> KeyInternalView<K>
         self.memory_mapping.as_snapshot()
     }
 
+    pub(super) proof fn lemma_as_snapshot_same_as_memory_mapping_as_snapshot(self, sm: KeyTableStaticMetadata)
+        requires
+            self.memory_mapping.consistent(sm),
+        ensures
+            self.as_snapshot() == self.memory_mapping.as_recovery_mapping().as_snapshot(),
+    {
+        self.memory_mapping.lemma_as_snapshot_same_as_recovery_mapping_as_snapshot(sm);
+    }
+
     pub(super) proof fn lemma_apply_undo_records_only_appends_to_free_list(
         self,
         undo_records: Seq<KeyUndoRecord<K>>,
@@ -708,22 +724,14 @@ impl<PM, K> KeyTable<PM, K>
             Self::recover(jv.durable_state, self@.sm) == Some(self@.durable),
             self@.tentative is Some ==> Self::recover(jv.commit_state, self@.sm) == self@.tentative,
     {
-        assert(Self::recover(jv.durable_state, self@.sm) is Some) by {
-            self.internal_view()
-                .apply_undo_records(self.undo_records@, self.sm)
-                .unwrap()
-                .memory_mapping
-                .as_recovery_mapping()
-                .lemma_corresponds_implies_equals_new(jv.durable_state, self@.sm);
-        }
+        let iv = self.internal_view().apply_undo_records(self.undo_records@, self.sm).unwrap();
+        iv.lemma_as_snapshot_same_as_memory_mapping_as_snapshot(self@.sm);
+        iv.memory_mapping.as_recovery_mapping().lemma_corresponds_implies_equals_new(jv.durable_state, self@.sm);
         assert(Self::recover(jv.durable_state, self@.sm) =~= Some(self@.durable));
 
         if self@.tentative is Some {
-            assert(Self::recover(jv.commit_state, self@.sm) is Some) by {
-                self.memory_mapping@
-                    .as_recovery_mapping()
-                    .lemma_corresponds_implies_equals_new(jv.commit_state, self@.sm);
-            }
+            self.memory_mapping@.as_recovery_mapping().lemma_corresponds_implies_equals_new(jv.commit_state, self@.sm);
+            self.internal_view().lemma_as_snapshot_same_as_memory_mapping_as_snapshot(self@.sm);
             assert(Self::recover(jv.commit_state, self@.sm) =~= self@.tentative);
         }
     }

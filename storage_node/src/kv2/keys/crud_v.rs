@@ -365,6 +365,49 @@ impl<PM, K> KeyTable<PM, K>
             broadcast use group_validate_row_addr;
         }
 
+        let ghost mm = self.internal_view().memory_mapping;
+        let ghost old_mm = old(self).internal_view().memory_mapping;
+        assert(mm.consistent(self.sm)) by {
+            assert(mm.key_info_consistent()) by {
+                assert forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
+                    mm.key_info.contains_key(k) implies {
+                        let row_addr = mm.key_info[k];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+                        &&& k == k2
+                    } by {
+                    assert(old_mm.key_info.contains_key(k) ==>
+                           old_mm.row_info.contains_key(old_mm.key_info[k]));
+                }
+            }
+            assert(mm.item_info_consistent()) by {
+                assert forall|item_addr: u64|
+                    #![trigger mm.row_info.contains_key(mm.item_info[item_addr])]
+                    mm.item_info.contains_key(item_addr) ==> {
+                        let row_addr = mm.item_info[item_addr];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                        &&& rm.item_addr == item_addr
+                    } by {
+                    assert(old_mm.item_info.contains_key(item_addr) ==>
+                           old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
+                }
+            }
+            assert(mm.list_info_consistent()) by {
+                assert forall|list_addr: u64|
+                    #![trigger mm.row_info.contains_key(mm.list_info[list_addr])]
+                    mm.list_info.contains_key(list_addr) ==> {
+                        let row_addr = mm.list_info[list_addr];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                        &&& rm.list_addr == list_addr
+                    } by {
+                    assert(old_mm.list_info.contains_key(list_addr) ==>
+                           old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
+                }
+            }
+        }
+
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().create(*k, item_addr)));
         assert(self.valid(journal@));
         Ok(())
@@ -454,6 +497,49 @@ impl<PM, K> KeyTable<PM, K>
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
+        }
+
+        let ghost mm = self.internal_view().memory_mapping;
+        let ghost old_mm = old(self).internal_view().memory_mapping;
+        assert(mm.consistent(self.sm)) by {
+            assert(mm.key_info_consistent()) by {
+                assert forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
+                    mm.key_info.contains_key(k) implies {
+                        let row_addr = mm.key_info[k];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+                        &&& k == k2
+                    } by {
+                    assert(old_mm.key_info.contains_key(k) ==>
+                           old_mm.row_info.contains_key(old_mm.key_info[k]));
+                }
+            }
+            assert(mm.item_info_consistent()) by {
+                assert forall|item_addr: u64|
+                    #![trigger mm.row_info.contains_key(mm.item_info[item_addr])]
+                    mm.item_info.contains_key(item_addr) ==> {
+                        let row_addr = mm.item_info[item_addr];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                        &&& rm.item_addr == item_addr
+                    } by {
+                    assert(old_mm.item_info.contains_key(item_addr) ==>
+                           old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
+                }
+            }
+            assert(mm.list_info_consistent()) by {
+                assert forall|list_addr: u64|
+                    #![trigger mm.row_info.contains_key(mm.list_info[list_addr])]
+                    mm.list_info.contains_key(list_addr) ==> {
+                        let row_addr = mm.list_info[list_addr];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                        &&& rm.list_addr == list_addr
+                    } by {
+                    assert(old_mm.list_info.contains_key(list_addr) ==>
+                           old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
+                }
+            }
         }
 
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(*k)));
@@ -630,6 +716,49 @@ impl<PM, K> KeyTable<PM, K>
         }
 
         self.status = Ghost(KeyTableStatus::Quiescent);
+
+        let ghost mm = self.internal_view().memory_mapping;
+        let ghost old_mm = old(self).internal_view().memory_mapping;
+        assert(mm.consistent(self.sm)) by {
+            assert(mm.key_info_consistent()) by {
+                assert forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
+                    mm.key_info.contains_key(k) implies {
+                        let row_addr = mm.key_info[k];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
+                        &&& k == k2
+                    } by {
+                    assert(old_mm.key_info.contains_key(k) ==>
+                           old_mm.row_info.contains_key(old_mm.key_info[k]));
+                }
+            }
+            assert(mm.item_info_consistent()) by {
+                assert forall|item_addr: u64|
+                    #![trigger mm.row_info.contains_key(mm.item_info[item_addr])]
+                    mm.item_info.contains_key(item_addr) ==> {
+                        let row_addr = mm.item_info[item_addr];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                        &&& rm.item_addr == item_addr
+                    } by {
+                    assert(old_mm.item_info.contains_key(item_addr) ==>
+                           old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
+                }
+            }
+            assert(mm.list_info_consistent()) by {
+                assert forall|list_addr: u64|
+                    #![trigger mm.row_info.contains_key(mm.list_info[list_addr])]
+                    mm.list_info.contains_key(list_addr) ==> {
+                        let row_addr = mm.list_info[list_addr];
+                        &&& mm.row_info.contains_key(row_addr)
+                        &&& mm.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
+                        &&& rm.list_addr == list_addr
+                    } by {
+                    assert(old_mm.list_info.contains_key(list_addr) ==>
+                           old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
+                }
+            }
+        }
 
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
         assert(self.valid(journal@));
