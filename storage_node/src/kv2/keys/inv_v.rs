@@ -482,7 +482,7 @@ impl<K> KeyInternalView<K>
             &&& k2 == k
             &&& rm == self.m[k].rm
         }
-        &&& forall|k: K| #[trigger] self.m.contains_key(k) ==> self.memory_mapping.key_info.contains_key(k)
+        &&& forall|k: K| self.m.contains_key(k) ==> #[trigger] self.memory_mapping.key_info.contains_key(k)
     }
 
     pub(super) open spec fn consistent_with_journaled_addrs(
