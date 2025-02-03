@@ -142,24 +142,22 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
 
+        // Trigger quantified facts about the old snapshot when talking about
+        // corresponding facts about the new snapshot.
+
         let ghost old_snapshot = old(self).keys@.tentative.unwrap();
         let ghost new_snapshot = self.keys@.tentative.unwrap();
+        assert(forall|other_item_addr: u64|
+               #![trigger new_snapshot.key_info.contains_key(new_snapshot.item_info[other_item_addr])]
+               old_snapshot.item_info.contains_key(other_item_addr) ==>
+               old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr == other_item_addr);
+        assert(forall|other_list_addr: u64|
+               #![trigger new_snapshot.key_info.contains_key(new_snapshot.list_info[other_list_addr])]
+               old_snapshot.list_info.contains_key(other_list_addr) ==>
+               old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr == other_list_addr);
 
-        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().insert(item_addr)) by {
-            assert forall|other_item_addr: u64| {
-                &&& new_snapshot.item_addrs().contains(other_item_addr)
-                &&& other_item_addr != item_addr
-            } implies old_snapshot.item_addrs().contains(other_item_addr) by {
-                assert(old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr == other_item_addr);
-            }
-        }
-        
-        assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs()) by {
-            assert forall|other_list_addr: u64| new_snapshot.list_addrs().contains(other_list_addr)
-                implies old_snapshot.list_addrs().contains(other_list_addr) by {
-                assert(old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr == other_list_addr);
-            }
-        }
+        assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().insert(item_addr));
+        assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs());
 
         Ok(())
     }
