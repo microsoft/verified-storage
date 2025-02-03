@@ -165,7 +165,7 @@ impl<PM, K> KeyTable<PM, K>
             }
             let cdb = cdb.unwrap();
 
-            let ghost old_memory_mapping = memory_mapping;
+            let ghost old_mm = memory_mapping;
             let ghost old_m = m@;
             let ghost old_list_addrs = list_addrs@;
 
@@ -208,32 +208,21 @@ impl<PM, K> KeyTable<PM, K>
                 free_list.push(row_addr);
             }
 
+            // Trigger quantified facts about the old memory mapping
+            // whether corresponding facts are mentioned about the current
+            // memory mapping.
+
+            assert(forall|k: K| #![trigger memory_mapping.row_info.contains_key(memory_mapping.key_info[k])]
+                   memory_mapping.row_info.contains_key(memory_mapping.key_info[k]) &&
+                   old_mm.key_info.contains_key(k) ==>
+                   old_mm.row_info.contains_key(old_mm.key_info[k]));
+            assert(forall|item_addr: u64|
+                   #![trigger memory_mapping.row_info.contains_key(memory_mapping.item_info[item_addr])]
+                   memory_mapping.row_info.contains_key(memory_mapping.item_info[item_addr]) &&
+                   old_mm.item_info.contains_key(item_addr) ==>
+                   old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
+
             assert(memory_mapping.consistent(*sm)) by {
-                assert(memory_mapping.key_info_consistent()) by {
-                    assert forall|k: K| #![trigger memory_mapping.row_info.contains_key(memory_mapping.key_info[k])]
-                        memory_mapping.key_info.contains_key(k) implies {
-                            let row_addr = memory_mapping.key_info[k];
-                            &&& memory_mapping.row_info.contains_key(row_addr)
-                            &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: k2, rm: _ }
-                            &&& k == k2
-                        } by {
-                        assert(old_memory_mapping.key_info.contains_key(k) ==>
-                               old_memory_mapping.row_info.contains_key(old_memory_mapping.key_info[k]));
-                    }
-                }
-                assert(memory_mapping.item_info_consistent()) by {
-                    assert forall|item_addr: u64|
-                        #![trigger memory_mapping.row_info.contains_key(memory_mapping.item_info[item_addr])]
-                        memory_mapping.item_info.contains_key(item_addr) ==> {
-                            let row_addr = memory_mapping.item_info[item_addr];
-                            &&& memory_mapping.row_info.contains_key(row_addr)
-                            &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
-                            &&& rm.item_addr == item_addr
-                        } by {
-                        assert(old_memory_mapping.item_info.contains_key(item_addr) ==>
-                               old_memory_mapping.row_info.contains_key(old_memory_mapping.item_info[item_addr]));
-                    }
-                }
                 assert(memory_mapping.list_info_consistent()) by {
                     assert forall|list_addr: u64|
                         #![trigger memory_mapping.row_info.contains_key(memory_mapping.list_info[list_addr])]
@@ -243,8 +232,8 @@ impl<PM, K> KeyTable<PM, K>
                             &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
                             &&& rm.list_addr == list_addr
                         } by {
-                        assert(old_memory_mapping.list_info.contains_key(list_addr) ==>
-                               old_memory_mapping.row_info.contains_key(old_memory_mapping.list_info[list_addr]));
+                        assert(old_mm.list_info.contains_key(list_addr) ==>
+                               old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
                     }
                 }
             }
