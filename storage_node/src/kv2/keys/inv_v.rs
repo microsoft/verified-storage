@@ -220,13 +220,13 @@ impl<K> KeyMemoryMapping<K>
                 |k: K| self.key_info[k] as u64,
             ),
             item_info: Map::<u64, u64>::new(
-                |item_addr: u64| self.item_info.contains_key(item_addr)
-                                 && self.row_info.contains_key(self.item_info[item_addr]),
+                |item_addr: u64| self.item_info.contains_key(item_addr) &&
+                                 self.row_info.contains_key(self.item_info[item_addr]),
                 |item_addr: u64| self.item_info[item_addr] as u64,
             ),
             list_info: Map::<u64, u64>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr)
-                                 && self.row_info.contains_key(self.list_info[list_addr]),
+                |list_addr: u64| self.list_info.contains_key(list_addr) &&
+                                 self.row_info.contains_key(self.list_info[list_addr]),
                 |list_addr: u64| self.list_info[list_addr] as u64,
             ),
         }
