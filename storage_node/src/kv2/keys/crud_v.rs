@@ -34,6 +34,27 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
+    pub(super) proof fn lemma_relate_old_and_new_mappings(self, old_self: Self)
+        requires
+            old_self.memory_mapping@.valid(old_self.sm),
+        ensures
+            ({
+                let ghost mm = self.internal_view().memory_mapping;
+                let ghost old_mm = old_self.internal_view().memory_mapping;
+                &&& forall|k: K| #![trigger mm.key_info.contains_key(k)]
+                       mm.row_info.contains_key(mm.key_info[k]) && old_mm.key_info.contains_key(k) ==>
+                    old_mm.row_info.contains_key(old_mm.key_info[k])
+                &&& forall|item_addr: u64| #![trigger mm.item_info.contains_key(item_addr)]
+                    mm.row_info.contains_key(mm.item_info[item_addr]) && old_mm.item_info.contains_key(item_addr) ==>
+                    old_mm.row_info.contains_key(old_mm.item_info[item_addr])
+                &&& forall|list_addr: u64| #![trigger mm.list_info.contains_key(list_addr)]
+                    mm.row_info.contains_key(mm.list_info[list_addr]) && old_mm.list_info.contains_key(list_addr) ==>
+                    old_mm.row_info.contains_key(old_mm.list_info[list_addr])
+                &&& !old_mm.list_info.contains_key(0)
+            })
+    {
+    }
+        
     pub exec fn read(&self, k: &K, jv: Ghost<JournalView>) -> (result: Option<(u64, KeyTableRowMetadata)>)
         requires
             self.valid(jv@),
@@ -363,25 +384,7 @@ impl<PM, K> KeyTable<PM, K>
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
-        }
-
-        // Trigger quantified facts about the old memory mapping
-        // whether corresponding facts are mentioned about the current
-        // memory mapping.
-
-        let ghost mm = self.internal_view().memory_mapping;
-        let ghost old_mm = old(self).internal_view().memory_mapping;
-        assert(forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
-               mm.row_info.contains_key(mm.key_info[k]) && old_mm.key_info.contains_key(k) ==>
-               old_mm.row_info.contains_key(old_mm.key_info[k]));
-        assert(forall|item_addr: u64| #![trigger mm.row_info.contains_key(mm.item_info[item_addr])]
-               mm.row_info.contains_key(mm.item_info[item_addr]) && old_mm.item_info.contains_key(item_addr) ==>
-               old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
-        assert(forall|list_addr: u64| #![trigger mm.row_info.contains_key(mm.list_info[list_addr])]
-               mm.row_info.contains_key(mm.list_info[list_addr]) && old_mm.list_info.contains_key(list_addr) ==>
-               old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
-        assert(!mm.list_info.contains_key(0)) by {
-            assert(!old_mm.list_info.contains_key(0));
+            self.lemma_relate_old_and_new_mappings(*old(self));
         }
 
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().create(*k, item_addr)));
@@ -473,25 +476,7 @@ impl<PM, K> KeyTable<PM, K>
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
-        }
-
-        // Trigger quantified facts about the old memory mapping
-        // whether corresponding facts are mentioned about the current
-        // memory mapping.
-
-        let ghost mm = self.internal_view().memory_mapping;
-        let ghost old_mm = old(self).internal_view().memory_mapping;
-        assert(forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
-               mm.row_info.contains_key(mm.key_info[k]) && old_mm.key_info.contains_key(k) ==>
-               old_mm.row_info.contains_key(old_mm.key_info[k]));
-        assert(forall|item_addr: u64| #![trigger mm.row_info.contains_key(mm.item_info[item_addr])]
-               mm.row_info.contains_key(mm.item_info[item_addr]) && old_mm.item_info.contains_key(item_addr) ==>
-               old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
-        assert(forall|list_addr: u64| #![trigger mm.row_info.contains_key(mm.list_info[list_addr])]
-               mm.row_info.contains_key(mm.list_info[list_addr]) && old_mm.list_info.contains_key(list_addr) ==>
-               old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
-        assert(!mm.list_info.contains_key(0)) by {
-            assert(!old_mm.list_info.contains_key(0));
+            self.lemma_relate_old_and_new_mappings(*old(self));
         }
 
         assert(old(self).memory_mapping@.row_info.contains_key(row_addr));
@@ -664,32 +649,13 @@ impl<PM, K> KeyTable<PM, K>
             assert(self.undo_records@.last() =~= undo_record);
         }
 
+        self.status = Ghost(KeyTableStatus::Quiescent);
+
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
-        }
-
-        self.status = Ghost(KeyTableStatus::Quiescent);
-
-        let ghost mm = self.internal_view().memory_mapping;
-        let ghost old_mm = old(self).internal_view().memory_mapping;
-        assert(old(self).memory_mapping@.row_info.contains_key(row_addr));
-
-        // Trigger quantified facts about the old memory mapping
-        // whether corresponding facts are mentioned about the current
-        // memory mapping.
-
-        assert(forall|k: K| #![trigger mm.row_info.contains_key(mm.key_info[k])]
-               mm.row_info.contains_key(mm.key_info[k]) && old_mm.key_info.contains_key(k) ==>
-               old_mm.row_info.contains_key(old_mm.key_info[k]));
-        assert(forall|item_addr: u64| #![trigger mm.row_info.contains_key(mm.item_info[item_addr])]
-               mm.row_info.contains_key(mm.item_info[item_addr]) && old_mm.item_info.contains_key(item_addr) ==>
-               old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
-        assert(forall|list_addr: u64| #![trigger mm.row_info.contains_key(mm.list_info[list_addr])]
-               mm.row_info.contains_key(mm.list_info[list_addr]) && old_mm.list_info.contains_key(list_addr) ==>
-               old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
-        assert(!mm.list_info.contains_key(0)) by {
-            assert(!old_mm.list_info.contains_key(0));
+            self.lemma_relate_old_and_new_mappings(*old(self));
+            assert(old(self).memory_mapping@.row_info.contains_key(row_addr));
         }
 
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));

@@ -212,31 +212,14 @@ impl<PM, K> KeyTable<PM, K>
             // whether corresponding facts are mentioned about the current
             // memory mapping.
 
-            assert(forall|k: K| #![trigger memory_mapping.row_info.contains_key(memory_mapping.key_info[k])]
-                   memory_mapping.row_info.contains_key(memory_mapping.key_info[k]) &&
-                   old_mm.key_info.contains_key(k) ==>
-                   old_mm.row_info.contains_key(old_mm.key_info[k]));
-            assert(forall|item_addr: u64|
-                   #![trigger memory_mapping.row_info.contains_key(memory_mapping.item_info[item_addr])]
-                   memory_mapping.row_info.contains_key(memory_mapping.item_info[item_addr]) &&
+            assert(forall|k: K| #![trigger memory_mapping.key_info.contains_key(k)]
+                   old_mm.key_info.contains_key(k) ==> old_mm.row_info.contains_key(old_mm.key_info[k]));
+            assert(forall|item_addr: u64| #![trigger memory_mapping.item_info.contains_key(item_addr)]
                    old_mm.item_info.contains_key(item_addr) ==>
                    old_mm.row_info.contains_key(old_mm.item_info[item_addr]));
-
-            assert(memory_mapping.consistent(*sm)) by {
-                assert(memory_mapping.list_info_consistent()) by {
-                    assert forall|list_addr: u64|
-                        #![trigger memory_mapping.row_info.contains_key(memory_mapping.list_info[list_addr])]
-                        memory_mapping.list_info.contains_key(list_addr) ==> {
-                            let row_addr = memory_mapping.list_info[list_addr];
-                            &&& memory_mapping.row_info.contains_key(row_addr)
-                            &&& memory_mapping.row_info[row_addr] matches KeyRowDisposition::InHashTable{ k: _, rm }
-                            &&& rm.list_addr == list_addr
-                        } by {
-                        assert(old_mm.list_info.contains_key(list_addr) ==>
-                               old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
-                    }
-                }
-            }
+            assert(forall|list_addr: u64| #![trigger memory_mapping.list_info.contains_key(list_addr)]
+                   old_mm.list_info.contains_key(list_addr) ==>
+                   old_mm.row_info.contains_key(old_mm.list_info[list_addr]));
 
             row_index = row_index + 1;
             row_addr = row_addr + sm.table.row_size;
@@ -266,7 +249,6 @@ impl<PM, K> KeyTable<PM, K>
         assert(item_addrs@ =~= recovered_state.item_addrs()) by {
             assert forall|item_addr| #[trigger] item_addrs@.contains(item_addr)
                        implies recovered_state.item_addrs().contains(item_addr) by {
-                assert(recovery_mapping.item_info.contains_key(item_addr));
                 assert(recovery_mapping.row_info.contains_key(recovery_mapping.item_info[item_addr]));
             }
         }
@@ -274,7 +256,6 @@ impl<PM, K> KeyTable<PM, K>
         assert(list_addrs@.to_set() =~= recovered_state.list_addrs()) by {
             assert forall|list_addr| #[trigger] list_addrs@.to_set().contains(list_addr)
                        implies recovered_state.list_addrs().contains(list_addr) by {
-                assert(recovery_mapping.list_info.contains_key(list_addr));
                 assert(recovery_mapping.row_info.contains_key(recovery_mapping.list_info[list_addr]));
             }
         }
