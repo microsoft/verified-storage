@@ -245,15 +245,15 @@ impl<L> ListTableInternalView<L>
                let list_addr = entry.head;
                let addrs = self.durable_mapping.list_info[list_addr];
                let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
-               &&& 0 < addrs.len()
-               &&& self.durable_mapping.list_info.contains_key(list_addr)
-               &&& self.durable_mapping.row_info.contains_key(addrs.last())
                &&& entry.head == addrs[0]
                &&& entry.tail == addrs.last()
                &&& entry.length == addrs.len()
                &&& entry.end_of_logical_range == end_of_range(elements)
                &&& self.deletes_inverse.contains_key(list_addr)
                &&& self.deletes_inverse[list_addr] == i
+               &&& 0 < addrs.len()
+               &&& self.durable_mapping.list_info.contains_key(list_addr)
+               &&& self.durable_mapping.row_info.contains_key(addrs.last())
                &&& addrs.len() == elements.len()
                &&& addrs.len() <= usize::MAX
         }
@@ -319,7 +319,7 @@ impl<L> ListTableInternalView<L>
         &&& forall|list_addr: u64| self.deletes_inverse.contains_key(list_addr) ==> {
                // The conjunct with the trigger must be first to work around a Z3 issue,
                // even though the other order makes more logical sense.
-               &&& #[trigger] self.deletes[self.deletes_inverse[list_addr]].head == list_addr
+               &&& (#[trigger] self.deletes[self.deletes_inverse[list_addr]]).head == list_addr
                &&& 0 <= self.deletes_inverse[list_addr] < self.deletes.len()
            }
     }
@@ -382,18 +382,17 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn free_list_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.free_list[i]]
-            0 <= i < self.free_list.len() ==> {
-            &&& self.row_info.contains_key(self.free_list[i])
-            &&& #[trigger] self.row_info[self.free_list[i]] matches ListRowDisposition::InFreeList{ pos }
+        &&& forall|i: int| 0 <= i < self.free_list.len() ==> {
+            &&& #[trigger] self.row_info.contains_key(self.free_list[i])
+            &&& self.row_info[self.free_list[i]] matches ListRowDisposition::InFreeList{ pos }
             &&& pos == i
         }
     }
 
     pub(super) open spec fn pending_allocations_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
-            &&& self.row_info.contains_key(self.pending_allocations[i])
+        &&& forall|i: int| 0 <= i < self.pending_allocations.len() ==> {
+            &&& #[trigger] self.row_info.contains_key(self.pending_allocations[i])
             &&& match self.row_info[self.pending_allocations[i]] {
                 ListRowDisposition::InPendingAllocationList{ pos } => pos == i,
                 ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => alloc_pos == i,
@@ -404,8 +403,8 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn pending_deallocations_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
-            &&& self.row_info.contains_key(self.pending_deallocations[i])
+        &&& forall|i: int| 0 <= i < self.pending_deallocations.len() ==> {
+            &&& #[trigger] self.row_info.contains_key(self.pending_deallocations[i])
             &&& match self.row_info[self.pending_deallocations[i]] {
                 ListRowDisposition::InPendingDeallocationList{ pos } => pos == i,
                 ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => dealloc_pos == i,
@@ -484,6 +483,17 @@ impl<PM, L> ListTable<PM, L>
     {
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use group_validate_row_addr;
+
+        let ghost iv = self.internal_view();
+        assert(iv.consistent_with_journaled_addrs(new_jv.journaled_addrs, self.sm)) by {
+            assert forall|i: int, addr: int| #![trigger self.free_list[i], new_jv.journaled_addrs.contains(addr)] {
+                let row_addr = iv.free_list[i];
+                &&& 0 <= i < iv.free_list.len()
+                &&& row_addr <= addr < row_addr + self.sm.table.row_size
+            } implies !new_jv.journaled_addrs.contains(addr) by {
+                assert(iv.row_info.contains_key(iv.free_list[i]));
+            }
+        }
 
         assert(self.valid(new_jv));
     }
