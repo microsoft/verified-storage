@@ -316,8 +316,7 @@ where
 
         assert(self@.tentative =~= old(self)@.tentative.append_to_list(*key, new_list_entry).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs());
         
@@ -420,8 +419,7 @@ where
         assert(self@.tentative =~=
                old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~=
                old_snapshot.item_addrs().remove(former_rm.item_addr).insert(new_rm.item_addr));
@@ -535,8 +533,7 @@ where
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs());
         
@@ -668,8 +665,7 @@ where
                old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat,
                                                                       new_list_entry, *new_item).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~=
                old_snapshot.item_addrs().remove(former_rm.item_addr).insert(new_rm.item_addr));
@@ -782,8 +778,7 @@ where
 
         assert(self@.tentative =~= old(self)@.tentative.trim_list(*key, trim_length as nat).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs());
 
@@ -918,8 +913,7 @@ where
         assert(self@.tentative =~= old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat,
                                                                                 *new_item).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~=
                old_snapshot.item_addrs().remove(former_rm.item_addr).insert(new_rm.item_addr));

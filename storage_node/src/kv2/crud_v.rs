@@ -33,6 +33,30 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
+    pub(super) proof fn lemma_relate_old_and_new_snapshots(self, old_self: Self)
+        -> (result: (KeyTableSnapshot<K>, KeyTableSnapshot<K>))
+        requires
+            old_self.valid(),
+        ensures
+            ({
+                let (old_snapshot, new_snapshot) = result;
+                &&& old_snapshot == old_self.keys@.tentative.unwrap()
+                &&& new_snapshot == self.keys@.tentative.unwrap()
+                &&& forall|other_item_addr: u64|
+                       #![trigger new_snapshot.item_info.contains_key(other_item_addr)]
+                       old_snapshot.item_info.contains_key(other_item_addr) ==>
+                       old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr == other_item_addr
+                &&& forall|other_list_addr: u64|
+                       #![trigger new_snapshot.list_info.contains_key(other_list_addr)]
+                       old_snapshot.list_info.contains_key(other_list_addr) ==>
+                       old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr == other_list_addr
+            }),
+    {
+        old_self.keys.lemma_valid_implications(old_self.journal@);
+
+        (old_self.keys@.tentative.unwrap(), self.keys@.tentative.unwrap())
+    }
+
     pub exec fn read_item(
         &self,
         key: &K,
@@ -142,20 +166,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
 
-        // Trigger quantified facts about the old snapshot when talking about
-        // corresponding facts about the new snapshot.
-
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
-        assert(forall|other_item_addr: u64|
-               #![trigger new_snapshot.key_info.contains_key(new_snapshot.item_info[other_item_addr])]
-               old_snapshot.item_info.contains_key(other_item_addr) ==>
-               old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr == other_item_addr);
-        assert(forall|other_list_addr: u64|
-               #![trigger new_snapshot.key_info.contains_key(new_snapshot.list_info[other_list_addr])]
-               old_snapshot.list_info.contains_key(other_list_addr) ==>
-               old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr == other_list_addr);
-
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
         assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().insert(item_addr));
         assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs());
 
@@ -239,8 +250,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         assert(self@.tentative =~= old(self)@.tentative.delete(*key).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().remove(rm.item_addr));
 
@@ -336,8 +346,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.update_item(*key, *new_item).unwrap());
 
-        let ghost old_snapshot = old(self).keys@.tentative.unwrap();
-        let ghost new_snapshot = self.keys@.tentative.unwrap();
+        let ghost (old_snapshot, new_snapshot) = self.lemma_relate_old_and_new_snapshots(*old(self));
 
         assert(new_snapshot.item_addrs() =~= old_snapshot.item_addrs().insert(item_addr).remove(former_rm.item_addr));
         assert(new_snapshot.list_addrs() =~= old_snapshot.list_addrs());
