@@ -110,8 +110,9 @@ impl<PM, L> ListTable<PM, L>
 {
     exec fn update_m_to_reflect_abort_of_updates(&mut self)
         requires
-            forall|i: int| 0 <= i < old(self).updates.len() ==>
-                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+            forall|i: int| #![trigger old(self).m@.contains_key(old(self).updates@[i].unwrap())]
+                0 <= i < old(self).updates@.len() ==>
+                (old(self).updates@[i] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& old(self).m@[list_addr] is Updated
                 }),
@@ -135,8 +136,9 @@ impl<PM, L> ListTable<PM, L>
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_updates == self.updates.len(),
-                forall|i: int| 0 <= i < old(self).updates.len() ==>
-                    (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                forall|i: int| #![trigger old(self).m@.contains_key(old(self).updates@[i].unwrap())]
+                    0 <= i < old(self).updates@.len() ==>
+                    (old(self).updates@[i] matches Some(list_addr) ==> {
                         &&& old(self).m@.contains_key(list_addr)
                         &&& old(self).m@[list_addr] is Updated
                     }),
@@ -161,8 +163,9 @@ impl<PM, L> ListTable<PM, L>
 
     exec fn update_m_to_reflect_abort_of_creates(&mut self)
         requires
-            forall|i: int| 0 <= i < old(self).creates.len() ==>
-                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+            forall|i: int| #![trigger old(self).m@.contains_key(old(self).creates@[i].unwrap())]
+                0 <= i < old(self).creates@.len() ==>
+                (old(self).creates@[i] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& old(self).m@[list_addr] is Created
                 }),
@@ -183,8 +186,9 @@ impl<PM, L> ListTable<PM, L>
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_creates == self.creates.len(),
-                forall|i: int| 0 <= i < old(self).creates.len() ==>
-                    (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+                forall|i: int| #![trigger old(self).m@.contains_key(old(self).creates@[i].unwrap())]
+                    0 <= i < old(self).creates@.len() ==>
+                    (old(self).creates@[i] matches Some(list_addr) ==> {
                         &&& old(self).m@.contains_key(list_addr)
                         &&& old(self).m@[list_addr] is Created
                     }),
@@ -313,7 +317,26 @@ impl<PM, L> ListTable<PM, L>
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view().m == old(self).internal_view().abort().m,
     {
+        assert forall|i: int| #![trigger self.m@.contains_key(self.updates@[i].unwrap())]
+                0 <= i < self.updates@.len() implies
+                (self.updates@[i] matches Some(list_addr) ==> {
+                    &&& self.m@.contains_key(list_addr)
+                    &&& self.m@[list_addr] is Updated
+                }) by {
+             assert(self.updates@[i] matches Some(list_addr) ==> self.internal_view().m.contains_key(list_addr));
+        }
+
         self.update_m_to_reflect_abort_of_updates();
+
+        assert forall|i: int| #![trigger self.m@.contains_key(self.creates@[i].unwrap())]
+                0 <= i < self.creates@.len() implies
+                (self.creates@[i] matches Some(list_addr) ==> {
+                    &&& self.m@.contains_key(list_addr)
+                    &&& self.m@[list_addr] is Created
+                }) by {
+             assert(old(self).creates@[i] matches Some(list_addr) ==> old(self).internal_view().m.contains_key(list_addr));
+        }
+
         self.update_m_to_reflect_abort_of_creates();
 
         assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies self.m@[list_addr] is Durable

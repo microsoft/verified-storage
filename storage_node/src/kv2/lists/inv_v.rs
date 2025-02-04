@@ -200,8 +200,9 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn updates_reflected_in_m(self) -> bool
     {
-        &&& forall|which_update: int| 0 <= which_update < self.updates.len() ==>
-               (#[trigger] self.updates[which_update] matches Some(tentative_list_addr) ==> {
+        &&& forall|which_update: int| #![trigger self.m.contains_key(self.updates[which_update].unwrap())]
+               0 <= which_update < self.updates.len() ==>
+               (self.updates[which_update] matches Some(tentative_list_addr) ==> {
                    &&& self.m.contains_key(tentative_list_addr)
                    &&& self.m[tentative_list_addr] matches ListTableEntryView::Updated{ which_update: wu, .. }
                    &&& wu == which_update
@@ -210,8 +211,9 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn creates_reflected_in_m(self) -> bool
     {
-        &&& forall|which_create: int| 0 <= which_create < self.creates.len() ==>
-               (#[trigger] self.creates[which_create] matches Some(tentative_list_addr) ==> {
+        &&& forall|which_create: int| #![trigger self.m.contains_key(self.creates[which_create].unwrap())]
+               0 <= which_create < self.creates.len() ==>
+               (self.creates[which_create] matches Some(tentative_list_addr) ==> {
                    &&& self.m.contains_key(tentative_list_addr)
                    &&& self.m[tentative_list_addr] matches ListTableEntryView::Created{ which_create: wc, .. }
                    &&& wc == which_create

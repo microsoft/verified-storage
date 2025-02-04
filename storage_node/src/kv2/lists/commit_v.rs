@@ -129,19 +129,17 @@ impl<PM, L> ListTable<PM, L>
 {
     exec fn update_m_to_reflect_commit_of_updates(&mut self)
         requires
-            forall|which_update: int| 0 <= which_update < old(self).updates.len() ==>
-                (#[trigger] old(self).updates[which_update] matches Some(list_addr) ==> {
+            forall|which_update: int| #![trigger old(self).m@.contains_key(old(self).updates@[which_update].unwrap())]
+                0 <= which_update < old(self).updates@.len() ==>
+                (old(self).updates@[which_update] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
-                    &&& (old(self).m@[list_addr] matches
-                        ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                            &&& 0 < tentative_addrs.len()
-                            &&& tentative_addrs.len() == tentative_elements.len()
-                        })
+                    &&& old(self).m@[list_addr] is Updated
                 }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
-            forall|i: int| 0 <= i < self.updates.len() ==>
-                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+            forall|i: int| #![trigger self.m@.contains_key(self.updates@[i].unwrap())]
+                0 <= i < self.updates@.len() ==>
+                (self.updates@[i] matches Some(list_addr) ==> {
                     &&& self.m@.contains_key(list_addr)
                     &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
                 }),
@@ -201,8 +199,9 @@ impl<PM, L> ListTable<PM, L>
 
     exec fn update_m_to_reflect_commit_of_creates(&mut self)
         requires
-            forall|which_create: int| 0 <= which_create < old(self).creates.len() ==>
-                (#[trigger] old(self).creates[which_create] matches Some(list_addr) ==> {
+            forall|which_create: int| #![trigger old(self).m@.contains_key(old(self).creates@[which_create].unwrap())]
+                0 <= which_create < old(self).creates@.len() ==>
+                (old(self).creates@[which_create] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& (old(self).m@[list_addr] matches
                         ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
@@ -212,8 +211,9 @@ impl<PM, L> ListTable<PM, L>
                 }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
-            forall|i: int| 0 <= i < self.creates.len() ==>
-                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
+            forall|i: int| #![trigger self.m@.contains_key(self.creates@[i].unwrap())]
+                0 <= i < self.creates@.len() ==>
+                (self.creates@[i] matches Some(list_addr) ==> {
                     &&& self.m@.contains_key(list_addr)
                     &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
                 }),
@@ -276,9 +276,55 @@ impl<PM, L> ListTable<PM, L>
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view().m == old(self).internal_view().commit().m,
     {
+        assert forall|i: int| #![trigger self.m@.contains_key(self.updates@[i].unwrap())]
+                0 <= i < self.updates@.len() implies
+                (self.updates@[i] matches Some(list_addr) ==> {
+                    &&& self.m@.contains_key(list_addr)
+                    &&& self.m@[list_addr] is Updated
+                }) by {
+             assert(self.updates@[i] matches Some(list_addr) ==> self.internal_view().m.contains_key(list_addr));
+        }
+
         self.update_m_to_reflect_commit_of_updates();
+
+        assert forall|i: int| #![trigger self.m@.contains_key(self.creates@[i].unwrap())]
+                0 <= i < self.creates@.len() implies
+                (self.creates@[i] matches Some(list_addr) ==> {
+                    &&& self.m@.contains_key(list_addr)
+                    &&& (self.m@[list_addr] matches
+                        ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
+                            &&& 0 < tentative_addrs.len()
+                            &&& tentative_addrs.len() == tentative_elements.len()
+                       })
+                }) by {
+             assert(self.creates@[i] matches Some(list_addr) ==> old(self).internal_view().m.contains_key(list_addr));
+        }
+
         self.update_m_to_reflect_commit_of_creates();
-        assert(self.internal_view().m =~= old(self).internal_view().commit().m);
+
+        assert(self.internal_view().m =~= old(self).internal_view().commit().m) by {
+            assert forall|list_addr: u64| #[trigger] self.internal_view().m.contains_key(list_addr)
+                implies {
+                &&& old(self).internal_view().commit().m.contains_key(list_addr)
+                &&& self.internal_view().m[list_addr] == old(self).internal_view().commit().m[list_addr]
+            } by {
+                assert(old(self).internal_view().m.contains_key(list_addr));
+                match old(self).internal_view().m[list_addr] {
+                    ListTableEntryView::Updated{ which_update, .. } => {
+                        assert(old(self).internal_view().updates[which_update as int] == Some(list_addr));
+                        assert(old(self).m@.contains_key(old(self).updates@[which_update as int].unwrap()));
+                    },
+                    ListTableEntryView::Created{ which_create, .. } => {
+                        assert(old(self).internal_view().creates[which_create as int] == Some(list_addr));
+                        assert(old(self).m@.contains_key(old(self).creates@[which_create as int].unwrap()));
+                    },
+                    ListTableEntryView::Durable{ .. } => {
+                        assert(old(self).internal_view().m[list_addr].commit() == old(self).internal_view().m[list_addr]);
+                        assert(self.internal_view().m[list_addr] == old(self).internal_view().m[list_addr].commit());
+                    },
+                }
+            }
+        }
     }
 
     pub exec fn commit(
