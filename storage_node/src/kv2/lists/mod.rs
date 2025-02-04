@@ -118,7 +118,7 @@ pub struct ListTable<PM, L>
     tentative_mapping: Ghost<ListRecoveryMapping<L>>,
     row_info: Ghost<Map<u64, ListRowDisposition>>,
     m: HashMap<u64, ListTableEntry<L>>,
-    deletes_inverse: Ghost<Map<u64, int>>,
+    deletes_inverse: Ghost<Map<u64, nat>>,
     deletes: Vec<ListTableDurableEntry>,
     updates: Vec<Option<u64>>,
     creates: Vec<Option<u64>>,

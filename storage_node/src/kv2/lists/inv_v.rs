@@ -153,7 +153,7 @@ pub(super) struct ListTableInternalView<L>
     pub tentative_mapping: ListRecoveryMapping<L>,
     pub row_info: Map<u64, ListRowDisposition>,
     pub m: Map<u64, ListTableEntryView<L>>,
-    pub deletes_inverse: Map<u64, int>,
+    pub deletes_inverse: Map<u64, nat>,
     pub deletes: Seq<ListTableDurableEntry>,
     pub updates: Seq<Option<u64>>,
     pub creates: Seq<Option<u64>>,
@@ -186,7 +186,7 @@ impl<L> ListTableInternalView<L>
         &&& forall|list_addr: u64| #[trigger] self.durable_mapping.list_info.contains_key(list_addr) ==> {
             if self.deletes_inverse.contains_key(list_addr) {
                 let which_delete = self.deletes_inverse[list_addr];
-                &&& 0 <= which_delete < self.deletes.len()
+                &&& which_delete < self.deletes.len()
                 &&& self.deletes[which_delete as int].head == list_addr
             }
             else {
