@@ -122,7 +122,7 @@ impl<PM, K> KeyTable<PM, K>
             assert(mapping.corresponds(pm@.read_state, *sm));
             mapping.lemma_corresponds_implies_equals_new(pm@.read_state, *sm);
         }
-        assert(Self::recover_keys_from_mapping(mapping) =~= KeyTableSnapshot::<K>::init());
+        assert(mapping.as_snapshot() =~= KeyTableSnapshot::<K>::init());
     }
     
     pub exec fn setup(

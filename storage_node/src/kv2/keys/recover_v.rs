@@ -131,6 +131,24 @@ impl<K> KeyRecoveryMapping<K>
         &&& self.list_info_corresponds(s, sm)
     }
 
+    pub(super) open spec fn as_snapshot(self) -> KeyTableSnapshot<K>
+    {
+        KeyTableSnapshot::<K>{
+            key_info: Map::<K, KeyTableRowMetadata>::new(
+                |k: K| self.key_info.contains_key(k),
+                |k: K| self.row_info[self.key_info[k]].unwrap().1,
+            ),
+            item_info: Map::<u64, K>::new(
+                |item_addr: u64| self.item_info.contains_key(item_addr),
+                |item_addr: u64| self.row_info[self.item_info[item_addr]].unwrap().0,
+            ),
+            list_info: Map::<u64, K>::new(
+                |list_addr: u64| self.list_info.contains_key(list_addr),
+                |list_addr: u64| self.row_info[self.list_info[list_addr]].unwrap().0,
+            ),
+        }
+    }
+
     pub(super) proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>, sm: KeyTableStaticMetadata)
         requires
             self.corresponds(s, sm),
@@ -156,24 +174,6 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn recover_keys_from_mapping(mapping: KeyRecoveryMapping<K>) -> KeyTableSnapshot<K>
-    {
-        KeyTableSnapshot::<K>{
-            key_info: Map::<K, KeyTableRowMetadata>::new(
-                |k: K| mapping.key_info.contains_key(k),
-                |k: K| mapping.row_info[mapping.key_info[k]].unwrap().1,
-            ),
-            item_info: Map::<u64, K>::new(
-                |item_addr: u64| mapping.item_info.contains_key(item_addr),
-                |item_addr: u64| mapping.row_info[mapping.item_info[item_addr]].unwrap().0,
-            ),
-            list_info: Map::<u64, K>::new(
-                |list_addr: u64| mapping.list_info.contains_key(list_addr),
-                |list_addr: u64| mapping.row_info[mapping.list_info[list_addr]].unwrap().0,
-            ),
-        }
-    }
-    
     pub proof fn lemma_recover_depends_only_on_my_area(
         s1: Seq<u8>,
         s2: Seq<u8>,
