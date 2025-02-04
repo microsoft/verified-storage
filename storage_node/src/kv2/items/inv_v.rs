@@ -92,7 +92,7 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn free_list_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.free_list[i]]
+        &&& forall|i: int| #![trigger self.row_info.contains_key(self.free_list[i])]
             0 <= i < self.free_list.len() ==> {
             &&& self.row_info.contains_key(self.free_list[i])
             &&& #[trigger] self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
@@ -102,7 +102,8 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn pending_allocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
+        &&& forall|i: int| #![trigger self.row_info.contains_key(self.pending_allocations[i])]
+            0 <= i < self.pending_allocations.len() ==> {
             &&& self.row_info.contains_key(self.pending_allocations[i])
             &&& match self.row_info[self.pending_allocations[i]] {
                 ItemRowDisposition::InPendingAllocationList{ pos, item } => pos == i,

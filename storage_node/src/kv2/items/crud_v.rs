@@ -176,6 +176,9 @@ impl<PM, I> ItemTable<PM, I>
                 _ => false,
             },
     {
+        // Trigger facts about last element of free list that require mentioning self.row_info@.contains_key(...)
+        assert(self.free_list@.len() > 0 ==> self.row_info@.contains_key(self.free_list@.last()));
+        
         proof {
             journal.lemma_valid_implications();
             self.lemma_valid_implications(journal@);
@@ -247,8 +250,19 @@ impl<PM, I> ItemTable<PM, I>
                  ItemRowDisposition::InBothPendingLists{ alloc_pos: pos, dealloc_pos: new_pos, item },
             _ => { assert(false); arbitrary() },
         };
+
         self.row_info = Ghost(self.row_info@.insert(row_addr, disposition));
         self.pending_deallocations.push(row_addr);
+        
+        assert(self.internal_view().pending_allocations_consistent(self.sm)) by {
+            // Trigger facts about pending allocations from old(self).internal_view()
+            // whenever reasoning about one from self.
+            let old_iv = old(self).internal_view();
+            assert(forall|i: int| #![trigger self.pending_allocations[i]]
+                   0 <= i < old_iv.pending_allocations.len() ==>
+                   old_iv.row_info.contains_key(old_iv.pending_allocations[i]));
+        }
+        
         assert(self@.durable =~= old(self)@.durable);
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(row_addr)));
     }
