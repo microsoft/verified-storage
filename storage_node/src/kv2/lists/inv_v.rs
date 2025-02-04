@@ -241,15 +241,15 @@ impl<L> ListTableInternalView<L>
                let list_addr = entry.head;
                let addrs = self.durable_mapping.list_info[list_addr];
                let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
-               &&& 0 < addrs.len()
-               &&& self.durable_mapping.list_info.contains_key(list_addr)
-               &&& self.durable_mapping.row_info.contains_key(addrs.last())
                &&& entry.head == addrs[0]
                &&& entry.tail == addrs.last()
                &&& entry.length == addrs.len()
                &&& entry.end_of_logical_range == end_of_range(elements)
                &&& self.deletes_inverse.contains_key(list_addr)
                &&& self.deletes_inverse[list_addr] == i
+               &&& 0 < addrs.len()
+               &&& self.durable_mapping.list_info.contains_key(list_addr)
+               &&& self.durable_mapping.row_info.contains_key(addrs.last())
                &&& addrs.len() == elements.len()
                &&& addrs.len() <= usize::MAX
         }
@@ -344,10 +344,7 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn row_info_complete(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|row_addr: u64|
-            #![trigger sm.table.validate_row_addr(row_addr)]
-            #![trigger self.row_info.contains_key(row_addr)]
-            sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
     }
 
     pub(super) open spec fn row_info_consistent(self, sm: ListTableStaticMetadata) -> bool
@@ -380,18 +377,17 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn free_list_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.free_list[i]]
-            0 <= i < self.free_list.len() ==> {
-            &&& self.row_info.contains_key(self.free_list[i])
-            &&& #[trigger] self.row_info[self.free_list[i]] matches ListRowDisposition::InFreeList{ pos }
+        &&& forall|i: int| 0 <= i < self.free_list.len() ==> {
+            &&& self.row_info.contains_key(#[trigger] self.free_list[i])
+            &&& self.row_info[self.free_list[i]] matches ListRowDisposition::InFreeList{ pos }
             &&& pos == i
         }
     }
 
     pub(super) open spec fn pending_allocations_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
-            &&& self.row_info.contains_key(self.pending_allocations[i])
+        &&& forall|i: int| 0 <= i < self.pending_allocations.len() ==> {
+            &&& self.row_info.contains_key(#[trigger] self.pending_allocations[i])
             &&& match self.row_info[self.pending_allocations[i]] {
                 ListRowDisposition::InPendingAllocationList{ pos } => pos == i,
                 ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => alloc_pos == i,
@@ -402,8 +398,8 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn pending_deallocations_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
-            &&& self.row_info.contains_key(self.pending_deallocations[i])
+        &&& forall|i: int| 0 <= i < self.pending_deallocations.len() ==> {
+            &&& self.row_info.contains_key(#[trigger] self.pending_deallocations[i])
             &&& match self.row_info[self.pending_deallocations[i]] {
                 ListRowDisposition::InPendingDeallocationList{ pos } => pos == i,
                 ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => dealloc_pos == i,
