@@ -144,10 +144,10 @@ impl<PM, K> KeyTable<PM, K>
                     &&& item_addrs@.contains(rm.item_addr)
                     &&& rm.list_addr != 0 ==> list_addrs@.contains(rm.list_addr)
                 },
-                forall|item_addr: u64| #[trigger] item_addrs@.contains(item_addr) ==>
-                    recovery_mapping.item_info.contains_key(item_addr),
-                forall|list_addr: u64| #[trigger] list_addrs@.contains(list_addr) ==>
-                    recovery_mapping.list_info.contains_key(list_addr),
+                forall|item_addr: u64| item_addrs@.contains(item_addr) ==>
+                    #[trigger] recovery_mapping.item_info.contains_key(item_addr),
+                forall|list_addr: u64| list_addrs@.contains(list_addr) ==>
+                    #[trigger] recovery_mapping.list_info.contains_key(list_addr),
                 !list_addrs@.contains(0),
         {
             proof {
@@ -193,8 +193,8 @@ impl<PM, K> KeyTable<PM, K>
                     // Make any trigger about the new list trigger a fact about the old list.
                     assert(forall|list_addr: u64| #[trigger] list_addrs@.contains(list_addr) ==>
                            old_list_addrs.contains(list_addr) || list_addr == rm.list_addr);
-                    assert forall|list_addr: u64| #[trigger] old_list_addrs.contains(list_addr) implies
-                           list_addrs@.contains(list_addr) by {
+                    assert forall|list_addr: u64| old_list_addrs.contains(list_addr) implies
+                           #[trigger] list_addrs@.contains(list_addr) by {
                         let i = choose|i: int| 0 <= i < old_list_addrs.len() && #[trigger] old_list_addrs[i] == list_addr;
                         assert(list_addrs@[i] == old_list_addrs[i]);
                     }
@@ -225,8 +225,8 @@ impl<PM, K> KeyTable<PM, K>
             row_addr = row_addr + sm.table.row_size;
         }
 
-        assert forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr)
-                implies memory_mapping.row_info.contains_key(row_addr) by {
+        assert forall|row_addr: u64| sm.table.validate_row_addr(row_addr)
+                implies #[trigger] memory_mapping.row_info.contains_key(row_addr) by {
             let row_index = sm.table.row_addr_to_index(row_addr);
             broadcast use group_validate_row_addr;
         }
@@ -244,7 +244,9 @@ impl<PM, K> KeyTable<PM, K>
         };
 
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
-        assert(keys@.durable =~= recovered_state);
+        assert(keys@.durable =~= recovered_state) by {
+            memory_mapping.as_recovery_mapping().lemma_corresponds_implies_equals_new(journal@.read_state, *sm);
+        }
 
         assert(item_addrs@ =~= recovered_state.item_addrs()) by {
             assert forall|item_addr| #[trigger] item_addrs@.contains(item_addr)
