@@ -171,8 +171,8 @@ impl<L> ListTableInternalView<L>
         &&& self.durable_mapping_reflected_in_changes_or_m()
         &&& self.updates_reflected_in_m()
         &&& self.creates_reflected_in_m()
-        &&& forall|list_addr: u64| #[trigger] self.tentative_mapping.list_info.contains_key(list_addr) ==>
-                self.m.contains_key(list_addr)
+        &&& forall|list_addr: u64| self.tentative_mapping.list_info.contains_key(list_addr) ==>
+                #[trigger] self.m.contains_key(list_addr)
         &&& self.m_consistent_with_durable_recovery_mapping()
         &&& self.m_consistent_with_tentative_recovery_mapping()
         &&& self.deletes_consistent_with_durable_recovery_mapping()
@@ -183,7 +183,9 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn durable_mapping_reflected_in_changes_or_m(self) -> bool
     {
-        &&& forall|list_addr: u64| #[trigger] self.durable_mapping.list_info.contains_key(list_addr) ==> {
+        &&& forall|list_addr: u64| #![trigger self.deletes_inverse.contains_key(list_addr)]
+                             #![trigger self.m.contains_key(list_addr)]
+            self.durable_mapping.list_info.contains_key(list_addr) ==> {
             if self.deletes_inverse.contains_key(list_addr) {
                 let which_delete = self.deletes_inverse[list_addr];
                 &&& 0 <= which_delete < self.deletes.len()
