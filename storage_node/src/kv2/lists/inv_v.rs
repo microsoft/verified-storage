@@ -50,7 +50,7 @@ pub(super) enum ListTableEntryView<L>
         entry: ListTableDurableEntry
     },
     Updated{
-        which_update: int,
+        which_update: nat,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: int,
@@ -58,7 +58,7 @@ pub(super) enum ListTableEntryView<L>
         appended_elements: Seq<L>,
     },
     Created{
-        which_create: int,
+        which_create: nat,
         tentative_addrs: Seq<u64>,
         tentative_elements: Seq<L>
     }
@@ -73,7 +73,7 @@ pub(super) enum ListTableEntry<L>
         entry: ListTableDurableEntry
     },
     Updated{
-        which_update: int,
+        which_update: nat,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
@@ -81,7 +81,7 @@ pub(super) enum ListTableEntry<L>
         appended_elements: Vec<L>,
     },
     Created{
-        which_create: int,
+        which_create: nat,
         tentative_addrs: Vec<u64>,
         tentative_elements: Vec<L>,
     },
@@ -97,12 +97,12 @@ impl<L> ListTableEntry<L>
             ListTableEntry::Durable{ entry } => ListTableEntryView::Durable{ entry },
             ListTableEntry::Updated{ which_update, durable, tentative, num_trimmed,
                                      appended_addrs, appended_elements } =>
-                ListTableEntryView::Updated{ which_update: which_update as int,
+                ListTableEntryView::Updated{ which_update: which_update as nat,
                                              durable, tentative, num_trimmed: num_trimmed as int,
                                              appended_addrs: appended_addrs@,
                                              appended_elements: appended_elements@ },
             ListTableEntry::Created{ which_create, tentative_addrs, tentative_elements } =>
-                ListTableEntryView::Created{ which_create: which_create as int,
+                ListTableEntryView::Created{ which_create: which_create as nat,
                                              tentative_addrs: tentative_addrs@,
                                              tentative_elements: tentative_elements@ },
         }
@@ -276,7 +276,7 @@ impl<L> ListTableInternalView<L>
                        let addrs = self.tentative_mapping.list_info[list_addr];
                        let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
                        &&& 0 <= which_update < self.updates.len()
-                       &&& self.updates[which_update] == Some(list_addr)
+                       &&& self.updates[which_update as int] == Some(list_addr)
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
                        &&& tentative.head == list_addr
                        &&& 0 < addrs.len()
@@ -298,7 +298,7 @@ impl<L> ListTableInternalView<L>
                        let addrs = self.tentative_mapping.list_info[list_addr];
                        let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
                        &&& 0 <= which_create < self.creates.len()
-                       &&& self.creates[which_create] == Some(list_addr)
+                       &&& self.creates[which_create as int] == Some(list_addr)
                        &&& 0 < tentative_addrs.len()
                        &&& tentative_addrs[0] == list_addr
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
