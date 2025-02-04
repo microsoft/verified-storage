@@ -115,7 +115,8 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn pending_deallocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
+        &&& forall|i: int| #![trigger self.row_info.contains_key(self.pending_deallocations[i])]
+            0 <= i < self.pending_deallocations.len() ==> {
             &&& self.row_info.contains_key(self.pending_deallocations[i])
             &&& match self.row_info[self.pending_deallocations[i]] {
                 ItemRowDisposition::InPendingDeallocationList{ pos, item } => pos == i,

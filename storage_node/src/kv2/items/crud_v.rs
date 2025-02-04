@@ -254,10 +254,18 @@ impl<PM, I> ItemTable<PM, I>
         self.row_info = Ghost(self.row_info@.insert(row_addr, disposition));
         self.pending_deallocations.push(row_addr);
         
+        let ghost old_iv = old(self).internal_view();
+        assert(self.internal_view().pending_deallocations_consistent(self.sm)) by {
+            // Trigger facts about pending deallocations from old(self).internal_view()
+            // whenever reasoning about one from self.
+            assert(forall|i: int| #![trigger self.pending_deallocations[i]]
+                   0 <= i < old_iv.pending_deallocations.len() ==>
+                   old_iv.row_info.contains_key(old_iv.pending_deallocations[i]));
+        }
+        
         assert(self.internal_view().pending_allocations_consistent(self.sm)) by {
             // Trigger facts about pending allocations from old(self).internal_view()
             // whenever reasoning about one from self.
-            let old_iv = old(self).internal_view();
             assert(forall|i: int| #![trigger self.pending_allocations[i]]
                    0 <= i < old_iv.pending_allocations.len() ==>
                    old_iv.row_info.contains_key(old_iv.pending_allocations[i]));

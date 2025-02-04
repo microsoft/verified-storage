@@ -68,6 +68,14 @@ impl<PM, I> ItemTable<PM, I>
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use group_validate_row_addr;
+        
+        let ghost old_iv = old(self).internal_view();
+        assert(self.internal_view().free_list_consistent(self.sm)) by {
+            // Trigger facts about the free list from old(self).internal_view()
+            // whenever reasoning about one from self.
+            assert(forall|i: int| #![trigger self.free_list[i]]
+                   0 <= i < old_iv.free_list.len() ==> old_iv.row_info.contains_key(old_iv.free_list[i]));
+        }
 
         assert(self.valid(jv_after_commit));
         assert(self@ =~= (ItemTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));
