@@ -153,7 +153,7 @@ pub(super) struct ListTableInternalView<L>
     pub tentative_mapping: ListRecoveryMapping<L>,
     pub row_info: Map<u64, ListRowDisposition>,
     pub m: Map<u64, ListTableEntryView<L>>,
-    pub deletes_inverse: Map<u64, usize>,
+    pub deletes_inverse: Map<u64, int>,
     pub deletes: Seq<ListTableDurableEntry>,
     pub updates: Seq<Option<u64>>,
     pub creates: Seq<Option<u64>>,

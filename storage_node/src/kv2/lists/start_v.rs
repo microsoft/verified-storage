@@ -386,7 +386,7 @@ impl<PM, L> ListTable<PM, L>
             tentative_mapping: Ghost(mapping),
             row_info: Ghost(row_info),
             m,
-            deletes_inverse: Ghost(Map::<u64, usize>::empty()),
+            deletes_inverse: Ghost(Map::<u64, int>::empty()),
             deletes: Vec::<ListTableDurableEntry>::new(),
             updates: Vec::<Option<u64>>::new(),
             creates: Vec::<Option<u64>>::new(),
