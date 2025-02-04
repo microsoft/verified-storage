@@ -106,11 +106,8 @@ impl<PM, K> KeyTable<PM, K>
                 sm.table.row_addr_to_index(row_addr) == row_index as int,
                 sm.table.start <= row_addr <= sm.table.end,
                 row_index < sm.table.num_rows ==> sm.table.validate_row_addr(row_addr),
-                forall|any_row_addr: u64|
-                    #![trigger sm.table.validate_row_addr(any_row_addr)]
-                    #![trigger memory_mapping.row_info.contains_key(any_row_addr)]
-                {
-                    &&& sm.table.validate_row_addr(any_row_addr)
+                forall|any_row_addr: u64| {
+                    &&& #[trigger] sm.table.validate_row_addr(any_row_addr)
                     &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
                 } ==> {
                     &&& memory_mapping.row_info.contains_key(any_row_addr)
