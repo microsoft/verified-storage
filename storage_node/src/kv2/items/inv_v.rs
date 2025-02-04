@@ -92,18 +92,17 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn free_list_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.free_list[i]]
-            0 <= i < self.free_list.len() ==> {
-            &&& self.row_info.contains_key(self.free_list[i])
-            &&& #[trigger] self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
+        &&& forall|i: int| 0 <= i < self.free_list.len() ==> {
+            &&& self.row_info.contains_key(#[trigger] self.free_list[i])
+            &&& self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
             &&& pos == i
         }
     }
 
     pub(super) open spec fn pending_allocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_allocations[i]] 0 <= i < self.pending_allocations.len() ==> {
-            &&& self.row_info.contains_key(self.pending_allocations[i])
+        &&& forall|i: int| 0 <= i < self.pending_allocations.len() ==> {
+            &&& self.row_info.contains_key(#[trigger] self.pending_allocations[i])
             &&& match self.row_info[self.pending_allocations[i]] {
                 ItemRowDisposition::InPendingAllocationList{ pos, item } => pos == i,
                 ItemRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, item } => alloc_pos == i,
@@ -114,8 +113,8 @@ impl<I> ItemInternalView<I>
 
     pub(super) open spec fn pending_deallocations_consistent(self, sm: ItemTableStaticMetadata) -> bool
     {
-        &&& forall|i: int| #![trigger self.pending_deallocations[i]] 0 <= i < self.pending_deallocations.len() ==> {
-            &&& self.row_info.contains_key(self.pending_deallocations[i])
+        &&& forall|i: int| 0 <= i < self.pending_deallocations.len() ==> {
+            &&& self.row_info.contains_key(#[trigger] self.pending_deallocations[i])
             &&& match self.row_info[self.pending_deallocations[i]] {
                 ItemRowDisposition::InPendingDeallocationList{ pos, item } => pos == i,
                 ItemRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos, item } => dealloc_pos == i,
