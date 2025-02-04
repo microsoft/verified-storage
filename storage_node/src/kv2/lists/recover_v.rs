@@ -96,8 +96,8 @@ impl<L> ListRecoveryMapping<L>
                &&& self.list_info.contains_key(head)
                &&& 0 <= pos < self.list_info[head].len()
            } ==> {
-               let info = self.row_info[self.list_info[head][pos as int]];
-               &&& self.row_info.contains_key(self.list_info[head][pos as int])
+               let info = self.row_info[self.list_info[head][pos]];
+               &&& self.row_info.contains_key(self.list_info[head][pos])
                &&& info.head == head
                &&& info.pos == pos
                &&& info.next == 0 <==> pos == self.list_info[head].len() - 1
