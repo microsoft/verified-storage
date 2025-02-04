@@ -250,10 +250,7 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn complete(self, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& forall|row_addr: u64|
-            #![trigger sm.table.validate_row_addr(row_addr)]
-            #![trigger self.row_info.contains_key(row_addr)]
-            sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
     }
 
     pub(super) open spec fn row_info_consistent(self, sm: KeyTableStaticMetadata) -> bool
