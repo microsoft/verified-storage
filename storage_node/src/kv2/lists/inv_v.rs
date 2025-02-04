@@ -153,7 +153,7 @@ pub(super) struct ListTableInternalView<L>
     pub tentative_mapping: ListRecoveryMapping<L>,
     pub row_info: Map<u64, ListRowDisposition>,
     pub m: Map<u64, ListTableEntryView<L>>,
-    pub deletes_inverse: Map<u64, usize>,
+    pub deletes_inverse: Map<u64, int>,
     pub deletes: Seq<ListTableDurableEntry>,
     pub updates: Seq<Option<u64>>,
     pub creates: Seq<Option<u64>>,
@@ -189,7 +189,7 @@ impl<L> ListTableInternalView<L>
             if self.deletes_inverse.contains_key(list_addr) {
                 let which_delete = self.deletes_inverse[list_addr];
                 &&& 0 <= which_delete < self.deletes.len()
-                &&& self.deletes[which_delete as int].head == list_addr
+                &&& self.deletes[which_delete].head == list_addr
             }
             else {
                 &&& self.m.contains_key(list_addr)
@@ -316,11 +316,12 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn deletes_inverse_is_inverse_of_deletes(self) -> bool
     {
-        &&& forall|list_addr: u64| #[trigger] self.deletes_inverse.contains_key(list_addr) ==> {
-            let which_delete = self.deletes_inverse[list_addr];
-            &&& 0 <= which_delete < self.deletes.len()
-            &&& self.deletes[which_delete as int].head == list_addr
-        }
+        &&& forall|list_addr: u64| self.deletes_inverse.contains_key(list_addr) ==> {
+               // The conjunct with the trigger must be first to work around a Z3 issue,
+               // even though the other order makes more logical sense.
+               &&& #[trigger] self.deletes[self.deletes_inverse[list_addr]].head == list_addr
+               &&& 0 <= self.deletes_inverse[list_addr] < self.deletes.len()
+           }
     }
 
     pub(super) open spec fn corresponds_to_durable_state(self, s: Seq<u8>, sm: ListTableStaticMetadata) -> bool

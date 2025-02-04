@@ -69,7 +69,7 @@ impl<L> ListTableInternalView<L>
             tentative_mapping: self.tentative_mapping,
             row_info: self.commit_row_info(),
             m: self.commit_m(),
-            deletes_inverse: Map::<u64, usize>::empty(),
+            deletes_inverse: Map::<u64, int>::empty(),
             deletes: Seq::<ListTableDurableEntry>::empty(),
             updates: Seq::<Option<u64>>::empty(),
             creates: Seq::<Option<u64>>::empty(),
