@@ -348,10 +348,7 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn row_info_complete(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& forall|row_addr: u64|
-            #![trigger sm.table.validate_row_addr(row_addr)]
-            #![trigger self.row_info.contains_key(row_addr)]
-            sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64| sm.table.validate_row_addr(row_addr) ==> #[trigger] self.row_info.contains_key(row_addr)
     }
 
     pub(super) open spec fn row_info_consistent(self, sm: ListTableStaticMetadata) -> bool
