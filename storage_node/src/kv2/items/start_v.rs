@@ -134,8 +134,8 @@ impl<PM, I> ItemTable<PM, I>
             row_addr = row_addr + sm.table.row_size;
         }
     
-        assert forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr)
-            implies row_info.contains_key(row_addr) by {
+        assert forall|row_addr: u64| sm.table.validate_row_addr(row_addr) implies
+                                #[trigger] row_info.contains_key(row_addr) by {
             let row_index = sm.table.row_addr_to_index(row_addr);
             broadcast use group_validate_row_addr;
         }
