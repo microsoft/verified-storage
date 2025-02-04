@@ -95,7 +95,7 @@ impl<I> ItemInternalView<I>
         &&& forall|i: int| #![trigger self.row_info.contains_key(self.free_list[i])]
             0 <= i < self.free_list.len() ==> {
             &&& self.row_info.contains_key(self.free_list[i])
-            &&& #[trigger] self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
+            &&& self.row_info[self.free_list[i]] matches ItemRowDisposition::InFreeList{ pos }
             &&& pos == i
         }
     }
