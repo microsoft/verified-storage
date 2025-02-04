@@ -44,17 +44,46 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                 &&& new_snapshot == self.keys@.tentative.unwrap()
                 &&& forall|other_item_addr: u64|
                        #![trigger new_snapshot.item_info.contains_key(other_item_addr)]
-                       old_snapshot.item_info.contains_key(other_item_addr) ==>
-                       old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr == other_item_addr
+                       old_snapshot.item_info.contains_key(other_item_addr) ==> {
+                           &&& old_snapshot.key_info.contains_key(old_snapshot.item_info[other_item_addr])
+                           &&& old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr ==
+                              other_item_addr
+                       }
                 &&& forall|other_list_addr: u64|
                        #![trigger new_snapshot.list_info.contains_key(other_list_addr)]
-                       old_snapshot.list_info.contains_key(other_list_addr) ==>
-                       old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr == other_list_addr
+                       old_snapshot.list_info.contains_key(other_list_addr) ==> {
+                           &&& old_snapshot.key_info.contains_key(old_snapshot.list_info[other_list_addr])
+                           &&& old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr ==
+                              other_list_addr
+                       }
             }),
     {
         old_self.keys.lemma_valid_implications(old_self.journal@);
 
-        (old_self.keys@.tentative.unwrap(), self.keys@.tentative.unwrap())
+        let old_snapshot = old_self.keys@.tentative.unwrap();
+        let new_snapshot = self.keys@.tentative.unwrap();
+
+        assert forall|other_item_addr: u64|
+                   #![trigger new_snapshot.item_info.contains_key(other_item_addr)]
+                   old_snapshot.item_info.contains_key(other_item_addr) implies {
+                       &&& old_snapshot.key_info.contains_key(old_snapshot.item_info[other_item_addr])
+                       &&& old_snapshot.key_info[old_snapshot.item_info[other_item_addr]].item_addr ==
+                          other_item_addr
+                   } by {
+            assert(old_snapshot.key_info.contains_key(old_snapshot.item_info[other_item_addr]));
+        }
+
+        assert forall|other_list_addr: u64|
+                   #![trigger new_snapshot.list_info.contains_key(other_list_addr)]
+                   old_snapshot.list_info.contains_key(other_list_addr) implies {
+                       &&& old_snapshot.key_info.contains_key(old_snapshot.list_info[other_list_addr])
+                       &&& old_snapshot.key_info[old_snapshot.list_info[other_list_addr]].list_addr ==
+                          other_list_addr
+                   } by {
+            assert(old_snapshot.key_info.contains_key(old_snapshot.list_info[other_list_addr]));
+        }
+
+        (old_snapshot, new_snapshot)
     }
 
     pub exec fn read_item(
