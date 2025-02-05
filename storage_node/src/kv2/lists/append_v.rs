@@ -44,7 +44,6 @@ impl<PM, L> ListTable<PM, L>
             sm.valid::<L>(),
             iv.valid(sm),
             iv.corresponds_to_durable_state(s1, sm),
-            iv.free_list_consistent(sm),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -62,6 +61,62 @@ impl<PM, L> ListTable<PM, L>
         iv.durable_mapping.lemma_corresponds_implies_equals_new(s1, iv.durable_list_addrs, sm);
         iv.durable_mapping.lemma_corresponds_implies_equals_new(s2, iv.durable_list_addrs, sm);
         assert(Self::recover(s2, iv.durable_list_addrs, sm) =~= Self::recover(s1, iv.durable_list_addrs, sm));
+    }
+
+    proof fn lemma_writing_to_free_slot_has_permission_later_forall(
+        iv: ListTableInternalView<L>,
+        initial_durable_state: Seq<u8>,
+        sm: ListTableStaticMetadata,
+        constants: JournalConstants,
+        free_list_pos: int,
+        row_addr: u64,
+        tracked perm: &TrustedKvPermission,
+    )
+        requires
+            sm.valid::<L>(),
+            iv.valid(sm),
+            iv.corresponds_to_durable_state(initial_durable_state, sm),
+            Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            sm.table.end <= initial_durable_state.len(),
+            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, iv.durable_list_addrs,
+                                                                 initial_durable_state, constants, sm)
+                ==> #[trigger] perm.check_permission(s),
+        ensures
+            forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
+                                                         initial_durable_state, constants, sm)
+                &&& iv.corresponds_to_durable_state(current_durable_state, sm)
+                &&& row_addr <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+            } ==> {
+                &&& Self::state_equivalent_for_me_specific(s, iv.durable_list_addrs,
+                                                         initial_durable_state, constants, sm)
+                &&& iv.corresponds_to_durable_state(s, sm)
+                &&& perm.check_permission(s)
+            },
+    {
+        let list_addrs = iv.durable_list_addrs;
+        assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, list_addrs,
+                                                         initial_durable_state, constants, sm)
+                &&& iv.corresponds_to_durable_state(current_durable_state, sm)
+                &&& row_addr <= start <= end <= row_addr + sm.table.row_size
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+            } implies {
+                &&& Self::state_equivalent_for_me_specific(s, list_addrs, initial_durable_state, constants, sm)
+                &&& iv.corresponds_to_durable_state(s, sm)
+                &&& perm.check_permission(s)
+            } by {
+            broadcast use group_validate_row_addr;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, current_durable_state, s, sm,
+                                                                    free_list_pos, row_addr, start, end);
+        }
     }
 
     pub exec fn append(
