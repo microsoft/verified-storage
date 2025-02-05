@@ -156,6 +156,7 @@ impl<PM, L> ListTable<PM, L>
     proof fn lemma_writing_to_free_slot_has_permission_later_forall(
         iv: ListTableInternalView<L>,
         initial_durable_state: Seq<u8>,
+        initial_read_state: Seq<u8>,
         sm: ListTableStaticMetadata,
         constants: JournalConstants,
         free_list_pos: int,
@@ -166,6 +167,7 @@ impl<PM, L> ListTable<PM, L>
             sm.valid::<L>(),
             iv.valid(sm),
             iv.corresponds_to_durable_state(initial_durable_state, sm),
+            iv.corresponds_to_durable_state(initial_read_state, sm),
             Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
@@ -175,36 +177,49 @@ impl<PM, L> ListTable<PM, L>
                                                                  initial_durable_state, constants, sm)
                 ==> #[trigger] perm.check_permission(s),
         ensures
-            forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
-                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
+            forall|current_durable_state: Seq<u8>, current_read_state: Seq<u8>,
+              new_durable_state: Seq<u8>, new_read_state: Seq<u8>,
+              start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
+                &&& #[trigger] seqs_match_except_in_range(current_read_state, new_read_state, start, end)
                 &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
                                                          initial_durable_state, constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
+                &&& iv.corresponds_to_durable_state(current_read_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(new_durable_state, constants)
             } ==> {
-                &&& Self::state_equivalent_for_me_specific(s, iv.durable_list_addrs,
+                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_list_addrs,
                                                          initial_durable_state, constants, sm)
-                &&& iv.corresponds_to_durable_state(s, sm)
-                &&& perm.check_permission(s)
+                &&& iv.corresponds_to_durable_state(new_durable_state, sm)
+                &&& iv.corresponds_to_durable_state(new_read_state, sm)
+                &&& perm.check_permission(new_durable_state)
             },
     {
         let list_addrs = iv.durable_list_addrs;
-        assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
-                &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, list_addrs,
+        assert forall|current_durable_state: Seq<u8>, current_read_state: Seq<u8>,
+                 new_durable_state: Seq<u8>, new_read_state: Seq<u8>,
+                 start: int, end: int| {
+                &&& #[trigger] seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
+                &&& #[trigger] seqs_match_except_in_range(current_read_state, new_read_state, start, end)
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
                                                          initial_durable_state, constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
+                &&& iv.corresponds_to_durable_state(current_read_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(new_durable_state, constants)
             } implies {
-                &&& Self::state_equivalent_for_me_specific(s, list_addrs, initial_durable_state, constants, sm)
-                &&& iv.corresponds_to_durable_state(s, sm)
-                &&& perm.check_permission(s)
+                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_list_addrs,
+                                                         initial_durable_state, constants, sm)
+                &&& iv.corresponds_to_durable_state(new_durable_state, sm)
+                &&& iv.corresponds_to_durable_state(new_read_state, sm)
+                &&& perm.check_permission(new_durable_state)
             } by {
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, current_durable_state, s, sm,
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, current_durable_state, new_durable_state, sm,
+                                                                    free_list_pos, row_addr, start, end);
+            Self::lemma_writing_to_free_slot_doesnt_change_recovery(iv, current_read_state, new_read_state, sm,
                                                                     free_list_pos, row_addr, start, end);
         }
     }
@@ -330,6 +345,7 @@ impl<PM, L> ListTable<PM, L>
                 Self::lemma_writing_to_free_slot_has_permission_later_forall(
                     self.internal_view(),
                     journal@.durable_state,
+                    journal@.read_state,
                     self.sm,
                     journal@.constants,
                     self.free_list@.len() - 1,
@@ -376,6 +392,12 @@ impl<PM, L> ListTable<PM, L>
 
         journal.write_object::<u64>(next_addr, &next, Tracked(perm));
         journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+
+        // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
+        // to conclude that `self` is still consistent with both the durable and read state
+        // of the journal.
+        assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
+        assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
 
         self.tentative_list_addrs = Ghost(self.tentative_list_addrs@.insert(row_addr));
         self.tentative_mapping = Ghost(self.tentative_mapping@.create_singleton(row_addr, new_element));
