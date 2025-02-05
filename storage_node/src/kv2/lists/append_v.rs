@@ -30,6 +30,40 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    proof fn lemma_writing_to_free_slot_doesnt_change_recovery(
+        iv: ListTableInternalView<L>,
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sm: ListTableStaticMetadata,
+        free_list_pos: int,
+        row_addr: u64,
+        start: int,
+        end: int,
+    )
+        requires
+            sm.valid::<L>(),
+            iv.valid(sm),
+            iv.corresponds_to_durable_state(s1, sm),
+            iv.free_list_consistent(sm),
+            0 <= free_list_pos < iv.free_list.len(),
+            iv.free_list[free_list_pos] == row_addr,
+            sm.table.validate_row_addr(row_addr),
+            row_addr <= start <= end <= row_addr + sm.table.row_size,
+            seqs_match_except_in_range(s1, s2, start, end),
+        ensures
+            iv.corresponds_to_durable_state(s2, sm),
+            Self::recover(s2, iv.durable_list_addrs, sm) == Self::recover(s1, iv.durable_list_addrs, sm),
+    {
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+
+        assert(iv.row_info[row_addr] is InFreeList);
+        assert(iv.corresponds_to_durable_state(s2, sm));
+        iv.durable_mapping.lemma_corresponds_implies_equals_new(s1, iv.durable_list_addrs, sm);
+        iv.durable_mapping.lemma_corresponds_implies_equals_new(s2, iv.durable_list_addrs, sm);
+        assert(Self::recover(s2, iv.durable_list_addrs, sm) =~= Self::recover(s1, iv.durable_list_addrs, sm));
+    }
+
     pub exec fn append(
         &mut self,
         row_addr: u64,
@@ -155,6 +189,14 @@ impl<PM, L> ListTable<PM, L>
                 },
             _ => {},
         }
+
+        let free_list_len = self.free_list.len();
+        if free_list_len == 0 {
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+
+        let free_index = self.free_list[free_list_len - 1];
         
         assume(false);
         Err(KvError::NotImplemented)

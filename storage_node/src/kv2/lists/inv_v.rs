@@ -169,6 +169,8 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn valid(self, sm: ListTableStaticMetadata) -> bool
     {
         &&& self.durable_mapping_reflected_in_changes_or_m()
+        &&& self.durable_mapping_corresponds_to_row_info()
+        &&& self.tentative_mapping_corresponds_to_row_info()
         &&& self.updates_reflected_in_m()
         &&& self.creates_reflected_in_m()
         &&& forall|list_addr: u64| #[trigger] self.tentative_mapping.list_info.contains_key(list_addr) ==>
@@ -194,6 +196,24 @@ impl<L> ListTableInternalView<L>
                 &&& self.m[list_addr] is Durable
             }
         }
+    }
+
+    pub(super) open spec fn durable_mapping_corresponds_to_row_info(self) -> bool
+    {
+        &&& forall|row_addr: u64| #[trigger] self.durable_mapping.row_info.contains_key(row_addr) ==> {
+               &&& self.row_info.contains_key(row_addr)
+               &&& self.row_info[row_addr] is NowhereFree ||
+                  self.row_info[row_addr] is InPendingDeallocationList
+           }
+    }
+
+    pub(super) open spec fn tentative_mapping_corresponds_to_row_info(self) -> bool
+    {
+        &&& forall|row_addr: u64| #[trigger] self.tentative_mapping.row_info.contains_key(row_addr) ==> {
+               &&& self.row_info.contains_key(row_addr)
+               &&& self.row_info[row_addr] is NowhereFree ||
+                  self.row_info[row_addr] is InPendingAllocationList
+           }
     }
 
     pub(super) open spec fn updates_reflected_in_m(self) -> bool
