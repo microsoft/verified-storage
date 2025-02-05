@@ -347,6 +347,7 @@ impl<PM, L> ListTable<PM, L>
             journal@.read_state == journal@.commit_state,
             journal@.constants.app_area_start <= sm.start(),
             sm.end() <= journal@.constants.app_area_end,
+            0 < sm.start(), // so that `0` isn't a valid address and can be used as a sentinel
             Self::recover(journal@.read_state, list_addrs@.to_set(), *sm) is Some,
             sm.valid::<L>(),
             !list_addrs@.contains(0),

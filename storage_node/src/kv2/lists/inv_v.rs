@@ -73,7 +73,7 @@ pub(super) enum ListTableEntry<L>
         entry: ListTableDurableEntry
     },
     Updated{
-        which_update: nat,
+        which_update: usize,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
@@ -81,7 +81,7 @@ pub(super) enum ListTableEntry<L>
         appended_elements: Vec<L>,
     },
     Created{
-        which_create: nat,
+        which_create: usize,
         tentative_addrs: Vec<u64>,
         tentative_elements: Vec<L>,
     },
@@ -444,6 +444,7 @@ impl<PM, L> ListTable<PM, L>
 {
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
+        &&& 0 < self.sm.start()
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.sm.valid::<L>()

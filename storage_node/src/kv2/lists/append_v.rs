@@ -22,6 +22,7 @@ use super::*;
 use super::recover_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+use vstd::std_specs::hash::*;
 
 verus! {
 
@@ -252,6 +253,7 @@ impl<PM, L> ListTable<PM, L>
             broadcast use pmcopy_axioms;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_update_bytes_effect;
+            broadcast use group_hash_axioms;
         }
 
         match self.logical_range_gaps_policy {
@@ -277,9 +279,63 @@ impl<PM, L> ListTable<PM, L>
 
         journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
         journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
+
+        let next_addr = row_addr + self.sm.row_next_start;
+        let next_crc_addr = row_addr + self.sm.row_next_crc_start;
+        let next: u64 = 0;
+        let next_crc = calculate_crc(&next);
+
+        journal.write_object::<u64>(next_addr, &next, Tracked(perm));
+        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+
+        self.tentative_list_addrs = Ghost(self.tentative_list_addrs@.insert(row_addr));
+        self.tentative_mapping = Ghost(self.tentative_mapping@.create_singleton(row_addr, new_element));
+
+        let ghost disposition =
+            ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
+        self.row_info = Ghost(self.row_info@.insert(row_addr, disposition));
+
+        let which_create = self.creates.len();
+        self.creates.push(Some(row_addr));
+
+        self.pending_allocations.push(row_addr);
+
+        let tentative_elements = vec![new_element];
+        assert(tentative_elements@ =~= seq![new_element]);
+        let entry = ListTableEntry::<L>::Created{
+            which_create,
+            tentative_addrs: vec![row_addr],
+            tentative_elements,
+        };
+        self.m.insert(row_addr, entry);
+
+        let ghost old_iv = old(self).internal_view();
+        let ghost iv = self.internal_view();
+        let ghost old_snapshot = old(self)@.tentative.unwrap();
+        let ghost new_snapshot = self@.tentative.unwrap();
+        assert(forall|list_addr: u64| #[trigger] iv.m.contains_key(list_addr) ==>
+               list_addr == row_addr || old(self).internal_view().m.contains_key(list_addr));
+        assert(forall|list_addr: u64| #[trigger] new_snapshot.m.contains_key(list_addr) ==> {
+                   ||| list_addr == row_addr && new_snapshot.m[list_addr] == tentative_elements@
+                   ||| old_snapshot.m.contains_key(list_addr) && new_snapshot.m[list_addr] == old_snapshot.m[list_addr]
+               });
+
+        assert(iv.deletes_inverse == old_iv.deletes_inverse);
+        assert(iv.deletes == old_iv.deletes);
+        assert(iv.updates == old_iv.updates);
+        assert(iv.durable_list_addrs == old_iv.durable_list_addrs);
+        assert(iv.durable_mapping == old_iv.durable_mapping);
+        assert(iv.pending_deallocations == old_iv.pending_deallocations);
+
+        assume(iv.m_consistent_with_tentative_recovery_mapping());
         
-        assume(false);
-        Err(KvError::NotImplemented)
+        assert(self@ == (ListTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().create_singleton(row_addr, new_element)),
+                        ..old(self)@
+                    }));
+        assert(self.valid(journal@));
+
+        Ok(row_addr)
     }
 }
 

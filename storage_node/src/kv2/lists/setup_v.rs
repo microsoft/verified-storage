@@ -91,7 +91,7 @@ impl<PM, L> ListTable<PM, L>
             old(pm).inv(),
             old(pm)@.valid(),
             ps.valid(),
-            min_start <= max_end <= old(pm)@.len(),
+            0 < min_start <= max_end <= old(pm)@.len(),
         ensures
             pm.inv(),
             pm.constants() == old(pm).constants(),

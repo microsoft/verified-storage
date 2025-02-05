@@ -216,7 +216,15 @@ impl<L> ListRecoveryMapping<L>
             ),
         }
     }
-    
+
+    pub(super) open spec fn create_singleton(self, list_addr: u64, element: L) -> Self
+    {
+        let info = ListRowRecoveryInfo::<L>{ element, head: list_addr, next: 0, pos: 0 };
+        Self{
+            row_info: self.row_info.insert(list_addr, info),
+            list_info: self.list_info.insert(list_addr, seq![list_addr])
+        }
+    }
 }
 
 impl<PM, L> ListTable<PM, L>
