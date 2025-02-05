@@ -57,7 +57,7 @@ impl<PM, I> ItemTable<PM, I>
     }
 
     proof fn lemma_writing_to_free_slot_doesnt_change_recovery(
-        iv: ItemInternalView<I>,
+        iv: ItemTableInternalView<I>,
         s1: Seq<u8>,
         s2: Seq<u8>,
         sm: ItemTableStaticMetadata,
@@ -88,7 +88,7 @@ impl<PM, I> ItemTable<PM, I>
     }
 
     proof fn lemma_writing_to_free_slot_has_permission_later_forall(
-        iv: ItemInternalView<I>,
+        iv: ItemTableInternalView<I>,
         initial_durable_state: Seq<u8>,
         sm: ItemTableStaticMetadata,
         constants: JournalConstants,

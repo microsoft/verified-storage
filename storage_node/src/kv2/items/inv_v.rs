@@ -43,7 +43,7 @@ pub(super) enum ItemRowDisposition<I>
 }
 
 #[verifier::ext_equal]
-pub(super) struct ItemInternalView<I>
+pub(super) struct ItemTableInternalView<I>
     where
         I: PmCopy + Sized + std::fmt::Debug,
 {
@@ -53,7 +53,7 @@ pub(super) struct ItemInternalView<I>
     pub pending_deallocations: Seq<u64>,
 }
 
-impl<I> ItemInternalView<I>
+impl<I> ItemTableInternalView<I>
     where
         I: PmCopy + Sized + std::fmt::Debug,
 {
@@ -213,9 +213,9 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn internal_view(self) -> ItemInternalView<I>
+    pub(super) open spec fn internal_view(self) -> ItemTableInternalView<I>
     {
-        ItemInternalView::<I>{
+        ItemTableInternalView::<I>{
             row_info: self.row_info@,
             free_list: self.free_list@,
             pending_allocations: self.pending_allocations@,

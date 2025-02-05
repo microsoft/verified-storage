@@ -85,7 +85,7 @@ impl<PM, I> ItemTable<PM, I>
                 journal@.constants.app_area_start <= sm.start(),
                 sm.end() <= journal@.constants.app_area_end,
                 ({
-                    let iv = ItemInternalView::<I>{
+                    let iv = ItemTableInternalView::<I>{
                         row_info,
                         free_list: free_list@,
                         pending_allocations: Seq::<u64>::empty(),
