@@ -42,6 +42,7 @@ pub(super) struct ListRecoveryMapping<L>
 {
     pub row_info: Map<u64, ListRowRecoveryInfo<L>>,
     pub list_info: Map<u64, Seq<u64>>,
+    pub list_elements: Map<u64, Seq<L>>,
 }
 
 impl<L> ListRecoveryMapping<L>
@@ -63,6 +64,7 @@ impl<L> ListRecoveryMapping<L>
         Self{
             row_info: Map::<u64, ListRowRecoveryInfo<L>>::empty(),
             list_info: Map::<u64, Seq<u64>>::empty(),
+            list_elements: Map::<u64, Seq<L>>::empty(),
         }
     }
     
@@ -93,7 +95,10 @@ impl<L> ListRecoveryMapping<L>
         &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==> {
                &&& 0 < self.list_info[head].len() <= usize::MAX
                &&& self.list_info[head][0] == head
+               &&& self.list_elements.contains_key(head)
+               &&& self.list_elements[head].len() == self.list_info[head].len()
            }
+        &&& forall|head: u64| #[trigger] self.list_elements.contains_key(head) ==> self.list_info.contains_key(head)
         &&& forall|head: u64, pos: int| #![trigger self.list_info[head][pos]] {
                &&& self.list_info.contains_key(head)
                &&& 0 <= pos < self.list_info[head].len()
@@ -103,6 +108,7 @@ impl<L> ListRecoveryMapping<L>
                &&& info.head == head
                &&& info.pos == pos
                &&& info.next == 0 <==> pos == self.list_info[head].len() - 1
+               &&& info.element == self.list_elements[head][pos]
            }
         &&& forall|head: u64, pos: int, successor: int| #![trigger self.list_info[head][pos], self.list_info[head][successor]] {
                &&& self.list_info.contains_key(head)
@@ -131,6 +137,7 @@ impl<L> ListRecoveryMapping<L>
             pos < other.list_info[head].len(),
             pos == self.list_info[head].len() - 1 <==> pos == other.list_info[head].len() - 1,
             self.list_info[head][pos] == other.list_info[head][pos],
+            self.list_elements[head][pos] == other.list_elements[head][pos],
         decreases
             pos,
     {
@@ -172,6 +179,25 @@ impl<L> ListRecoveryMapping<L>
         assert(other.list_info[head] =~= self.list_info[head]);
     }
 
+    pub(super) proof fn lemma_uniqueness_elements(self, other: Self, s: Seq<u8>, list_addrs: Set<u64>,
+                                                  sm: ListTableStaticMetadata, head: u64)
+        requires
+            sm.valid::<L>(),
+            self.corresponds(s, list_addrs, sm),
+            other.corresponds(s, list_addrs, sm),
+            self.list_elements.contains_key(head),
+        ensures
+            other.list_elements.contains_key(head),
+            other.list_elements[head] == self.list_elements[head],
+    {
+        self.lemma_uniqueness_length(other, s, list_addrs, sm, head);
+        assert forall|pos: int| 0 <= pos < self.list_elements[head].len() implies
+            self.list_elements[head][pos as int] == other.list_elements[head][pos as int] by {
+            self.lemma_uniqueness_element(other, s, list_addrs, sm, head, pos);
+        }
+        assert(other.list_elements[head] =~= self.list_elements[head]);
+    }
+
     pub(super) proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>, list_addrs: Set<u64>,
                                          sm: ListTableStaticMetadata)
         requires
@@ -190,6 +216,14 @@ impl<L> ListRecoveryMapping<L>
             }
         }
         assert(self.row_info =~= other.row_info);
+        assert(self.list_elements =~= other.list_elements) by {
+            assert forall|head: u64| #[trigger] self.list_elements.contains_key(head) implies {
+                &&& other.list_elements.contains_key(head)
+                &&& other.list_elements[head] == self.list_elements[head]
+            } by {
+                self.lemma_uniqueness_elements(other, s, list_addrs, sm, head);
+            }
+        }
         assert(self =~= other);
     }
 
@@ -212,8 +246,8 @@ impl<L> ListRecoveryMapping<L>
     {
         ListTableSnapshot::<L>{
             m: Map::<u64, Seq<L>>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr),
-                |list_addr: u64| self.list_info[list_addr].map(|_i, row_addr: u64| self.row_info[row_addr].element),
+                |list_addr: u64| self.list_elements.contains_key(list_addr),
+                |list_addr: u64| self.list_elements[list_addr],
             ),
         }
     }

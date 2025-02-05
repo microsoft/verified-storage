@@ -69,9 +69,12 @@ impl<L> ListRecoveryMapping<L>
         let new_tail_info =
             ListRowRecoveryInfo::<L>{ element: new_element, head: list_addr, next: 0, pos: old_addrs.len() as usize };
         let new_addrs = old_addrs.push(new_row_addr);
+        let old_elements = self.list_elements[list_addr];
+        let new_elements = old_elements.push(new_element);
         Self{
             row_info: self.row_info.insert(former_tail_addr, former_tail_new_info).insert(new_row_addr, new_tail_info),
-            list_info: self.list_info.insert(list_addr, new_addrs)
+            list_info: self.list_info.insert(list_addr, new_addrs),
+            list_elements: self.list_elements.insert(list_addr, new_elements),
         }
     }
 
@@ -80,7 +83,8 @@ impl<L> ListRecoveryMapping<L>
         let info = ListRowRecoveryInfo::<L>{ element, head: list_addr, next: 0, pos: 0 };
         Self{
             row_info: self.row_info.insert(list_addr, info),
-            list_info: self.list_info.insert(list_addr, seq![list_addr])
+            list_info: self.list_info.insert(list_addr, seq![list_addr]),
+            list_elements: self.list_elements.insert(list_addr, seq![element]),
         }
     }
 }
@@ -151,34 +155,10 @@ impl<L> ListTableInternalView<L>
         let tentative_elements = seq![new_element];
         let which_create = self.creates.len();
 
-        assert(tentative_elements =~=
-               tentative_addrs.map(|_i, addr| new_self.tentative_mapping.row_info[addr].element));
+        assert(tentative_elements =~= new_self.tentative_mapping.list_elements[row_addr]);
 
         assert(forall|list_addr: u64| #[trigger] new_self.m.contains_key(list_addr) ==>
                list_addr == row_addr || self.m.contains_key(list_addr));
-
-        assert(forall|list_addr: u64| #[trigger] new_self.m.contains_key(list_addr) ==>
-               match new_self.m[list_addr] {
-                   ListTableEntryView::Durable{ entry } => true,
-                   ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
-                                                appended_addrs, appended_elements } => {
-                       let addrs = new_self.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| new_self.tentative_mapping.row_info[addr].element);
-                       &&& addrs == self.tentative_mapping.list_info[list_addr]
-                       &&& elements =~= addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element)
-                   },
-                   ListTableEntryView::Created{ which_create, tentative_addrs, tentative_elements } => {
-                       let addrs = new_self.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| new_self.tentative_mapping.row_info[addr].element);
-                       if which_create == self.creates.len() {
-                           &&& addrs == tentative_addrs
-                           &&& elements =~= tentative_elements
-                       } else {
-                           &&& addrs == self.tentative_mapping.list_info[list_addr]
-                           &&& elements =~= addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element)
-                       }
-                   },
-               });
 
         assert forall|list_addr: u64| #[trigger] new_snapshot.m.contains_key(list_addr) implies {
                 &&& old_snapshot.create_singleton(row_addr, new_element).m.contains_key(list_addr)

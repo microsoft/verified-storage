@@ -241,7 +241,7 @@ impl<L> ListTableInternalView<L>
         &&& forall|list_addr: u64| #[trigger] self.m.contains_key(list_addr) ==>
                (self.m[list_addr] matches ListTableEntryView::Durable{ entry } ==> {
                    let addrs = self.durable_mapping.list_info[list_addr];
-                   let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
+                   let elements = self.durable_mapping.list_elements[list_addr];
                    &&& 0 < addrs.len()
                    &&& self.durable_mapping.list_info.contains_key(list_addr)
                    &&& self.durable_mapping.row_info.contains_key(addrs.last())
@@ -260,7 +260,7 @@ impl<L> ListTableInternalView<L>
                let entry = self.deletes[i];
                let list_addr = entry.head;
                let addrs = self.durable_mapping.list_info[list_addr];
-               let elements = addrs.map(|_i, addr| self.durable_mapping.row_info[addr].element);
+               let elements = self.durable_mapping.list_elements[list_addr];
                &&& entry.head == addrs[0]
                &&& entry.tail == addrs.last()
                &&& entry.length == addrs.len()
@@ -281,7 +281,7 @@ impl<L> ListTableInternalView<L>
                match self.m[list_addr] {
                    ListTableEntryView::Durable{ entry } => {
                        let addrs = self.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
+                       let elements = self.tentative_mapping.list_elements[list_addr];
                        &&& 0 < addrs.len()
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
                        &&& entry.head == list_addr == addrs[0]
@@ -294,7 +294,7 @@ impl<L> ListTableInternalView<L>
                    ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
                                                 appended_addrs, appended_elements } => {
                        let addrs = self.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
+                       let elements = self.tentative_mapping.list_elements[list_addr];
                        &&& 0 <= which_update < self.updates.len()
                        &&& self.updates[which_update as int] == Some(list_addr)
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
@@ -316,7 +316,7 @@ impl<L> ListTableInternalView<L>
                    },
                    ListTableEntryView::Created{ which_create, tentative_addrs, tentative_elements } => {
                        let addrs = self.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| self.tentative_mapping.row_info[addr].element);
+                       let elements = self.tentative_mapping.list_elements[list_addr];
                        &&& 0 <= which_create < self.creates.len()
                        &&& self.creates[which_create as int] == Some(list_addr)
                        &&& 0 < tentative_addrs.len()

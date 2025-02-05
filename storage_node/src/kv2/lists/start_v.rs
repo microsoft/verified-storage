@@ -80,7 +80,7 @@ impl<PM, L> ListTable<PM, L>
         let pm = journal.get_pm_region_ref();
         let mut num_elements_processed: usize = 0;
         let ghost row_addrs = mapping.list_info[list_addr];
-        let ghost elements = row_addrs.map(|_i, row_addr| mapping.row_info[row_addr].element);
+        let ghost elements = mapping.list_elements[list_addr];
         
         loop
             invariant
@@ -95,7 +95,7 @@ impl<PM, L> ListTable<PM, L>
                 list_addrs.contains(list_addr),
                 mapping.list_info.contains_key(list_addr),
                 row_addrs == mapping.list_info[list_addr],
-                elements == row_addrs.map(|_i, row_addr| mapping.row_info[row_addr].element),
+                elements == mapping.list_elements[list_addr],
                 pm.inv(),
                 pm.constants() == journal@.pm_constants,
                 forall|row_addr: u64| #[trigger] old(row_addrs_used)@.contains(row_addr)
