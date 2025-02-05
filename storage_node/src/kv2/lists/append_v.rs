@@ -122,7 +122,7 @@ impl<PM, L> ListTable<PM, L>
     pub exec fn append(
         &mut self,
         row_addr: u64,
-        new_list_entry: L,
+        new_element: L,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<u64, KvError>)
@@ -142,12 +142,12 @@ impl<PM, L> ListTable<PM, L>
                     &&& new_row_addr == row_addr || !old(self)@.tentative.unwrap().m.contains_key(new_row_addr)
                     &&& match self@.logical_range_gaps_policy {
                         LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
-                            new_list_entry.start() >= end_of_range(old(self)@.tentative.unwrap().m[row_addr]),
+                            new_element.start() >= end_of_range(old(self)@.tentative.unwrap().m[row_addr]),
                         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            new_list_entry.start() == end_of_range(old(self)@.tentative.unwrap().m[row_addr]),
+                            new_element.start() == end_of_range(old(self)@.tentative.unwrap().m[row_addr]),
                     }
                     &&& self@ == (ListTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().append(row_addr, new_row_addr, new_list_entry)),
+                        tentative: Some(old(self)@.tentative.unwrap().append(row_addr, new_row_addr, new_element)),
                         ..old(self)@
                     })
                     &&& self.validate_list_addr(new_row_addr)
@@ -155,12 +155,12 @@ impl<PM, L> ListTable<PM, L>
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
                     &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
-                    &&& new_list_entry.start() > end_of_range(old(self)@.tentative.unwrap().m[row_addr])
+                    &&& new_element.start() > end_of_range(old(self)@.tentative.unwrap().m[row_addr])
                     &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[row_addr])
                 },
                 Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
-                    &&& new_list_entry.start() < end_of_range(old(self)@.tentative.unwrap().m[row_addr])
+                    &&& new_element.start() < end_of_range(old(self)@.tentative.unwrap().m[row_addr])
                     &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[row_addr])
                 }
                 Err(KvError::OutOfSpace) => {
@@ -185,7 +185,7 @@ impl<PM, L> ListTable<PM, L>
 
     pub exec fn create_singleton(
         &mut self,
-        new_list_entry: L,
+        new_element: L,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<u64, KvError>)
@@ -202,10 +202,10 @@ impl<PM, L> ListTable<PM, L>
                 Ok(new_row_addr) => {
                     &&& new_row_addr != 0
                     &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
-                        new_list_entry.start() == 0
+                        new_element.start() == 0
                     &&& !old(self)@.tentative.unwrap().m.contains_key(new_row_addr)
                     &&& self@ == (ListTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().create_singleton(new_row_addr, new_list_entry)),
+                        tentative: Some(old(self)@.tentative.unwrap().create_singleton(new_row_addr, new_element)),
                         ..old(self)@
                     })
                     &&& self.validate_list_addr(new_row_addr)
@@ -213,7 +213,7 @@ impl<PM, L> ListTable<PM, L>
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
                     &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
-                    &&& new_list_entry.start() != 0
+                    &&& new_element.start() != 0
                     &&& end_of_valid_range == 0
                 }
                 Err(KvError::OutOfSpace) => {
@@ -235,23 +235,48 @@ impl<PM, L> ListTable<PM, L>
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
+            assert(self@.durable.m.dom() =~= self.internal_view().durable_list_addrs);
+            if self.free_list@.len() > 0 {
+                Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                    self.internal_view(),
+                    journal@.durable_state,
+                    self.sm,
+                    journal@.constants,
+                    self.free_list@.len() - 1,
+                    self.free_list@.last(),
+                    perm
+                );
+            }
+
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_update_bytes_effect;
         }
 
         match self.logical_range_gaps_policy {
             LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                if new_list_entry.start() != 0 {
+                if new_element.start() != 0 {
                     return Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range: 0 });
                 },
             _ => {},
         }
 
-        let free_list_len = self.free_list.len();
-        if free_list_len == 0 {
-            self.must_abort = Ghost(true);
-            return Err(KvError::OutOfSpace);
-        }
+        let row_addr = match self.free_list.pop() {
+            None => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            },
+            Some(a) => a,
+        };
+        assert(old(self).free_list@[self.free_list@.len() as int] == row_addr);
 
-        let free_index = self.free_list[free_list_len - 1];
+        let element_addr = row_addr + self.sm.row_element_start;
+        let element_crc_addr = row_addr + self.sm.row_element_crc_start;
+        let element_crc = calculate_crc(&new_element);
+
+        journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
+        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
         
         assume(false);
         Err(KvError::NotImplemented)
