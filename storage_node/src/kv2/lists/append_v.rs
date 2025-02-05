@@ -26,6 +26,101 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
+impl<L> ListTableInternalView<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn create_singleton(self, new_element: L) -> Self
+    {
+        let row_addr = self.free_list.last();
+        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
+        let which_create = self.creates.len();
+        let entry = ListTableEntryView::<L>::Created{
+            which_create,
+            tentative_addrs: seq![row_addr],
+            tentative_elements: seq![new_element],
+        };
+
+        Self{
+            tentative_list_addrs: self.tentative_list_addrs.insert(row_addr),
+            tentative_mapping: self.tentative_mapping.create_singleton(row_addr, new_element),
+            row_info: self.row_info.insert(row_addr, disposition),
+            creates: self.creates.push(Some(row_addr)),
+            free_list: self.free_list.drop_last(),
+            pending_allocations: self.pending_allocations.push(row_addr),
+            m: self.m.insert(row_addr, entry),
+            ..self
+        }
+    }
+
+    pub(super) proof fn lemma_create_singleton_works(self, new_element: L, sm: ListTableStaticMetadata)
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            self.durable_mapping.internally_consistent(),
+            self.tentative_mapping.internally_consistent(),
+            self.free_list.len() > 0,
+        ensures
+            self.create_singleton(new_element).valid(sm),
+            self.create_singleton(new_element).tentative_mapping.as_snapshot() ==
+                self.tentative_mapping.as_snapshot().create_singleton(self.free_list.last(), new_element),
+    {
+        let old_iv = self;
+        let iv = self.create_singleton(new_element);
+        let old_snapshot = old_iv.tentative_mapping.as_snapshot();
+        let new_snapshot = iv.tentative_mapping.as_snapshot();
+        let row_addr = self.free_list.last();
+        let tentative_addrs = seq![row_addr];
+        let tentative_elements = seq![new_element];
+        let which_create = self.creates.len();
+
+        assert(self.free_list[self.free_list.len() - 1] == row_addr);
+        assert(forall|list_addr: u64| #[trigger] iv.m.contains_key(list_addr) ==>
+               list_addr == row_addr || old_iv.m.contains_key(list_addr));
+
+        assert(forall|list_addr: u64| #[trigger] iv.m.contains_key(list_addr) ==>
+               match iv.m[list_addr] {
+                   ListTableEntryView::Durable{ entry } => true,
+                   ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
+                                                appended_addrs, appended_elements } => {
+                       let addrs = iv.tentative_mapping.list_info[list_addr];
+                       let elements = addrs.map(|_i, addr| iv.tentative_mapping.row_info[addr].element);
+                       &&& addrs == old_iv.tentative_mapping.list_info[list_addr]
+                       &&& elements =~= addrs.map(|_i, addr| old_iv.tentative_mapping.row_info[addr].element)
+                   },
+                   ListTableEntryView::Created{ which_create, tentative_addrs, tentative_elements } => {
+                       let addrs = iv.tentative_mapping.list_info[list_addr];
+                       let elements = addrs.map(|_i, addr| iv.tentative_mapping.row_info[addr].element);
+                       if which_create == self.creates.len() {
+                           &&& addrs == tentative_addrs
+                           &&& elements =~= tentative_elements
+                       } else {
+                           &&& addrs == old_iv.tentative_mapping.list_info[list_addr]
+                           &&& elements =~= addrs.map(|_i, addr| old_iv.tentative_mapping.row_info[addr].element)
+                       }
+                   },
+               });
+
+        assert forall|list_addr: u64| #[trigger] new_snapshot.m.contains_key(list_addr) implies {
+                &&& old_snapshot.create_singleton(row_addr, new_element).m.contains_key(list_addr)
+                &&& new_snapshot.m[list_addr] == old_snapshot.create_singleton(row_addr, new_element).m[list_addr]
+            } by {
+            if list_addr == row_addr {
+                assert(old_snapshot.create_singleton(row_addr, new_element).m.contains_key(list_addr));
+                assert(new_snapshot.m[list_addr] =~= old_snapshot.create_singleton(row_addr, new_element).m[list_addr]);
+            }
+            else {
+                assert(old_snapshot.m.contains_key(list_addr));
+                assert(old_snapshot.create_singleton(row_addr, new_element).m.contains_key(list_addr));
+                assert(new_snapshot.m[list_addr] == old_snapshot.m[list_addr]);
+                assert(new_snapshot.m[list_addr] == old_snapshot.create_singleton(row_addr, new_element).m[list_addr]);
+            }
+        }
+
+        assert(new_snapshot =~= old_snapshot.create_singleton(row_addr, new_element));
+    }
+}
+
 impl<PM, L> ListTable<PM, L>
     where
         PM: PersistentMemoryRegion,
@@ -312,46 +407,11 @@ impl<PM, L> ListTable<PM, L>
         };
         self.m.insert(row_addr, entry);
 
-        let ghost old_iv = old(self).internal_view();
-        let ghost iv = self.internal_view();
-        let ghost old_snapshot = old(self)@.tentative.unwrap();
-        let ghost new_snapshot = self@.tentative.unwrap();
-        assert(forall|list_addr: u64| #[trigger] iv.m.contains_key(list_addr) ==>
-               list_addr == row_addr || old(self).internal_view().m.contains_key(list_addr));
-        assert(forall|list_addr: u64| #[trigger] new_snapshot.m.contains_key(list_addr) ==> {
-                   ||| list_addr == row_addr && new_snapshot.m[list_addr] == tentative_elements@
-                   ||| old_snapshot.m.contains_key(list_addr) && new_snapshot.m[list_addr] == old_snapshot.m[list_addr]
-               });
-        assert(forall|list_addr: u64| #[trigger] iv.m.contains_key(list_addr) ==>
-               match iv.m[list_addr] {
-                   ListTableEntryView::Durable{ entry } => true,
-                   ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
-                                                appended_addrs, appended_elements } => {
-                       let addrs = iv.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| iv.tentative_mapping.row_info[addr].element);
-                       &&& addrs == old_iv.tentative_mapping.list_info[list_addr]
-                       &&& elements =~= addrs.map(|_i, addr| old_iv.tentative_mapping.row_info[addr].element)
-                   },
-                   ListTableEntryView::Created{ which_create: wc, tentative_addrs, tentative_elements } => {
-                       let addrs = iv.tentative_mapping.list_info[list_addr];
-                       let elements = addrs.map(|_i, addr| iv.tentative_mapping.row_info[addr].element);
-                       if which_create == wc {
-                           &&& addrs == tentative_addrs
-                           &&& elements == tentative_elements
-                       } else {
-                           &&& addrs == old_iv.tentative_mapping.list_info[list_addr]
-                           &&& elements =~= addrs.map(|_i, addr| old_iv.tentative_mapping.row_info[addr].element)
-                       }
-                   },
-               });
+        assert(self.internal_view() =~= old(self).internal_view().create_singleton(new_element));
+        proof {
+            old(self).internal_view().lemma_create_singleton_works(new_element, self.sm);
+        }
 
-        assert(iv.deletes_inverse == old_iv.deletes_inverse);
-        assert(iv.deletes == old_iv.deletes);
-        assert(iv.updates == old_iv.updates);
-        assert(iv.durable_list_addrs == old_iv.durable_list_addrs);
-        assert(iv.durable_mapping == old_iv.durable_mapping);
-        assert(iv.pending_deallocations == old_iv.pending_deallocations);
-        
         assert(self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create_singleton(row_addr, new_element)),
                         ..old(self)@

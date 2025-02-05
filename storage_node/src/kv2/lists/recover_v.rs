@@ -84,14 +84,17 @@ impl<L> ListRecoveryMapping<L>
 
     pub(super) open spec fn list_info_corresponds(self, list_addrs: Set<u64>) -> bool
     {
-        &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==>
-        {
-            &&& 0 < self.list_info[head].len() <= usize::MAX
-            &&& self.list_info[head][0] == head
-            &&& list_addrs.contains(head)
-        }
-        &&& forall|head: u64, pos: int| #![trigger self.list_info[head][pos]]
-           {
+        &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==> list_addrs.contains(head)
+        &&& forall|head: u64| #[trigger] list_addrs.contains(head) ==> self.list_info.contains_key(head)
+    }
+
+    pub(super) open spec fn internally_consistent(self) -> bool
+    {
+        &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==> {
+               &&& 0 < self.list_info[head].len() <= usize::MAX
+               &&& self.list_info[head][0] == head
+           }
+        &&& forall|head: u64, pos: int| #![trigger self.list_info[head][pos]] {
                &&& self.list_info.contains_key(head)
                &&& 0 <= pos < self.list_info[head].len()
            } ==> {
@@ -101,19 +104,17 @@ impl<L> ListRecoveryMapping<L>
                &&& info.pos == pos
                &&& info.next == 0 <==> pos == self.list_info[head].len() - 1
            }
-        &&& forall|head: u64, pos: int, successor: int| #![trigger self.list_info[head][pos], self.list_info[head][successor]]
-           {
+        &&& forall|head: u64, pos: int, successor: int| #![trigger self.list_info[head][pos], self.list_info[head][successor]] {
                &&& self.list_info.contains_key(head)
                &&& successor == pos + 1
                &&& 0 <= pos
                &&& successor < self.list_info[head].len()
            } ==> self.row_info[self.list_info[head][pos]].next == self.list_info[head][successor]
-        &&& forall|head: u64| #[trigger] list_addrs.contains(head) ==>
-            self.list_info.contains_key(head)
     }
 
     pub(super) open spec fn corresponds(self, s: Seq<u8>, list_addrs: Set<u64>, sm: ListTableStaticMetadata) -> bool
     {
+        &&& self.internally_consistent()
         &&& self.row_info_corresponds(s, sm)
         &&& self.list_info_corresponds(list_addrs)
     }
