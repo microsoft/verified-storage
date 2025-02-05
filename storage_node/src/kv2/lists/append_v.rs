@@ -39,6 +39,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(row_addr),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
@@ -102,6 +103,7 @@ impl<PM, L> ListTable<PM, L>
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
+            old(journal).valid(),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
@@ -141,6 +143,19 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
+        proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+        }
+
+        match self.logical_range_gaps_policy {
+            LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                if new_list_entry.start() != 0 {
+                    return Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range: 0 });
+                },
+            _ => {},
+        }
+        
         assume(false);
         Err(KvError::NotImplemented)
     }

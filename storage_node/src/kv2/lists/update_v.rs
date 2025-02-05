@@ -40,6 +40,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
+            old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(row_addr),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),

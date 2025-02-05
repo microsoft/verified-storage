@@ -37,6 +37,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> (result: Result<&[L], KvError>)
         requires
             old(self).valid(journal@),
+            journal.valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(row_addr),
         ensures
@@ -60,6 +61,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> (result: Result<&L, KvError>)
         requires
             old(self).valid(journal@),
+            journal.valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(row_addr),
         ensures
