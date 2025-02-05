@@ -26,10 +26,88 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
+impl<L> ListTableEntryView<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn append_case_updated(self, new_row_addr: u64, new_element: L) -> Self
+        recommends
+            match self {
+                ListTableEntryView::Updated{ tentative, .. } => tentative.length < usize::MAX,
+                _ => false,
+            },
+    {
+        match self {
+            ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
+                                         appended_addrs, appended_elements } =>
+                ListTableEntryView::Updated{
+                    which_update,
+                    durable,
+                    tentative: ListTableDurableEntry{ tail: new_row_addr, length: (tentative.length + 1) as usize,
+                                                      end_of_logical_range: new_element.end(), ..tentative },
+                    num_trimmed,
+                    appended_addrs: appended_addrs.push(new_row_addr),
+                    appended_elements: appended_elements.push(new_element),
+                },
+            _ => self,
+        }
+    }
+}
+
+impl<L> ListRecoveryMapping<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn append(self, list_addr: u64, new_row_addr: u64, new_element: L) -> Self
+        recommends
+            self.list_info.contains_key(list_addr),
+            self.list_info[list_addr].len() < usize::MAX,
+    {
+        let old_addrs = self.list_info[list_addr];
+        let former_tail_addr = old_addrs.last();
+        let former_tail_new_info = ListRowRecoveryInfo::<L>{ next: new_row_addr, ..self.row_info[former_tail_addr] };
+        let new_tail_info =
+            ListRowRecoveryInfo::<L>{ element: new_element, head: list_addr, next: 0, pos: old_addrs.len() as usize };
+        let new_addrs = old_addrs.push(new_row_addr);
+        Self{
+            row_info: self.row_info.insert(former_tail_addr, former_tail_new_info).insert(new_row_addr, new_tail_info),
+            list_info: self.list_info.insert(list_addr, new_addrs)
+        }
+    }
+
+    pub(super) open spec fn create_singleton(self, list_addr: u64, element: L) -> Self
+    {
+        let info = ListRowRecoveryInfo::<L>{ element, head: list_addr, next: 0, pos: 0 };
+        Self{
+            row_info: self.row_info.insert(list_addr, info),
+            list_info: self.list_info.insert(list_addr, seq![list_addr])
+        }
+    }
+}
+
 impl<L> ListTableInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    pub(super) open spec fn append_case_updated(self, list_addr: u64, new_element: L) -> Self
+        recommends
+            self.m.contains_key(list_addr),
+            self.m[list_addr] is Updated,
+    {
+        let new_row_addr = self.free_list.last();
+        let entry = self.m[list_addr].append_case_updated(new_row_addr, new_element);
+        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
+
+        Self{
+            tentative_mapping: self.tentative_mapping.append(list_addr, new_row_addr, new_element),
+            row_info: self.row_info.insert(new_row_addr, disposition),
+            m: self.m.insert(list_addr, entry),
+            free_list: self.free_list.drop_last(),
+            pending_allocations: self.pending_allocations.push(new_row_addr),
+            ..self
+        }
+    }
+
     pub(super) open spec fn create_singleton(self, new_element: L) -> Self
     {
         let row_addr = self.free_list.last();
