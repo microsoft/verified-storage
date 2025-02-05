@@ -73,6 +73,7 @@ impl<L> ListTableInternalView<L>
         let tentative_addrs = seq![row_addr];
         let tentative_elements = seq![new_element];
         let which_create = self.creates.len();
+        assert(tentative_elements =~= tentative_addrs.map(|_i, addr| iv.tentative_mapping.row_info[addr].element));
 
         assert(self.free_list[self.free_list.len() - 1] == row_addr);
         assert(forall|list_addr: u64| #[trigger] iv.m.contains_key(list_addr) ==>
@@ -399,7 +400,6 @@ impl<PM, L> ListTable<PM, L>
         let tentative_elements = vec![new_element];
         assert(tentative_addrs@ =~= seq![row_addr]);
         assert(tentative_elements@ =~= seq![new_element]);
-        assert(tentative_elements@ =~= tentative_addrs@.map(|_i, addr| self.tentative_mapping@.row_info[addr].element));
         let entry = ListTableEntry::<L>::Created{
             which_create,
             tentative_addrs,
