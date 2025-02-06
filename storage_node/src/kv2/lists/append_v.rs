@@ -384,7 +384,7 @@ impl<PM, L> ListTable<PM, L>
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
-        Ghost(old_jv): Ghost<JournalView>,
+        Ghost(prev_jv): Ghost<JournalView>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self) == (Self{
@@ -394,20 +394,22 @@ impl<PM, L> ListTable<PM, L>
             }),
             old(self).free_list@ == prev_self.free_list@.drop_last(),
             old(self).m@ == prev_self.m@.remove(list_addr),
-            prev_self.valid(old_jv),
+            new_row_addr == prev_self.free_list@.last(),
+            prev_self.valid(prev_jv),
             old(journal).valid(),
             prev_self@.tentative is Some,
             prev_self@.tentative.unwrap().m.contains_key(list_addr),
             prev_self.internal_view().corresponds_to_durable_state(old(journal)@.durable_state, prev_self.sm),
             prev_self.internal_view().corresponds_to_durable_state(old(journal)@.read_state, prev_self.sm),
+            old(journal)@.matches_except_in_range(prev_jv, old(self)@.sm.start() as int, old(self)@.sm.end() as int),
             old(journal)@ == (JournalView{
                 durable_state: old(journal)@.durable_state,
                 read_state: old(journal)@.read_state,
                 commit_state: old(journal)@.commit_state,
-                ..old_jv
+                ..prev_jv
             }),
             new_row_addr == prev_self.free_list@.last(),
-            seqs_match_except_in_range(old_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
+            seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
                                        new_row_addr + prev_self.sm.table.row_size),
             recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
                                   new_row_addr + prev_self.sm.row_next_crc_start) == Some(0u64),
@@ -415,11 +417,20 @@ impl<PM, L> ListTable<PM, L>
                                 new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
             entry == prev_self.m[list_addr],
+            match entry {
+                ListTableEntry::Updated{ tentative, .. } => {
+                    &&& tentative.length < usize::MAX
+                    &&& new_element.start() >= tentative.end_of_logical_range
+                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
+                           new_element.start() == tentative.end_of_logical_range
+                },
+                _ => false,
+            },
             entry is Updated,
         ensures
             self.valid(journal@),
             journal.valid(),
-            journal@.matches_except_in_range(old_jv, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.matches_except_in_range(prev_jv, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(new_list_addr) => {
                     &&& new_list_addr != 0
@@ -436,17 +447,6 @@ impl<PM, L> ListTable<PM, L>
                     })
                     &&& self.validate_list_addr(new_list_addr)
                 },
-                Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
-                    &&& self@ == prev_self@
-                    &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
-                    &&& new_element.start() > end_of_range(prev_self@.tentative.unwrap().m[list_addr])
-                    &&& end_of_valid_range == end_of_range(prev_self@.tentative.unwrap().m[list_addr])
-                },
-                Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range }) => {
-                    &&& self@ == prev_self@
-                    &&& new_element.start() < end_of_range(prev_self@.tentative.unwrap().m[list_addr])
-                    &&& end_of_valid_range == end_of_range(prev_self@.tentative.unwrap().m[list_addr])
-                }
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ListTableView {
                         tentative: None,
@@ -463,6 +463,19 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
+        proof {
+            broadcast use group_hash_axioms;
+        }
+
+        self.tentative_mapping = Ghost(self.tentative_mapping@.append(list_addr, new_row_addr, new_element));
+        let ghost disposition =
+            ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
+        self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
+        let new_entry = entry.append_case_updated(new_row_addr, new_element);
+        self.m.insert(list_addr, new_entry);
+        self.pending_allocations.push(new_row_addr);
+
+        assert(self.internal_view() =~= prev_self.internal_view().append_case_updated(list_addr, new_element));
         assume(false);
         Err(KvError::NotImplemented)
     }
@@ -549,11 +562,41 @@ impl<PM, L> ListTable<PM, L>
             broadcast use group_hash_axioms;
         }
 
+        if self.free_list.len() == 0 {
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+
+        match self.m.get(&list_addr) {
+            None => { assert(false); return Err(KvError::InternalError) },
+            Some(entry) =>
+                match entry {
+                    ListTableEntry::<L>::Updated{ tentative, .. } => {
+                        if tentative.length >= usize::MAX {
+                            self.must_abort = Ghost(true);
+                            return Err(KvError::OutOfSpace);
+                        }
+                        if new_element.start() < tentative.end_of_logical_range {
+                            return Err(KvError::PageOutOfLogicalRangeOrder{
+                                end_of_valid_range: tentative.end_of_logical_range
+                            });
+                        }
+                        match self.logical_range_gaps_policy {
+                            LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                                if new_element.start() > tentative.end_of_logical_range {
+                                    return Err(KvError::PageLeavesLogicalRangeGap{
+                                        end_of_valid_range: tentative.end_of_logical_range
+                                    });
+                                }
+                            LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => {},
+                        }
+                    },
+                    _ => {},
+                }
+        }
+
         let row_addr = match self.free_list.pop() {
-            None => {
-                self.must_abort = Ghost(true);
-                return Err(KvError::OutOfSpace);
-            }
+            None => { assert(false); 0u64 },
             Some(a) => a,
         };
 
