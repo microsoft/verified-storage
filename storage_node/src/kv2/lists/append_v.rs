@@ -567,32 +567,39 @@ impl<PM, L> ListTable<PM, L>
             return Err(KvError::OutOfSpace);
         }
 
-        match self.m.get(&list_addr) {
+        let entry = match self.m.remove(&list_addr) {
             None => { assert(false); return Err(KvError::InternalError) },
-            Some(entry) =>
-                match entry {
-                    ListTableEntry::<L>::Updated{ tentative, .. } => {
-                        if tentative.length >= usize::MAX {
-                            self.must_abort = Ghost(true);
-                            return Err(KvError::OutOfSpace);
-                        }
-                        if new_element.start() < tentative.end_of_logical_range {
-                            return Err(KvError::PageOutOfLogicalRangeOrder{
+            Some(e) => e,
+        };
+
+        match entry {
+            ListTableEntry::<L>::Updated{ tentative, .. } => {
+                if tentative.length >= usize::MAX {
+                    self.m.insert(list_addr, entry);
+                    assert(self.internal_view() =~= old(self).internal_view());
+                    self.must_abort = Ghost(true);
+                    return Err(KvError::OutOfSpace);
+                }
+                if new_element.start() < tentative.end_of_logical_range {
+                    self.m.insert(list_addr, entry);
+                    assert(self.internal_view() =~= old(self).internal_view());
+                    return Err(KvError::PageOutOfLogicalRangeOrder{
+                        end_of_valid_range: tentative.end_of_logical_range
+                    });
+                }
+                match self.logical_range_gaps_policy {
+                    LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                        if new_element.start() > tentative.end_of_logical_range {
+                            self.m.insert(list_addr, entry);
+                            assert(self.internal_view() =~= old(self).internal_view());
+                            return Err(KvError::PageLeavesLogicalRangeGap{
                                 end_of_valid_range: tentative.end_of_logical_range
                             });
                         }
-                        match self.logical_range_gaps_policy {
-                            LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                                if new_element.start() > tentative.end_of_logical_range {
-                                    return Err(KvError::PageLeavesLogicalRangeGap{
-                                        end_of_valid_range: tentative.end_of_logical_range
-                                    });
-                                }
-                            LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => {},
-                        }
-                    },
-                    _ => {},
+                    LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => {},
                 }
+            },
+            _ => {},
         }
 
         let row_addr = match self.free_list.pop() {
@@ -623,16 +630,11 @@ impl<PM, L> ListTable<PM, L>
         assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
         assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
 
-        match self.m.remove(&list_addr) {
-            None => { assert(false); Err(KvError::InternalError) },
-            Some(entry) => {
-                match entry {
-                    ListTableEntry::<L>::Updated{ .. } =>
-                        self.append_case_updated(list_addr, new_element, journal, row_addr, entry,
-                                                 Ghost(*old(self)), Ghost(old(journal)@)),
-                    _ => { assume(false); Err(KvError::NotImplemented) },
-                }
-            },
+        match entry {
+            ListTableEntry::<L>::Updated{ .. } =>
+                self.append_case_updated(list_addr, new_element, journal, row_addr, entry,
+                                         Ghost(*old(self)), Ghost(old(journal)@)),
+            _ => { assume(false); Err(KvError::NotImplemented) },
         }
     }
 
