@@ -8,7 +8,6 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unused_mut)]
-#![cfg(verus_keep_ghost)]
 
 use builtin::*;
 use builtin_macros::*;
