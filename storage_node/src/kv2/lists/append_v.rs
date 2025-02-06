@@ -96,7 +96,7 @@ impl<L> ListRecoveryMapping<L>
         let former_tail_addr = old_addrs.last();
         let former_tail_new_info = ListRowRecoveryInfo::<L>{ next: new_row_addr, ..self.row_info[former_tail_addr] };
         let new_tail_info =
-            ListRowRecoveryInfo::<L>{ element: new_element, head: list_addr, next: 0, pos: old_addrs.len() as usize };
+            ListRowRecoveryInfo::<L>{ element: new_element, head: list_addr, next: 0, pos: old_addrs.len() as int };
         let new_addrs = old_addrs.push(new_row_addr);
         let old_elements = self.list_elements[list_addr];
         let new_elements = old_elements.push(new_element);

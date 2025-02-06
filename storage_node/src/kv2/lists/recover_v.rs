@@ -31,7 +31,7 @@ pub(super) struct ListRowRecoveryInfo<L>
     pub element: L,
     pub head: u64,
     pub next: u64,
-    pub pos: usize,
+    pub pos: int,
 }
 
 #[verifier::reject_recursive_types(L)]
@@ -79,7 +79,7 @@ impl<L> ListRecoveryMapping<L>
                 &&& recover_object::<L>(s, row_addr + sm.row_element_start, row_addr + sm.row_element_crc_start as int)
                     == Some(row_info.element)
                 &&& self.list_info.contains_key(row_info.head)
-                &&& row_info.pos < self.list_info[row_info.head].len()
+                &&& 0 <= row_info.pos < self.list_info[row_info.head].len()
                 &&& self.list_info[row_info.head][row_info.pos as int] == row_addr
             }
     }
@@ -134,7 +134,7 @@ impl<L> ListRecoveryMapping<L>
             self.list_info.contains_key(head),
             0 <= pos < self.list_info[head].len(),
         ensures
-            pos < other.list_info[head].len(),
+            0 <= pos < other.list_info[head].len(),
             pos == self.list_info[head].len() - 1 <==> pos == other.list_info[head].len() - 1,
             self.list_info[head][pos] == other.list_info[head][pos],
             self.list_elements[head][pos] == other.list_elements[head][pos],
@@ -173,7 +173,7 @@ impl<L> ListRecoveryMapping<L>
     {
         self.lemma_uniqueness_length(other, s, list_addrs, sm, head);
         assert forall|pos: int| 0 <= pos < self.list_info[head].len() implies
-            self.list_info[head][pos as int] == other.list_info[head][pos as int] by {
+            self.list_info[head][pos] == other.list_info[head][pos] by {
             self.lemma_uniqueness_element(other, s, list_addrs, sm, head, pos);
         }
         assert(other.list_info[head] =~= self.list_info[head]);
@@ -192,7 +192,7 @@ impl<L> ListRecoveryMapping<L>
     {
         self.lemma_uniqueness_length(other, s, list_addrs, sm, head);
         assert forall|pos: int| 0 <= pos < self.list_elements[head].len() implies
-            self.list_elements[head][pos as int] == other.list_elements[head][pos as int] by {
+            self.list_elements[head][pos] == other.list_elements[head][pos] by {
             self.lemma_uniqueness_element(other, s, list_addrs, sm, head, pos);
         }
         assert(other.list_elements[head] =~= self.list_elements[head]);
