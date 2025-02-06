@@ -244,12 +244,7 @@ impl<L> ListRecoveryMapping<L>
 
     pub(super) open spec fn as_snapshot(self: ListRecoveryMapping<L>) -> ListTableSnapshot<L>
     {
-        ListTableSnapshot::<L>{
-            m: Map::<u64, Seq<L>>::new(
-                |list_addr: u64| self.list_elements.contains_key(list_addr),
-                |list_addr: u64| self.list_elements[list_addr],
-            ),
-        }
+        ListTableSnapshot::<L>{ m: self.list_elements }
     }
 }
 
