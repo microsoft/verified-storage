@@ -54,6 +54,35 @@ impl<L> ListTableEntryView<L>
     }
 }
 
+impl<L> ListTableEntry<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    // TODO: Once Verus supports complex `&mut` scenarios, take `&mut self` parameter instead of `self`.
+    pub(super) exec fn append_case_updated(self, new_row_addr: u64, new_element: L) -> (result: Self)
+        requires
+            match self {
+                ListTableEntry::Updated{ tentative, .. } => tentative.length < usize::MAX,
+                _ => false,
+            },
+        ensures
+            result@ == self@.append_case_updated(new_row_addr, new_element),
+    {
+        if let ListTableEntry::Updated{ which_update, durable, mut tentative, num_trimmed,
+                                        mut appended_addrs, mut appended_elements } = self {
+            tentative.tail = new_row_addr;
+            tentative.length = tentative.length + 1;
+            tentative.end_of_logical_range = new_element.end();
+            appended_addrs.push(new_row_addr);
+            appended_elements.push(new_element);
+            ListTableEntry::Updated{ which_update, durable, tentative, num_trimmed, appended_addrs, appended_elements }
+        }
+        else {
+            self
+        }
+    }
+}
+
 impl<L> ListRecoveryMapping<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
@@ -109,6 +138,40 @@ impl<L> ListTableInternalView<L>
             free_list: self.free_list.drop_last(),
             pending_allocations: self.pending_allocations.push(new_row_addr),
             ..self
+        }
+    }
+
+    pub(super) proof fn lemma_append_case_updated_works(self, list_addr: u64, new_element: L,
+                                                        sm: ListTableStaticMetadata)
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            self.durable_mapping.internally_consistent(),
+            self.tentative_mapping.internally_consistent(),
+            self.free_list.len() > 0,
+            self.m.contains_key(list_addr),
+            self.m[list_addr] is Updated,
+            self.m[list_addr]->Updated_tentative.length < usize::MAX,
+        ensures
+            self.append_case_updated(list_addr, new_element).valid(sm),
+            self.append_case_updated(list_addr, new_element).tentative_mapping.as_snapshot() ==
+                self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
+    {
+        let new_self = self.append_case_updated(list_addr, new_element);
+        let old_snapshot = self.tentative_mapping.as_snapshot();
+        let new_snapshot = new_self.tentative_mapping.as_snapshot();
+
+        assert(new_snapshot =~= old_snapshot.append(list_addr, list_addr, new_element));
+
+        match new_self.m[list_addr] {
+            ListTableEntryView::Updated{ appended_addrs, appended_elements, .. } => {
+                let addrs = new_self.tentative_mapping.list_info[list_addr];
+                let elements = new_self.tentative_mapping.list_elements[list_addr];
+                assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
+                       appended_elements);
+                assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
+            },
+            _ => { assert(false); },
         }
     }
 
@@ -313,9 +376,100 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
+    exec fn append_case_updated(
+        &mut self,
+        list_addr: u64,
+        new_element: L,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        new_row_addr: u64,
+        entry: ListTableEntry<L>,
+        Ghost(prev_self): Ghost<Self>,
+        Ghost(old_jv): Ghost<JournalView>,
+    ) -> (result: Result<u64, KvError>)
+        requires
+            old(self) == (Self{
+                free_list: old(self).free_list,
+                m: old(self).m,
+                ..prev_self
+            }),
+            old(self).free_list@ == prev_self.free_list@.drop_last(),
+            old(self).m@ == prev_self.m@.remove(list_addr),
+            prev_self.valid(old_jv),
+            old(journal).valid(),
+            prev_self@.tentative is Some,
+            prev_self@.tentative.unwrap().m.contains_key(list_addr),
+            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.durable_state, prev_self.sm),
+            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.read_state, prev_self.sm),
+            old(journal)@ == (JournalView{
+                durable_state: old(journal)@.durable_state,
+                read_state: old(journal)@.read_state,
+                commit_state: old(journal)@.commit_state,
+                ..old_jv
+            }),
+            new_row_addr == prev_self.free_list@.last(),
+            seqs_match_except_in_range(old_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
+                                       new_row_addr + prev_self.sm.table.row_size),
+            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
+                                  new_row_addr + prev_self.sm.row_next_crc_start) == Some(0u64),
+            recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
+                                new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
+            prev_self.m@.contains_key(list_addr),
+            entry == prev_self.m[list_addr],
+            entry is Updated,
+        ensures
+            self.valid(journal@),
+            journal.valid(),
+            journal@.matches_except_in_range(old_jv, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(new_list_addr) => {
+                    &&& new_list_addr != 0
+                    &&& new_list_addr == list_addr || !prev_self@.tentative.unwrap().m.contains_key(new_list_addr)
+                    &&& match self@.logical_range_gaps_policy {
+                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
+                            new_element.start() >= end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
+                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                            new_element.start() == end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
+                    }
+                    &&& self@ == (ListTableView {
+                        tentative: Some(prev_self@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
+                        ..prev_self@
+                    })
+                    &&& self.validate_list_addr(new_list_addr)
+                },
+                Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
+                    &&& self@ == prev_self@
+                    &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
+                    &&& new_element.start() > end_of_range(prev_self@.tentative.unwrap().m[list_addr])
+                    &&& end_of_valid_range == end_of_range(prev_self@.tentative.unwrap().m[list_addr])
+                },
+                Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range }) => {
+                    &&& self@ == prev_self@
+                    &&& new_element.start() < end_of_range(prev_self@.tentative.unwrap().m[list_addr])
+                    &&& end_of_valid_range == end_of_range(prev_self@.tentative.unwrap().m[list_addr])
+                }
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..prev_self@
+                    })
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& !journal@.pm_constants.impervious_to_corruption()
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..prev_self@
+                    })
+                },
+                _ => false,
+            }
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
+
     pub exec fn append(
         &mut self,
-        row_addr: u64,
+        list_addr: u64,
         new_element: L,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
@@ -324,38 +478,38 @@ impl<PM, L> ListTable<PM, L>
             old(self).valid(old(journal)@),
             old(journal).valid(),
             old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().m.contains_key(row_addr),
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
-                Ok(new_row_addr) => {
-                    &&& new_row_addr != 0
-                    &&& new_row_addr == row_addr || !old(self)@.tentative.unwrap().m.contains_key(new_row_addr)
+                Ok(new_list_addr) => {
+                    &&& new_list_addr != 0
+                    &&& new_list_addr == list_addr || !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
                     &&& match self@.logical_range_gaps_policy {
                         LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
-                            new_element.start() >= end_of_range(old(self)@.tentative.unwrap().m[row_addr]),
+                            new_element.start() >= end_of_range(old(self)@.tentative.unwrap().m[list_addr]),
                         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            new_element.start() == end_of_range(old(self)@.tentative.unwrap().m[row_addr]),
+                            new_element.start() == end_of_range(old(self)@.tentative.unwrap().m[list_addr]),
                     }
                     &&& self@ == (ListTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().append(row_addr, new_row_addr, new_element)),
+                        tentative: Some(old(self)@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
                         ..old(self)@
                     })
-                    &&& self.validate_list_addr(new_row_addr)
+                    &&& self.validate_list_addr(new_list_addr)
                 },
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
                     &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
-                    &&& new_element.start() > end_of_range(old(self)@.tentative.unwrap().m[row_addr])
-                    &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[row_addr])
+                    &&& new_element.start() > end_of_range(old(self)@.tentative.unwrap().m[list_addr])
+                    &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[list_addr])
                 },
                 Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
-                    &&& new_element.start() < end_of_range(old(self)@.tentative.unwrap().m[row_addr])
-                    &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[row_addr])
+                    &&& new_element.start() < end_of_range(old(self)@.tentative.unwrap().m[list_addr])
+                    &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[list_addr])
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ListTableView {
@@ -373,8 +527,70 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
-        assume(false);
-        Err(KvError::NotImplemented)
+        proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+            assert(self@.durable.m.dom() =~= self.internal_view().durable_list_addrs);
+            if self.free_list@.len() > 0 {
+                Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                    self.internal_view(),
+                    journal@,
+                    self.sm,
+                    self.free_list@.len() - 1,
+                    self.free_list@.last(),
+                    perm
+                );
+            }
+
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_update_bytes_effect;
+            broadcast use group_hash_axioms;
+        }
+
+        let row_addr = match self.free_list.pop() {
+            None => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::OutOfSpace);
+            }
+            Some(a) => a,
+        };
+
+        assert(row_addr == old(self).free_list@[old(self).free_list@.len() - 1]);
+
+        let element_addr = row_addr + self.sm.row_element_start;
+        let element_crc_addr = row_addr + self.sm.row_element_crc_start;
+        let element_crc = calculate_crc(&new_element);
+
+        journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
+        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
+
+        let next_addr = row_addr + self.sm.row_next_start;
+        let next_crc_addr = row_addr + self.sm.row_next_crc_start;
+        let next: u64 = 0;
+        let next_crc = calculate_crc(&next);
+
+        journal.write_object::<u64>(next_addr, &next, Tracked(perm));
+        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+
+        // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
+        // to conclude that `self` is still consistent with both the durable and read state
+        // of the journal.
+        assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
+        assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
+
+        match self.m.remove(&list_addr) {
+            None => { assert(false); Err(KvError::InternalError) },
+            Some(entry) => {
+                match entry {
+                    ListTableEntry::<L>::Updated{ .. } =>
+                        self.append_case_updated(list_addr, new_element, journal, row_addr, entry,
+                                                 Ghost(*old(self)), Ghost(old(journal)@)),
+                    _ => { assume(false); Err(KvError::NotImplemented) },
+                }
+            },
+        }
     }
 
     pub exec fn create_singleton(
