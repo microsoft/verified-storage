@@ -11,6 +11,7 @@ pub mod spec_v;
 pub mod start_v;
 pub mod trim_v;
 pub mod update_v;
+pub mod util_v;
 
 use builtin::*;
 use builtin_macros::*;

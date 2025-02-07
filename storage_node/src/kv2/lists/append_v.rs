@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
+use super::util_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 use vstd::std_specs::hash::*;
@@ -30,10 +31,11 @@ impl<L> ListTableEntryView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn append_case_updated(self, new_row_addr: u64, new_element: L) -> Self
+    pub(super) open spec fn append(self, new_row_addr: u64, new_element: L) -> Self
         recommends
             match self {
                 ListTableEntryView::Updated{ tentative, .. } => tentative.length < usize::MAX,
+                ListTableEntryView::Created{ tentative_addrs, .. } => tentative_addrs.len() < usize::MAX,
                 _ => false,
             },
     {
@@ -49,6 +51,12 @@ impl<L> ListTableEntryView<L>
                     appended_addrs: appended_addrs.push(new_row_addr),
                     appended_elements: appended_elements.push(new_element),
                 },
+            ListTableEntryView::Created{ which_create, tentative_addrs, tentative_elements } =>
+                ListTableEntryView::Created{
+                    which_create,
+                    tentative_addrs: tentative_addrs.push(new_row_addr),
+                    tentative_elements: tentative_elements.push(new_element),
+                },
             _ => self,
         }
     }
@@ -59,26 +67,35 @@ impl<L> ListTableEntry<L>
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     // TODO: Once Verus supports complex `&mut` scenarios, take `&mut self` parameter instead of `self`.
-    pub(super) exec fn append_case_updated(self, new_row_addr: u64, new_element: L) -> (result: Self)
+    pub(super) exec fn append(self, new_row_addr: u64, new_element: L) -> (result: Self)
         requires
             match self {
                 ListTableEntry::Updated{ tentative, .. } => tentative.length < usize::MAX,
+                ListTableEntry::Created{ tentative_addrs, .. } => tentative_addrs.len() < usize::MAX,
                 _ => false,
             },
         ensures
-            result@ == self@.append_case_updated(new_row_addr, new_element),
+            result@ == self@.append(new_row_addr, new_element),
     {
-        if let ListTableEntry::Updated{ which_update, durable, mut tentative, num_trimmed,
-                                        mut appended_addrs, mut appended_elements } = self {
-            tentative.tail = new_row_addr;
-            tentative.length = tentative.length + 1;
-            tentative.end_of_logical_range = new_element.end();
-            appended_addrs.push(new_row_addr);
-            appended_elements.push(new_element);
-            ListTableEntry::Updated{ which_update, durable, tentative, num_trimmed, appended_addrs, appended_elements }
-        }
-        else {
-            self
+        match self {
+            ListTableEntry::Updated{ which_update, durable, mut tentative, num_trimmed,
+                                     mut appended_addrs, mut appended_elements } =>
+            {
+                tentative.tail = new_row_addr;
+                tentative.length = tentative.length + 1;
+                tentative.end_of_logical_range = new_element.end();
+                appended_addrs.push(new_row_addr);
+                appended_elements.push(new_element);
+                ListTableEntry::Updated{ which_update, durable, tentative, num_trimmed, appended_addrs,
+                                         appended_elements }
+            },
+            ListTableEntry::Created{ which_create, mut tentative_addrs, mut tentative_elements } => 
+            {
+                tentative_addrs.push(new_row_addr);
+                tentative_elements.push(new_element);
+                ListTableEntry::Created{ which_create, tentative_addrs, tentative_elements }
+            }
+            _ => self,
         }
     }
 }
@@ -122,13 +139,13 @@ impl<L> ListTableInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn append_case_updated(self, list_addr: u64, new_element: L) -> Self
+    pub(super) open spec fn append_case_updated_or_created(self, list_addr: u64, new_element: L) -> Self
         recommends
             self.m.contains_key(list_addr),
-            self.m[list_addr] is Updated,
+            self.m[list_addr] is Updated || self.m[list_addr] is Created,
     {
         let new_row_addr = self.free_list.last();
-        let entry = self.m[list_addr].append_case_updated(new_row_addr, new_element);
+        let entry = self.m[list_addr].append(new_row_addr, new_element);
         let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
 
         Self{
@@ -141,8 +158,8 @@ impl<L> ListTableInternalView<L>
         }
     }
 
-    pub(super) proof fn lemma_append_case_updated_works(self, list_addr: u64, new_element: L,
-                                                        sm: ListTableStaticMetadata)
+    pub(super) proof fn lemma_append_case_updated_or_created_works(self, list_addr: u64, new_element: L,
+                                                                   sm: ListTableStaticMetadata)
         requires
             sm.valid::<L>(),
             self.valid(sm),
@@ -151,19 +168,26 @@ impl<L> ListTableInternalView<L>
             self.tentative_mapping.internally_consistent(),
             self.free_list.len() > 0,
             self.m.contains_key(list_addr),
-            self.m[list_addr] is Updated,
-            self.m[list_addr]->Updated_tentative.length < usize::MAX,
+            match self.m[list_addr] {
+                ListTableEntryView::Updated{ tentative, .. } => tentative.length < usize::MAX,
+                ListTableEntryView::Created{ tentative_addrs, .. } => 0 < tentative_addrs.len() < usize::MAX,
+                _ => false,
+            },
         ensures
-            self.append_case_updated(list_addr, new_element).valid(sm),
-            self.append_case_updated(list_addr, new_element).tentative_mapping.as_snapshot() ==
+            self.append_case_updated_or_created(list_addr, new_element).valid(sm),
+            self.append_case_updated_or_created(list_addr, new_element).tentative_mapping.as_snapshot() ==
                 self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
     {
         
-        let new_self = self.append_case_updated(list_addr, new_element);
+        let new_self = self.append_case_updated_or_created(list_addr, new_element);
         let old_snapshot = self.tentative_mapping.as_snapshot();
         let new_snapshot = new_self.tentative_mapping.as_snapshot();
 
-        let tail_row_addr = self.m[list_addr]->Updated_tentative.tail;
+        let tail_row_addr = match self.m[list_addr] {
+            ListTableEntryView::Updated{ tentative, .. } => tentative.tail,
+            ListTableEntryView::Created{ tentative_addrs, .. } => tentative_addrs.last(),
+            _ => { assert(false); 0u64 },
+        };
         let new_row_addr = self.free_list.last();
 
         assert(new_snapshot =~= old_snapshot.append(list_addr, list_addr, new_element));
@@ -178,6 +202,11 @@ impl<L> ListTableInternalView<L>
                 assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
                        appended_elements);
                 assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
+            },
+            ListTableEntryView::Created{ tentative_addrs, tentative_elements, .. } => {
+                let addrs = new_self.tentative_mapping.list_info[list_addr];
+                let elements = new_self.tentative_mapping.list_elements[list_addr];
+                assert(true);
             },
             _ => { assert(false); },
         }
@@ -384,7 +413,7 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-    proof fn lemma_append_case_updated_works(
+    proof fn lemma_append_case_updated_or_created_works(
         iv1: ListTableInternalView<L>,
         iv2: ListTableInternalView<L>,
         commit_state1: Seq<u8>,
@@ -406,12 +435,16 @@ impl<PM, L> ListTable<PM, L>
                     &&& tail_row_addr == tentative.tail
                     &&& tentative.length < usize::MAX
                 },
+                ListTableEntryView::Created{ tentative_addrs, .. } => {
+                    &&& 0 < tentative_addrs.len() < usize::MAX
+                    &&& tail_row_addr == tentative_addrs.last()
+                },
                 _ => false,
             },
             iv1.free_list.len() > 0,
             new_row_addr == iv1.free_list.last(),
             iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case_updated(list_addr, new_element),
+            iv2 == iv1.append_case_updated_or_created(list_addr, new_element),
             seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
                                        new_row_addr + sm.table.row_size),
             seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
@@ -425,7 +458,7 @@ impl<PM, L> ListTable<PM, L>
         ensures
             iv2.corresponds_to_tentative_state(commit_state3, sm),
     {
-        iv1.lemma_append_case_updated_works(list_addr, new_element, sm);
+        iv1.lemma_append_case_updated_or_created_works(list_addr, new_element, sm);
         
         broadcast use group_validate_row_addr;
         broadcast use pmcopy_axioms;
@@ -456,9 +489,9 @@ impl<PM, L> ListTable<PM, L>
             }
         }
     }
-        
 
-    exec fn append_case_updated(
+    #[inline]
+    exec fn append_case_updated_or_created(
         &mut self,
         list_addr: u64,
         new_element: L,
@@ -501,16 +534,21 @@ impl<PM, L> ListTable<PM, L>
                                 new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
             entry == prev_self.m[list_addr],
-            match entry {
-                ListTableEntry::Updated{ tentative, .. } => {
+            match entry@ {
+                ListTableEntryView::Updated{ tentative, .. } => {
                     &&& tentative.length < usize::MAX
                     &&& new_element.start() >= tentative.end_of_logical_range
                     &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
                            new_element.start() == tentative.end_of_logical_range
                 },
+                ListTableEntryView::Created{ tentative_addrs, tentative_elements, .. } => {
+                    &&& 0 < tentative_addrs.len() < usize::MAX
+                    &&& new_element.start() >= tentative_elements.last().end()
+                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
+                           new_element.start() == tentative_elements.last().end()
+                },
                 _ => false,
             },
-            entry is Updated,
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -556,8 +594,9 @@ impl<PM, L> ListTable<PM, L>
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
 
-        let tail_row_addr = match entry {
+        let tail_row_addr = match &entry {
             ListTableEntry::<L>::Updated{ tentative, .. } => tentative.tail,
+            ListTableEntry::<L>::Created{ tentative_addrs, .. } => tentative_addrs[tentative_addrs.len() - 1],
             _ => { assert(false); 0u64 },
         };
         assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
@@ -567,13 +606,14 @@ impl<PM, L> ListTable<PM, L>
         let ghost disposition =
             ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
         self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
-        let new_entry = entry.append_case_updated(new_row_addr, new_element);
+        let new_entry = entry.append(new_row_addr, new_element);
         self.m.insert(list_addr, new_entry);
         self.pending_allocations.push(new_row_addr);
 
-        assert(self.internal_view() =~= prev_self.internal_view().append_case_updated(list_addr, new_element));
+        assert(self.internal_view() =~=
+               prev_self.internal_view().append_case_updated_or_created(list_addr, new_element));
         proof {
-            prev_self.internal_view().lemma_append_case_updated_works(list_addr, new_element, prev_self.sm);
+            prev_self.internal_view().lemma_append_case_updated_or_created_works(list_addr, new_element, prev_self.sm);
         }
 
         let next_addr = tail_row_addr + self.sm.row_next_start;
@@ -597,22 +637,14 @@ impl<PM, L> ListTable<PM, L>
         }
 
         assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
-                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) =~=
+                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
                Some(new_row_addr)) by {
-            lemma_subrange_subrange(journal@.commit_state,
-                                    next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
-                                    next_addr as int, next_addr + u64::spec_size_of());
-            lemma_subrange_subrange(journal@.commit_state,
-                                    next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
-                                    next_addr + u64::spec_size_of(),
-                                    next_addr + u64::spec_size_of() + u64::spec_size_of());
-            assert(bytes_to_write@.subrange(0, u64::spec_size_of() as int) =~= new_row_addr.spec_to_bytes());
-            assert(bytes_to_write@.subrange(u64::spec_size_of() as int, (u64::spec_size_of() + u64::spec_size_of()) as int)
-                   =~= next_crc.spec_to_bytes());
+            lemma_writing_next_and_crc_together_enables_recovery(old(journal)@.commit_state, journal@.commit_state,
+                                                                 new_row_addr, next_addr as int, bytes_to_write@);
         }
 
         proof {
-            Self::lemma_append_case_updated_works(
+            Self::lemma_append_case_updated_or_created_works(
                 prev_self.internal_view(), self.internal_view(),
                 prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
                 list_addr, new_element, new_row_addr, tail_row_addr, self.sm
@@ -719,34 +751,70 @@ impl<PM, L> ListTable<PM, L>
             Some(e) => e,
         };
 
-        match entry {
-            ListTableEntry::<L>::Updated{ tentative, .. } => {
+        let ret: Result<u64, KvError> = match &entry {
+            ListTableEntry::<L>::Updated{ ref tentative, .. } => {
+                let end_of_valid_range = tentative.end_of_logical_range;
                 if tentative.length >= usize::MAX {
-                    self.m.insert(list_addr, entry);
-                    assert(self.internal_view() =~= old(self).internal_view());
-                    self.must_abort = Ghost(true);
-                    return Err(KvError::OutOfSpace);
+                    Err(KvError::OutOfSpace)
                 }
-                if new_element.start() < tentative.end_of_logical_range {
-                    self.m.insert(list_addr, entry);
-                    assert(self.internal_view() =~= old(self).internal_view());
-                    return Err(KvError::PageOutOfLogicalRangeOrder{
-                        end_of_valid_range: tentative.end_of_logical_range
-                    });
+                else if new_element.start() < end_of_valid_range {
+                    Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range})
                 }
-                match self.logical_range_gaps_policy {
-                    LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                        if new_element.start() > tentative.end_of_logical_range {
-                            self.m.insert(list_addr, entry);
-                            assert(self.internal_view() =~= old(self).internal_view());
-                            return Err(KvError::PageLeavesLogicalRangeGap{
-                                end_of_valid_range: tentative.end_of_logical_range
-                            });
-                        }
-                    LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => {},
+                else {
+                    match self.logical_range_gaps_policy {
+                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                            if new_element.start() > end_of_valid_range {
+                                Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
+                            }
+                            else {
+                                Ok(0u64)
+                            },
+                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => Ok(0u64),
+                    }
                 }
             },
-            _ => {},
+            
+            ListTableEntry::<L>::Created{ ref tentative_addrs, ref tentative_elements, .. } => {
+                let num_tentative_elements: usize = tentative_addrs.len();
+                assert(num_tentative_elements > 0);
+                let end_of_valid_range = tentative_elements[num_tentative_elements - 1].end();
+                assert(num_tentative_elements == tentative_elements@.len());
+                if num_tentative_elements >= usize::MAX {
+                    Err(KvError::OutOfSpace)
+                }
+                else if new_element.start() < end_of_valid_range {
+                    Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
+                }
+                else {
+                    match self.logical_range_gaps_policy {
+                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                            if new_element.start() > end_of_valid_range {
+                                Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
+                            }
+                            else {
+                                Ok(0u64)
+                            },
+                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => Ok(0u64),
+                    }
+                }
+            },
+            
+            _ => Ok(0u64),
+        };
+
+        match ret {
+            Err(KvError::OutOfSpace) => {
+                self.m.insert(list_addr, entry);
+                assert(self.internal_view() =~= old(self).internal_view());
+                self.must_abort = Ghost(true);
+                return ret;
+            },
+            Err(_) => {
+                self.m.insert(list_addr, entry);
+                assert(self.internal_view() =~= old(self).internal_view());
+                return ret;
+            },
+            Ok(_) => {},
         }
 
         let row_addr = match self.free_list.pop() {
@@ -779,8 +847,11 @@ impl<PM, L> ListTable<PM, L>
 
         match entry {
             ListTableEntry::<L>::Updated{ .. } =>
-                self.append_case_updated(list_addr, new_element, journal, row_addr, entry,
-                                         Ghost(*old(self)), Ghost(old(journal)@)),
+                self.append_case_updated_or_created(list_addr, new_element, journal, row_addr, entry,
+                                                    Ghost(*old(self)), Ghost(old(journal)@)),
+            ListTableEntry::<L>::Created{ .. } =>
+                self.append_case_updated_or_created(list_addr, new_element, journal, row_addr, entry,
+                                                    Ghost(*old(self)), Ghost(old(journal)@)),
             _ => { assume(false); Err(KvError::NotImplemented) },
         }
     }
