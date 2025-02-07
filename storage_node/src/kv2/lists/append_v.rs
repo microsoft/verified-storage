@@ -90,14 +90,6 @@ impl<L> ListTableEntryView<L>
     }
 }
 
-impl ListTableDurableEntry
-{
-    pub(super) exec fn default() -> Self
-    {
-        Self{ head: 0, tail: 0, length: 0, end_of_logical_range: 0 }
-    }
-}
-
 impl<L> ListTableEntry<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
@@ -132,23 +124,6 @@ impl<L> ListTableEntry<L>
                 ListTableEntry::Created{ which_create, tentative_addrs, tentative_elements }
             }
             _ => self,
-        }
-    }
-
-    pub(super) exec fn default() -> Self
-    {
-        Self::Durable{ entry: ListTableDurableEntry::default() }
-    }
-
-    pub(super) exec fn unwrap_durable(self) -> (result: ListTableDurableEntry)
-        requires
-            self is Durable,
-        ensures
-            self == (Self::Durable{ entry: result }),
-    {
-        match self {
-            ListTableEntry::Durable{ entry } => entry,
-            _ => { assert(false); ListTableDurableEntry::default() },
         }
     }
 
@@ -224,11 +199,42 @@ impl<L> ListRecoveryMapping<L>
     }
 }
 
+// There are two main cases we have to deal with when appending:
+// Case 1: The list hasn't been modified at all this transaction, which we
+//         can tell from the fact that `self.m[list_addr] is Durable`.
+// Case 2: The list has already been modified during this transaction,
+//         which we can tell because `!(self.m[list_addr] is Durable)`.
+
 impl<L> ListTableInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn append_case_updated_or_created(self, list_addr: u64, new_element: L) -> Self
+    pub(super) open spec fn append_case1(self, list_addr: u64, new_element: L) -> Self
+        recommends
+            self.m.contains_key(list_addr),
+            self.m[list_addr] is Durable,
+    {
+        let which_delete = self.deletes.len();
+        let which_update = self.updates.len();
+        let new_row_addr = self.free_list.last();
+        let new_delete = self.m[list_addr]->Durable_entry;
+        let entry = self.m[list_addr].update_by_appending(which_update, new_row_addr, new_element);
+        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
+
+        Self{
+            tentative_mapping: self.tentative_mapping.append(list_addr, new_row_addr, new_element),
+            row_info: self.row_info.insert(new_row_addr, disposition),
+            m: self.m.insert(list_addr, entry),
+            deletes_inverse: self.deletes_inverse.insert(list_addr, which_delete),
+            deletes: self.deletes.push(new_delete),
+            updates: self.updates.push(Some(list_addr)),
+            free_list: self.free_list.drop_last(),
+            pending_allocations: self.pending_allocations.push(new_row_addr),
+            ..self
+        }
+    }
+
+    pub(super) open spec fn append_case2(self, list_addr: u64, new_element: L) -> Self
         recommends
             self.m.contains_key(list_addr),
             self.m[list_addr] is Updated || self.m[list_addr] is Created,
@@ -247,8 +253,78 @@ impl<L> ListTableInternalView<L>
         }
     }
 
-    pub(super) proof fn lemma_append_case_updated_or_created_works(self, list_addr: u64, new_element: L,
-                                                                   sm: ListTableStaticMetadata)
+    pub(super) open spec fn create_singleton(self, new_element: L) -> Self
+    {
+        let row_addr = self.free_list.last();
+        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
+        let which_create = self.creates.len();
+        let entry = ListTableEntryView::<L>::Created{
+            which_create,
+            tentative_addrs: seq![row_addr],
+            tentative_elements: seq![new_element],
+        };
+
+        Self{
+            tentative_list_addrs: self.tentative_list_addrs.insert(row_addr),
+            tentative_mapping: self.tentative_mapping.create_singleton(row_addr, new_element),
+            row_info: self.row_info.insert(row_addr, disposition),
+            creates: self.creates.push(Some(row_addr)),
+            free_list: self.free_list.drop_last(),
+            pending_allocations: self.pending_allocations.push(row_addr),
+            m: self.m.insert(row_addr, entry),
+            ..self
+        }
+    }
+
+    pub(super) proof fn lemma_append_case1_works(self, list_addr: u64, new_element: L, sm: ListTableStaticMetadata)
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            self.durable_mapping.internally_consistent(),
+            self.tentative_mapping.internally_consistent(),
+            self.free_list.len() > 0,
+            self.m.contains_key(list_addr),
+            match self.m[list_addr] {
+                ListTableEntryView::Durable{ entry } => entry.length < usize::MAX,
+                _ => false,
+            },
+        ensures
+            self.append_case1(list_addr, new_element).valid(sm),
+            self.append_case1(list_addr, new_element).tentative_mapping.as_snapshot() ==
+                self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
+    {
+        let new_self = self.append_case1(list_addr, new_element);
+        let old_snapshot = self.tentative_mapping.as_snapshot();
+        let new_snapshot = new_self.tentative_mapping.as_snapshot();
+
+        let tail_row_addr = match self.m[list_addr] {
+            ListTableEntryView::Durable{ entry } => entry.tail,
+            _ => { assert(false); 0u64 },
+        };
+        let new_row_addr = self.free_list.last();
+
+        assert(new_snapshot =~= old_snapshot.append(list_addr, list_addr, new_element));
+        assert(new_row_addr > 0) by {
+            broadcast use group_validate_row_addr;
+        }
+
+        match new_self.m[list_addr] {
+            ListTableEntryView::Updated{ appended_addrs, appended_elements, .. } => {
+                let addrs = new_self.tentative_mapping.list_info[list_addr];
+                let elements = new_self.tentative_mapping.list_elements[list_addr];
+                assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
+                       appended_elements);
+                assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
+            },
+            _ => { assert(false); },
+        }
+
+        assert(self.append_case1(list_addr, new_element).tentative_mapping.as_snapshot() =~=
+               self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element));
+    }
+
+    pub(super) proof fn lemma_append_case2_works(self, list_addr: u64, new_element: L, sm: ListTableStaticMetadata)
         requires
             sm.valid::<L>(),
             self.valid(sm),
@@ -263,12 +339,12 @@ impl<L> ListTableInternalView<L>
                 _ => false,
             },
         ensures
-            self.append_case_updated_or_created(list_addr, new_element).valid(sm),
-            self.append_case_updated_or_created(list_addr, new_element).tentative_mapping.as_snapshot() ==
+            self.append_case2(list_addr, new_element).valid(sm),
+            self.append_case2(list_addr, new_element).tentative_mapping.as_snapshot() ==
                 self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
     {
         
-        let new_self = self.append_case_updated_or_created(list_addr, new_element);
+        let new_self = self.append_case2(list_addr, new_element);
         let old_snapshot = self.tentative_mapping.as_snapshot();
         let new_snapshot = new_self.tentative_mapping.as_snapshot();
 
@@ -298,103 +374,6 @@ impl<L> ListTableInternalView<L>
                 assert(true);
             },
             _ => { assert(false); },
-        }
-    }
-
-    pub(super) open spec fn append_case_durable(self, list_addr: u64, new_element: L) -> Self
-        recommends
-            self.m.contains_key(list_addr),
-            self.m[list_addr] is Durable,
-    {
-        let which_delete = self.deletes.len();
-        let which_update = self.updates.len();
-        let new_row_addr = self.free_list.last();
-        let new_delete = self.m[list_addr]->Durable_entry;
-        let entry = self.m[list_addr].update_by_appending(which_update, new_row_addr, new_element);
-        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
-
-        Self{
-            tentative_mapping: self.tentative_mapping.append(list_addr, new_row_addr, new_element),
-            row_info: self.row_info.insert(new_row_addr, disposition),
-            m: self.m.insert(list_addr, entry),
-            deletes_inverse: self.deletes_inverse.insert(list_addr, which_delete),
-            deletes: self.deletes.push(new_delete),
-            updates: self.updates.push(Some(list_addr)),
-            free_list: self.free_list.drop_last(),
-            pending_allocations: self.pending_allocations.push(new_row_addr),
-            ..self
-        }
-    }
-
-    pub(super) proof fn lemma_append_case_durable_works(self, list_addr: u64, new_element: L,
-                                                        sm: ListTableStaticMetadata)
-        requires
-            sm.valid::<L>(),
-            self.valid(sm),
-            0 < sm.start(),
-            self.durable_mapping.internally_consistent(),
-            self.tentative_mapping.internally_consistent(),
-            self.free_list.len() > 0,
-            self.m.contains_key(list_addr),
-            match self.m[list_addr] {
-                ListTableEntryView::Durable{ entry } => entry.length < usize::MAX,
-                _ => false,
-            },
-        ensures
-            self.append_case_durable(list_addr, new_element).valid(sm),
-            self.append_case_durable(list_addr, new_element).tentative_mapping.as_snapshot() ==
-                self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
-    {
-        let new_self = self.append_case_durable(list_addr, new_element);
-        let old_snapshot = self.tentative_mapping.as_snapshot();
-        let new_snapshot = new_self.tentative_mapping.as_snapshot();
-
-        let tail_row_addr = match self.m[list_addr] {
-            ListTableEntryView::Durable{ entry } => entry.tail,
-            _ => { assert(false); 0u64 },
-        };
-        let new_row_addr = self.free_list.last();
-
-        assert(new_snapshot =~= old_snapshot.append(list_addr, list_addr, new_element));
-        assert(new_row_addr > 0) by {
-            broadcast use group_validate_row_addr;
-        }
-
-        match new_self.m[list_addr] {
-            ListTableEntryView::Updated{ appended_addrs, appended_elements, .. } => {
-                let addrs = new_self.tentative_mapping.list_info[list_addr];
-                let elements = new_self.tentative_mapping.list_elements[list_addr];
-                assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
-                       appended_elements);
-                assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
-            },
-            _ => { assert(false); },
-        }
-
-        assert(self.append_case_durable(list_addr, new_element).tentative_mapping.as_snapshot() =~=
-               self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element));
-    }
-
-    pub(super) open spec fn create_singleton(self, new_element: L) -> Self
-    {
-        let row_addr = self.free_list.last();
-        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
-        let which_create = self.creates.len();
-        let entry = ListTableEntryView::<L>::Created{
-            which_create,
-            tentative_addrs: seq![row_addr],
-            tentative_elements: seq![new_element],
-        };
-
-        Self{
-            tentative_list_addrs: self.tentative_list_addrs.insert(row_addr),
-            tentative_mapping: self.tentative_mapping.create_singleton(row_addr, new_element),
-            row_info: self.row_info.insert(row_addr, disposition),
-            creates: self.creates.push(Some(row_addr)),
-            free_list: self.free_list.drop_last(),
-            pending_allocations: self.pending_allocations.push(row_addr),
-            m: self.m.insert(row_addr, entry),
-            ..self
         }
     }
 
@@ -441,142 +420,80 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    proof fn lemma_writing_to_free_slot_doesnt_change_recovery(
-        iv: ListTableInternalView<L>,
-        s1: Seq<u8>,
-        s2: Seq<u8>,
+    proof fn lemma_append_case1_works(
+        iv1: ListTableInternalView<L>,
+        iv2: ListTableInternalView<L>,
+        commit_state1: Seq<u8>,
+        commit_state2: Seq<u8>,
+        commit_state3: Seq<u8>,
+        list_addr: u64,
+        new_element: L,
+        new_row_addr: u64,
+        tail_row_addr: u64,
         sm: ListTableStaticMetadata,
-        free_list_pos: int,
-        row_addr: u64,
-        start: int,
-        end: int,
     )
         requires
             sm.valid::<L>(),
-            iv.valid(sm),
-            iv.corresponds_to_durable_state(s1, sm),
-            0 <= free_list_pos < iv.free_list.len(),
-            iv.free_list[free_list_pos] == row_addr,
-            sm.table.validate_row_addr(row_addr),
-            row_addr <= start <= end <= row_addr + sm.table.row_size,
-            seqs_match_except_in_range(s1, s2, start, end),
+            0 < sm.start(),
+            iv1.valid(sm),
+            iv1.m.contains_key(list_addr),
+            match iv1.m[list_addr] {
+                ListTableEntryView::Durable{ entry } => {
+                    &&& tail_row_addr == entry.tail
+                    &&& entry.length < usize::MAX
+                },
+                _ => false,
+            },
+            iv1.free_list.len() > 0,
+            new_row_addr == iv1.free_list.last(),
+            iv1.corresponds_to_tentative_state(commit_state1, sm),
+            iv2 == iv1.append_case1(list_addr, new_element),
+            seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
+                                       new_row_addr + sm.table.row_size),
+            seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
+                                       tail_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()),
+            recover_object::<u64>(commit_state2, new_row_addr + sm.row_next_start,
+                                  new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+            recover_object::<L>(commit_state2, new_row_addr + sm.row_element_start,
+                                new_row_addr + sm.row_element_crc_start) == Some(new_element),
+            recover_object::<u64>(commit_state3, tail_row_addr + sm.row_next_start,
+                                  tail_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr),
         ensures
-            iv.corresponds_to_durable_state(s2, sm),
-            Self::recover(s2, iv.durable_list_addrs, sm) == Self::recover(s1, iv.durable_list_addrs, sm),
+            iv2.corresponds_to_tentative_state(commit_state3, sm),
     {
+        iv1.lemma_append_case1_works(list_addr, new_element, sm);
+
         broadcast use group_validate_row_addr;
+        broadcast use pmcopy_axioms;
+        broadcast use group_update_bytes_effect;
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        assert(iv2.tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
 
-        assert(iv.row_info[row_addr] is InFreeList);
-        assert(iv.corresponds_to_durable_state(s2, sm));
-        iv.durable_mapping.lemma_corresponds_implies_equals_new(s1, iv.durable_list_addrs, sm);
-        iv.durable_mapping.lemma_corresponds_implies_equals_new(s2, iv.durable_list_addrs, sm);
-        assert(Self::recover(s2, iv.durable_list_addrs, sm) =~= Self::recover(s1, iv.durable_list_addrs, sm));
-    }
-
-    proof fn lemma_writing_to_free_slot_has_permission_later_forall(
-        iv: ListTableInternalView<L>,
-        initial_jv: JournalView,
-        sm: ListTableStaticMetadata,
-        free_list_pos: int,
-        row_addr: u64,
-        tracked perm: &TrustedKvPermission,
-    )
-        requires
-            sm.valid::<L>(),
-            iv.valid(sm),
-            iv.corresponds_to_durable_state(initial_jv.durable_state, sm),
-            iv.corresponds_to_durable_state(initial_jv.read_state, sm),
-            Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_jv.durable_state,
-                                                                          initial_jv.constants),
-            0 <= free_list_pos < iv.free_list.len(),
-            iv.free_list[free_list_pos] == row_addr,
-            sm.table.validate_row_addr(row_addr),
-            sm.table.end <= initial_jv.durable_state.len(),
-            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, iv.durable_list_addrs,
-                                                                 initial_jv.durable_state, initial_jv.constants, sm)
-                ==> #[trigger] perm.check_permission(s),
-        ensures
-            forall|current_durable_state: Seq<u8>, new_durable_state: Seq<u8>, start: int, end: int|
-                #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
-            {
-                &&& seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
-                &&& iv.corresponds_to_durable_state(current_durable_state, sm)
-                &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(new_durable_state,
-                                                                                initial_jv.constants)
-            } ==> {
-                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_list_addrs,
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
-                &&& iv.corresponds_to_durable_state(new_durable_state, sm)
-                &&& perm.check_permission(new_durable_state)
-            },
-
-            forall|current_read_state: Seq<u8>, start: int, bytes: Seq<u8>|
-                #![trigger update_bytes(current_read_state, start, bytes)]
-            {
-                let new_read_state = update_bytes(current_read_state, start, bytes);
-                &&& seqs_match_except_in_range(initial_jv.read_state, current_read_state, sm.start() as int,
-                                             sm.end() as int)
-                &&& iv.corresponds_to_durable_state(current_read_state, sm)
-                &&& row_addr <= start
-                &&& start + bytes.len() <= row_addr + sm.table.row_size
-            } ==> {
-                let new_read_state = update_bytes(current_read_state, start, bytes);
-                &&& iv.corresponds_to_durable_state(new_read_state, sm)
-                &&& seqs_match_except_in_range(initial_jv.read_state, new_read_state, sm.start() as int, sm.end() as int)
-            },
-    {
-        assert forall|current_durable_state: Seq<u8>, new_durable_state: Seq<u8>, start: int, end: int|
-                #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
-            {
-                &&& seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
-                &&& iv.corresponds_to_durable_state(current_durable_state, sm)
-                &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(new_durable_state,
-                                                                                initial_jv.constants)
-            } implies {
-                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_list_addrs,
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
-                &&& iv.corresponds_to_durable_state(new_durable_state, sm)
-                &&& perm.check_permission(new_durable_state)
+        assert forall|row_addr: u64| iv2.tentative_mapping.row_info.contains_key(row_addr)
+            implies {
+                let row_info = iv2.tentative_mapping.row_info[row_addr];
+                recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
+                                      row_addr + sm.row_next_start + u64::spec_size_of()) == Some(row_info.next)
             } by {
-            broadcast use group_validate_row_addr;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            Self::lemma_writing_to_free_slot_doesnt_change_recovery(
-                iv, current_durable_state, new_durable_state, sm, free_list_pos, row_addr, start, end
-            );
-        }
-
-        assert forall|current_read_state: Seq<u8>, start: int, bytes: Seq<u8>|
-                #![trigger update_bytes(current_read_state, start, bytes)]
-            {
-                let new_read_state = update_bytes(current_read_state, start, bytes);
-                &&& seqs_match_except_in_range(initial_jv.read_state, current_read_state, sm.start() as int,
-                                             sm.end() as int)
-                &&& iv.corresponds_to_durable_state(current_read_state, sm)
-                &&& row_addr <= start
-                &&& start + bytes.len() <= row_addr + sm.table.row_size
-            } implies {
-                let new_read_state = update_bytes(current_read_state, start, bytes);
-                &&& iv.corresponds_to_durable_state(new_read_state, sm)
-                &&& seqs_match_except_in_range(initial_jv.read_state, new_read_state, sm.start() as int, sm.end() as int)
-            } by {
-            broadcast use group_validate_row_addr;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use broadcast_update_bytes_effect;
-            let new_read_state = update_bytes(current_read_state, start, bytes);
-            Self::lemma_writing_to_free_slot_doesnt_change_recovery(
-                iv, current_read_state, new_read_state, sm, free_list_pos, row_addr, start, start + bytes.len()
-            );
+            let row_info = iv2.tentative_mapping.row_info[row_addr];
+            if row_addr == new_row_addr {
+                assert(row_info.next == 0);
+                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64));
+            }
+            else if row_addr == tail_row_addr {
+                assert(row_info.next == new_row_addr);
+                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr));
+            }
+            else {
+                assert(iv1.tentative_mapping.row_info.contains_key(row_addr));
+                assert(row_info == iv1.tentative_mapping.row_info[row_addr]);
+            }
         }
     }
 
-    proof fn lemma_append_case_updated_or_created_works(
+    proof fn lemma_append_case2_works(
         iv1: ListTableInternalView<L>,
         iv2: ListTableInternalView<L>,
         commit_state1: Seq<u8>,
@@ -607,7 +524,7 @@ impl<PM, L> ListTable<PM, L>
             iv1.free_list.len() > 0,
             new_row_addr == iv1.free_list.last(),
             iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case_updated_or_created(list_addr, new_element),
+            iv2 == iv1.append_case2(list_addr, new_element),
             seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
                                        new_row_addr + sm.table.row_size),
             seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
@@ -621,7 +538,7 @@ impl<PM, L> ListTable<PM, L>
         ensures
             iv2.corresponds_to_tentative_state(commit_state3, sm),
     {
-        iv1.lemma_append_case_updated_or_created_works(list_addr, new_element, sm);
+        iv1.lemma_append_case2_works(list_addr, new_element, sm);
         
         broadcast use group_validate_row_addr;
         broadcast use pmcopy_axioms;
@@ -653,246 +570,8 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-
-    proof fn lemma_append_case_durable_works(
-        iv1: ListTableInternalView<L>,
-        iv2: ListTableInternalView<L>,
-        commit_state1: Seq<u8>,
-        commit_state2: Seq<u8>,
-        commit_state3: Seq<u8>,
-        list_addr: u64,
-        new_element: L,
-        new_row_addr: u64,
-        tail_row_addr: u64,
-        sm: ListTableStaticMetadata,
-    )
-        requires
-            sm.valid::<L>(),
-            0 < sm.start(),
-            iv1.valid(sm),
-            iv1.m.contains_key(list_addr),
-            match iv1.m[list_addr] {
-                ListTableEntryView::Durable{ entry } => {
-                    &&& tail_row_addr == entry.tail
-                    &&& entry.length < usize::MAX
-                },
-                _ => false,
-            },
-            iv1.free_list.len() > 0,
-            new_row_addr == iv1.free_list.last(),
-            iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case_durable(list_addr, new_element),
-            seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
-                                       new_row_addr + sm.table.row_size),
-            seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
-                                       tail_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()),
-            recover_object::<u64>(commit_state2, new_row_addr + sm.row_next_start,
-                                  new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(commit_state2, new_row_addr + sm.row_element_start,
-                                new_row_addr + sm.row_element_crc_start) == Some(new_element),
-            recover_object::<u64>(commit_state3, tail_row_addr + sm.row_next_start,
-                                  tail_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr),
-        ensures
-            iv2.corresponds_to_tentative_state(commit_state3, sm),
-    {
-        iv1.lemma_append_case_durable_works(list_addr, new_element, sm);
-
-        broadcast use group_validate_row_addr;
-        broadcast use pmcopy_axioms;
-        broadcast use group_update_bytes_effect;
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        assert(iv2.tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
-
-        assert forall|row_addr: u64| iv2.tentative_mapping.row_info.contains_key(row_addr)
-            implies {
-                let row_info = iv2.tentative_mapping.row_info[row_addr];
-                recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                      row_addr + sm.row_next_start + u64::spec_size_of()) == Some(row_info.next)
-            } by {
-            let row_info = iv2.tentative_mapping.row_info[row_addr];
-            if row_addr == new_row_addr {
-                assert(row_info.next == 0);
-                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64));
-            }
-            else if row_addr == tail_row_addr {
-                assert(row_info.next == new_row_addr);
-                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr));
-            }
-            else {
-                assert(iv1.tentative_mapping.row_info.contains_key(row_addr));
-                assert(row_info == iv1.tentative_mapping.row_info[row_addr]);
-            }
-        }
-    }
-
     #[inline]
-    exec fn append_case_updated_or_created(
-        &mut self,
-        list_addr: u64,
-        new_element: L,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        new_row_addr: u64,
-        entry: ListTableEntry<L>,
-        Ghost(prev_self): Ghost<Self>,
-        Ghost(prev_jv): Ghost<JournalView>,
-    ) -> (result: Result<u64, KvError>)
-        requires
-            old(self) == (Self{
-                free_list: old(self).free_list,
-                m: old(self).m,
-                ..prev_self
-            }),
-            prev_self.free_list@.len() > 0,
-            old(self).free_list@ == prev_self.free_list@.drop_last(),
-            old(self).m@ == prev_self.m@.remove(list_addr),
-            new_row_addr == prev_self.free_list@.last(),
-            prev_self.valid(prev_jv),
-            old(journal).valid(),
-            old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
-            prev_self@.tentative is Some,
-            prev_self@.tentative.unwrap().m.contains_key(list_addr),
-            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.durable_state, prev_self.sm),
-            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.read_state, prev_self.sm),
-            old(journal)@.matches_except_in_range(prev_jv, old(self)@.sm.start() as int, old(self)@.sm.end() as int),
-            old(journal)@ == (JournalView{
-                durable_state: old(journal)@.durable_state,
-                read_state: old(journal)@.read_state,
-                commit_state: old(journal)@.commit_state,
-                ..prev_jv
-            }),
-            new_row_addr == prev_self.free_list@.last(),
-            seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
-                                       new_row_addr + prev_self.sm.table.row_size),
-            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
-                                  new_row_addr + prev_self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
-                                new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
-            prev_self.m@.contains_key(list_addr),
-            entry == prev_self.m[list_addr],
-            match entry@ {
-                ListTableEntryView::Updated{ tentative, .. } => {
-                    &&& tentative.length < usize::MAX
-                    &&& new_element.start() >= tentative.end_of_logical_range
-                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
-                           new_element.start() == tentative.end_of_logical_range
-                },
-                ListTableEntryView::Created{ tentative_addrs, tentative_elements, .. } => {
-                    &&& 0 < tentative_addrs.len() < usize::MAX
-                    &&& new_element.start() >= tentative_elements.last().end()
-                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
-                           new_element.start() == tentative_elements.last().end()
-                },
-                _ => false,
-            },
-        ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.matches_except_in_range(prev_jv, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(new_list_addr) => {
-                    &&& new_list_addr != 0
-                    &&& new_list_addr == list_addr || !prev_self@.tentative.unwrap().m.contains_key(new_list_addr)
-                    &&& match self@.logical_range_gaps_policy {
-                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
-                            new_element.start() >= end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
-                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            new_element.start() == end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
-                    }
-                    &&& self@ == (ListTableView {
-                        tentative: Some(prev_self@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
-                        ..prev_self@
-                    })
-                    &&& self.validate_list_addr(new_list_addr)
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..prev_self@
-                    })
-                },
-                Err(KvError::CRCMismatch) => {
-                    &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..prev_self@
-                    })
-                },
-                _ => false,
-            }
-    {
-        proof {
-            journal.lemma_valid_implications();
-            broadcast use group_validate_row_addr;
-            broadcast use pmcopy_axioms;
-            broadcast use group_update_bytes_effect;
-            broadcast use group_hash_axioms;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        }
-
-        let tail_row_addr = match &entry {
-            ListTableEntry::<L>::Updated{ tentative, .. } => tentative.tail,
-            ListTableEntry::<L>::Created{ tentative_addrs, .. } => tentative_addrs[tentative_addrs.len() - 1],
-            _ => { assert(false); 0u64 },
-        };
-        assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
-        assert(self.sm.table.validate_row_addr(tail_row_addr));
-
-        self.tentative_mapping = Ghost(self.tentative_mapping@.append(list_addr, new_row_addr, new_element));
-        let ghost disposition =
-            ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
-        self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
-        let new_entry = entry.append(new_row_addr, new_element);
-        self.m.insert(list_addr, new_entry);
-        self.pending_allocations.push(new_row_addr);
-
-        assert(self.internal_view() =~=
-               prev_self.internal_view().append_case_updated_or_created(list_addr, new_element));
-        proof {
-            prev_self.internal_view().lemma_append_case_updated_or_created_works(list_addr, new_element, prev_self.sm);
-        }
-
-        let next_addr = tail_row_addr + self.sm.row_next_start;
-        let next_crc = calculate_crc(&new_row_addr);
-        let mut next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
-        let mut next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
-
-        // TODO: There's surely a more efficient way of making a
-        // vector as the concatenation of two slices.
-        let mut bytes_to_write = Vec::<u8>::new();
-        bytes_to_write.append(&mut next_bytes);
-        bytes_to_write.append(&mut next_crc_bytes);
-
-        match journal.journal_write(next_addr, bytes_to_write) {
-            Ok(()) => {},
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        }
-
-        assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
-                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
-               Some(new_row_addr)) by {
-            lemma_writing_next_and_crc_together_enables_recovery(old(journal)@.commit_state, journal@.commit_state,
-                                                                 new_row_addr, next_addr as int, bytes_to_write@);
-        }
-
-        proof {
-            Self::lemma_append_case_updated_or_created_works(
-                prev_self.internal_view(), self.internal_view(),
-                prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
-                list_addr, new_element, new_row_addr, tail_row_addr, self.sm
-            );
-        }
-
-        Ok(list_addr)
-    }
-
-    #[inline]
-    exec fn append_case_durable(
+    exec fn append_case1(
         &mut self,
         list_addr: u64,
         new_element: L,
@@ -1011,10 +690,9 @@ impl<PM, L> ListTable<PM, L>
         self.updates.push(Some(list_addr));
         self.pending_allocations.push(new_row_addr);
 
-        assert(self.internal_view() =~=
-               prev_self.internal_view().append_case_durable(list_addr, new_element));
+        assert(self.internal_view() =~= prev_self.internal_view().append_case1(list_addr, new_element));
         proof {
-            prev_self.internal_view().lemma_append_case_durable_works(list_addr, new_element, prev_self.sm);
+            prev_self.internal_view().lemma_append_case1_works(list_addr, new_element, prev_self.sm);
         }
 
         let next_addr = tail_row_addr + self.sm.row_next_start;
@@ -1045,7 +723,170 @@ impl<PM, L> ListTable<PM, L>
         }
 
         proof {
-            Self::lemma_append_case_durable_works(
+            Self::lemma_append_case1_works(
+                prev_self.internal_view(), self.internal_view(),
+                prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
+                list_addr, new_element, new_row_addr, tail_row_addr, self.sm
+            );
+        }
+
+        Ok(list_addr)
+    }
+
+    #[inline]
+    exec fn append_case2(
+        &mut self,
+        list_addr: u64,
+        new_element: L,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        new_row_addr: u64,
+        entry: ListTableEntry<L>,
+        Ghost(prev_self): Ghost<Self>,
+        Ghost(prev_jv): Ghost<JournalView>,
+    ) -> (result: Result<u64, KvError>)
+        requires
+            old(self) == (Self{
+                free_list: old(self).free_list,
+                m: old(self).m,
+                ..prev_self
+            }),
+            prev_self.free_list@.len() > 0,
+            old(self).free_list@ == prev_self.free_list@.drop_last(),
+            old(self).m@ == prev_self.m@.remove(list_addr),
+            new_row_addr == prev_self.free_list@.last(),
+            prev_self.valid(prev_jv),
+            old(journal).valid(),
+            old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
+            prev_self@.tentative is Some,
+            prev_self@.tentative.unwrap().m.contains_key(list_addr),
+            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.durable_state, prev_self.sm),
+            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.read_state, prev_self.sm),
+            old(journal)@.matches_except_in_range(prev_jv, old(self)@.sm.start() as int, old(self)@.sm.end() as int),
+            old(journal)@ == (JournalView{
+                durable_state: old(journal)@.durable_state,
+                read_state: old(journal)@.read_state,
+                commit_state: old(journal)@.commit_state,
+                ..prev_jv
+            }),
+            new_row_addr == prev_self.free_list@.last(),
+            seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
+                                       new_row_addr + prev_self.sm.table.row_size),
+            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
+                                  new_row_addr + prev_self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+            recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
+                                new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
+            prev_self.m@.contains_key(list_addr),
+            entry == prev_self.m[list_addr],
+            match entry@ {
+                ListTableEntryView::Updated{ tentative, .. } => {
+                    &&& tentative.length < usize::MAX
+                    &&& new_element.start() >= tentative.end_of_logical_range
+                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
+                           new_element.start() == tentative.end_of_logical_range
+                },
+                ListTableEntryView::Created{ tentative_addrs, tentative_elements, .. } => {
+                    &&& 0 < tentative_addrs.len() < usize::MAX
+                    &&& new_element.start() >= tentative_elements.last().end()
+                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
+                           new_element.start() == tentative_elements.last().end()
+                },
+                _ => false,
+            },
+        ensures
+            self.valid(journal@),
+            journal.valid(),
+            journal@.matches_except_in_range(prev_jv, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(new_list_addr) => {
+                    &&& new_list_addr != 0
+                    &&& new_list_addr == list_addr || !prev_self@.tentative.unwrap().m.contains_key(new_list_addr)
+                    &&& match self@.logical_range_gaps_policy {
+                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
+                            new_element.start() >= end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
+                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                            new_element.start() == end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
+                    }
+                    &&& self@ == (ListTableView {
+                        tentative: Some(prev_self@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
+                        ..prev_self@
+                    })
+                    &&& self.validate_list_addr(new_list_addr)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..prev_self@
+                    })
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& !journal@.pm_constants.impervious_to_corruption()
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..prev_self@
+                    })
+                },
+                _ => false,
+            }
+    {
+        proof {
+            journal.lemma_valid_implications();
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use group_update_bytes_effect;
+            broadcast use group_hash_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        }
+
+        let tail_row_addr = match &entry {
+            ListTableEntry::<L>::Updated{ tentative, .. } => tentative.tail,
+            ListTableEntry::<L>::Created{ tentative_addrs, .. } => tentative_addrs[tentative_addrs.len() - 1],
+            _ => { assert(false); 0u64 },
+        };
+        assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
+        assert(self.sm.table.validate_row_addr(tail_row_addr));
+
+        self.tentative_mapping = Ghost(self.tentative_mapping@.append(list_addr, new_row_addr, new_element));
+        let ghost disposition =
+            ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
+        self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
+        let new_entry = entry.append(new_row_addr, new_element);
+        self.m.insert(list_addr, new_entry);
+        self.pending_allocations.push(new_row_addr);
+
+        assert(self.internal_view() =~= prev_self.internal_view().append_case2(list_addr, new_element));
+        proof {
+            prev_self.internal_view().lemma_append_case2_works(list_addr, new_element, prev_self.sm);
+        }
+
+        let next_addr = tail_row_addr + self.sm.row_next_start;
+        let next_crc = calculate_crc(&new_row_addr);
+        let mut next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
+        let mut next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
+
+        // TODO: There's surely a more efficient way of making a
+        // vector as the concatenation of two slices.
+        let mut bytes_to_write = Vec::<u8>::new();
+        bytes_to_write.append(&mut next_bytes);
+        bytes_to_write.append(&mut next_crc_bytes);
+
+        match journal.journal_write(next_addr, bytes_to_write) {
+            Ok(()) => {},
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        }
+
+        assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
+                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+               Some(new_row_addr)) by {
+            lemma_writing_next_and_crc_together_enables_recovery(old(journal)@.commit_state, journal@.commit_state,
+                                                                 new_row_addr, next_addr as int, bytes_to_write@);
+        }
+
+        proof {
+            Self::lemma_append_case2_works(
                 prev_self.internal_view(), self.internal_view(),
                 prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
                 list_addr, new_element, new_row_addr, tail_row_addr, self.sm
@@ -1217,14 +1058,14 @@ impl<PM, L> ListTable<PM, L>
 
         match entry {
             ListTableEntry::<L>::Durable{ .. } =>
-                self.append_case_durable(list_addr, new_element, journal, row_addr, entry,
-                                         Ghost(*old(self)), Ghost(old(journal)@)),
+                self.append_case1(list_addr, new_element, journal, row_addr, entry,
+                                  Ghost(*old(self)), Ghost(old(journal)@)),
             ListTableEntry::<L>::Updated{ .. } =>
-                self.append_case_updated_or_created(list_addr, new_element, journal, row_addr, entry,
-                                                    Ghost(*old(self)), Ghost(old(journal)@)),
+                self.append_case2(list_addr, new_element, journal, row_addr, entry,
+                                  Ghost(*old(self)), Ghost(old(journal)@)),
             ListTableEntry::<L>::Created{ .. } =>
-                self.append_case_updated_or_created(list_addr, new_element, journal, row_addr, entry,
-                                                    Ghost(*old(self)), Ghost(old(journal)@)),
+                self.append_case2(list_addr, new_element, journal, row_addr, entry,
+                                  Ghost(*old(self)), Ghost(old(journal)@)),
         }
     }
 
