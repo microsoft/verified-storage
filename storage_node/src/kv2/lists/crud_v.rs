@@ -23,6 +23,7 @@ use super::*;
 use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+use vstd::std_specs::hash::*;
 
 verus! {
 
@@ -54,6 +55,13 @@ impl<PM, L> ListTable<PM, L>
                         ..old(self)@
                     })
                 },
+                Err(KvError::CRCMismatch) => {
+                    &&& !journal@.pm_constants.impervious_to_corruption()
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ListTableView {
                         tentative: None,
@@ -63,8 +71,12 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
+        proof {
+            broadcast use group_hash_axioms;
+        }
+
         assume(false);
-        Err(KvError::NotImplemented)
+        return Err(KvError::NotImplemented);
     }
 }
 

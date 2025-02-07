@@ -199,6 +199,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                     self.internal_abort(Tracked(perm));
                     return Err(KvError::OutOfSpace);
                 },
+                Err(KvError::CRCMismatch) => {
+                    self.status = Ghost(KvStoreStatus::MustAbort);
+                    self.internal_abort(Tracked(perm));
+                    return Err(KvError::OutOfSpace);
+                },
                 _ => { assert(false); return Err(KvError::InternalError); },
             }
         }
