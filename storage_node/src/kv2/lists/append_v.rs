@@ -36,7 +36,7 @@ impl<L> ListTableEntryView<L>
             match self {
                 ListTableEntryView::Updated{ tentative, .. } => tentative.length < usize::MAX,
                 ListTableEntryView::Created{ tentative_addrs, .. } => tentative_addrs.len() < usize::MAX,
-                _ => false,
+                ListTableEntryView::Durable{ entry } => false,
             },
     {
         match self {
@@ -57,6 +57,34 @@ impl<L> ListTableEntryView<L>
                     tentative_addrs: tentative_addrs.push(new_row_addr),
                     tentative_elements: tentative_elements.push(new_element),
                 },
+            _ => self,
+        }
+    }
+
+    pub(super) open spec fn update_by_appending(self, which_update: nat, new_row_addr: u64, new_element: L) -> Self
+        recommends
+            match self {
+                ListTableEntryView::Durable{ entry } => entry.length < usize::MAX,
+                _ => false,
+            },
+    {
+        match self {
+            ListTableEntryView::Durable{ entry } => {
+                let new_entry = ListTableDurableEntry{
+                    tail: new_row_addr,
+                    length: (entry.length + 1) as usize,
+                    end_of_logical_range: new_element.end(),
+                    ..entry
+                };
+                ListTableEntryView::Updated{
+                    which_update,
+                    durable: entry,
+                    tentative: new_entry,
+                    num_trimmed: 0,
+                    appended_addrs: seq![new_row_addr],
+                    appended_elements: seq![new_element],
+                }
+            },
             _ => self,
         }
     }
@@ -98,6 +126,45 @@ impl<L> ListTableEntry<L>
             _ => self,
         }
     }
+
+    pub(super) exec fn update_by_appending(&self, which_update: usize, new_row_addr: u64, new_element: L)
+                                           -> (result: Self)
+        requires
+            match self {
+                ListTableEntry::Durable{ entry } => entry.length < usize::MAX,
+                _ => false,
+            },
+        ensures
+            result@ == self@.update_by_appending(which_update as nat, new_row_addr, new_element),
+    {
+        match self {
+            ListTableEntry::Durable{ ref entry } => {
+                let new_entry = ListTableDurableEntry{
+                    head: entry.head,
+                    tail: new_row_addr,
+                    length: (entry.length + 1) as usize,
+                    end_of_logical_range: new_element.end(),
+                };
+                let appended_addrs = vec![new_row_addr];
+                let appended_elements = vec![new_element];
+                assert(appended_addrs@ =~= seq![new_row_addr]);
+                assert(appended_elements@ =~= seq![new_element]);
+                ListTableEntry::Updated{
+                    which_update,
+                    durable: entry.clone(),
+                    tentative: new_entry,
+                    num_trimmed: 0,
+                    appended_addrs,
+                    appended_elements,
+                }
+            },
+            _ => { assert(false);
+                   ListTableEntry::Durable{
+                       entry: ListTableDurableEntry{ head: 0, tail: 0, length: 0, end_of_logical_range: 0 }
+                   } },
+        }
+    }
+
 }
 
 impl<L> ListRecoveryMapping<L>
@@ -209,6 +276,31 @@ impl<L> ListTableInternalView<L>
                 assert(true);
             },
             _ => { assert(false); },
+        }
+    }
+
+    pub(super) open spec fn append_case_durable(self, list_addr: u64, new_element: L) -> Self
+        recommends
+            self.m.contains_key(list_addr),
+            self.m[list_addr] is Durable,
+    {
+        let which_delete = self.deletes.len();
+        let which_update = self.updates.len();
+        let new_row_addr = self.free_list.last();
+        let new_delete = self.m[list_addr]->Durable_entry;
+        let entry = self.m[list_addr].update_by_appending(which_update, new_row_addr, new_element);
+        let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
+
+        Self{
+            tentative_mapping: self.tentative_mapping.append(list_addr, new_row_addr, new_element),
+            row_info: self.row_info.insert(new_row_addr, disposition),
+            m: self.m.insert(list_addr, entry),
+            deletes_inverse: self.deletes_inverse.insert(list_addr, which_delete),
+            deletes: self.deletes.push(new_delete),
+            updates: self.updates.push(Some(list_addr)),
+            free_list: self.free_list.drop_last(),
+            pending_allocations: self.pending_allocations.push(new_row_addr),
+            ..self
         }
     }
 
@@ -751,70 +843,39 @@ impl<PM, L> ListTable<PM, L>
             Some(e) => e,
         };
 
-        let ret: Result<u64, KvError> = match &entry {
-            ListTableEntry::<L>::Updated{ ref tentative, .. } => {
-                let end_of_valid_range = tentative.end_of_logical_range;
-                if tentative.length >= usize::MAX {
-                    Err(KvError::OutOfSpace)
-                }
-                else if new_element.start() < end_of_valid_range {
-                    Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range})
-                }
-                else {
-                    match self.logical_range_gaps_policy {
-                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            if new_element.start() > end_of_valid_range {
-                                Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
-                            }
-                            else {
-                                Ok(0u64)
-                            },
-                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => Ok(0u64),
-                    }
-                }
-            },
-            
-            ListTableEntry::<L>::Created{ ref tentative_addrs, ref tentative_elements, .. } => {
-                let num_tentative_elements: usize = tentative_addrs.len();
-                assert(num_tentative_elements > 0);
-                let end_of_valid_range = tentative_elements[num_tentative_elements - 1].end();
-                assert(num_tentative_elements == tentative_elements@.len());
-                if num_tentative_elements >= usize::MAX {
-                    Err(KvError::OutOfSpace)
-                }
-                else if new_element.start() < end_of_valid_range {
-                    Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
-                }
-                else {
-                    match self.logical_range_gaps_policy {
-                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            if new_element.start() > end_of_valid_range {
-                                Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
-                            }
-                            else {
-                                Ok(0u64)
-                            },
-                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted => Ok(0u64),
-                    }
-                }
-            },
-            
-            _ => Ok(0u64),
+        let (length, end_of_valid_range) = match &entry {
+            ListTableEntry::<L>::Updated{ ref tentative, .. } =>
+                (tentative.length, tentative.end_of_logical_range),
+            ListTableEntry::<L>::Created{ ref tentative_elements, .. } =>
+                (tentative_elements.len(), tentative_elements[tentative_elements.len() - 1].end()),
+            ListTableEntry::<L>::Durable{ ref entry } =>
+                (entry.length, entry.end_of_logical_range),
         };
 
-        match ret {
-            Err(KvError::OutOfSpace) => {
-                self.m.insert(list_addr, entry);
-                assert(self.internal_view() =~= old(self).internal_view());
-                self.must_abort = Ghost(true);
-                return ret;
-            },
-            Err(_) => {
-                self.m.insert(list_addr, entry);
-                assert(self.internal_view() =~= old(self).internal_view());
-                return ret;
-            },
-            Ok(_) => {},
+        assert(length == self.tentative_mapping@.list_elements[list_addr].len());
+        assert(end_of_valid_range == end_of_range(self.tentative_mapping@.list_elements[list_addr]));
+
+        if length >= usize::MAX {
+            self.m.insert(list_addr, entry);
+            assert(self.internal_view() =~= old(self).internal_view());
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+
+        if new_element.start() < end_of_valid_range {
+            self.m.insert(list_addr, entry);
+            assert(self.internal_view() =~= old(self).internal_view());
+            return Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range});
+        }
+
+        match self.logical_range_gaps_policy {
+            LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                if new_element.start() > end_of_valid_range {
+                    self.m.insert(list_addr, entry);
+                    assert(self.internal_view() =~= old(self).internal_view());
+                    return Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range });
+                },
+            _ => {},
         }
 
         let row_addr = match self.free_list.pop() {
