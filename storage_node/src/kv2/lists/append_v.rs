@@ -90,6 +90,14 @@ impl<L> ListTableEntryView<L>
     }
 }
 
+impl ListTableDurableEntry
+{
+    pub(super) exec fn default() -> Self
+    {
+        Self{ head: 0, tail: 0, length: 0, end_of_logical_range: 0 }
+    }
+}
+
 impl<L> ListTableEntry<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
@@ -127,6 +135,23 @@ impl<L> ListTableEntry<L>
         }
     }
 
+    pub(super) exec fn default() -> Self
+    {
+        Self::Durable{ entry: ListTableDurableEntry::default() }
+    }
+
+    pub(super) exec fn unwrap_durable(self) -> (result: ListTableDurableEntry)
+        requires
+            self is Durable,
+        ensures
+            self == (Self::Durable{ entry: result }),
+    {
+        match self {
+            ListTableEntry::Durable{ entry } => entry,
+            _ => { assert(false); ListTableDurableEntry::default() },
+        }
+    }
+
     pub(super) exec fn update_by_appending(&self, which_update: usize, new_row_addr: u64, new_element: L)
                                            -> (result: Self)
         requires
@@ -158,10 +183,7 @@ impl<L> ListTableEntry<L>
                     appended_elements,
                 }
             },
-            _ => { assert(false);
-                   ListTableEntry::Durable{
-                       entry: ListTableDurableEntry{ head: 0, tail: 0, length: 0, end_of_logical_range: 0 }
-                   } },
+            _ => { assert(false); Self::default() },
         }
     }
 
@@ -631,6 +653,80 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
+
+    proof fn lemma_append_case_durable_works(
+        iv1: ListTableInternalView<L>,
+        iv2: ListTableInternalView<L>,
+        commit_state1: Seq<u8>,
+        commit_state2: Seq<u8>,
+        commit_state3: Seq<u8>,
+        list_addr: u64,
+        new_element: L,
+        new_row_addr: u64,
+        tail_row_addr: u64,
+        sm: ListTableStaticMetadata,
+    )
+        requires
+            sm.valid::<L>(),
+            0 < sm.start(),
+            iv1.valid(sm),
+            iv1.m.contains_key(list_addr),
+            match iv1.m[list_addr] {
+                ListTableEntryView::Durable{ entry } => {
+                    &&& tail_row_addr == entry.tail
+                    &&& entry.length < usize::MAX
+                },
+                _ => false,
+            },
+            iv1.free_list.len() > 0,
+            new_row_addr == iv1.free_list.last(),
+            iv1.corresponds_to_tentative_state(commit_state1, sm),
+            iv2 == iv1.append_case_durable(list_addr, new_element),
+            seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
+                                       new_row_addr + sm.table.row_size),
+            seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
+                                       tail_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()),
+            recover_object::<u64>(commit_state2, new_row_addr + sm.row_next_start,
+                                  new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+            recover_object::<L>(commit_state2, new_row_addr + sm.row_element_start,
+                                new_row_addr + sm.row_element_crc_start) == Some(new_element),
+            recover_object::<u64>(commit_state3, tail_row_addr + sm.row_next_start,
+                                  tail_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr),
+        ensures
+            iv2.corresponds_to_tentative_state(commit_state3, sm),
+    {
+        iv1.lemma_append_case_durable_works(list_addr, new_element, sm);
+
+        broadcast use group_validate_row_addr;
+        broadcast use pmcopy_axioms;
+        broadcast use group_update_bytes_effect;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        assert(iv2.tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
+
+        assert forall|row_addr: u64| iv2.tentative_mapping.row_info.contains_key(row_addr)
+            implies {
+                let row_info = iv2.tentative_mapping.row_info[row_addr];
+                recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
+                                      row_addr + sm.row_next_start + u64::spec_size_of()) == Some(row_info.next)
+            } by {
+            let row_info = iv2.tentative_mapping.row_info[row_addr];
+            if row_addr == new_row_addr {
+                assert(row_info.next == 0);
+                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64));
+            }
+            else if row_addr == tail_row_addr {
+                assert(row_info.next == new_row_addr);
+                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr));
+            }
+            else {
+                assert(iv1.tentative_mapping.row_info.contains_key(row_addr));
+                assert(row_info == iv1.tentative_mapping.row_info[row_addr]);
+            }
+        }
+    }
+
     #[inline]
     exec fn append_case_updated_or_created(
         &mut self,
@@ -786,6 +882,170 @@ impl<PM, L> ListTable<PM, L>
 
         proof {
             Self::lemma_append_case_updated_or_created_works(
+                prev_self.internal_view(), self.internal_view(),
+                prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
+                list_addr, new_element, new_row_addr, tail_row_addr, self.sm
+            );
+        }
+
+        Ok(list_addr)
+    }
+
+    #[inline]
+    exec fn append_case_durable(
+        &mut self,
+        list_addr: u64,
+        new_element: L,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        new_row_addr: u64,
+        entry: ListTableEntry<L>,
+        Ghost(prev_self): Ghost<Self>,
+        Ghost(prev_jv): Ghost<JournalView>,
+    ) -> (result: Result<u64, KvError>)
+        requires
+            old(self) == (Self{
+                free_list: old(self).free_list,
+                m: old(self).m,
+                ..prev_self
+            }),
+            prev_self.free_list@.len() > 0,
+            old(self).free_list@ == prev_self.free_list@.drop_last(),
+            old(self).m@ == prev_self.m@.remove(list_addr),
+            new_row_addr == prev_self.free_list@.last(),
+            prev_self.valid(prev_jv),
+            old(journal).valid(),
+            old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
+            prev_self@.tentative is Some,
+            prev_self@.tentative.unwrap().m.contains_key(list_addr),
+            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.durable_state, prev_self.sm),
+            prev_self.internal_view().corresponds_to_durable_state(old(journal)@.read_state, prev_self.sm),
+            old(journal)@.matches_except_in_range(prev_jv, old(self)@.sm.start() as int, old(self)@.sm.end() as int),
+            old(journal)@ == (JournalView{
+                durable_state: old(journal)@.durable_state,
+                read_state: old(journal)@.read_state,
+                commit_state: old(journal)@.commit_state,
+                ..prev_jv
+            }),
+            new_row_addr == prev_self.free_list@.last(),
+            seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
+                                       new_row_addr + prev_self.sm.table.row_size),
+            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
+                                  new_row_addr + prev_self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+            recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
+                                new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
+            prev_self.m@.contains_key(list_addr),
+            entry == prev_self.m[list_addr],
+            match entry@ {
+                ListTableEntryView::Durable{ entry } => {
+                    &&& entry.length < usize::MAX
+                    &&& new_element.start() >= entry.end_of_logical_range
+                    &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
+                           new_element.start() == entry.end_of_logical_range
+                },
+                _ => false,
+            },
+        ensures
+            self.valid(journal@),
+            journal.valid(),
+            journal@.matches_except_in_range(prev_jv, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(new_list_addr) => {
+                    &&& new_list_addr != 0
+                    &&& new_list_addr == list_addr || !prev_self@.tentative.unwrap().m.contains_key(new_list_addr)
+                    &&& match self@.logical_range_gaps_policy {
+                        LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
+                            new_element.start() >= end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
+                        LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
+                            new_element.start() == end_of_range(prev_self@.tentative.unwrap().m[list_addr]),
+                    }
+                    &&& self@ == (ListTableView {
+                        tentative: Some(prev_self@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
+                        ..prev_self@
+                    })
+                    &&& self.validate_list_addr(new_list_addr)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..prev_self@
+                    })
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& !journal@.pm_constants.impervious_to_corruption()
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..prev_self@
+                    })
+                },
+                _ => false,
+            }
+    {
+        proof {
+            journal.lemma_valid_implications();
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use group_update_bytes_effect;
+            broadcast use group_hash_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        }
+
+        let tail_row_addr = match &entry {
+            ListTableEntry::<L>::Durable{ entry } => entry.tail,
+            _ => { assert(false); 0u64 },
+        };
+        assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
+        assert(self.sm.table.validate_row_addr(tail_row_addr));
+
+        let ghost which_delete = self.deletes@.len();
+        let which_update = self.updates.len();
+
+        self.tentative_mapping = Ghost(self.tentative_mapping@.append(list_addr, new_row_addr, new_element));
+        let ghost disposition =
+            ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
+        self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
+        let new_entry = entry.update_by_appending(which_update, new_row_addr, new_element);
+        let new_delete = entry.unwrap_durable();
+        self.m.insert(list_addr, new_entry);
+        self.deletes_inverse = Ghost(self.deletes_inverse@.insert(list_addr, which_delete));
+        self.deletes.push(new_delete);
+        self.updates.push(Some(list_addr));
+        self.pending_allocations.push(new_row_addr);
+
+        assert(self.internal_view() =~=
+               prev_self.internal_view().append_case_durable(list_addr, new_element));
+        proof {
+            prev_self.internal_view().lemma_append_case_durable_works(list_addr, new_element, prev_self.sm);
+        }
+
+        let next_addr = tail_row_addr + self.sm.row_next_start;
+        let next_crc = calculate_crc(&new_row_addr);
+        let mut next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
+        let mut next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
+
+        // TODO: There's surely a more efficient way of making a
+        // vector as the concatenation of two slices.
+        let mut bytes_to_write = Vec::<u8>::new();
+        bytes_to_write.append(&mut next_bytes);
+        bytes_to_write.append(&mut next_crc_bytes);
+
+        match journal.journal_write(next_addr, bytes_to_write) {
+            Ok(()) => {},
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        }
+
+        assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
+                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+               Some(new_row_addr)) by {
+            lemma_writing_next_and_crc_together_enables_recovery(old(journal)@.commit_state, journal@.commit_state,
+                                                                 new_row_addr, next_addr as int, bytes_to_write@);
+        }
+
+        proof {
+            Self::lemma_append_case_durable_works(
                 prev_self.internal_view(), self.internal_view(),
                 prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
                 list_addr, new_element, new_row_addr, tail_row_addr, self.sm
@@ -956,13 +1216,15 @@ impl<PM, L> ListTable<PM, L>
         assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
 
         match entry {
+            ListTableEntry::<L>::Durable{ .. } =>
+                self.append_case_durable(list_addr, new_element, journal, row_addr, entry,
+                                         Ghost(*old(self)), Ghost(old(journal)@)),
             ListTableEntry::<L>::Updated{ .. } =>
                 self.append_case_updated_or_created(list_addr, new_element, journal, row_addr, entry,
                                                     Ghost(*old(self)), Ghost(old(journal)@)),
             ListTableEntry::<L>::Created{ .. } =>
                 self.append_case_updated_or_created(list_addr, new_element, journal, row_addr, entry,
                                                     Ghost(*old(self)), Ghost(old(journal)@)),
-            _ => { assume(false); Err(KvError::NotImplemented) },
         }
     }
 
