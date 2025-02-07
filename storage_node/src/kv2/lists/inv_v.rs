@@ -168,6 +168,8 @@ impl<L> ListTableInternalView<L>
 {
     pub(super) open spec fn valid(self, sm: ListTableStaticMetadata) -> bool
     {
+        &&& self.durable_mapping.internally_consistent()
+        &&& self.tentative_mapping.internally_consistent()
         &&& self.durable_mapping_reflected_in_changes_or_m()
         &&& self.durable_mapping_corresponds_to_row_info()
         &&& self.tentative_mapping_corresponds_to_row_info()
