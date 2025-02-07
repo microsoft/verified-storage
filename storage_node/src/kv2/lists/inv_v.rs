@@ -179,6 +179,7 @@ impl<L> ListTableInternalView<L>
                 self.m.contains_key(list_addr)
         &&& self.m_consistent_with_durable_recovery_mapping()
         &&& self.m_consistent_with_tentative_recovery_mapping()
+        &&& self.deletes_arent_durable_in_m()
         &&& self.deletes_consistent_with_durable_recovery_mapping()
         &&& self.deletes_inverse_is_inverse_of_deletes()
         &&& self.row_info_complete(sm)
@@ -254,6 +255,15 @@ impl<L> ListTableInternalView<L>
                    &&& addrs.len() == elements.len()
                    &&& addrs.len() <= usize::MAX
                })
+    }
+
+    pub(super) open spec fn deletes_arent_durable_in_m(self) -> bool
+    {
+        &&& forall|i: int| #![trigger self.deletes[i]] 0 <= i < self.deletes.len() ==> {
+               let entry = self.deletes[i];
+               let list_addr = entry.head;
+               self.m.contains_key(list_addr) ==> !(self.m[list_addr] is Durable)
+           }
     }
 
     pub(super) open spec fn deletes_consistent_with_durable_recovery_mapping(self) -> bool

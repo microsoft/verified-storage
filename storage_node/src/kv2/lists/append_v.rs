@@ -304,6 +304,55 @@ impl<L> ListTableInternalView<L>
         }
     }
 
+    pub(super) proof fn lemma_append_case_durable_works(self, list_addr: u64, new_element: L,
+                                                        sm: ListTableStaticMetadata)
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            self.durable_mapping.internally_consistent(),
+            self.tentative_mapping.internally_consistent(),
+            self.free_list.len() > 0,
+            self.m.contains_key(list_addr),
+            match self.m[list_addr] {
+                ListTableEntryView::Durable{ entry } => entry.length < usize::MAX,
+                _ => false,
+            },
+        ensures
+            self.append_case_durable(list_addr, new_element).valid(sm),
+            self.append_case_durable(list_addr, new_element).tentative_mapping.as_snapshot() ==
+                self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
+    {
+        let new_self = self.append_case_durable(list_addr, new_element);
+        let old_snapshot = self.tentative_mapping.as_snapshot();
+        let new_snapshot = new_self.tentative_mapping.as_snapshot();
+
+        let tail_row_addr = match self.m[list_addr] {
+            ListTableEntryView::Durable{ entry } => entry.tail,
+            _ => { assert(false); 0u64 },
+        };
+        let new_row_addr = self.free_list.last();
+
+        assert(new_snapshot =~= old_snapshot.append(list_addr, list_addr, new_element));
+        assert(new_row_addr > 0) by {
+            broadcast use group_validate_row_addr;
+        }
+
+        match new_self.m[list_addr] {
+            ListTableEntryView::Updated{ appended_addrs, appended_elements, .. } => {
+                let addrs = new_self.tentative_mapping.list_info[list_addr];
+                let elements = new_self.tentative_mapping.list_elements[list_addr];
+                assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
+                       appended_elements);
+                assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
+            },
+            _ => { assert(false); },
+        }
+
+        assert(self.append_case_durable(list_addr, new_element).tentative_mapping.as_snapshot() =~=
+               self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element));
+    }
+
     pub(super) open spec fn create_singleton(self, new_element: L) -> Self
     {
         let row_addr = self.free_list.last();
