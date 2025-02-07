@@ -208,7 +208,7 @@ pub broadcast proof fn broadcast_length_of_subrange<T>(s: Seq<T>, i: int, j: int
 }
 
 pub proof fn lemma_subrange_subrange<T>(s: Seq<T>, outer_start: int, outer_end: int,
-                                               inner_start: int, inner_end: int)
+                                        inner_start: int, inner_end: int)
     requires
         0 <= outer_start <= inner_start <= inner_end <= outer_end <= s.len(),
     ensures

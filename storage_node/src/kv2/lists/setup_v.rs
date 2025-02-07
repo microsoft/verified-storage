@@ -150,7 +150,6 @@ impl<PM, L> ListTable<PM, L>
             table,
             element_size: element_size as u64,
             row_next_start: 0,
-            row_next_crc_start: row_next_crc_start.unwrap(),
             row_element_start: row_element_start.unwrap(),
             row_element_crc_start: row_element_crc_start.unwrap(),
         };

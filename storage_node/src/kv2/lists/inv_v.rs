@@ -452,7 +452,6 @@ impl<PM, L> ListTable<PM, L>
         &&& self.sm.valid::<L>()
         &&& self.space_needed_to_journal_next ==
             Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
-            Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
             u64::spec_size_of() + u64::spec_size_of()
         &&& self.internal_view().valid(self.sm)
         &&& self.internal_view().corresponds_to_durable_state(jv.durable_state, self.sm)

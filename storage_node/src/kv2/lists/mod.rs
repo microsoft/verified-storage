@@ -49,7 +49,6 @@ pub struct ListTableStaticMetadata
     table: TableMetadata,
     element_size: u64,
     row_next_start: u64,
-    row_next_crc_start: u64,
     row_element_start: u64,
     row_element_crc_start: u64,
 }
@@ -63,8 +62,7 @@ impl ListTableStaticMetadata
         &&& self.element_size == L::spec_size_of()
         &&& self.table.valid()
         &&& self.table.start <= self.table.end
-        &&& self.row_next_start + u64::spec_size_of() <= self.row_next_crc_start
-        &&& self.row_next_crc_start + u64::spec_size_of() <= self.row_element_start
+        &&& self.row_next_start + u64::spec_size_of() + u64::spec_size_of() <= self.row_element_start
         &&& self.row_element_start + self.element_size <= self.row_element_crc_start
         &&& self.row_element_crc_start + u64::spec_size_of() <= self.table.row_size
     }
@@ -167,8 +165,7 @@ impl<PM, L> ListTable<PM, L>
             ps.valid(),
     {
         // let row_next_start = 0;
-        let row_next_crc_start = u64::spec_size_of();
-        let row_element_start = row_next_crc_start + u64::spec_size_of();
+        let row_element_start = u64::spec_size_of() + u64::spec_size_of();
         let row_element_crc_start = row_element_start + L::spec_size_of();
         let row_size = row_element_crc_start + u64::spec_size_of();
         let num_rows = ps.num_list_entries;

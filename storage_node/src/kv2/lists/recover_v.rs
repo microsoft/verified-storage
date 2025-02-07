@@ -74,7 +74,8 @@ impl<L> ListRecoveryMapping<L>
             {
                 let row_info = self.row_info[row_addr];
                 &&& sm.table.validate_row_addr(row_addr)
-                &&& recover_object::<u64>(s, row_addr + sm.row_next_start, row_addr + sm.row_next_crc_start as int)
+                &&& recover_object::<u64>(s, row_addr + sm.row_next_start,
+                                        row_addr + sm.row_next_start + u64::spec_size_of())
                     == Some(row_info.next)
                 &&& recover_object::<L>(s, row_addr + sm.row_element_start, row_addr + sm.row_element_crc_start as int)
                     == Some(row_info.element)

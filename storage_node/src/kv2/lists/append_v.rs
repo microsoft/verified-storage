@@ -415,13 +415,13 @@ impl<PM, L> ListTable<PM, L>
             seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
                                        new_row_addr + sm.table.row_size),
             seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
-                                       tail_row_addr + sm.row_next_crc_start + u64::spec_size_of()),
+                                       tail_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()),
             recover_object::<u64>(commit_state2, new_row_addr + sm.row_next_start,
-                                  new_row_addr + sm.row_next_crc_start) == Some(0u64),
+                                  new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64),
             recover_object::<L>(commit_state2, new_row_addr + sm.row_element_start,
                                 new_row_addr + sm.row_element_crc_start) == Some(new_element),
             recover_object::<u64>(commit_state3, tail_row_addr + sm.row_next_start,
-                                  tail_row_addr + sm.row_next_crc_start) == Some(new_row_addr),
+                                  tail_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr),
         ensures
             iv2.corresponds_to_tentative_state(commit_state3, sm),
     {
@@ -437,18 +437,18 @@ impl<PM, L> ListTable<PM, L>
             implies {
                 let row_info = iv2.tentative_mapping.row_info[row_addr];
                 recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                      row_addr + sm.row_next_crc_start) == Some(row_info.next)
+                                      row_addr + sm.row_next_start + u64::spec_size_of()) == Some(row_info.next)
             } by {
             let row_info = iv2.tentative_mapping.row_info[row_addr];
             if row_addr == new_row_addr {
                 assert(row_info.next == 0);
                 assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_crc_start) == Some(0u64));
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64));
             }
             else if row_addr == tail_row_addr {
                 assert(row_info.next == new_row_addr);
                 assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_crc_start) == Some(new_row_addr));
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr));
             }
             else {
                 assert(iv1.tentative_mapping.row_info.contains_key(row_addr));
@@ -496,7 +496,7 @@ impl<PM, L> ListTable<PM, L>
             seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
                                        new_row_addr + prev_self.sm.table.row_size),
             recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
-                                  new_row_addr + prev_self.sm.row_next_crc_start) == Some(0u64),
+                                  new_row_addr + prev_self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
             recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
                                 new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
@@ -577,21 +577,17 @@ impl<PM, L> ListTable<PM, L>
         }
 
         let next_addr = tail_row_addr + self.sm.row_next_start;
-        let next_crc_addr = tail_row_addr + self.sm.row_next_crc_start;
-        let next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
         let next_crc = calculate_crc(&new_row_addr);
-        let next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
+        let mut next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
+        let mut next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
 
-        match journal.journal_write(next_addr, next_bytes) {
-            Ok(()) => {},
-            _ => {
-                assert(false);
-                self.must_abort = Ghost(true);
-                return Err(KvError::InternalError);
-            }
-        }
+        // TODO: There's surely a more efficient way of making a
+        // vector as the concatenation of two slices.
+        let mut bytes_to_write = Vec::<u8>::new();
+        bytes_to_write.append(&mut next_bytes);
+        bytes_to_write.append(&mut next_crc_bytes);
 
-        match journal.journal_write(next_crc_addr, next_crc_bytes) {
+        match journal.journal_write(next_addr, bytes_to_write) {
             Ok(()) => {},
             _ => {
                 assert(false);
@@ -601,7 +597,19 @@ impl<PM, L> ListTable<PM, L>
         }
 
         assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
-                                     tail_row_addr + self.sm.row_next_crc_start) =~= Some(new_row_addr));
+                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) =~=
+               Some(new_row_addr)) by {
+            lemma_subrange_subrange(journal@.commit_state,
+                                    next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
+                                    next_addr as int, next_addr + u64::spec_size_of());
+            lemma_subrange_subrange(journal@.commit_state,
+                                    next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
+                                    next_addr + u64::spec_size_of(),
+                                    next_addr + u64::spec_size_of() + u64::spec_size_of());
+            assert(bytes_to_write@.subrange(0, u64::spec_size_of() as int) =~= new_row_addr.spec_to_bytes());
+            assert(bytes_to_write@.subrange(u64::spec_size_of() as int, (u64::spec_size_of() + u64::spec_size_of()) as int)
+                   =~= next_crc.spec_to_bytes());
+        }
 
         proof {
             Self::lemma_append_case_updated_works(
@@ -756,7 +764,7 @@ impl<PM, L> ListTable<PM, L>
         journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
 
         let next_addr = row_addr + self.sm.row_next_start;
-        let next_crc_addr = row_addr + self.sm.row_next_crc_start;
+        let next_crc_addr = next_addr + size_of::<u64>() as u64;
         let next: u64 = 0;
         let next_crc = calculate_crc(&next);
 
@@ -873,7 +881,7 @@ impl<PM, L> ListTable<PM, L>
         journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
 
         let next_addr = row_addr + self.sm.row_next_start;
-        let next_crc_addr = row_addr + self.sm.row_next_crc_start;
+        let next_crc_addr = next_addr + size_of::<u64>() as u64;
         let next: u64 = 0;
         let next_crc = calculate_crc(&next);
 

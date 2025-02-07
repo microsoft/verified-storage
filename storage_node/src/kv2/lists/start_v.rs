@@ -115,8 +115,9 @@ impl<PM, L> ListTable<PM, L>
             assert(row_addrs.contains(current_addr));
             row_addrs_used.insert(current_addr);
 
-            let next_addr = match exec_recover_object::<PM, u64>(pm, current_addr + sm.row_next_start,
-                                                                 current_addr + sm.row_next_crc_start) {
+            let next_addr =
+                match exec_recover_object::<PM, u64>(pm, current_addr + sm.row_next_start,
+                                                     current_addr + sm.row_next_start + size_of::<u64>() as u64) {
                 Some(n) => n,
                 None => { return Err(KvError::CRCMismatch); },
             };
@@ -378,7 +379,7 @@ impl<PM, L> ListTable<PM, L>
 
         let journal_entry_overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
         let sizeof_u64 = size_of::<u64>() as u64;
-        let space_needed_to_journal_next = journal_entry_overhead + journal_entry_overhead + sizeof_u64 + sizeof_u64;
+        let space_needed_to_journal_next = journal_entry_overhead + sizeof_u64 + sizeof_u64;
 
         let lists = Self{
             status: Ghost(ListTableStatus::Quiescent),
