@@ -376,6 +376,7 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
+    #[verifier::rlimit(10)]
     exec fn append_case_updated(
         &mut self,
         list_addr: u64,
@@ -392,11 +393,13 @@ impl<PM, L> ListTable<PM, L>
                 m: old(self).m,
                 ..prev_self
             }),
+            prev_self.free_list@.len() > 0,
             old(self).free_list@ == prev_self.free_list@.drop_last(),
             old(self).m@ == prev_self.m@.remove(list_addr),
             new_row_addr == prev_self.free_list@.last(),
             prev_self.valid(prev_jv),
             old(journal).valid(),
+            old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
             prev_self@.tentative is Some,
             prev_self@.tentative.unwrap().m.contains_key(list_addr),
             prev_self.internal_view().corresponds_to_durable_state(old(journal)@.durable_state, prev_self.sm),
@@ -464,8 +467,20 @@ impl<PM, L> ListTable<PM, L>
             }
     {
         proof {
+            journal.lemma_valid_implications();
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use group_update_bytes_effect;
             broadcast use group_hash_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
+
+        let tail_row_addr = match entry {
+            ListTableEntry::<L>::Updated{ tentative, .. } => tentative.tail,
+            _ => { assert(false); 0u64 },
+        };
+        assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
+        assert(self.sm.table.validate_row_addr(tail_row_addr));
 
         self.tentative_mapping = Ghost(self.tentative_mapping@.append(list_addr, new_row_addr, new_element));
         let ghost disposition =
@@ -476,8 +491,63 @@ impl<PM, L> ListTable<PM, L>
         self.pending_allocations.push(new_row_addr);
 
         assert(self.internal_view() =~= prev_self.internal_view().append_case_updated(list_addr, new_element));
-        assume(false);
-        Err(KvError::NotImplemented)
+        proof {
+            prev_self.internal_view().lemma_append_case_updated_works(list_addr, new_element, prev_self.sm);
+        }
+
+        let next_addr = tail_row_addr + self.sm.row_next_start;
+        let next_crc_addr = tail_row_addr + self.sm.row_next_crc_start;
+        let next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
+        let next_crc = calculate_crc(&new_row_addr);
+        let next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
+
+        match journal.journal_write(next_addr, next_bytes) {
+            Ok(()) => {},
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        }
+
+        match journal.journal_write(next_crc_addr, next_crc_bytes) {
+            Ok(()) => {},
+            _ => {
+                assert(false);
+                self.must_abort = Ghost(true);
+                return Err(KvError::InternalError);
+            }
+        }
+
+        assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
+                                     tail_row_addr + self.sm.row_next_crc_start) =~= Some(new_row_addr));
+        assert(self.internal_view().tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
+
+        assert forall|row_addr: u64| self.internal_view().tentative_mapping.row_info.contains_key(row_addr)
+            implies {
+                let row_info = self.internal_view().tentative_mapping.row_info[row_addr];
+                recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
+                                      row_addr + self.sm.row_next_crc_start) == Some(row_info.next)
+            } by {
+            let row_info = self.internal_view().tentative_mapping.row_info[row_addr];
+            if row_addr == new_row_addr {
+                assert(row_info.next == 0);
+                assert(recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
+                                             row_addr + self.sm.row_next_crc_start) == Some(0u64));
+            }
+            else if row_addr == tail_row_addr {
+                assert(row_info.next == new_row_addr);
+                assert(recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
+                                             row_addr + self.sm.row_next_crc_start) == Some(new_row_addr));
+            }
+            else {
+                assert(prev_self.internal_view().tentative_mapping.row_info.contains_key(row_addr));
+                assert(row_info == prev_self.internal_view().tentative_mapping.row_info[row_addr]);
+            }
+        }
+
+        assert(self.valid(journal@));
+        Ok(list_addr)
     }
 
     pub exec fn append(
@@ -563,6 +633,11 @@ impl<PM, L> ListTable<PM, L>
         }
 
         if self.free_list.len() == 0 {
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+
+        if journal.remaining_capacity() < self.space_needed_to_journal_next {
             self.must_abort = Ghost(true);
             return Err(KvError::OutOfSpace);
         }

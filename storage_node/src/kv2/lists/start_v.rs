@@ -376,11 +376,16 @@ impl<PM, L> ListTable<PM, L>
         };
         let (free_list, Ghost(row_info)) = Self::build_free_list(&row_addrs_used, sm);
 
+        let journal_entry_overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
+        let sizeof_u64 = size_of::<u64>() as u64;
+        let space_needed_to_journal_next = journal_entry_overhead + journal_entry_overhead + sizeof_u64 + sizeof_u64;
+
         let lists = Self{
             status: Ghost(ListTableStatus::Quiescent),
             sm: *sm,
             must_abort: Ghost(false),
             logical_range_gaps_policy,
+            space_needed_to_journal_next,
             durable_list_addrs: Ghost(list_addrs@.to_set()),
             tentative_list_addrs: Ghost(list_addrs@.to_set()),
             durable_mapping: Ghost(mapping),

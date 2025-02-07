@@ -97,6 +97,15 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
     }
 
+    pub exec fn remaining_capacity(&self) -> (result: u64)
+        requires
+            self.valid(),
+        ensures
+            result == self@.remaining_capacity,
+    {
+        self.constants.journal_capacity - self.journal_length
+    }
+
     pub proof fn lemma_valid_implications(self)
         requires
             self.valid(),
@@ -113,7 +122,8 @@ impl <Perm, PM> Journal<Perm, PM>
 
     pub exec fn journal_entry_overhead() -> (result: u64)
         ensures
-            result == Self::spec_journal_entry_overhead()
+            result == Self::spec_journal_entry_overhead(),
+            result <= 100,
     {
         broadcast use pmcopy_axioms;
         (size_of::<u64>() + size_of::<u64>()) as u64
