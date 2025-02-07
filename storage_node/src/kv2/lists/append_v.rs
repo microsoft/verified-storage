@@ -602,30 +602,6 @@ impl<PM, L> ListTable<PM, L>
 
         assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
                                      tail_row_addr + self.sm.row_next_crc_start) =~= Some(new_row_addr));
-        assert(self.internal_view().tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
-
-        assert forall|row_addr: u64| self.internal_view().tentative_mapping.row_info.contains_key(row_addr)
-            implies {
-                let row_info = self.internal_view().tentative_mapping.row_info[row_addr];
-                recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
-                                      row_addr + self.sm.row_next_crc_start) == Some(row_info.next)
-            } by {
-            let row_info = self.internal_view().tentative_mapping.row_info[row_addr];
-            if row_addr == new_row_addr {
-                assert(row_info.next == 0);
-                assert(recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
-                                             row_addr + self.sm.row_next_crc_start) == Some(0u64));
-            }
-            else if row_addr == tail_row_addr {
-                assert(row_info.next == new_row_addr);
-                assert(recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
-                                             row_addr + self.sm.row_next_crc_start) == Some(new_row_addr));
-            }
-            else {
-                assert(prev_self.internal_view().tentative_mapping.row_info.contains_key(row_addr));
-                assert(row_info == prev_self.internal_view().tentative_mapping.row_info[row_addr]);
-            }
-        }
 
         proof {
             Self::lemma_append_case_updated_works(
@@ -634,7 +610,7 @@ impl<PM, L> ListTable<PM, L>
                 list_addr, new_element, new_row_addr, tail_row_addr, self.sm
             );
         }
-        assert(self.valid(journal@));
+
         Ok(list_addr)
     }
 
