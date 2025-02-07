@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev = "eb72cef37b253dff5c65188d6f437550c93b593a" }
-builtin = { git = "https://github.com/verus-lang/verus.git", rev = "eb72cef37b253dff5c65188d6f437550c93b593a" }
-vstd = { git = "https://github.com/verus-lang/verus.git", rev = "eb72cef37b253dff5c65188d6f437550c93b593a" }
+builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
+builtin = { git = "https://github.com/verus-lang/verus.git" }
+vstd = { git = "https://github.com/verus-lang/verus.git" }
 deps_hack = { path = "../deps_hack" }
 pmsafe = { path = "../pmsafe" }
 
