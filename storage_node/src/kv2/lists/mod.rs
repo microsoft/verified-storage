@@ -2,7 +2,7 @@
 pub mod abort_v;
 pub mod append_v;
 pub mod commit_v;
-pub mod crud_v;
+pub mod delete_v;
 pub mod inv_v;
 pub mod read_v;
 pub mod recover_v;
