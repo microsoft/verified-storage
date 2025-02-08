@@ -71,8 +71,7 @@ impl<L> ListTableInternalView<L>
             m: self.commit_m(),
             deletes_inverse: Map::<u64, nat>::empty(),
             deletes: Seq::<ListTableDurableEntry>::empty(),
-            updates: Seq::<Option<u64>>::empty(),
-            creates: Seq::<Option<u64>>::empty(),
+            modifications: Seq::<Option<u64>>::empty(),
             free_list: self.free_list + self.pending_deallocations,
             pending_allocations: Seq::<u64>::empty(),
             pending_deallocations: Seq::<u64>::empty(),
@@ -127,10 +126,10 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    exec fn update_m_to_reflect_commit_of_updates(&mut self)
+    exec fn update_m_to_reflect_commit_of_modifications(&mut self)
         requires
-            forall|which_update: int| 0 <= which_update < old(self).updates.len() ==>
-                (#[trigger] old(self).updates[which_update] matches Some(list_addr) ==> {
+            forall|which_modification: int| 0 <= which_modification < old(self).modifications.len() ==>
+                (#[trigger] old(self).modifications[which_modification] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& (old(self).m@[list_addr] matches
                         ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
@@ -140,8 +139,8 @@ impl<PM, L> ListTable<PM, L>
                 }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
-            forall|i: int| 0 <= i < self.updates.len() ==>
-                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+            forall|i: int| 0 <= i < self.modifications.len() ==>
+                (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
                     &&& self.m@.contains_key(list_addr)
                     &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
                 }),
@@ -154,15 +153,13 @@ impl<PM, L> ListTable<PM, L>
             },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
     {
-        broadcast use group_hash_axioms;
-
-        let num_updates = self.updates.len();
-        for which_update in 0..num_updates
+        let num_modifications = self.modifications.len();
+        for which_modification in 0..num_modifications
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                num_updates == self.updates.len(),
-                forall|i: int| 0 <= i < old(self).updates.len() ==>
-                    (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                num_modifications == self.modifications.len(),
+                forall|i: int| 0 <= i < old(self).modifications.len() ==>
+                    (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
                         &&& old(self).m@.contains_key(list_addr)
                         &&& (old(self).m@[list_addr] matches
                             ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
@@ -178,8 +175,8 @@ impl<PM, L> ListTable<PM, L>
                        }
                 },
                 forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
-                forall|i: int| 0 <= i < which_update ==>
-                    (#[trigger] self.updates[i] matches Some(list_addr) ==> {
+                forall|i: int| 0 <= i < which_modification ==>
+                    (#[trigger] self.modifications[i] matches Some(list_addr) ==> {
                         &&& old(self).m@.contains_key(list_addr)
                         &&& self.m@.contains_key(list_addr)
                         &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
@@ -187,77 +184,7 @@ impl<PM, L> ListTable<PM, L>
                     }),
         {
             broadcast use group_hash_axioms;
-            match self.updates[which_update] {
-                None => {},
-                Some(list_addr) => {
-                    let old_entry = self.m.remove(&list_addr);
-                    assert(old_entry is Some);
-                    let new_entry = old_entry.unwrap().commit();
-                    self.m.insert(list_addr, new_entry);
-                },
-            };
-        }
-    }
-
-    exec fn update_m_to_reflect_commit_of_creates(&mut self)
-        requires
-            forall|which_create: int| 0 <= which_create < old(self).creates.len() ==>
-                (#[trigger] old(self).creates[which_create] matches Some(list_addr) ==> {
-                    &&& old(self).m@.contains_key(list_addr)
-                    &&& (old(self).m@[list_addr] matches
-                        ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                            &&& 0 < tentative_addrs.len()
-                            &&& tentative_addrs.len() == tentative_elements.len()
-                        })
-                }),
-        ensures
-            self == (Self{ m: self.m, ..*old(self) }),
-            forall|i: int| 0 <= i < self.creates.len() ==>
-                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
-                    &&& self.m@.contains_key(list_addr)
-                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                }),
-            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
-                &&& old(self).m@.contains_key(list_addr)
-                &&& {
-                       ||| self.m@[list_addr]@ == old(self).m@[list_addr]@
-                       ||| self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                   }
-            },
-            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
-    {
-        let num_creates = self.creates.len();
-        for which_create in 0..num_creates
-            invariant
-                self == (Self{ m: self.m, ..*old(self) }),
-                num_creates == self.creates.len(),
-                forall|i: int| 0 <= i < old(self).creates.len() ==>
-                    (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& (old(self).m@[list_addr] matches
-                            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                                &&& 0 < tentative_addrs.len()
-                                &&& tentative_addrs.len() == tentative_elements.len()
-                            })
-                    }),
-                forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
-                    &&& old(self).m@.contains_key(list_addr)
-                    &&& {
-                           ||| self.m@[list_addr]@ == old(self).m@[list_addr]@
-                           ||| self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                       }
-                },
-                forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
-                forall|i: int| 0 <= i < which_create ==>
-                    (#[trigger] self.creates[i] matches Some(list_addr) ==> {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& self.m@.contains_key(list_addr)
-                        &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
-                        &&& self.m@[list_addr]@ == self.m@[list_addr]@.commit()
-                    }),
-        {
-            broadcast use group_hash_axioms;
-            match self.creates[which_create] {
+            match self.modifications[which_modification] {
                 None => {},
                 Some(list_addr) => {
                     let old_entry = self.m.remove(&list_addr);
@@ -276,8 +203,7 @@ impl<PM, L> ListTable<PM, L>
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view().m == old(self).internal_view().commit().m,
     {
-        self.update_m_to_reflect_commit_of_updates();
-        self.update_m_to_reflect_commit_of_creates();
+        self.update_m_to_reflect_commit_of_modifications();
         assert(self.internal_view().m =~= old(self).internal_view().commit().m);
     }
 
@@ -307,8 +233,7 @@ impl<PM, L> ListTable<PM, L>
         self.durable_mapping = self.tentative_mapping;
         self.deletes_inverse = Ghost(new_iv.deletes_inverse);
         self.deletes.clear();
-        self.updates.clear();
-        self.creates.clear();
+        self.modifications.clear();
         self.row_info = Ghost(new_iv.row_info);
         self.free_list.append(&mut self.pending_deallocations);
         self.pending_allocations.clear();

@@ -50,7 +50,7 @@ pub(super) enum ListTableEntryView<L>
         entry: ListTableDurableEntry
     },
     Updated{
-        which_update: nat,
+        which_modification: nat,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: int,
@@ -58,7 +58,7 @@ pub(super) enum ListTableEntryView<L>
         appended_elements: Seq<L>,
     },
     Created{
-        which_create: nat,
+        which_modification: nat,
         tentative_addrs: Seq<u64>,
         tentative_elements: Seq<L>
     }
@@ -73,7 +73,7 @@ pub(super) enum ListTableEntry<L>
         entry: ListTableDurableEntry
     },
     Updated{
-        which_update: usize,
+        which_modification: usize,
         durable: ListTableDurableEntry,
         tentative: ListTableDurableEntry,
         num_trimmed: usize,
@@ -81,7 +81,7 @@ pub(super) enum ListTableEntry<L>
         appended_elements: Vec<L>,
     },
     Created{
-        which_create: usize,
+        which_modification: usize,
         tentative_addrs: Vec<u64>,
         tentative_elements: Vec<L>,
     },
@@ -95,14 +95,14 @@ impl<L> ListTableEntry<L>
     {
         match self {
             ListTableEntry::Durable{ entry } => ListTableEntryView::Durable{ entry },
-            ListTableEntry::Updated{ which_update, durable, tentative, num_trimmed,
+            ListTableEntry::Updated{ which_modification, durable, tentative, num_trimmed,
                                      appended_addrs, appended_elements } =>
-                ListTableEntryView::Updated{ which_update: which_update as nat,
+                ListTableEntryView::Updated{ which_modification: which_modification as nat,
                                              durable, tentative, num_trimmed: num_trimmed as int,
                                              appended_addrs: appended_addrs@,
                                              appended_elements: appended_elements@ },
-            ListTableEntry::Created{ which_create, tentative_addrs, tentative_elements } =>
-                ListTableEntryView::Created{ which_create: which_create as nat,
+            ListTableEntry::Created{ which_modification, tentative_addrs, tentative_elements } =>
+                ListTableEntryView::Created{ which_modification: which_modification as nat,
                                              tentative_addrs: tentative_addrs@,
                                              tentative_elements: tentative_elements@ },
         }
@@ -155,8 +155,7 @@ pub(super) struct ListTableInternalView<L>
     pub m: Map<u64, ListTableEntryView<L>>,
     pub deletes_inverse: Map<u64, nat>,
     pub deletes: Seq<ListTableDurableEntry>,
-    pub updates: Seq<Option<u64>>,
-    pub creates: Seq<Option<u64>>,
+    pub modifications: Seq<Option<u64>>,
     pub free_list: Seq<u64>,
     pub pending_allocations: Seq<u64>,
     pub pending_deallocations: Seq<u64>,
@@ -173,8 +172,7 @@ impl<L> ListTableInternalView<L>
         &&& self.durable_mapping_reflected_in_changes_or_m()
         &&& self.durable_mapping_corresponds_to_row_info()
         &&& self.tentative_mapping_corresponds_to_row_info()
-        &&& self.updates_reflected_in_m()
-        &&& self.creates_reflected_in_m()
+        &&& self.modifications_reflected_in_m()
         &&& forall|list_addr: u64| #[trigger] self.tentative_mapping.list_info.contains_key(list_addr) ==>
                 self.m.contains_key(list_addr)
         &&& self.m_consistent_with_durable_recovery_mapping()
@@ -219,23 +217,16 @@ impl<L> ListTableInternalView<L>
            }
     }
 
-    pub(super) open spec fn updates_reflected_in_m(self) -> bool
+    pub(super) open spec fn modifications_reflected_in_m(self) -> bool
     {
-        &&& forall|which_update: int| 0 <= which_update < self.updates.len() ==>
-               (#[trigger] self.updates[which_update] matches Some(tentative_list_addr) ==> {
+        &&& forall|which_modification: int| 0 <= which_modification < self.modifications.len() ==>
+               (#[trigger] self.modifications[which_modification] matches Some(tentative_list_addr) ==> {
                    &&& self.m.contains_key(tentative_list_addr)
-                   &&& self.m[tentative_list_addr] matches ListTableEntryView::Updated{ which_update: wu, .. }
-                   &&& wu == which_update
-               })
-    }
-
-    pub(super) open spec fn creates_reflected_in_m(self) -> bool
-    {
-        &&& forall|which_create: int| 0 <= which_create < self.creates.len() ==>
-               (#[trigger] self.creates[which_create] matches Some(tentative_list_addr) ==> {
-                   &&& self.m.contains_key(tentative_list_addr)
-                   &&& self.m[tentative_list_addr] matches ListTableEntryView::Created{ which_create: wc, .. }
-                   &&& wc == which_create
+                   &&& match self.m[tentative_list_addr] {
+                          ListTableEntryView::Updated{ which_modification: wm, .. } => which_modification == wm,
+                          ListTableEntryView::Created{ which_modification: wm, .. } => which_modification == wm,
+                          _ => false,
+                      }
                })
     }
 
@@ -303,12 +294,12 @@ impl<L> ListTableInternalView<L>
                        &&& addrs.len() == elements.len()
                        &&& addrs.len() <= usize::MAX
                    },
-                   ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
+                   ListTableEntryView::Updated{ which_modification, durable, tentative, num_trimmed,
                                                 appended_addrs, appended_elements } => {
                        let addrs = self.tentative_mapping.list_info[list_addr];
                        let elements = self.tentative_mapping.list_elements[list_addr];
-                       &&& 0 <= which_update < self.updates.len()
-                       &&& self.updates[which_update as int] == Some(list_addr)
+                       &&& 0 <= which_modification < self.modifications.len()
+                       &&& self.modifications[which_modification as int] == Some(list_addr)
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
                        &&& tentative.head == list_addr
                        &&& 0 < addrs.len()
@@ -326,11 +317,11 @@ impl<L> ListTableInternalView<L>
                        &&& elements.skip(elements.len() - appended_elements.len()) == appended_elements
                        &&& addrs.skip(addrs.len() - appended_addrs.len()) == appended_addrs
                    },
-                   ListTableEntryView::Created{ which_create, tentative_addrs, tentative_elements } => {
+                   ListTableEntryView::Created{ which_modification, tentative_addrs, tentative_elements } => {
                        let addrs = self.tentative_mapping.list_info[list_addr];
                        let elements = self.tentative_mapping.list_elements[list_addr];
-                       &&& 0 <= which_create < self.creates.len()
-                       &&& self.creates[which_create as int] == Some(list_addr)
+                       &&& 0 <= which_modification < self.modifications.len()
+                       &&& self.modifications[which_modification as int] == Some(list_addr)
                        &&& 0 < tentative_addrs.len()
                        &&& tentative_addrs[0] == list_addr
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
@@ -481,8 +472,7 @@ impl<PM, L> ListTable<PM, L>
             m: self.m@.map_values(|e: ListTableEntry<L>| e@),
             deletes_inverse: self.deletes_inverse@,
             deletes: self.deletes@,
-            updates: self.updates@,
-            creates: self.creates@,
+            modifications: self.modifications@,
             free_list: self.free_list@,
             pending_allocations: self.pending_allocations@,
             pending_deallocations: self.pending_deallocations@,

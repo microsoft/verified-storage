@@ -84,8 +84,7 @@ impl<L> ListTableInternalView<L>
             m: self.abort_m(),
             deletes_inverse: Map::<u64, nat>::empty(),
             deletes: Seq::<ListTableDurableEntry>::empty(),
-            updates: Seq::<Option<u64>>::empty(),
-            creates: Seq::<Option<u64>>::empty(),
+            modifications: Seq::<Option<u64>>::empty(),
             free_list: self.free_list + self.pending_allocations,
             pending_allocations: Seq::<u64>::empty(),
             pending_deallocations: Seq::<u64>::empty(),
@@ -108,37 +107,37 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    exec fn update_m_to_reflect_abort_of_updates(&mut self)
+    exec fn update_m_to_reflect_abort_of_modifications(&mut self)
         requires
-            forall|i: int| 0 <= i < old(self).updates.len() ==>
-                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+            forall|i: int| 0 <= i < old(self).modifications.len() ==>
+                (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
-                    &&& old(self).m@[list_addr] is Updated
+                    &&& !(old(self).m@[list_addr] is Durable)
                 }),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
-            forall|i: int| 0 <= i < self.updates.len() ==>
-                (#[trigger] old(self).updates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
+            forall|i: int| 0 <= i < self.modifications.len() ==>
+                (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
             forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
                 &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
             },
             forall|list_addr: u64| {
                 &&& #[trigger] old(self).m@.contains_key(list_addr)
-                &&& !(old(self).m[list_addr] is Updated)
+                &&& old(self).m[list_addr] is Durable
             } ==> self.m@.contains_key(list_addr),
     {
-        let num_updates = self.updates.len();
+        let num_modifications = self.modifications.len();
 
-        for which_update in 0..num_updates
+        for which_modification in 0..num_modifications
             invariant
                 self == (Self{ m: self.m, ..*old(self) }),
-                num_updates == self.updates.len(),
-                forall|i: int| 0 <= i < old(self).updates.len() ==>
-                    (#[trigger] old(self).updates[i] matches Some(list_addr) ==> {
+                num_modifications == self.modifications.len(),
+                forall|i: int| 0 <= i < old(self).modifications.len() ==>
+                    (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
                         &&& old(self).m@.contains_key(list_addr)
-                        &&& old(self).m@[list_addr] is Updated
+                        &&& !(old(self).m@[list_addr] is Durable)
                     }),
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
@@ -146,59 +145,13 @@ impl<PM, L> ListTable<PM, L>
                 },
                 forall|list_addr: u64| {
                     &&& #[trigger] old(self).m@.contains_key(list_addr)
-                    &&& !(old(self).m[list_addr] is Updated)
+                    &&& old(self).m[list_addr] is Durable
                 } ==> self.m@.contains_key(list_addr),
-                forall|i: int| 0 <= i < which_update ==>
-                    (#[trigger] self.updates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
+                forall|i: int| 0 <= i < which_modification ==>
+                    (#[trigger] self.modifications[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
         {
             broadcast use group_hash_axioms;
-            match self.updates[which_update] {
-                None => {},
-                Some(list_addr) => { self.m.remove(&list_addr); },
-            };
-        }
-    }
-
-    exec fn update_m_to_reflect_abort_of_creates(&mut self)
-        requires
-            forall|i: int| 0 <= i < old(self).creates.len() ==>
-                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
-                    &&& old(self).m@.contains_key(list_addr)
-                    &&& old(self).m@[list_addr] is Created
-                }),
-        ensures
-            self == (Self{ m: self.m, ..*old(self) }),
-            self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
-            forall|i: int| 0 <= i < self.creates.len() ==>
-                (#[trigger] old(self).creates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
-            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
-                &&& old(self).m@.contains_key(list_addr)
-                &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
-            },
-            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
-                (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
-    {
-        let num_creates = self.creates.len();
-        for which_create in 0..num_creates
-            invariant
-                self == (Self{ m: self.m, ..*old(self) }),
-                num_creates == self.creates.len(),
-                forall|i: int| 0 <= i < old(self).creates.len() ==>
-                    (#[trigger] old(self).creates[i] matches Some(list_addr) ==> {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& old(self).m@[list_addr] is Created
-                    }),
-                forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
-                    &&& old(self).m@.contains_key(list_addr)
-                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
-                },
-                forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==>
-                    (old(self).m[list_addr] is Durable ==> self.m@.contains_key(list_addr)),
-                forall|i: int| 0 <= i < which_create ==>
-                    (#[trigger] self.creates[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
-        {
-            broadcast use group_hash_axioms;
-            match self.creates[which_create] {
+            match self.modifications[which_modification] {
                 None => {},
                 Some(list_addr) => { self.m.remove(&list_addr); },
             };
@@ -313,8 +266,7 @@ impl<PM, L> ListTable<PM, L>
             self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view().m == old(self).internal_view().abort().m,
     {
-        self.update_m_to_reflect_abort_of_updates();
-        self.update_m_to_reflect_abort_of_creates();
+        self.update_m_to_reflect_abort_of_modifications();
 
         assert forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) implies self.m@[list_addr] is Durable
         by {
@@ -358,8 +310,7 @@ impl<PM, L> ListTable<PM, L>
         self.tentative_mapping = self.durable_mapping;
         self.deletes_inverse = Ghost(new_iv.deletes_inverse);
         self.deletes.clear();
-        self.updates.clear();
-        self.creates.clear();
+        self.modifications.clear();
         self.row_info = Ghost(new_iv.row_info);
         self.free_list.append(&mut self.pending_allocations);
         self.pending_allocations.clear();

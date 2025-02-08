@@ -40,10 +40,10 @@ impl<L> ListTableEntryView<L>
             },
     {
         match self {
-            ListTableEntryView::Updated{ which_update, durable, tentative, num_trimmed,
+            ListTableEntryView::Updated{ which_modification, durable, tentative, num_trimmed,
                                          appended_addrs, appended_elements } =>
                 ListTableEntryView::Updated{
-                    which_update,
+                    which_modification,
                     durable,
                     tentative: ListTableDurableEntry{ tail: new_row_addr, length: (tentative.length + 1) as usize,
                                                       end_of_logical_range: new_element.end(), ..tentative },
@@ -51,9 +51,9 @@ impl<L> ListTableEntryView<L>
                     appended_addrs: appended_addrs.push(new_row_addr),
                     appended_elements: appended_elements.push(new_element),
                 },
-            ListTableEntryView::Created{ which_create, tentative_addrs, tentative_elements } =>
+            ListTableEntryView::Created{ which_modification, tentative_addrs, tentative_elements } =>
                 ListTableEntryView::Created{
-                    which_create,
+                    which_modification,
                     tentative_addrs: tentative_addrs.push(new_row_addr),
                     tentative_elements: tentative_elements.push(new_element),
                 },
@@ -61,7 +61,7 @@ impl<L> ListTableEntryView<L>
         }
     }
 
-    pub(super) open spec fn update_by_appending(self, which_update: nat, new_row_addr: u64, new_element: L) -> Self
+    pub(super) open spec fn update_by_appending(self, which_modification: nat, new_row_addr: u64, new_element: L) -> Self
         recommends
             match self {
                 ListTableEntryView::Durable{ entry } => entry.length < usize::MAX,
@@ -77,7 +77,7 @@ impl<L> ListTableEntryView<L>
                     ..entry
                 };
                 ListTableEntryView::Updated{
-                    which_update,
+                    which_modification,
                     durable: entry,
                     tentative: new_entry,
                     num_trimmed: 0,
@@ -106,7 +106,7 @@ impl<L> ListTableEntry<L>
             result@ == self@.append(new_row_addr, new_element),
     {
         match self {
-            ListTableEntry::Updated{ which_update, durable, mut tentative, num_trimmed,
+            ListTableEntry::Updated{ which_modification, durable, mut tentative, num_trimmed,
                                      mut appended_addrs, mut appended_elements } =>
             {
                 tentative.tail = new_row_addr;
@@ -114,20 +114,20 @@ impl<L> ListTableEntry<L>
                 tentative.end_of_logical_range = new_element.end();
                 appended_addrs.push(new_row_addr);
                 appended_elements.push(new_element);
-                ListTableEntry::Updated{ which_update, durable, tentative, num_trimmed, appended_addrs,
+                ListTableEntry::Updated{ which_modification, durable, tentative, num_trimmed, appended_addrs,
                                          appended_elements }
             },
-            ListTableEntry::Created{ which_create, mut tentative_addrs, mut tentative_elements } => 
+            ListTableEntry::Created{ which_modification, mut tentative_addrs, mut tentative_elements } => 
             {
                 tentative_addrs.push(new_row_addr);
                 tentative_elements.push(new_element);
-                ListTableEntry::Created{ which_create, tentative_addrs, tentative_elements }
+                ListTableEntry::Created{ which_modification, tentative_addrs, tentative_elements }
             }
             _ => self,
         }
     }
 
-    pub(super) exec fn update_by_appending(&self, which_update: usize, new_row_addr: u64, new_element: L)
+    pub(super) exec fn update_by_appending(&self, which_modification: usize, new_row_addr: u64, new_element: L)
                                            -> (result: Self)
         requires
             match self {
@@ -135,7 +135,7 @@ impl<L> ListTableEntry<L>
                 _ => false,
             },
         ensures
-            result@ == self@.update_by_appending(which_update as nat, new_row_addr, new_element),
+            result@ == self@.update_by_appending(which_modification as nat, new_row_addr, new_element),
     {
         match self {
             ListTableEntry::Durable{ ref entry } => {
@@ -150,7 +150,7 @@ impl<L> ListTableEntry<L>
                 assert(appended_addrs@ =~= seq![new_row_addr]);
                 assert(appended_elements@ =~= seq![new_element]);
                 ListTableEntry::Updated{
-                    which_update,
+                    which_modification,
                     durable: entry.clone(),
                     tentative: new_entry,
                     num_trimmed: 0,
@@ -215,10 +215,10 @@ impl<L> ListTableInternalView<L>
             self.m[list_addr] is Durable,
     {
         let which_delete = self.deletes.len();
-        let which_update = self.updates.len();
+        let which_modification = self.modifications.len();
         let new_row_addr = self.free_list.last();
         let new_delete = self.m[list_addr]->Durable_entry;
-        let entry = self.m[list_addr].update_by_appending(which_update, new_row_addr, new_element);
+        let entry = self.m[list_addr].update_by_appending(which_modification, new_row_addr, new_element);
         let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
 
         Self{
@@ -227,7 +227,7 @@ impl<L> ListTableInternalView<L>
             m: self.m.insert(list_addr, entry),
             deletes_inverse: self.deletes_inverse.insert(list_addr, which_delete),
             deletes: self.deletes.push(new_delete),
-            updates: self.updates.push(Some(list_addr)),
+            modifications: self.modifications.push(Some(list_addr)),
             free_list: self.free_list.drop_last(),
             pending_allocations: self.pending_allocations.push(new_row_addr),
             ..self
@@ -237,7 +237,7 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn append_case2(self, list_addr: u64, new_element: L) -> Self
         recommends
             self.m.contains_key(list_addr),
-            self.m[list_addr] is Updated || self.m[list_addr] is Created,
+            !(self.m[list_addr] is Durable),
     {
         let new_row_addr = self.free_list.last();
         let entry = self.m[list_addr].append(new_row_addr, new_element);
@@ -257,9 +257,9 @@ impl<L> ListTableInternalView<L>
     {
         let row_addr = self.free_list.last();
         let disposition = ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
-        let which_create = self.creates.len();
+        let which_modification = self.modifications.len();
         let entry = ListTableEntryView::<L>::Created{
-            which_create,
+            which_modification,
             tentative_addrs: seq![row_addr],
             tentative_elements: seq![new_element],
         };
@@ -268,7 +268,7 @@ impl<L> ListTableInternalView<L>
             tentative_list_addrs: self.tentative_list_addrs.insert(row_addr),
             tentative_mapping: self.tentative_mapping.create_singleton(row_addr, new_element),
             row_info: self.row_info.insert(row_addr, disposition),
-            creates: self.creates.push(Some(row_addr)),
+            modifications: self.modifications.push(Some(row_addr)),
             free_list: self.free_list.drop_last(),
             pending_allocations: self.pending_allocations.push(row_addr),
             m: self.m.insert(row_addr, entry),
@@ -395,7 +395,7 @@ impl<L> ListTableInternalView<L>
         let row_addr = self.free_list.last();
         let tentative_addrs = seq![row_addr];
         let tentative_elements = seq![new_element];
-        let which_create = self.creates.len();
+        let which_modification = self.modifications.len();
 
         assert(tentative_elements =~= new_self.tentative_mapping.list_elements[row_addr]);
 
@@ -676,18 +676,18 @@ impl<PM, L> ListTable<PM, L>
         assert(self.sm.table.validate_row_addr(tail_row_addr));
 
         let ghost which_delete = self.deletes@.len();
-        let which_update = self.updates.len();
+        let which_modification = self.modifications.len();
 
         self.tentative_mapping = Ghost(self.tentative_mapping@.append(list_addr, new_row_addr, new_element));
         let ghost disposition =
             ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
         self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
-        let new_entry = entry.update_by_appending(which_update, new_row_addr, new_element);
+        let new_entry = entry.update_by_appending(which_modification, new_row_addr, new_element);
         let new_delete = entry.unwrap_durable();
         self.m.insert(list_addr, new_entry);
         self.deletes_inverse = Ghost(self.deletes_inverse@.insert(list_addr, which_delete));
         self.deletes.push(new_delete);
-        self.updates.push(Some(list_addr));
+        self.modifications.push(Some(list_addr));
         self.pending_allocations.push(new_row_addr);
 
         assert(self.internal_view() =~= prev_self.internal_view().append_case1(list_addr, new_element));
@@ -1185,8 +1185,8 @@ impl<PM, L> ListTable<PM, L>
             ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat };
         self.row_info = Ghost(self.row_info@.insert(row_addr, disposition));
 
-        let which_create = self.creates.len();
-        self.creates.push(Some(row_addr));
+        let which_modification = self.modifications.len();
+        self.modifications.push(Some(row_addr));
 
         self.pending_allocations.push(row_addr);
 
@@ -1195,7 +1195,7 @@ impl<PM, L> ListTable<PM, L>
         assert(tentative_addrs@ =~= seq![row_addr]);
         assert(tentative_elements@ =~= seq![new_element]);
         let entry = ListTableEntry::<L>::Created{
-            which_create,
+            which_modification,
             tentative_addrs,
             tentative_elements,
         };
