@@ -230,5 +230,14 @@ impl<L> ListTableEntry<L>
     }
 }
 
+pub(super) proof fn lemma_push_commutes_with_skip<T>(s: Seq<T>, skip_amount: int, pushed_element: T)
+    requires
+        0 <= skip_amount <= s.len(),
+    ensures
+        s.skip(skip_amount).push(pushed_element) == s.push(pushed_element).skip(skip_amount),
+{
+    assert(s.skip(skip_amount).push(pushed_element) =~= s.push(pushed_element).skip(skip_amount));
+}
+
 }
 
