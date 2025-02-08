@@ -40,12 +40,14 @@ impl<L> ListTableEntryView<L>
             },
     {
         match self {
-            ListTableEntryView::Updated{ which_modification, durable, tentative, appended_addrs, appended_elements } =>
+            ListTableEntryView::Updated{ which_modification, durable, tentative, num_trimmed,
+                                         appended_addrs, appended_elements } =>
                 ListTableEntryView::Updated{
                     which_modification,
                     durable,
                     tentative: ListTableDurableEntry{ tail: new_row_addr, length: (tentative.length + 1) as usize,
                                                       end_of_logical_range: new_element.end(), ..tentative },
+                    num_trimmed,
                     appended_addrs: appended_addrs.push(new_row_addr),
                     appended_elements: appended_elements.push(new_element),
                 },
@@ -78,6 +80,7 @@ impl<L> ListTableEntryView<L>
                     which_modification,
                     durable: entry,
                     tentative: new_entry,
+                    num_trimmed: 0,
                     appended_addrs: seq![new_row_addr],
                     appended_elements: seq![new_element],
                 }
@@ -103,7 +106,7 @@ impl<L> ListTableEntry<L>
             result@ == self@.append(new_row_addr, new_element),
     {
         match self {
-            ListTableEntry::Updated{ which_modification, durable, mut tentative,
+            ListTableEntry::Updated{ which_modification, durable, mut tentative, num_trimmed,
                                      mut appended_addrs, mut appended_elements } =>
             {
                 tentative.tail = new_row_addr;
@@ -111,7 +114,8 @@ impl<L> ListTableEntry<L>
                 tentative.end_of_logical_range = new_element.end();
                 appended_addrs.push(new_row_addr);
                 appended_elements.push(new_element);
-                ListTableEntry::Updated{ which_modification, durable, tentative, appended_addrs, appended_elements }
+                ListTableEntry::Updated{ which_modification, durable, tentative, num_trimmed, appended_addrs,
+                                         appended_elements }
             },
             ListTableEntry::Created{ which_modification, mut tentative_addrs, mut tentative_elements } => 
             {
@@ -149,6 +153,7 @@ impl<L> ListTableEntry<L>
                     which_modification,
                     durable: entry.clone(),
                     tentative: new_entry,
+                    num_trimmed: 0,
                     appended_addrs,
                     appended_elements,
                 }
@@ -305,15 +310,12 @@ impl<L> ListTableInternalView<L>
         }
 
         match new_self.m[list_addr] {
-            ListTableEntryView::Updated{ durable, appended_addrs, appended_elements, .. } => {
-                let durable_addrs = new_self.durable_mapping.list_info[list_addr];
-                let durable_elements = new_self.durable_mapping.list_elements[list_addr];
-                let tentative_addrs = new_self.tentative_mapping.list_info[list_addr];
-                let tentative_elements = new_self.tentative_mapping.list_elements[list_addr];
-                assert(tentative_addrs.take(durable.length as int) =~= durable_addrs);
-                assert(tentative_elements.take(durable.length as int) =~= durable_elements);
-                assert(tentative_addrs.skip(durable.length as int) =~= appended_addrs);
-                assert(tentative_elements.skip(durable.length as int) =~= appended_elements);
+            ListTableEntryView::Updated{ appended_addrs, appended_elements, .. } => {
+                let addrs = new_self.tentative_mapping.list_info[list_addr];
+                let elements = new_self.tentative_mapping.list_elements[list_addr];
+                assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
+                       appended_elements);
+                assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
             },
             _ => { assert(false); },
         }
@@ -359,15 +361,12 @@ impl<L> ListTableInternalView<L>
         }
 
         match new_self.m[list_addr] {
-            ListTableEntryView::Updated{ durable, appended_addrs, appended_elements, .. } => {
-                let durable_addrs = new_self.durable_mapping.list_info[list_addr];
-                let durable_elements = new_self.durable_mapping.list_elements[list_addr];
-                let tentative_addrs = new_self.tentative_mapping.list_info[list_addr];
-                let tentative_elements = new_self.tentative_mapping.list_elements[list_addr];
-                assert(tentative_addrs.take(durable.length as int) =~= durable_addrs);
-                assert(tentative_elements.take(durable.length as int) =~= durable_elements);
-                assert(tentative_addrs.skip(durable.length as int) =~= appended_addrs);
-                assert(tentative_elements.skip(durable.length as int) =~= appended_elements);
+            ListTableEntryView::Updated{ appended_addrs, appended_elements, .. } => {
+                let addrs = new_self.tentative_mapping.list_info[list_addr];
+                let elements = new_self.tentative_mapping.list_elements[list_addr];
+                assert(elements.subrange(elements.len() - appended_elements.len(), elements.len() as int) =~=
+                       appended_elements);
+                assert(addrs.subrange(addrs.len() - appended_addrs.len(), addrs.len() as int) == appended_addrs);
             },
             ListTableEntryView::Created{ tentative_addrs, tentative_elements, .. } => {
                 let addrs = new_self.tentative_mapping.list_info[list_addr];
