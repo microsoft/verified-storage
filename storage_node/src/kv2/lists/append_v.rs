@@ -180,16 +180,16 @@ impl<L> ListRecoveryMapping<L>
 }
 
 // There are two main cases we have to deal with when appending:
-// Case 1: The list hasn't been modified at all this transaction, which we
-//         can tell from the fact that `self.m[list_addr] is Durable`.
-// Case 2: The list has already been modified during this transaction,
-//         which we can tell because `!(self.m[list_addr] is Durable)`.
+// Case "durable": The list hasn't been modified at all this transaction, which we
+//                 can tell from the fact that `self.m[list_addr] is Durable`.
+// Case "modified": The list has already been modified during this transaction,
+//                  which we can tell because `self.m[list_addr] is Modified`.
 
 impl<L> ListTableInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn append_case1(self, list_addr: u64, new_element: L) -> Self
+    pub(super) open spec fn append_case_durable(self, list_addr: u64, new_element: L) -> Self
         recommends
             self.m.contains_key(list_addr),
             self.m[list_addr] is Durable,
@@ -214,7 +214,7 @@ impl<L> ListTableInternalView<L>
         }
     }
 
-    pub(super) open spec fn append_case2(self, list_addr: u64, new_element: L) -> Self
+    pub(super) open spec fn append_case_modified(self, list_addr: u64, new_element: L) -> Self
         recommends
             self.m.contains_key(list_addr),
             !(self.m[list_addr] is Durable),
@@ -264,7 +264,12 @@ impl<L> ListTableInternalView<L>
         }
     }
 
-    pub(super) proof fn lemma_append_case1_works(self, list_addr: u64, new_element: L, sm: ListTableStaticMetadata)
+    pub(super) proof fn lemma_append_case_durable_works(
+        self,
+        list_addr: u64,
+        new_element: L,
+        sm: ListTableStaticMetadata
+    )
         requires
             sm.valid::<L>(),
             self.valid(sm),
@@ -278,11 +283,11 @@ impl<L> ListTableInternalView<L>
                 _ => false,
             },
         ensures
-            self.append_case1(list_addr, new_element).valid(sm),
-            self.append_case1(list_addr, new_element).tentative_mapping.as_snapshot() ==
+            self.append_case_durable(list_addr, new_element).valid(sm),
+            self.append_case_durable(list_addr, new_element).tentative_mapping.as_snapshot() ==
                 self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
     {
-        let new_self = self.append_case1(list_addr, new_element);
+        let new_self = self.append_case_durable(list_addr, new_element);
         let old_snapshot = self.tentative_mapping.as_snapshot();
         let new_snapshot = new_self.tentative_mapping.as_snapshot();
 
@@ -312,11 +317,16 @@ impl<L> ListTableInternalView<L>
             _ => { assert(false); },
         }
 
-        assert(self.append_case1(list_addr, new_element).tentative_mapping.as_snapshot() =~=
+        assert(self.append_case_durable(list_addr, new_element).tentative_mapping.as_snapshot() =~=
                self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element));
     }
 
-    pub(super) proof fn lemma_append_case2_works(self, list_addr: u64, new_element: L, sm: ListTableStaticMetadata)
+    pub(super) proof fn lemma_append_case_modified_works(
+        self,
+        list_addr: u64,
+        new_element: L,
+        sm: ListTableStaticMetadata
+    )
         requires
             sm.valid::<L>(),
             self.valid(sm),
@@ -330,12 +340,12 @@ impl<L> ListTableInternalView<L>
                 _ => false,
             },
         ensures
-            self.append_case2(list_addr, new_element).valid(sm),
-            self.append_case2(list_addr, new_element).tentative_mapping.as_snapshot() ==
+            self.append_case_modified(list_addr, new_element).valid(sm),
+            self.append_case_modified(list_addr, new_element).tentative_mapping.as_snapshot() ==
                 self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
     {
         
-        let new_self = self.append_case2(list_addr, new_element);
+        let new_self = self.append_case_modified(list_addr, new_element);
         let old_snapshot = self.tentative_mapping.as_snapshot();
         let new_snapshot = new_self.tentative_mapping.as_snapshot();
 
@@ -409,7 +419,7 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    proof fn lemma_append_case1_works(
+    proof fn lemma_append_case_durable_works(
         iv1: ListTableInternalView<L>,
         iv2: ListTableInternalView<L>,
         commit_state1: Seq<u8>,
@@ -436,7 +446,7 @@ impl<PM, L> ListTable<PM, L>
             iv1.free_list.len() > 0,
             new_row_addr == iv1.free_list.last(),
             iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case1(list_addr, new_element),
+            iv2 == iv1.append_case_durable(list_addr, new_element),
             seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
                                        new_row_addr + sm.table.row_size),
             seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
@@ -450,7 +460,7 @@ impl<PM, L> ListTable<PM, L>
         ensures
             iv2.corresponds_to_tentative_state(commit_state3, sm),
     {
-        iv1.lemma_append_case1_works(list_addr, new_element, sm);
+        iv1.lemma_append_case_durable_works(list_addr, new_element, sm);
 
         broadcast use group_validate_row_addr;
         broadcast use pmcopy_axioms;
@@ -482,7 +492,7 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-    proof fn lemma_append_case2_works(
+    proof fn lemma_append_case_modified_works(
         iv1: ListTableInternalView<L>,
         iv2: ListTableInternalView<L>,
         commit_state1: Seq<u8>,
@@ -509,7 +519,7 @@ impl<PM, L> ListTable<PM, L>
             iv1.free_list.len() > 0,
             new_row_addr == iv1.free_list.last(),
             iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case2(list_addr, new_element),
+            iv2 == iv1.append_case_modified(list_addr, new_element),
             seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
                                        new_row_addr + sm.table.row_size),
             seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
@@ -523,7 +533,7 @@ impl<PM, L> ListTable<PM, L>
         ensures
             iv2.corresponds_to_tentative_state(commit_state3, sm),
     {
-        iv1.lemma_append_case2_works(list_addr, new_element, sm);
+        iv1.lemma_append_case_modified_works(list_addr, new_element, sm);
         
         broadcast use group_validate_row_addr;
         broadcast use pmcopy_axioms;
@@ -556,7 +566,7 @@ impl<PM, L> ListTable<PM, L>
     }
 
     #[inline]
-    exec fn append_case1(
+    exec fn append_case_durable(
         &mut self,
         list_addr: u64,
         new_element: L,
@@ -675,9 +685,9 @@ impl<PM, L> ListTable<PM, L>
         self.modifications.push(Some(list_addr));
         self.pending_allocations.push(new_row_addr);
 
-        assert(self.internal_view() =~= prev_self.internal_view().append_case1(list_addr, new_element));
+        assert(self.internal_view() =~= prev_self.internal_view().append_case_durable(list_addr, new_element));
         proof {
-            prev_self.internal_view().lemma_append_case1_works(list_addr, new_element, prev_self.sm);
+            prev_self.internal_view().lemma_append_case_durable_works(list_addr, new_element, prev_self.sm);
         }
 
         let next_addr = tail_row_addr + self.sm.row_next_start;
@@ -708,7 +718,7 @@ impl<PM, L> ListTable<PM, L>
         }
 
         proof {
-            Self::lemma_append_case1_works(
+            Self::lemma_append_case_durable_works(
                 prev_self.internal_view(), self.internal_view(),
                 prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
                 list_addr, new_element, new_row_addr, tail_row_addr, self.sm
@@ -719,7 +729,7 @@ impl<PM, L> ListTable<PM, L>
     }
 
     #[inline]
-    exec fn append_case2(
+    exec fn append_case_modified(
         &mut self,
         list_addr: u64,
         new_element: L,
@@ -831,9 +841,9 @@ impl<PM, L> ListTable<PM, L>
         self.m.insert(list_addr, new_entry);
         self.pending_allocations.push(new_row_addr);
 
-        assert(self.internal_view() =~= prev_self.internal_view().append_case2(list_addr, new_element));
+        assert(self.internal_view() =~= prev_self.internal_view().append_case_modified(list_addr, new_element));
         proof {
-            prev_self.internal_view().lemma_append_case2_works(list_addr, new_element, prev_self.sm);
+            prev_self.internal_view().lemma_append_case_modified_works(list_addr, new_element, prev_self.sm);
         }
 
         let next_addr = tail_row_addr + self.sm.row_next_start;
@@ -864,7 +874,7 @@ impl<PM, L> ListTable<PM, L>
         }
 
         proof {
-            Self::lemma_append_case2_works(
+            Self::lemma_append_case_modified_works(
                 prev_self.internal_view(), self.internal_view(),
                 prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
                 list_addr, new_element, new_row_addr, tail_row_addr, self.sm
@@ -1034,11 +1044,11 @@ impl<PM, L> ListTable<PM, L>
 
         match entry {
             ListTableEntry::<L>::Durable{ .. } =>
-                self.append_case1(list_addr, new_element, journal, row_addr, entry,
-                                  Ghost(*old(self)), Ghost(old(journal)@)),
+                self.append_case_durable(list_addr, new_element, journal, row_addr, entry,
+                                         Ghost(*old(self)), Ghost(old(journal)@)),
             ListTableEntry::<L>::Modified{ .. } =>
-                self.append_case2(list_addr, new_element, journal, row_addr, entry,
-                                  Ghost(*old(self)), Ghost(old(journal)@)),
+                self.append_case_modified(list_addr, new_element, journal, row_addr, entry,
+                                          Ghost(*old(self)), Ghost(old(journal)@)),
         }
     }
 
