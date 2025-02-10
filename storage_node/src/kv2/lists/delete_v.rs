@@ -104,12 +104,11 @@ impl<PM, L> ListTable<PM, L>
         Ok(result)
     }
 
-    /*
-    exec fn get_row_addrs_case_updated(
+    exec fn get_row_addrs_case_modified(
         &self,
         list_addr: u64,
-        durable: &ListTableDurableEntry,
-        appended_addrs: &Vec<u64>,
+        entry: &ListTableDurableEntry,
+        addrs: &Vec<u64>,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
@@ -118,9 +117,9 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative.is_some(),
             self@.tentative.unwrap().m.contains_key(list_addr),
             self.m@.contains_key(list_addr),
-            self.m@[list_addr] is Updated,
-            durable == self.m@[list_addr]->Updated_durable,
-            appended_addrs == self.m@[list_addr]->Updated_appended_addrs,
+            self.m@[list_addr] is Modified,
+            entry == self.m@[list_addr]->Modified_entry,
+            addrs == self.m@[list_addr]->Modified_addrs,
         ensures
             match result {
                 Ok(addrs) => addrs@ == self.tentative_mapping@.list_info[list_addr],
@@ -128,6 +127,14 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
+        if entry.length == addrs.len() {
+            return Ok(addrs.clone());
+        }
+
+        assume(false);
+        Err(KvError::NotImplemented)
+        /*
+
         let mut current_addr = list_addr;
         let mut result = Vec::<u64>::new();
         let mut current_pos: usize = 0;
@@ -139,10 +146,11 @@ impl<PM, L> ListTable<PM, L>
         assert(list_addr != 0) by {
             broadcast use group_validate_row_addr;
         }
-        
-        while current_pos < durable.length
+
+        let num_durable_addrs = entry.length - addrs.len();
+        while current_pos < num_durable_addrs
             invariant
-                0 <= current_pos <= durable.length,
+                0 <= current_pos <= durable.length - num_trimmed,
                 current_addr == tentative_addrs[current_pos as int],
                 result@ == tentative_addrs.take(current_pos as int),
                 self.valid(journal@),
@@ -150,8 +158,8 @@ impl<PM, L> ListTable<PM, L>
                 self.durable_mapping@.list_info.contains_key(list_addr),
                 self.tentative_mapping@.list_info.contains_key(list_addr),
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
-                durable_addrs == tentative_addrs.take(durable.length as int),
-                appended_addrs@ == tentative_addrs.skip(durable.length as int),
+                durable_addrs.skip(num_trimmed as int) == tentative_addrs.take(durable.length - num_trimmed),
+                appended_addrs@ == tentative_addrs.skip(durable.length - num_trimmed),
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
@@ -177,8 +185,6 @@ impl<PM, L> ListTable<PM, L>
             current_pos = current_pos + 1;
         }
 
-        assume(false);
-
         let num_appended_addrs = appended_addrs.len();
         while current_pos < num_appended_addrs
             invariant
@@ -194,8 +200,8 @@ impl<PM, L> ListTable<PM, L>
 
         assert(tentative_addrs.take(current_pos as int) =~= tentative_addrs);
         Ok(result)
+        */
     }
-    */
 
     exec fn get_row_addrs(
         &self,
@@ -225,7 +231,8 @@ impl<PM, L> ListTable<PM, L>
             },
             Some(ListTableEntry::<L>::Durable{ ref entry }) =>
                 self.get_row_addrs_case_durable(list_addr, entry, journal),
-            _ => { assume(false); Err(KvError::NotImplemented) }
+            Some(ListTableEntry::<L>::Modified{ ref entry, ref addrs, .. }) =>
+                self.get_row_addrs_case_modified(list_addr, entry, addrs, journal),
         }
     }
 

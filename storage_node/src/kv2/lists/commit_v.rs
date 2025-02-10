@@ -94,29 +94,13 @@ impl<L> ListTableEntry<L>
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     pub(super) exec fn commit(self) -> (result: Self)
-        requires
-            self matches ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                &&& 0 < tentative_addrs.len()
-                &&& tentative_addrs.len() == tentative_elements.len()
-            },
         ensures
             result@ == self@.commit(),
             result@ == result@.commit(),
     {
         match self {
             ListTableEntry::Durable{ entry } => ListTableEntry::Durable{ entry },
-            ListTableEntry::Updated{ tentative, .. } => ListTableEntry::Durable{ entry: tentative },
-            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } => {
-                let last_pos = tentative_addrs.len() - 1;
-                ListTableEntry::Durable{
-                    entry: ListTableDurableEntry{
-                        head: tentative_addrs[0],
-                        tail: tentative_addrs[last_pos],
-                        length: tentative_addrs.len(),
-                        end_of_logical_range: tentative_elements[last_pos].end(),
-                    }
-                }
-            }
+            ListTableEntry::Modified{ entry, .. } => ListTableEntry::Durable{ entry },
         }
     }
 }
@@ -129,14 +113,8 @@ impl<PM, L> ListTable<PM, L>
     exec fn update_m_to_reflect_commit_of_modifications(&mut self)
         requires
             forall|which_modification: int| 0 <= which_modification < old(self).modifications.len() ==>
-                (#[trigger] old(self).modifications[which_modification] matches Some(list_addr) ==> {
-                    &&& old(self).m@.contains_key(list_addr)
-                    &&& (old(self).m@[list_addr] matches
-                        ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                            &&& 0 < tentative_addrs.len()
-                            &&& tentative_addrs.len() == tentative_elements.len()
-                        })
-                }),
+                (#[trigger] old(self).modifications[which_modification] matches Some(list_addr) ==>
+                 old(self).m@.contains_key(list_addr)),
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             forall|i: int| 0 <= i < self.modifications.len() ==>
@@ -159,14 +137,8 @@ impl<PM, L> ListTable<PM, L>
                 self == (Self{ m: self.m, ..*old(self) }),
                 num_modifications == self.modifications.len(),
                 forall|i: int| 0 <= i < old(self).modifications.len() ==>
-                    (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
-                        &&& old(self).m@.contains_key(list_addr)
-                        &&& (old(self).m@[list_addr] matches
-                            ListTableEntry::Created{ tentative_addrs, tentative_elements, .. } ==> {
-                                &&& 0 < tentative_addrs.len()
-                                &&& tentative_addrs.len() == tentative_elements.len()
-                            })
-                    }),
+                    (#[trigger] old(self).modifications[i] matches Some(list_addr) ==>
+                     old(self).m@.contains_key(list_addr)),
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& {

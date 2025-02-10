@@ -49,18 +49,12 @@ pub(super) enum ListTableEntryView<L>
     Durable{
         entry: ListTableDurableEntry
     },
-    Updated{
+    Modified{
         which_modification: nat,
-        durable: ListTableDurableEntry,
-        tentative: ListTableDurableEntry,
-        num_trimmed: int,
-        appended_addrs: Seq<u64>,
-        appended_elements: Seq<L>,
-    },
-    Created{
-        which_modification: nat,
-        tentative_addrs: Seq<u64>,
-        tentative_elements: Seq<L>
+        durable_head: u64,
+        entry: ListTableDurableEntry,
+        addrs: Seq<u64>,
+        elements: Seq<L>
     }
 }
 
@@ -72,18 +66,12 @@ pub(super) enum ListTableEntry<L>
     Durable{
         entry: ListTableDurableEntry
     },
-    Updated{
+    Modified{
         which_modification: usize,
-        durable: ListTableDurableEntry,
-        tentative: ListTableDurableEntry,
-        num_trimmed: usize,
-        appended_addrs: Vec<u64>,
-        appended_elements: Vec<L>,
-    },
-    Created{
-        which_modification: usize,
-        tentative_addrs: Vec<u64>,
-        tentative_elements: Vec<L>,
+        durable_head: Ghost<u64>,
+        entry: ListTableDurableEntry,
+        addrs: Vec<u64>,
+        elements: Vec<L>,
     },
 }
 
@@ -95,16 +83,10 @@ impl<L> ListTableEntry<L>
     {
         match self {
             ListTableEntry::Durable{ entry } => ListTableEntryView::Durable{ entry },
-            ListTableEntry::Updated{ which_modification, durable, tentative, num_trimmed,
-                                     appended_addrs, appended_elements } =>
-                ListTableEntryView::Updated{ which_modification: which_modification as nat,
-                                             durable, tentative, num_trimmed: num_trimmed as int,
-                                             appended_addrs: appended_addrs@,
-                                             appended_elements: appended_elements@ },
-            ListTableEntry::Created{ which_modification, tentative_addrs, tentative_elements } =>
-                ListTableEntryView::Created{ which_modification: which_modification as nat,
-                                             tentative_addrs: tentative_addrs@,
-                                             tentative_elements: tentative_elements@ },
+            ListTableEntry::Modified{ which_modification, durable_head, entry, addrs, elements } =>
+                ListTableEntryView::Modified{ which_modification: which_modification as nat,
+                                              durable_head: durable_head@, entry,
+                                              addrs: addrs@, elements: elements@ },
         }
     }
 }
@@ -117,16 +99,7 @@ impl<L> ListTableEntryView<L>
     {
         match self {
             ListTableEntryView::Durable{ entry } => ListTableEntryView::Durable{ entry },
-            ListTableEntryView::Updated{ tentative, .. } => ListTableEntryView::Durable{ entry: tentative },
-            ListTableEntryView::Created{ tentative_addrs, tentative_elements, .. } =>
-                ListTableEntryView::Durable{
-                    entry: ListTableDurableEntry{
-                        head: tentative_addrs[0],
-                        tail: tentative_addrs.last(),
-                        length: tentative_addrs.len() as usize,
-                        end_of_logical_range: end_of_range(tentative_elements),
-                    }
-                },
+            ListTableEntryView::Modified{ entry, .. } => ListTableEntryView::Durable{ entry },
         }
     }
 }
@@ -222,8 +195,7 @@ impl<L> ListTableInternalView<L>
                (#[trigger] self.modifications[which_modification] matches Some(tentative_list_addr) ==> {
                    &&& self.m.contains_key(tentative_list_addr)
                    &&& match self.m[tentative_list_addr] {
-                          ListTableEntryView::Updated{ which_modification: wm, .. } => which_modification == wm,
-                          ListTableEntryView::Created{ which_modification: wm, .. } => which_modification == wm,
+                          ListTableEntryView::Modified{ which_modification: wm, .. } => which_modification == wm,
                           _ => false,
                       }
                })
@@ -251,53 +223,40 @@ impl<L> ListTableInternalView<L>
                        &&& tentative_addrs.len() == tentative_elements.len()
                        &&& tentative_addrs.len() <= usize::MAX
                    },
-                   ListTableEntryView::Updated{ which_modification, durable, tentative, num_trimmed,
-                                                appended_addrs, appended_elements } => {
-                       let durable_addrs = self.durable_mapping.list_info[list_addr];
-                       let durable_elements = self.durable_mapping.list_elements[list_addr];
+                   ListTableEntryView::Modified{ which_modification, durable_head, entry, addrs, elements } => {
                        let tentative_addrs = self.tentative_mapping.list_info[list_addr];
                        let tentative_elements = self.tentative_mapping.list_elements[list_addr];
                        &&& 0 <= which_modification < self.modifications.len()
                        &&& self.modifications[which_modification as int] == Some(list_addr)
                        &&& self.tentative_mapping.list_info.contains_key(list_addr)
-                       &&& tentative.head == list_addr
-                       &&& 0 < durable_addrs.len()
+                       &&& entry.head == list_addr
                        &&& 0 < tentative_addrs.len()
-                       &&& durable.head == durable_addrs[0]
-                       &&& durable.tail == durable_addrs.last()
-                       &&& durable.length == durable_addrs.len()
-                       &&& durable.end_of_logical_range == end_of_range(durable_elements)
-                       &&& durable_addrs.len() == durable_elements.len()
-                       &&& durable_addrs.len() <= usize::MAX
-                       &&& tentative.head == tentative_addrs[0]
-                       &&& tentative.tail == tentative_addrs.last()
-                       &&& tentative.length == tentative_addrs.len()
+                       &&& entry.head == tentative_addrs[0]
+                       &&& entry.tail == tentative_addrs.last()
+                       &&& entry.length == tentative_addrs.len()
                        &&& tentative_addrs.len() == tentative_elements.len()
                        &&& tentative_addrs.len() <= usize::MAX
-                       &&& tentative.end_of_logical_range == end_of_range(tentative_elements)
-                       &&& num_trimmed < durable.length
-                       &&& durable.tail == tentative_addrs[durable.length - num_trimmed - 1]
-                       &&& durable.end_of_logical_range == tentative_elements[durable.length - num_trimmed - 1].end()
-                       &&& appended_addrs.len() == appended_elements.len()
-                       &&& durable.length - num_trimmed + appended_elements.len() == tentative.length
-                       &&& tentative_addrs.take(durable.length - num_trimmed) == durable_addrs.skip(num_trimmed as int)
-                       &&& tentative_elements.take(durable.length - num_trimmed) ==
-                           durable_elements.skip(num_trimmed as int)
-                       &&& tentative_addrs.skip(durable.length - num_trimmed) == appended_addrs
-                       &&& tentative_elements.skip(durable.length - num_trimmed) == appended_elements
-                   },
-                   ListTableEntryView::Created{ which_modification, tentative_addrs, tentative_elements } => {
-                       let addrs = self.tentative_mapping.list_info[list_addr];
-                       let elements = self.tentative_mapping.list_elements[list_addr];
-                       &&& 0 <= which_modification < self.modifications.len()
-                       &&& self.modifications[which_modification as int] == Some(list_addr)
-                       &&& 0 < tentative_addrs.len()
-                       &&& tentative_addrs[0] == list_addr
-                       &&& self.tentative_mapping.list_info.contains_key(list_addr)
-                       &&& tentative_addrs == addrs
-                       &&& tentative_elements == elements
+                       &&& entry.end_of_logical_range == end_of_range(tentative_elements)
                        &&& addrs.len() == elements.len()
-                       &&& addrs.len() <= usize::MAX
+                       &&& if addrs.len() == entry.length {
+                              &&& durable_head == 0
+                              &&& tentative_addrs == addrs
+                              &&& tentative_elements == elements
+                          } else {
+                              let durable_addrs = self.durable_mapping.list_info[durable_head];
+                              let durable_elements = self.durable_mapping.list_elements[durable_head];
+                              &&& self.durable_mapping.list_info.contains_key(durable_head)
+                              &&& 0 < durable_addrs.len()
+                              &&& addrs.len() < entry.length
+                              &&& entry.length - addrs.len() <= durable_addrs.len()
+                              &&& durable_addrs.len() == durable_elements.len()
+                              &&& tentative_addrs ==
+                                  durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs
+                              &&& tentative_elements ==
+                                 durable_elements.skip(durable_elements.len() - (entry.length - elements.len())) +
+                                  elements
+                              &&& addrs.len() == elements.len()
+                          }
                    },
                }
     }
