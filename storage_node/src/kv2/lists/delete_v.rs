@@ -107,6 +107,7 @@ impl<PM, L> ListTable<PM, L>
     exec fn get_row_addrs_case_modified(
         &self,
         list_addr: u64,
+        Ghost(durable_head): Ghost<u64>,
         entry: &ListTableDurableEntry,
         addrs: &Vec<u64>,
         journal: &Journal<TrustedKvPermission, PM>,
@@ -118,6 +119,7 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative.unwrap().m.contains_key(list_addr),
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Modified,
+            durable_head == self.m@[list_addr]->Modified_durable_head,
             entry == self.m@[list_addr]->Modified_entry,
             addrs == self.m@[list_addr]->Modified_addrs,
         ensures
@@ -131,14 +133,10 @@ impl<PM, L> ListTable<PM, L>
             return Ok(addrs.clone());
         }
 
-        assume(false);
-        Err(KvError::NotImplemented)
-        /*
-
         let mut current_addr = list_addr;
         let mut result = Vec::<u64>::new();
         let mut current_pos: usize = 0;
-        let ghost durable_addrs = self.durable_mapping@.list_info[list_addr];
+        let ghost durable_addrs = self.durable_mapping@.list_info[durable_head];
         let ghost tentative_addrs = self.tentative_mapping@.list_info[list_addr];
         let pm = journal.get_pm_region_ref();
 
@@ -150,21 +148,25 @@ impl<PM, L> ListTable<PM, L>
         let num_durable_addrs = entry.length - addrs.len();
         while current_pos < num_durable_addrs
             invariant
-                0 <= current_pos <= durable.length - num_trimmed,
-                current_addr == tentative_addrs[current_pos as int],
+                num_durable_addrs == entry.length - addrs.len(),
+                0 <= current_pos <= num_durable_addrs,
+                current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
                 result@ == tentative_addrs.take(current_pos as int),
                 self.valid(journal@),
                 journal.valid(),
-                self.durable_mapping@.list_info.contains_key(list_addr),
+                self.durable_mapping@.list_info.contains_key(durable_head),
                 self.tentative_mapping@.list_info.contains_key(list_addr),
+                0 < durable_addrs.len(),
+                addrs.len() < entry.length,
+                entry.length - addrs.len() <= durable_addrs.len(),
+                durable_addrs == self.durable_mapping@.list_info[durable_head],
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
-                durable_addrs.skip(num_trimmed as int) == tentative_addrs.take(durable.length - num_trimmed),
-                appended_addrs@ == tentative_addrs.skip(durable.length - num_trimmed),
+                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
             decreases
-                tentative_addrs.len() - result@.len(),
+                num_durable_addrs - current_pos,
         {
             proof {
                 broadcast use group_validate_row_addr;
@@ -185,22 +187,13 @@ impl<PM, L> ListTable<PM, L>
             current_pos = current_pos + 1;
         }
 
-        let num_appended_addrs = appended_addrs.len();
-        while current_pos < num_appended_addrs
-            invariant
-                durable.length <= current_pos <= num_appended_addrs == appended_addrs.len(),
-                appended_addrs@ == self.tentative_mapping@.list_info[list_addr].skip(durable.length as int),
-                result@ == tentative_addrs.take(current_pos as int),
-        {
-            assert(tentative_addrs.take(current_pos as int).push(appended_addrs@[num_appended_addrs - current_pos])
-                   =~= tentative_addrs.take(current_pos + 1));
-            result.push(appended_addrs[num_appended_addrs - current_pos]);
-            current_pos = current_pos + 1;
+        assert(tentative_addrs == result@ + addrs@) by {
+            assert(tentative_addrs =~= tentative_addrs.take(entry.length - addrs.len()) + addrs@);
         }
 
-        assert(tentative_addrs.take(current_pos as int) =~= tentative_addrs);
+        let mut addrs_cloned = addrs.clone();
+        result.append(&mut addrs_cloned);
         Ok(result)
-        */
     }
 
     exec fn get_row_addrs(
@@ -231,8 +224,8 @@ impl<PM, L> ListTable<PM, L>
             },
             Some(ListTableEntry::<L>::Durable{ ref entry }) =>
                 self.get_row_addrs_case_durable(list_addr, entry, journal),
-            Some(ListTableEntry::<L>::Modified{ ref entry, ref addrs, .. }) =>
-                self.get_row_addrs_case_modified(list_addr, entry, addrs, journal),
+            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref addrs, .. }) =>
+                self.get_row_addrs_case_modified(list_addr, Ghost(durable_head@), entry, addrs, journal),
         }
     }
 
