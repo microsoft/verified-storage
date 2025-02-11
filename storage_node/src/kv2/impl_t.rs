@@ -416,27 +416,6 @@ where
         self.untrusted_kv_impl.read_list(key)
     }
 
-    pub exec fn read_list_entry_at_index(&mut self, key: &K, idx: usize) -> (result: Result<&L, KvError>)
-        requires
-            old(self).valid(),
-        ensures
-            self.valid(),
-            self@ == old(self)@,
-            match result {
-                Ok(list_entry) => {
-                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
-                    &&& *list_entry == e
-                },
-                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
-                Err(e) => {
-                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        self.untrusted_kv_impl.read_list_entry_at_index(key, idx)
-    }
-
     pub exec fn tentatively_append_to_list(
         &mut self,
         key: &K,

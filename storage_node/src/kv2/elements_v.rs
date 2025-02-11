@@ -112,41 +112,6 @@ where
         Ok((item, lst))
     }
 
-    pub exec fn read_list_entry_at_index(&mut self, key: &K, idx: usize) -> (result: Result<&L, KvError>)
-        requires
-            old(self).valid()
-        ensures
-            self.valid(),
-            self@ == old(self)@,
-            match result {
-                Ok(list_entry) => {
-                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Ok((e))
-                    &&& *list_entry == e
-                },
-                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
-                Err(e) => {
-                    &&& self@.tentative.read_list_entry_at_index(*key, idx as nat) matches Err(e_spec)
-                    &&& e == e_spec
-                },
-            },
-    {
-        proof {
-            self.keys.lemma_valid_implications(self.journal@);
-        }
-
-        let (_key_addr, row_metadata) = match self.keys.read(key, Ghost(self.journal@)) {
-            None => { return Err(KvError::KeyNotFound); },
-            Some(i) => i,
-        };
-
-        let list_addr = row_metadata.list_addr;
-        if list_addr == 0 {
-            return Err(KvError::IndexOutOfRange{ upper_bound: 0 });
-        }
-
-        self.lists.read_entry_at_index(list_addr, idx, &self.journal)
-    }
-
     #[inline]
     exec fn tentatively_append_to_list_step1(
         &mut self,
