@@ -274,8 +274,8 @@ impl<L> ListTableInternalView<L>
             sm.valid::<L>(),
             self.valid(sm),
             0 < sm.start(),
-            self.durable_mapping.internally_consistent(),
-            self.tentative_mapping.internally_consistent(),
+            self.durable_mapping.internally_consistent(sm),
+            self.tentative_mapping.internally_consistent(sm),
             self.free_list.len() > 0,
             self.m.contains_key(list_addr),
             match self.m[list_addr] {
@@ -331,8 +331,8 @@ impl<L> ListTableInternalView<L>
             sm.valid::<L>(),
             self.valid(sm),
             0 < sm.start(),
-            self.durable_mapping.internally_consistent(),
-            self.tentative_mapping.internally_consistent(),
+            self.durable_mapping.internally_consistent(sm),
+            self.tentative_mapping.internally_consistent(sm),
             self.free_list.len() > 0,
             self.m.contains_key(list_addr),
             match self.m[list_addr] {
@@ -380,8 +380,8 @@ impl<L> ListTableInternalView<L>
         requires
             sm.valid::<L>(),
             self.valid(sm),
-            self.durable_mapping.internally_consistent(),
-            self.tentative_mapping.internally_consistent(),
+            self.durable_mapping.internally_consistent(sm),
+            self.tentative_mapping.internally_consistent(sm),
             self.free_list.len() > 0,
         ensures
             self.create_singleton(new_element).valid(sm),

@@ -26,6 +26,123 @@ use super::super::spec_t::*;
 use vstd::std_specs::hash::*;
 
 verus! {
+impl<L> ListRecoveryMapping<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn delete(self, list_addr: u64) -> Self
+        recommends
+            self.list_info.contains_key(list_addr),
+    {
+        let new_row_info = Map::<u64, ListRowRecoveryInfo<L>>::new(
+            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr].head != list_addr,
+            |row_addr: u64| self.row_info[row_addr],
+        );
+        Self{
+            row_info: new_row_info,
+            list_info: self.list_info.remove(list_addr),
+            list_elements: self.list_elements.remove(list_addr),
+        }
+    }
+}
+
+impl ListRowDisposition
+{
+    pub(super) open spec fn add_to_pending_deallocations(self, dealloc_pos: nat) -> Self
+    {
+        match self {
+            ListRowDisposition::NowhereFree =>
+                ListRowDisposition::InPendingDeallocationList{ pos: dealloc_pos },
+            ListRowDisposition::InPendingAllocationList{ pos } =>
+                ListRowDisposition::InBothPendingLists{ alloc_pos: pos, dealloc_pos: dealloc_pos },
+            _ => self,
+        }
+    }
+}
+
+impl<L> ListTableInternalView<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn delete(self, list_addr: u64) -> Self
+        recommends
+            self.m.contains_key(list_addr),
+    {
+        let new_row_info = Map::<u64, ListRowDisposition>::new(
+            |row_addr: u64| self.row_info.contains_key(row_addr),
+            |row_addr: u64|
+                if {
+                    &&& self.tentative_mapping.row_info.contains_key(row_addr)
+                    &&& self.tentative_mapping.row_info[row_addr].head == list_addr
+                } {
+                    self.row_info[row_addr].add_to_pending_deallocations(
+                        self.pending_deallocations.len() + self.tentative_mapping.row_info[row_addr].pos as nat
+                    )
+                } else {
+                    self.row_info[row_addr]
+                },
+        );
+        let new_deletes =
+            if let ListTableEntryView::Durable{ entry } = self.m[list_addr] {
+                self.deletes.push(entry)
+            }
+            else {
+                self.deletes
+            };
+        let new_deletes_inverse =
+            if self.m[list_addr] is Durable {
+                self.deletes_inverse.insert(list_addr, self.deletes.len())
+            }
+            else {
+                self.deletes_inverse
+            };
+        let new_modifications =
+            if let ListTableEntryView::Modified{ which_modification, .. } = self.m[list_addr] {
+                self.modifications.update(which_modification as int, None)
+            }
+            else {
+                self.modifications
+            };
+        Self{
+            tentative_list_addrs: self.tentative_list_addrs.remove(list_addr),
+            tentative_mapping: self.tentative_mapping.delete(list_addr),
+            row_info: new_row_info,
+            m: self.m.remove(list_addr),
+            deletes_inverse: new_deletes_inverse,
+            deletes: new_deletes,
+            modifications: new_modifications,
+            pending_deallocations: self.pending_deallocations + self.tentative_mapping.list_info[list_addr],
+            ..self
+        }
+    }
+
+    pub(super) proof fn lemma_delete_works(
+        self,
+        list_addr: u64,
+        sm: ListTableStaticMetadata
+    )
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            self.durable_mapping.internally_consistent(sm),
+            self.tentative_mapping.internally_consistent(sm),
+            self.m.contains_key(list_addr),
+        ensures
+            self.delete(list_addr).valid(sm),
+            self.delete(list_addr).tentative_mapping.as_snapshot() ==
+                self.tentative_mapping.as_snapshot().delete(list_addr),
+    {
+        let new_self = self.delete(list_addr);
+        let old_snapshot = self.tentative_mapping.as_snapshot();
+        let new_snapshot = new_self.tentative_mapping.as_snapshot();
+
+        assert(new_snapshot =~= old_snapshot.delete(list_addr));
+
+        assert(self.delete(list_addr).tentative_mapping.as_snapshot() =~=
+               self.tentative_mapping.as_snapshot().delete(list_addr));
+    }
+}
 
 impl<PM, L> ListTable<PM, L>
     where

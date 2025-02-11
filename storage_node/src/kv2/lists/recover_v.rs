@@ -73,15 +73,11 @@ impl<L> ListRecoveryMapping<L>
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==>
             {
                 let row_info = self.row_info[row_addr];
-                &&& sm.table.validate_row_addr(row_addr)
                 &&& recover_object::<u64>(s, row_addr + sm.row_next_start,
                                         row_addr + sm.row_next_start + u64::spec_size_of())
                     == Some(row_info.next)
                 &&& recover_object::<L>(s, row_addr + sm.row_element_start, row_addr + sm.row_element_crc_start as int)
                     == Some(row_info.element)
-                &&& self.list_info.contains_key(row_info.head)
-                &&& 0 <= row_info.pos < self.list_info[row_info.head].len()
-                &&& self.list_info[row_info.head][row_info.pos as int] == row_addr
             }
     }
 
@@ -91,8 +87,15 @@ impl<L> ListRecoveryMapping<L>
         &&& forall|head: u64| #[trigger] list_addrs.contains(head) ==> self.list_info.contains_key(head)
     }
 
-    pub(super) open spec fn internally_consistent(self) -> bool
+    pub(super) open spec fn internally_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
+        &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
+               let row_info = self.row_info[row_addr];
+               &&& sm.table.validate_row_addr(row_addr)
+               &&& self.list_info.contains_key(row_info.head)
+               &&& 0 <= row_info.pos < self.list_info[row_info.head].len()
+               &&& self.list_info[row_info.head][row_info.pos as int] == row_addr
+           }
         &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==> {
                &&& 0 < self.list_info[head].len() <= usize::MAX
                &&& self.list_info[head][0] == head
@@ -121,7 +124,7 @@ impl<L> ListRecoveryMapping<L>
 
     pub(super) open spec fn corresponds(self, s: Seq<u8>, list_addrs: Set<u64>, sm: ListTableStaticMetadata) -> bool
     {
-        &&& self.internally_consistent()
+        &&& self.internally_consistent(sm)
         &&& self.row_info_corresponds(s, sm)
         &&& self.list_info_corresponds(list_addrs)
     }

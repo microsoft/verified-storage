@@ -140,11 +140,9 @@ impl<L> ListTableInternalView<L>
 {
     pub(super) open spec fn valid(self, sm: ListTableStaticMetadata) -> bool
     {
-        &&& self.durable_mapping.internally_consistent()
-        &&& self.tentative_mapping.internally_consistent()
+        &&& self.durable_mapping.internally_consistent(sm)
+        &&& self.tentative_mapping.internally_consistent(sm)
         &&& self.durable_mapping_reflected_in_changes_or_m()
-        &&& self.durable_mapping_corresponds_to_row_info()
-        &&& self.tentative_mapping_corresponds_to_row_info()
         &&& self.modifications_reflected_in_m()
         &&& forall|list_addr: u64| #[trigger] self.tentative_mapping.list_info.contains_key(list_addr) ==>
                 self.m.contains_key(list_addr)
@@ -169,24 +167,6 @@ impl<L> ListTableInternalView<L>
                 &&& self.m[list_addr] is Durable
             }
         }
-    }
-
-    pub(super) open spec fn durable_mapping_corresponds_to_row_info(self) -> bool
-    {
-        &&& forall|row_addr: u64| #[trigger] self.durable_mapping.row_info.contains_key(row_addr) ==> {
-               &&& self.row_info.contains_key(row_addr)
-               &&& self.row_info[row_addr] is NowhereFree ||
-                  self.row_info[row_addr] is InPendingDeallocationList
-           }
-    }
-
-    pub(super) open spec fn tentative_mapping_corresponds_to_row_info(self) -> bool
-    {
-        &&& forall|row_addr: u64| #[trigger] self.tentative_mapping.row_info.contains_key(row_addr) ==> {
-               &&& self.row_info.contains_key(row_addr)
-               &&& self.row_info[row_addr] is NowhereFree ||
-                  self.row_info[row_addr] is InPendingAllocationList
-           }
     }
 
     pub(super) open spec fn modifications_reflected_in_m(self) -> bool
@@ -333,24 +313,35 @@ impl<L> ListTableInternalView<L>
         forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
             &&& sm.table.validate_row_addr(row_addr)
             &&& match self.row_info[row_addr] {
-                  ListRowDisposition::NowhereFree => true,
+                  ListRowDisposition::NowhereFree => {
+                      &&& self.durable_mapping.row_info.contains_key(row_addr)
+                      &&& self.tentative_mapping.row_info.contains_key(row_addr)
+                  },
                   ListRowDisposition::InFreeList{ pos } => {
                       &&& 0 <= pos < self.free_list.len()
                       &&& self.free_list[pos as int] == row_addr
+                      &&& !self.durable_mapping.row_info.contains_key(row_addr)
+                      &&& !self.tentative_mapping.row_info.contains_key(row_addr)
                   },
                   ListRowDisposition::InPendingAllocationList{ pos } => {
                       &&& 0 <= pos < self.pending_allocations.len()
                       &&& self.pending_allocations[pos as int] == row_addr
+                      &&& !self.durable_mapping.row_info.contains_key(row_addr)
+                      &&& self.tentative_mapping.row_info.contains_key(row_addr)
                   },
                   ListRowDisposition::InPendingDeallocationList{ pos } => {
                       &&& 0 <= pos < self.pending_deallocations.len()
                       &&& self.pending_deallocations[pos as int] == row_addr
+                      &&& self.durable_mapping.row_info.contains_key(row_addr)
+                      &&& !self.tentative_mapping.row_info.contains_key(row_addr)
                   },
                   ListRowDisposition::InBothPendingLists{ alloc_pos, dealloc_pos } => {
                       &&& 0 <= alloc_pos < self.pending_allocations.len()
                       &&& self.pending_allocations[alloc_pos as int] == row_addr
                       &&& 0 <= dealloc_pos < self.pending_deallocations.len()
                       &&& self.pending_deallocations[dealloc_pos as int] == row_addr
+                      &&& !self.durable_mapping.row_info.contains_key(row_addr)
+                      &&& !self.tentative_mapping.row_info.contains_key(row_addr)
                   },
               }
         }
