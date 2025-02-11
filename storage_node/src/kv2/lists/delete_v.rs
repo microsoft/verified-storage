@@ -385,48 +385,6 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
-        self.delete_now(list_addr, journal, Tracked(perm))
-    }
-
-    pub exec fn delete_now(
-        &mut self,
-        list_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<(), KvError>)
-        requires
-            old(self).valid(old(journal)@),
-            old(journal).valid(),
-            old(self)@.tentative.is_some(),
-            old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
-        ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(_) => {
-                    &&& self@ == (ListTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().delete(list_addr)),
-                        ..old(self)@
-                    })
-                },
-                Err(KvError::CRCMismatch) => {
-                    &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                }, 
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
-                _ => false,
-            }
-    {
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
