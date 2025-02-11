@@ -34,7 +34,7 @@ impl<PM, L> ListTable<PM, L>
         &mut self,
         row_addr: u64,
         journal: &Journal<TrustedKvPermission, PM>
-    ) -> (result: Result<&[L], KvError>)
+    ) -> (result: Result<Vec<L>, KvError>)
         requires
             old(self).valid(journal@),
             journal.valid(),

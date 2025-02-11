@@ -30,7 +30,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn read_list(&mut self, key: &K) -> (result: Result<&[L], KvError>)
+    pub exec fn read_list(&mut self, key: &K) -> (result: Result<Vec<L>, KvError>)
         requires
             old(self).valid(),
         ensures
@@ -59,13 +59,13 @@ where
 
         let list_addr = row_metadata.list_addr;
         if list_addr == 0 {
-            return Ok(self.empty_list.as_slice());
+            return Ok(Vec::<L>::new());
         }
 
         self.lists.read(list_addr, &self.journal)
     }
 
-    pub exec fn read_item_and_list(&mut self, key: &K) -> (result: Result<(I, &[L]), KvError>)
+    pub exec fn read_item_and_list(&mut self, key: &K) -> (result: Result<(I, Vec<L>), KvError>)
         requires
             old(self).valid(),
         ensures
@@ -101,7 +101,7 @@ where
 
         let list_addr = row_metadata.list_addr;
         if list_addr == 0 {
-            return Ok((item, self.empty_list.as_slice()));
+            return Ok((item, Vec::<L>::new()));
         }
 
         let lst = match self.lists.read(list_addr, &self.journal) {

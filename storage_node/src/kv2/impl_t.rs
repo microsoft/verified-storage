@@ -371,7 +371,7 @@ where
     pub exec fn read_item_and_list(
         &mut self,
         key: &K,
-    ) -> (result: Result<(I, &[L]), KvError>)
+    ) -> (result: Result<(I, Vec<L>), KvError>)
         requires 
             old(self).valid(),
         ensures
@@ -393,7 +393,7 @@ where
         self.untrusted_kv_impl.read_item_and_list(key)
     }
 
-    pub exec fn read_list(&mut self, key: &K) -> (result: Result<&[L], KvError>)
+    pub exec fn read_list(&mut self, key: &K) -> (result: Result<Vec<L>, KvError>)
         requires
             old(self).valid(),
         ensures

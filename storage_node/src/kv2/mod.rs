@@ -58,7 +58,6 @@ where
     keys: KeyTable<PM, K>,
     items: ItemTable<PM, I>,
     lists: ListTable<PM, L>,
-    empty_list: Vec<L>,
 }
 
 impl<PM, K, I, L> View for UntrustedKvStoreImpl<PM, K, I, L>
