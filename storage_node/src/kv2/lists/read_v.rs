@@ -140,42 +140,54 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
-        assume(false);
-        Err(KvError::NotImplemented)
-    /*
-        if entry.length == addrs.len() {
-            return Ok(addrs.clone());
+        proof {
+            broadcast use pmcopy_axioms;
+        }
+
+        if entry.length == elements.len() {
+            assert(elements@ == self.tentative_mapping@.list_elements[list_addr]);
+            return Ok(clone_pmcopy_vec(&elements));
         }
 
         let mut current_addr = list_addr;
-        let mut result = Vec::<u64>::new();
+        let mut result = Vec::<L>::new();
         let mut current_pos: usize = 0;
         let ghost durable_addrs = self.durable_mapping@.list_info[durable_head];
+        let ghost durable_elements = self.durable_mapping@.list_elements[durable_head];
         let ghost tentative_addrs = self.tentative_mapping@.list_info[list_addr];
+        let ghost tentative_elements = self.tentative_mapping@.list_elements[list_addr];
         let pm = journal.get_pm_region_ref();
 
-        assert(tentative_addrs.take(current_pos as int) =~= Seq::<u64>::empty());
+        let num_durable_addrs = entry.length - elements.len();
+        assert(tentative_elements.take(current_pos as int) =~= Seq::<L>::empty());
+        assert(tentative_addrs.take(num_durable_addrs as int) =~=
+               durable_addrs.skip(durable_addrs.len() - num_durable_addrs));
         assert(list_addr != 0) by {
             broadcast use group_validate_row_addr;
         }
 
-        let num_durable_addrs = entry.length - addrs.len();
         while current_pos < num_durable_addrs
             invariant
-                num_durable_addrs == entry.length - addrs.len(),
+                num_durable_addrs == entry.length - elements.len(),
                 0 <= current_pos <= num_durable_addrs,
                 current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
-                result@ == tentative_addrs.take(current_pos as int),
+                result@ == tentative_elements.take(current_pos as int),
                 self.valid(journal@),
                 journal.valid(),
                 self.durable_mapping@.list_info.contains_key(durable_head),
                 self.tentative_mapping@.list_info.contains_key(list_addr),
                 0 < durable_addrs.len(),
-                addrs.len() < entry.length,
-                entry.length - addrs.len() <= durable_addrs.len(),
+                durable_addrs.len() == durable_elements.len(),
+                elements.len() < entry.length,
+                entry.length - elements.len() <= durable_elements.len(),
                 durable_addrs == self.durable_mapping@.list_info[durable_head],
+                durable_elements == self.durable_mapping@.list_elements[durable_head],
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
-                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
+                tentative_elements == self.tentative_mapping@.list_elements[list_addr],
+                tentative_addrs.take(num_durable_addrs as int) ==
+                    durable_addrs.skip(durable_addrs.len() - num_durable_addrs),
+                tentative_elements ==
+                    durable_elements.skip(durable_elements.len() - (entry.length - elements.len())) + elements@,
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
@@ -187,43 +199,68 @@ impl<PM, L> ListTable<PM, L>
                 broadcast use pmcopy_axioms;
             }
 
-            assert(tentative_addrs.take(current_pos as int).push(current_addr) =~=
-                   tentative_addrs.take(current_pos + 1));
-            result.push(current_addr);
+            assert(tentative_elements.take(current_pos as int).push(tentative_elements[current_pos as int]) =~=
+                   tentative_elements.take(current_pos + 1));
 
-            let next_addr = current_addr + self.sm.row_next_start;
-            let next_crc_addr = next_addr + size_of::<u64>() as u64;
-            current_addr = match exec_recover_object::<PM, u64>(pm, next_addr, next_crc_addr) {
-                Some(n) => n,
+            let ghost which_durable_addr = durable_addrs.len() - num_durable_addrs + current_pos;
+            assert(durable_addrs.skip(durable_addrs.len() - num_durable_addrs)[current_pos as int] ==
+                   durable_addrs[which_durable_addr]);
+            assert(current_addr == durable_addrs[which_durable_addr]);
+            assert(0 <= which_durable_addr < durable_addrs.len());
+
+            let element_addr = current_addr + self.sm.row_element_start;
+            let element_crc_addr = current_addr + self.sm.row_element_crc_start;
+            let current_element = match exec_recover_object::<PM, L>(pm, element_addr, element_crc_addr) {
+                Some(e) => e,
                 None => { return Err(KvError::CRCMismatch); },
             };
+
+            result.push(current_element);
+
+            // If this isn't the last durable element, read the
+            // pointer to the next one from storage. (If it is the
+            // last durable element, there's no point reading it since
+            // we know it's 0 and we're not going to use it anyway.)
+
+            if current_pos + 1 < num_durable_addrs {
+                assert(durable_addrs.skip(durable_addrs.len() - num_durable_addrs)[current_pos + 1] =~=
+                       durable_addrs[which_durable_addr + 1]);
+                assert(durable_addrs[which_durable_addr + 1] =~= tentative_addrs[current_pos + 1]);
+                let next_addr = current_addr + self.sm.row_next_start;
+                let next_crc_addr = next_addr + size_of::<u64>() as u64;
+                current_addr = match exec_recover_object::<PM, u64>(pm, next_addr, next_crc_addr) {
+                    Some(n) => n,
+                    None => { return Err(KvError::CRCMismatch); },
+                };
+            }
 
             current_pos = current_pos + 1;
         }
 
-        assert(tentative_addrs == result@ + addrs@) by {
-            assert(tentative_addrs =~= tentative_addrs.take(entry.length - addrs.len()) + addrs@);
+        assert(tentative_elements == result@ + elements@) by {
+            assert(tentative_elements =~= tentative_elements.take(entry.length - elements.len()) + elements@);
         }
 
-        let mut addrs_cloned = addrs.clone();
-        result.append(&mut addrs_cloned);
+        let mut elements_cloned = clone_pmcopy_vec(&elements);
+        result.append(&mut elements_cloned);
         Ok(result)
-    */
     }
 
-    exec fn get_elements(
-        &self,
+    pub exec fn read(
+        &mut self,
         list_addr: u64,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<TrustedKvPermission, PM>
     ) -> (result: Result<Vec<L>, KvError>)
         requires
-            self.valid(journal@),
+            old(self).valid(journal@),
             journal.valid(),
-            self@.tentative.is_some(),
-            self@.tentative.unwrap().m.contains_key(list_addr),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
         ensures
+            self.valid(journal@),
+            self@ == old(self)@,
             match result {
-                Ok(elements) => elements@ == self.tentative_mapping@.list_elements[list_addr],
+                Ok(lst) => self@.tentative.unwrap().m[list_addr] == lst@,
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 _ => false,
             }
@@ -242,29 +279,6 @@ impl<PM, L> ListTable<PM, L>
             Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref elements, .. }) =>
                 self.get_elements_case_modified(list_addr, Ghost(durable_head@), entry, elements, journal),
         }
-    }
-
-    pub exec fn read(
-        &mut self,
-        row_addr: u64,
-        journal: &Journal<TrustedKvPermission, PM>
-    ) -> (result: Result<Vec<L>, KvError>)
-        requires
-            old(self).valid(journal@),
-            journal.valid(),
-            old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().m.contains_key(row_addr),
-        ensures
-            self.valid(journal@),
-            self@ == old(self)@,
-            match result {
-                Ok(lst) => self@.tentative.unwrap().m[row_addr] == lst@,
-                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
-                _ => false,
-            }
-    {
-        assume(false);
-        Err(KvError::NotImplemented)
     }
 }
 

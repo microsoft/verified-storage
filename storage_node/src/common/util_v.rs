@@ -141,4 +141,22 @@ pub proof fn lemma_seq_len_when_no_dup_and_all_values_in_range(s: Seq<int>, min:
     assert(s.len() <= set_int_range(min, max).len());
 }
 
+// TODO: Do this more efficiently by just calling Vec::clone.
+pub exec fn clone_pmcopy_vec<T: PmCopy>(v: &Vec<T>) -> (result: Vec<T>)
+    ensures
+        result@ == v@,
+{
+    let mut result = Vec::<T>::new();
+    assert(v@.take(0int) =~= Seq::<T>::empty());
+    for pos in 0..v.len()
+        invariant
+            result@ == v@.take(pos as int),
+    {
+        assert(v@.take(pos as int).push(v@[pos as int]) =~= v@.take(pos + 1));
+        result.push(v[pos].clone_provable());
+    }
+    assert(v@.take(v@.len() as int) =~= v@);
+    result
+}
+
 }
