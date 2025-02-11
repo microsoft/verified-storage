@@ -159,4 +159,13 @@ pub exec fn clone_pmcopy_vec<T: PmCopy>(v: &Vec<T>) -> (result: Vec<T>)
     result
 }
 
+#[inline]
+pub exec fn extend_vec_u8_from_slice(v: &mut Vec<u8>, s: &[u8])
+    ensures
+        v@ == old(v)@ + s@,
+{
+    v.extend_from_slice(s);
+    assert(v@ =~= old(v)@ + s@);
+}
+
 }

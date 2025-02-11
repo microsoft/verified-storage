@@ -692,14 +692,10 @@ impl<PM, L> ListTable<PM, L>
 
         let next_addr = tail_row_addr + self.sm.row_next_start;
         let next_crc = calculate_crc(&new_row_addr);
-        let mut next_bytes = vstd::slice::slice_to_vec(new_row_addr.as_byte_slice());
-        let mut next_crc_bytes = vstd::slice::slice_to_vec(next_crc.as_byte_slice());
 
-        // TODO: There's surely a more efficient way of making a
-        // vector as the concatenation of two slices.
         let mut bytes_to_write = Vec::<u8>::new();
-        bytes_to_write.append(&mut next_bytes);
-        bytes_to_write.append(&mut next_crc_bytes);
+        extend_vec_u8_from_slice(&mut bytes_to_write, new_row_addr.as_byte_slice());
+        extend_vec_u8_from_slice(&mut bytes_to_write, next_crc.as_byte_slice());
 
         match journal.journal_write(next_addr, bytes_to_write) {
             Ok(()) => {},
