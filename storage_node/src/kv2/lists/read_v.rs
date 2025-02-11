@@ -280,6 +280,39 @@ impl<PM, L> ListTable<PM, L>
                 self.get_elements_case_modified(list_addr, Ghost(durable_head@), entry, elements, journal),
         }
     }
+
+    pub exec fn get_list_length(
+        &mut self,
+        list_addr: u64,
+        journal: &Journal<TrustedKvPermission, PM>
+    ) -> (result: Result<usize, KvError>)
+        requires
+            old(self).valid(journal@),
+            journal.valid(),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
+        ensures
+            self.valid(journal@),
+            self@ == old(self)@,
+            match result {
+                Ok(num_elements) => self@.tentative.unwrap().m[list_addr].len() == num_elements,
+                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
+                _ => false,
+            }
+    {
+        proof {
+            broadcast use group_hash_axioms;
+        }
+
+        match self.m.get(&list_addr) {
+            None => {
+                assert(false);
+                Err(KvError::InternalError)
+            },
+            Some(ListTableEntry::<L>::Durable{ ref entry }) => Ok(entry.length),
+            Some(ListTableEntry::<L>::Modified{ ref entry, .. }) => Ok(entry.length),
+        }
+    }
 }
 
 }

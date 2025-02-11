@@ -189,12 +189,22 @@ where
     pub open spec fn read_list_entry_at_index(self, key: K, idx: nat) -> Result<L, KvError>
     {
         if self.m.contains_key(key) {
-            let (offset, list) = self.m[key];
+            let (item, list) = self.m[key];
             if idx < list.len() {
                 Ok(list[idx as int])
             } else {
                 Err(KvError::IndexOutOfRange{ upper_bound: list.len() as usize })
             }
+        } else {
+            Err(KvError::KeyNotFound)
+        }
+    }
+
+    pub open spec fn get_list_length(self, key: K) -> Result<nat, KvError>
+    {
+        if self.m.contains_key(key) {
+            let (item, list) = self.m[key];
+            Ok(list.len())
         } else {
             Err(KvError::KeyNotFound)
         }

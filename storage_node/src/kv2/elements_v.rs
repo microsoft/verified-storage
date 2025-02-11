@@ -30,6 +30,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
+    #[inline]
     pub exec fn read_list(&mut self, key: &K) -> (result: Result<Vec<L>, KvError>)
         requires
             old(self).valid(),
@@ -65,6 +66,7 @@ where
         self.lists.read(list_addr, &self.journal)
     }
 
+    #[inline]
     pub exec fn read_item_and_list(&mut self, key: &K) -> (result: Result<(I, Vec<L>), KvError>)
         requires
             old(self).valid(),
@@ -110,6 +112,42 @@ where
             Err(_) => { assert(false); return Err(KvError::KeyNotFound); },
         };
         Ok((item, lst))
+    }
+
+    #[inline]
+    pub exec fn get_list_length(&mut self, key: &K) -> (result: Result<usize, KvError>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@ == old(self)@,
+            match result {
+                Ok(num_elements) => {
+                    &&& self@.tentative.get_list_length(*key) matches Ok(n)
+                    &&& num_elements == n
+                },
+                Err(KvError::CRCMismatch) => !self@.pm_constants.impervious_to_corruption(),
+                Err(e) => {
+                    &&& self@.tentative.get_list_length(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        proof {
+            self.keys.lemma_valid_implications(self.journal@);
+        }
+
+        let (_key_addr, row_metadata) = match self.keys.read(key, Ghost(self.journal@)) {
+            None => { return Err(KvError::KeyNotFound); },
+            Some(i) => i,
+        };
+
+        let list_addr = row_metadata.list_addr;
+        if list_addr == 0 {
+            return Ok(0);
+        }
+
+        self.lists.get_list_length(list_addr, &self.journal)
     }
 
     #[inline]

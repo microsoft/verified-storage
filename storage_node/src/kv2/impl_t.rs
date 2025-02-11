@@ -416,6 +416,29 @@ where
         self.untrusted_kv_impl.read_list(key)
     }
 
+    pub exec fn get_list_length(&mut self, key: &K) -> (result: Result<usize, KvError>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            self@ == old(self)@,
+            match result {
+                Ok(num_elements) => {
+                    &&& self@.tentative.get_list_length(*key) matches Ok(n)
+                    &&& num_elements == n
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& !self@.pm_constants.impervious_to_corruption()
+                },
+                Err(e) => {
+                    &&& self@.tentative.get_list_length(*key) matches Err(e_spec)
+                    &&& e == e_spec
+                },
+            },
+    {
+        self.untrusted_kv_impl.get_list_length(key)
+    }
+
     pub exec fn tentatively_append_to_list(
         &mut self,
         key: &K,
