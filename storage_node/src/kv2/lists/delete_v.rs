@@ -385,12 +385,92 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
+        self.delete_now(list_addr, journal, Tracked(perm))
+    }
+
+    pub exec fn delete_now(
+        &mut self,
+        list_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<(), KvError>)
+        requires
+            old(self).valid(old(journal)@),
+            old(journal).valid(),
+            old(self)@.tentative.is_some(),
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+        ensures
+            self.valid(journal@),
+            journal.valid(),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(_) => {
+                    &&& self@ == (ListTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().delete(list_addr)),
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& !journal@.pm_constants.impervious_to_corruption()
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            }
+    {
         proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
             broadcast use group_hash_axioms;
         }
 
-        assume(false);
-        return Err(KvError::NotImplemented);
+        let mut row_addrs = match self.get_row_addrs(list_addr, journal) {
+            Ok(addrs) => addrs,
+            Err(KvError::CRCMismatch) => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::CRCMismatch);
+            },
+            _ => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        let ghost old_iv = self.internal_view();
+        let ghost new_iv = old_iv.delete(list_addr);
+
+        let table_entry = match self.m.remove(&list_addr) {
+            Some(e) => e,
+            None => { assert(false); return Err(KvError::InternalError); },
+        };
+
+        match table_entry {
+            ListTableEntry::Durable{ entry } => {
+                self.deletes.push(entry);
+            },
+            ListTableEntry::Modified{ which_modification, .. } => {
+                self.modifications.set(which_modification, None);
+            },
+        }
+
+        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+        self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+        self.row_info = Ghost(new_iv.row_info);
+        self.deletes_inverse = Ghost(new_iv.deletes_inverse);
+        self.pending_deallocations.append(&mut row_addrs);
+
+        proof {
+            assert(self.internal_view() =~= new_iv);
+            old_iv.lemma_delete_works(list_addr, self.sm);
+        }
+
+        Ok(())
     }
 }
 
