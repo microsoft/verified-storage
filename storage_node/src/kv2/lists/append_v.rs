@@ -34,8 +34,8 @@ impl<L> ListTableEntryView<L>
     pub(super) open spec fn append(self, new_row_addr: u64, new_element: L) -> Self
         recommends
             match self {
-                ListTableEntryView::Modified{ entry, .. } => entry.length < usize::MAX,
                 ListTableEntryView::Durable{ entry } => false,
+                ListTableEntryView::Modified{ entry, .. } => entry.length < usize::MAX,
             },
     {
         match self {

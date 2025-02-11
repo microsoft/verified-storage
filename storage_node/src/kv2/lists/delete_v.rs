@@ -26,6 +26,7 @@ use super::super::spec_t::*;
 use vstd::std_specs::hash::*;
 
 verus! {
+
 impl<L> ListRecoveryMapping<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,

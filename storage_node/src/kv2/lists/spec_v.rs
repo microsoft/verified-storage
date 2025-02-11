@@ -58,13 +58,13 @@ impl<L> ListTableSnapshot<L>
         Self{ m: self.m.remove(old_list_addr).insert(new_list_addr, new_list) }
     }
 
-    pub open spec fn trim(&self, old_list_addr: u64, new_list_addr: u64, trim_length: usize) -> Self
+    pub open spec fn trim(&self, old_list_addr: u64, new_list_addr: u64, trim_length: int) -> Self
     {
         if new_list_addr == 0 {
             Self{ m: self.m.remove(old_list_addr) }
         }
         else {
-            let new_list = self.m[old_list_addr].skip(trim_length as int);
+            let new_list = self.m[old_list_addr].skip(trim_length);
             Self{ m: self.m.remove(old_list_addr).insert(new_list_addr, new_list) }
         }
     }
