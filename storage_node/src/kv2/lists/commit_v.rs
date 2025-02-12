@@ -70,7 +70,7 @@ impl<L> ListTableInternalView<L>
             row_info: self.commit_row_info(),
             m: self.commit_m(),
             deletes_inverse: Map::<u64, nat>::empty(),
-            deletes: Seq::<ListTableDurableEntry>::empty(),
+            deletes: Seq::<ListSummary>::empty(),
             modifications: Seq::<Option<u64>>::empty(),
             free_list: self.free_list + self.pending_deallocations,
             pending_allocations: Seq::<u64>::empty(),
@@ -99,8 +99,8 @@ impl<L> ListTableEntry<L>
             result@ == result@.commit(),
     {
         match self {
-            ListTableEntry::Durable{ entry } => ListTableEntry::Durable{ entry },
-            ListTableEntry::Modified{ entry, .. } => ListTableEntry::Durable{ entry },
+            ListTableEntry::Durable{ summary } => ListTableEntry::Durable{ summary },
+            ListTableEntry::Modified{ summary, .. } => ListTableEntry::Durable{ summary },
         }
     }
 }

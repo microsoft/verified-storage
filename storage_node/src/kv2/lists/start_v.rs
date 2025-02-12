@@ -38,7 +38,7 @@ impl<PM, L> ListTable<PM, L>
         Ghost(mapping): Ghost<ListRecoveryMapping<L>>,
         row_addrs_used: &mut HashSet<u64>,
         list_addr: u64,
-    ) -> (result: Result<ListTableDurableEntry, KvError>)
+    ) -> (result: Result<ListSummary, KvError>)
         requires
             journal.valid(),
             journal@.constants.app_area_start <= sm.start(),
@@ -50,7 +50,7 @@ impl<PM, L> ListTable<PM, L>
             list_addr != 0,
         ensures
             match result {
-                Ok(entry) => {
+                Ok(summary) => {
                     let row_addrs = mapping.list_info[list_addr];
                     &&& forall|row_addr: u64| #[trigger] old(row_addrs_used)@.contains(row_addr)
                             ==> row_addrs_used@.contains(row_addr)
@@ -62,11 +62,11 @@ impl<PM, L> ListTable<PM, L>
                                 ||| row_addrs.contains(row_addr)
                             }
                     &&& 0 < row_addrs.len()
-                    &&& entry.head == row_addrs[0]
-                    &&& entry.tail == row_addrs.last()
-                    &&& entry.length == row_addrs.len()
-                    &&& mapping.row_info.contains_key(entry.tail)
-                    &&& entry.end_of_logical_range == mapping.row_info[entry.tail].element.end()
+                    &&& summary.head == row_addrs[0]
+                    &&& summary.tail == row_addrs.last()
+                    &&& summary.length == row_addrs.len()
+                    &&& mapping.row_info.contains_key(summary.tail)
+                    &&& summary.end_of_logical_range == mapping.row_info[summary.tail].element.end()
                 },
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 Err(_) => false,
@@ -128,13 +128,13 @@ impl<PM, L> ListTable<PM, L>
                     Some(e) => e,
                     None => { return Err(KvError::CRCMismatch); },
                 };
-                let entry = ListTableDurableEntry{
+                let summary = ListSummary{
                     head: list_addr,
                     tail: current_addr,
                     length: num_elements_processed + 1,
                     end_of_logical_range: element.end(),
                 };
-                return Ok(entry);
+                return Ok(summary);
             }
 
             current_addr = next_addr;
@@ -166,15 +166,15 @@ impl<PM, L> ListTable<PM, L>
                             mapping.list_info.contains_key(list_addr)
                     &&& forall|list_addr: u64| #[trigger] mapping.list_info.contains_key(list_addr) ==> {
                         let row_addrs = mapping.list_info[list_addr];
-                        let entry = m@[list_addr]->Durable_entry;
+                        let summary = m@[list_addr]->Durable_summary;
                         &&& 0 < row_addrs.len()
                         &&& m@.contains_key(list_addr)
                         &&& m@[list_addr] is Durable
-                        &&& entry.head == row_addrs[0]
-                        &&& entry.tail == row_addrs.last()
-                        &&& entry.length == row_addrs.len()
-                        &&& mapping.row_info.contains_key(entry.tail)
-                        &&& entry.end_of_logical_range == mapping.row_info[entry.tail].element.end()
+                        &&& summary.head == row_addrs[0]
+                        &&& summary.tail == row_addrs.last()
+                        &&& summary.length == row_addrs.len()
+                        &&& mapping.row_info.contains_key(summary.tail)
+                        &&& summary.end_of_logical_range == mapping.row_info[summary.tail].element.end()
                     }
                 },
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
@@ -205,15 +205,15 @@ impl<PM, L> ListTable<PM, L>
                 forall|i: int| #![trigger list_addrs@[i]] 0 <= i < which_list ==> {
                     let list_addr = list_addrs@[i];
                     let row_addrs = mapping.list_info[list_addr];
-                    let entry = m@[list_addr]->Durable_entry;
+                    let summary = m@[list_addr]->Durable_summary;
                     &&& 0 < row_addrs.len()
                     &&& m@.contains_key(list_addr)
                     &&& m@[list_addr] is Durable
-                    &&& entry.head == row_addrs[0]
-                    &&& entry.tail == row_addrs.last()
-                    &&& entry.length == row_addrs.len()
-                    &&& mapping.row_info.contains_key(entry.tail)
-                    &&& entry.end_of_logical_range == mapping.row_info[entry.tail].element.end()
+                    &&& summary.head == row_addrs[0]
+                    &&& summary.tail == row_addrs.last()
+                    &&& summary.length == row_addrs.len()
+                    &&& mapping.row_info.contains_key(summary.tail)
+                    &&& summary.end_of_logical_range == mapping.row_info[summary.tail].element.end()
                 }
         {
             broadcast use group_hash_axioms;
@@ -225,7 +225,7 @@ impl<PM, L> ListTable<PM, L>
             assert(mapping.list_info.contains_key(list_addr));
             match Self::read_list(journal, sm, Ghost(list_addrs@.to_set()), Ghost(mapping),
                                   &mut row_addrs_used, list_addr) {
-                Ok(entry) => { m.insert(list_addr, ListTableEntry::Durable{ entry }); },
+                Ok(summary) => { m.insert(list_addr, ListTableEntry::Durable{ summary }); },
                 Err(e) => return Err(e),
             };
         }
@@ -394,7 +394,7 @@ impl<PM, L> ListTable<PM, L>
             row_info: Ghost(row_info),
             m,
             deletes_inverse: Ghost(Map::<u64, nat>::empty()),
-            deletes: Vec::<ListTableDurableEntry>::new(),
+            deletes: Vec::<ListSummary>::new(),
             modifications: Vec::<Option<u64>>::new(),
             free_list,
             pending_allocations: Vec::<u64>::new(),

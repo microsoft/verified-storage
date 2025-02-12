@@ -34,7 +34,7 @@ impl<PM, L> ListTable<PM, L>
     exec fn get_elements_case_durable(
         &self,
         list_addr: u64,
-        entry: &ListTableDurableEntry,
+        summary: &ListSummary,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
@@ -44,7 +44,7 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative.unwrap().m.contains_key(list_addr),
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Durable,
-            entry == self.m@[list_addr]->Durable_entry,
+            summary == self.m@[list_addr]->Durable_summary,
         ensures
             match result {
                 Ok(elements) => elements@ == self.tentative_mapping@.list_elements[list_addr],
@@ -119,7 +119,7 @@ impl<PM, L> ListTable<PM, L>
         &self,
         list_addr: u64,
         Ghost(durable_head): Ghost<u64>,
-        entry: &ListTableDurableEntry,
+        summary: &ListSummary,
         elements: &Vec<L>,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<Vec<L>, KvError>)
@@ -131,7 +131,7 @@ impl<PM, L> ListTable<PM, L>
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Modified,
             durable_head == self.m@[list_addr]->Modified_durable_head,
-            entry == self.m@[list_addr]->Modified_entry,
+            summary == self.m@[list_addr]->Modified_summary,
             elements == self.m@[list_addr]->Modified_elements,
         ensures
             match result {
@@ -144,7 +144,7 @@ impl<PM, L> ListTable<PM, L>
             broadcast use pmcopy_axioms;
         }
 
-        if entry.length == elements.len() {
+        if summary.length == elements.len() {
             assert(elements@ == self.tentative_mapping@.list_elements[list_addr]);
             return Ok(clone_pmcopy_vec(&elements));
         }
@@ -158,7 +158,7 @@ impl<PM, L> ListTable<PM, L>
         let ghost tentative_elements = self.tentative_mapping@.list_elements[list_addr];
         let pm = journal.get_pm_region_ref();
 
-        let num_durable_addrs = entry.length - elements.len();
+        let num_durable_addrs = summary.length - elements.len();
         assert(tentative_elements.take(current_pos as int) =~= Seq::<L>::empty());
         assert(tentative_addrs.take(num_durable_addrs as int) =~=
                durable_addrs.skip(durable_addrs.len() - num_durable_addrs));
@@ -168,7 +168,7 @@ impl<PM, L> ListTable<PM, L>
 
         while current_pos < num_durable_addrs
             invariant
-                num_durable_addrs == entry.length - elements.len(),
+                num_durable_addrs == summary.length - elements.len(),
                 0 <= current_pos <= num_durable_addrs,
                 current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
                 result@ == tentative_elements.take(current_pos as int),
@@ -178,8 +178,8 @@ impl<PM, L> ListTable<PM, L>
                 self.tentative_mapping@.list_info.contains_key(list_addr),
                 0 < durable_addrs.len(),
                 durable_addrs.len() == durable_elements.len(),
-                elements.len() < entry.length,
-                entry.length - elements.len() <= durable_elements.len(),
+                elements.len() < summary.length,
+                summary.length - elements.len() <= durable_elements.len(),
                 durable_addrs == self.durable_mapping@.list_info[durable_head],
                 durable_elements == self.durable_mapping@.list_elements[durable_head],
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
@@ -187,7 +187,7 @@ impl<PM, L> ListTable<PM, L>
                 tentative_addrs.take(num_durable_addrs as int) ==
                     durable_addrs.skip(durable_addrs.len() - num_durable_addrs),
                 tentative_elements ==
-                    durable_elements.skip(durable_elements.len() - (entry.length - elements.len())) + elements@,
+                    durable_elements.skip(durable_elements.len() - (summary.length - elements.len())) + elements@,
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
@@ -238,7 +238,7 @@ impl<PM, L> ListTable<PM, L>
         }
 
         assert(tentative_elements == result@ + elements@) by {
-            assert(tentative_elements =~= tentative_elements.take(entry.length - elements.len()) + elements@);
+            assert(tentative_elements =~= tentative_elements.take(summary.length - elements.len()) + elements@);
         }
 
         let mut elements_cloned = clone_pmcopy_vec(&elements);
@@ -274,10 +274,10 @@ impl<PM, L> ListTable<PM, L>
                 assert(false);
                 Err(KvError::InternalError)
             },
-            Some(ListTableEntry::<L>::Durable{ ref entry }) =>
-                self.get_elements_case_durable(list_addr, entry, journal),
-            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref elements, .. }) =>
-                self.get_elements_case_modified(list_addr, Ghost(durable_head@), entry, elements, journal),
+            Some(ListTableEntry::<L>::Durable{ ref summary }) =>
+                self.get_elements_case_durable(list_addr, summary, journal),
+            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref summary, ref elements, .. }) =>
+                self.get_elements_case_modified(list_addr, Ghost(durable_head@), summary, elements, journal),
         }
     }
 
@@ -309,8 +309,8 @@ impl<PM, L> ListTable<PM, L>
                 assert(false);
                 Err(KvError::InternalError)
             },
-            Some(ListTableEntry::<L>::Durable{ ref entry }) => Ok(entry.length),
-            Some(ListTableEntry::<L>::Modified{ ref entry, .. }) => Ok(entry.length),
+            Some(ListTableEntry::<L>::Durable{ ref summary }) => Ok(summary.length),
+            Some(ListTableEntry::<L>::Modified{ ref summary, .. }) => Ok(summary.length),
         }
     }
 }

@@ -48,7 +48,7 @@ impl<L> ListTableInternalView<L>
             },
             |list_addr: u64| {
                 if self.deletes_inverse.contains_key(list_addr) {
-                    ListTableEntryView::Durable{ entry: self.deletes[self.deletes_inverse[list_addr] as int] }
+                    ListTableEntryView::Durable{ summary: self.deletes[self.deletes_inverse[list_addr] as int] }
                 }
                 else {
                     self.m[list_addr]
@@ -83,7 +83,7 @@ impl<L> ListTableInternalView<L>
             row_info: self.abort_row_info(),
             m: self.abort_m(),
             deletes_inverse: Map::<u64, nat>::empty(),
-            deletes: Seq::<ListTableDurableEntry>::empty(),
+            deletes: Seq::<ListSummary>::empty(),
             modifications: Seq::<Option<u64>>::empty(),
             free_list: self.free_list + self.pending_allocations,
             pending_allocations: Seq::<u64>::empty(),
@@ -167,22 +167,22 @@ impl<PM, L> ListTable<PM, L>
             },
             forall|i: int| #![trigger old(self).deletes@[i]]
                 0 <= i < old(self).deletes@.len() ==> {
-                    let entry = old(self).deletes@[i];
-                    &&& old(self).deletes_inverse@.contains_key(entry.head)
-                    &&& old(self).deletes_inverse@[entry.head] == i
+                    let summary = old(self).deletes@[i];
+                    &&& old(self).deletes_inverse@.contains_key(summary.head)
+                    &&& old(self).deletes_inverse@[summary.head] == i
                 },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> old(self).m@[list_addr] is Durable,
         ensures
             self == (Self{ m: self.m, ..*old(self) }),
             forall|i: int| #![trigger self.deletes[i]] 0 <= i < self.deletes.len() ==> {
-                let entry = self.deletes[i];
-                &&& self.m@.contains_key(entry.head)
-                &&& self.m@[entry.head] == ListTableEntry::<L>::Durable{ entry }
+                let summary = self.deletes[i];
+                &&& self.m@.contains_key(summary.head)
+                &&& self.m@[summary.head] == ListTableEntry::<L>::Durable{ summary }
             },
             forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                 if self.deletes_inverse@.contains_key(list_addr) {
-                    let entry = self.deletes@[self.deletes_inverse@[list_addr] as int];
-                    &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{ entry }
+                    let summary = self.deletes@[self.deletes_inverse@[list_addr] as int];
+                    &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{ summary }
                 }
                 else {
                     &&& old(self).m@.contains_key(list_addr)
@@ -194,7 +194,7 @@ impl<PM, L> ListTable<PM, L>
                        &&& old(self).deletes_inverse@.contains_key(list_addr)
                        &&& self.m@.contains_key(list_addr)
                        &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
-                           entry: self.deletes@[self.deletes_inverse@[list_addr] as int]
+                           summary: self.deletes@[self.deletes_inverse@[list_addr] as int]
                        }
                     }
                 ||| {
@@ -216,21 +216,21 @@ impl<PM, L> ListTable<PM, L>
                 },
                 forall|i: int| #![trigger self.deletes@[i]]
                     0 <= i < self.deletes@.len() ==> {
-                        let entry = self.deletes@[i];
-                        &&& self.deletes_inverse@.contains_key(entry.head)
-                        &&& self.deletes_inverse@[entry.head] == i
+                        let summary = self.deletes@[i];
+                        &&& self.deletes_inverse@.contains_key(summary.head)
+                        &&& self.deletes_inverse@[summary.head] == i
                     },
                 forall|i: int| #![trigger self.deletes[i]] 0 <= i < which_delete ==> {
-                    let entry = self.deletes[i];
-                    &&& self.m@.contains_key(entry.head)
-                    &&& self.m@[entry.head] == ListTableEntry::<L>::Durable{ entry }
+                    let summary = self.deletes[i];
+                    &&& self.m@.contains_key(summary.head)
+                    &&& self.m@[summary.head] == ListTableEntry::<L>::Durable{ summary }
                 },
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> self.m@[list_addr] is Durable,
                 forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
                     ||| {
                         &&& self.deletes_inverse@.contains_key(list_addr)
                         &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
-                            entry: self.deletes@[self.deletes_inverse@[list_addr] as int]
+                            summary: self.deletes@[self.deletes_inverse@[list_addr] as int]
                         }
                     }
                     ||| {
@@ -243,7 +243,7 @@ impl<PM, L> ListTable<PM, L>
                            &&& old(self).deletes_inverse@.contains_key(list_addr)
                            &&& self.m@.contains_key(list_addr)
                            &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
-                               entry: self.deletes@[self.deletes_inverse@[list_addr] as int]
+                               summary: self.deletes@[self.deletes_inverse@[list_addr] as int]
                            }
                         }
                     ||| {
@@ -254,8 +254,8 @@ impl<PM, L> ListTable<PM, L>
         {
             broadcast use group_hash_axioms;
             let ghost prev_self = *self;
-            let entry = self.deletes[which_delete];
-            self.m.insert(entry.head, ListTableEntry::<L>::Durable{ entry });
+            let summary = self.deletes[which_delete];
+            self.m.insert(summary.head, ListTableEntry::<L>::Durable{ summary });
         }
     }
 

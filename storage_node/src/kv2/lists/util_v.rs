@@ -200,7 +200,7 @@ impl<PM, L> ListTable<PM, L>
     }
 }
 
-impl ListTableDurableEntry
+impl ListSummary
 {
     pub(super) exec fn default() -> Self
     {
@@ -214,18 +214,18 @@ impl<L> ListTableEntry<L>
 {
     pub(super) exec fn default() -> Self
     {
-        Self::Durable{ entry: ListTableDurableEntry::default() }
+        Self::Durable{ summary: ListSummary::default() }
     }
 
-    pub(super) exec fn unwrap_durable(self) -> (result: ListTableDurableEntry)
+    pub(super) exec fn unwrap_durable(self) -> (result: ListSummary)
         requires
             self is Durable,
         ensures
-            self == (Self::Durable{ entry: result }),
+            self == (Self::Durable{ summary: result }),
     {
         match self {
-            ListTableEntry::Durable{ entry } => entry,
-            _ => { assert(false); ListTableDurableEntry::default() },
+            ListTableEntry::Durable{ summary } => summary,
+            _ => { assert(false); ListSummary::default() },
         }
     }
 }

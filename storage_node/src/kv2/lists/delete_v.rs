@@ -84,8 +84,8 @@ impl<L> ListTableInternalView<L>
                 },
         );
         let new_deletes =
-            if let ListTableEntryView::Durable{ entry } = self.m[list_addr] {
-                self.deletes.push(entry)
+            if let ListTableEntryView::Durable{ summary } = self.m[list_addr] {
+                self.deletes.push(summary)
             }
             else {
                 self.deletes
@@ -153,7 +153,7 @@ impl<PM, L> ListTable<PM, L>
     exec fn get_row_addrs_case_durable(
         &self,
         list_addr: u64,
-        entry: &ListTableDurableEntry,
+        summary: &ListSummary,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
@@ -163,7 +163,7 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative.unwrap().m.contains_key(list_addr),
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Durable,
-            entry == self.m@[list_addr]->Durable_entry,
+            summary == self.m@[list_addr]->Durable_summary,
         ensures
             match result {
                 Ok(addrs) => addrs@ == self.tentative_mapping@.list_info[list_addr],
@@ -226,7 +226,7 @@ impl<PM, L> ListTable<PM, L>
         &self,
         list_addr: u64,
         Ghost(durable_head): Ghost<u64>,
-        entry: &ListTableDurableEntry,
+        summary: &ListSummary,
         addrs: &Vec<u64>,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
@@ -238,7 +238,7 @@ impl<PM, L> ListTable<PM, L>
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Modified,
             durable_head == self.m@[list_addr]->Modified_durable_head,
-            entry == self.m@[list_addr]->Modified_entry,
+            summary == self.m@[list_addr]->Modified_summary,
             addrs == self.m@[list_addr]->Modified_addrs,
         ensures
             match result {
@@ -247,7 +247,7 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
-        if entry.length == addrs.len() {
+        if summary.length == addrs.len() {
             return Ok(addrs.clone());
         }
 
@@ -263,10 +263,10 @@ impl<PM, L> ListTable<PM, L>
             broadcast use group_validate_row_addr;
         }
 
-        let num_durable_addrs = entry.length - addrs.len();
+        let num_durable_addrs = summary.length - addrs.len();
         while current_pos < num_durable_addrs
             invariant
-                num_durable_addrs == entry.length - addrs.len(),
+                num_durable_addrs == summary.length - addrs.len(),
                 0 <= current_pos <= num_durable_addrs,
                 current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
                 result@ == tentative_addrs.take(current_pos as int),
@@ -275,11 +275,11 @@ impl<PM, L> ListTable<PM, L>
                 self.durable_mapping@.list_info.contains_key(durable_head),
                 self.tentative_mapping@.list_info.contains_key(list_addr),
                 0 < durable_addrs.len(),
-                addrs.len() < entry.length,
-                entry.length - addrs.len() <= durable_addrs.len(),
+                addrs.len() < summary.length,
+                summary.length - addrs.len() <= durable_addrs.len(),
                 durable_addrs == self.durable_mapping@.list_info[durable_head],
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
-                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
+                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (summary.length - addrs.len())) + addrs@,
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
@@ -306,7 +306,7 @@ impl<PM, L> ListTable<PM, L>
         }
 
         assert(tentative_addrs == result@ + addrs@) by {
-            assert(tentative_addrs =~= tentative_addrs.take(entry.length - addrs.len()) + addrs@);
+            assert(tentative_addrs =~= tentative_addrs.take(summary.length - addrs.len()) + addrs@);
         }
 
         let mut addrs_cloned = addrs.clone();
@@ -340,10 +340,10 @@ impl<PM, L> ListTable<PM, L>
                 assert(false);
                 Err(KvError::InternalError)
             },
-            Some(ListTableEntry::<L>::Durable{ ref entry }) =>
-                self.get_row_addrs_case_durable(list_addr, entry, journal),
-            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref addrs, .. }) =>
-                self.get_row_addrs_case_modified(list_addr, Ghost(durable_head@), entry, addrs, journal),
+            Some(ListTableEntry::<L>::Durable{ ref summary }) =>
+                self.get_row_addrs_case_durable(list_addr, summary, journal),
+            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref summary, ref addrs, .. }) =>
+                self.get_row_addrs_case_modified(list_addr, Ghost(durable_head@), summary, addrs, journal),
         }
     }
 
@@ -404,14 +404,14 @@ impl<PM, L> ListTable<PM, L>
         let ghost old_iv = self.internal_view();
         let ghost new_iv = old_iv.delete(list_addr);
 
-        let table_entry = match self.m.remove(&list_addr) {
+        let entry = match self.m.remove(&list_addr) {
             Some(e) => e,
             None => { assert(false); return Err(KvError::InternalError); },
         };
 
-        match table_entry {
-            ListTableEntry::Durable{ entry } => {
-                self.deletes.push(entry);
+        match entry {
+            ListTableEntry::Durable{ summary } => {
+                self.deletes.push(summary);
             },
             ListTableEntry::Modified{ which_modification, .. } => {
                 self.modifications.set(which_modification, None);

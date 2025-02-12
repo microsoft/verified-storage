@@ -66,25 +66,25 @@ impl<L> ListTableEntryView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn entry(self) -> ListTableDurableEntry
+    pub(super) open spec fn summary(self) -> ListSummary
     {
         match self {
-            ListTableEntryView::<L>::Durable{ entry } => entry,
-            ListTableEntryView::<L>::Modified{ entry, .. } => entry,
+            ListTableEntryView::<L>::Durable{ summary } => summary,
+            ListTableEntryView::<L>::Modified{ summary, .. } => summary,
         }
     }
 
     pub(super) open spec fn length(self) -> usize
     {
-        self.entry().length
+        self.summary().length
     }
 
     pub(super) open spec fn valid(self) -> bool
     {
         match self {
-            ListTableEntryView::Durable{ entry } => true,
-            ListTableEntryView::Modified{ entry, addrs, elements, .. } => {
-                &&& entry.length >= addrs.len()
+            ListTableEntryView::Durable{ summary } => true,
+            ListTableEntryView::Modified{ summary, addrs, elements, .. } => {
+                &&& summary.length >= addrs.len()
                 &&& addrs.len() == elements.len()
             },
         }
@@ -92,33 +92,30 @@ impl<L> ListTableEntryView<L>
 
     pub(super) open spec fn trim(self, new_head: u64, trim_length: int, num_modifications: nat) -> Self
         recommends
-            match self {
-                ListTableEntryView::Durable{ entry } => 0 < trim_length < entry.length,
-                ListTableEntryView::Modified{ entry, .. } => 0 < trim_length < entry.length,
-            },
+            0 < trim_length < self.length(),
     {
         match self {
-            ListTableEntryView::Durable{ entry } =>
+            ListTableEntryView::Durable{ summary } =>
                 ListTableEntryView::Modified{
                     which_modification: num_modifications,
-                    durable_head: entry.head,
-                    entry: ListTableDurableEntry{
+                    durable_head: summary.head,
+                    summary: ListSummary{
                         head: new_head,
-                        length: (entry.length - trim_length) as usize,
-                        ..entry
+                        length: (summary.length - trim_length) as usize,
+                        ..summary
                     },
                     addrs: Seq::<u64>::empty(),
                     elements: Seq::<L>::empty(),
                 },
-            ListTableEntryView::Modified{ which_modification, durable_head, entry, addrs, elements } => {
-                let new_length = entry.length - trim_length;
+            ListTableEntryView::Modified{ which_modification, durable_head, summary, addrs, elements } => {
+                let new_length = summary.length - trim_length;
                 ListTableEntryView::Modified{
                     which_modification,
                     durable_head: if new_length > addrs.len() { durable_head } else { 0 },
-                    entry: ListTableDurableEntry{
+                    summary: ListSummary{
                         head: new_head,
                         length: new_length as usize,
-                        ..entry
+                        ..summary
                     },
                     addrs: if new_length <= addrs.len() { addrs.skip(addrs.len() - new_length) } else { addrs },
                     elements: if new_length <= elements.len() { elements.skip(elements.len() - new_length) }
@@ -133,59 +130,59 @@ impl<L> ListTableEntry<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) open spec fn entry(self) -> ListTableDurableEntry
+    pub(super) open spec fn summary(self) -> ListSummary
     {
         match self {
-            ListTableEntry::Durable{ entry } => entry,
-            ListTableEntry::Modified{ entry, .. } => entry,
+            ListTableEntry::Durable{ summary } => summary,
+            ListTableEntry::Modified{ summary, .. } => summary,
         }
     }
 
     pub(super) open spec fn length(self) -> usize
     {
-        self.entry().length
+        self.summary().length
     }
 
     exec fn trim(self, new_head: u64, trim_length: usize, num_modifications: usize)
-                 -> (result: (ListTableDurableEntry, Self))
+                 -> (result: (ListSummary, Self))
         requires
             self@.valid(),
             0 < trim_length < self.length(),
         ensures
             ({
-                let (durable_entry, new_self) = result;
+                let (summary, new_self) = result;
                 &&& new_self@ == self@.trim(new_head, trim_length as int, num_modifications as nat)
-                &&& durable_entry == self@.entry()
+                &&& summary == self@.summary()
             }),
     {
         match self {
-            ListTableEntry::Durable{ entry } =>
+            ListTableEntry::Durable{ summary } =>
             {
-                (entry, ListTableEntry::Modified{
+                (summary, ListTableEntry::Modified{
                     which_modification: num_modifications,
-                    durable_head: Ghost(entry.head),
-                    entry: ListTableDurableEntry{
+                    durable_head: Ghost(summary.head),
+                    summary: ListSummary{
                         head: new_head,
-                        length: (entry.length - trim_length) as usize,
-                        ..entry
+                        length: (summary.length - trim_length) as usize,
+                        ..summary
                     },
                     addrs: Vec::<u64>::new(),
                     elements: Vec::<L>::new(),
                 })
             },
-            ListTableEntry::Modified{ which_modification, durable_head, entry, mut addrs, mut elements } =>
+            ListTableEntry::Modified{ which_modification, durable_head, summary, mut addrs, mut elements } =>
             {
-                let new_length = entry.length - trim_length;
+                let new_length = summary.length - trim_length;
                 let addrs_len = if new_length < addrs.len() { addrs.len() - new_length } else { 0 };
                 assert(addrs@.skip(0) =~= addrs@);
                 assert(elements@.skip(0) =~= elements@);
-                (entry, ListTableEntry::Modified{
+                (summary, ListTableEntry::Modified{
                     which_modification: which_modification,
                     durable_head: if new_length > addrs.len() { durable_head } else { Ghost(0) },
-                    entry: ListTableDurableEntry{
+                    summary: ListSummary{
                         head: new_head,
                         length: new_length as usize,
-                        ..entry
+                        ..summary
                     },
                     addrs: if new_length < addrs.len() { addrs.split_off(addrs_len) } else { addrs },
                     elements: if new_length < elements.len() { elements.split_off(addrs_len) } else { elements },
@@ -221,8 +218,8 @@ impl<L> ListTableInternalView<L>
                 },
         );
         let new_deletes =
-            if let ListTableEntryView::Durable{ entry } = self.m[list_addr] {
-                self.deletes.push(entry)
+            if let ListTableEntryView::Durable{ summary } = self.m[list_addr] {
+                self.deletes.push(summary)
             }
             else {
                 self.deletes
@@ -291,10 +288,10 @@ impl<L> ListTableInternalView<L>
         assert(self.trim(list_addr, trim_length).tentative_mapping.as_snapshot() =~=
                self.tentative_mapping.as_snapshot().trim(list_addr, new_head, trim_length));
 
-        if let ListTableEntryView::Modified{ durable_head, entry, addrs, elements, .. } = new_self.m[new_head] {
+        if let ListTableEntryView::Modified{ durable_head, summary, addrs, elements, .. } = new_self.m[new_head] {
             let tentative_addrs = new_self.tentative_mapping.list_info[new_head];
             let tentative_elements = new_self.tentative_mapping.list_elements[new_head];
-            if addrs.len() == entry.length {
+            if addrs.len() == summary.length {
                 assert(tentative_addrs =~= addrs);
                 assert(tentative_elements =~= elements);
             }
@@ -303,9 +300,9 @@ impl<L> ListTableInternalView<L>
                 let durable_elements = new_self.durable_mapping.list_elements[durable_head];
                 assert(new_self.durable_mapping.list_info.contains_key(durable_head));
                 assert(tentative_addrs =~=
-                       durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs);
+                       durable_addrs.skip(durable_addrs.len() - (summary.length - addrs.len())) + addrs);
                 assert(tentative_elements =~=
-                       durable_elements.skip(durable_elements.len() - (entry.length - elements.len())) +
+                       durable_elements.skip(durable_elements.len() - (summary.length - elements.len())) +
                        elements);
             }
         }
@@ -343,7 +340,7 @@ impl TrimAction
                 &&& new_head == iv.tentative_mapping.list_info[list_addr][trim_length]
                 &&& pending_deallocations@ == iv.tentative_mapping.list_info[list_addr].take(trim_length)
                 &&& match iv.m[list_addr] {
-                    ListTableEntryView::Modified{ entry, addrs, .. } => entry.length - trim_length > addrs.len(),
+                    ListTableEntryView::Modified{ summary, addrs, .. } => summary.length - trim_length > addrs.len(),
                     _ => false,
                 }
             },
@@ -351,10 +348,10 @@ impl TrimAction
                 &&& 0 < trim_length < iv.tentative_mapping.list_info[list_addr].len()
                 &&& iv.m.contains_key(list_addr)
                 &&& match iv.m[list_addr] {
-                       ListTableEntryView::Modified{ entry, addrs, .. } => {
-                           &&& entry.length - trim_length <= addrs.len()
+                       ListTableEntryView::Modified{ summary, addrs, .. } => {
+                           &&& summary.length - trim_length <= addrs.len()
                            &&& pending_deallocations@ ==
-                                  iv.tentative_mapping.list_info[list_addr].take(entry.length - addrs.len())
+                                  iv.tentative_mapping.list_info[list_addr].take(summary.length - addrs.len())
                        },
                        _ => false,
                    }
@@ -372,11 +369,11 @@ impl TrimAction
         match self {
             TrimAction::Delete => iv,
             TrimAction::Modify{ pending_deallocations, new_head } => {
-                let old_entry = iv.m[list_addr]->Durable_entry;
+                let old_summary = iv.m[list_addr]->Durable_summary;
                 let new_entry = iv.m[list_addr].trim(new_head, trim_length, iv.modifications.len());
                 ListTableInternalView::<L>{
                     m: iv.m.remove(list_addr).insert(new_head, new_entry),
-                    deletes: iv.deletes.push(old_entry),
+                    deletes: iv.deletes.push(old_summary),
                     modifications: iv.modifications.push(Some(new_head)),
                     pending_deallocations: iv.pending_deallocations + pending_deallocations@,
                     ..new_iv
@@ -394,9 +391,9 @@ impl TrimAction
             },
             TrimAction::Drain{ pending_deallocations } => {
                 let which_modification = iv.m[list_addr]->Modified_which_modification;
-                let old_entry = iv.m[list_addr]->Modified_entry;
+                let old_summary = iv.m[list_addr]->Modified_summary;
                 let addrs = iv.m[list_addr]->Modified_addrs;
-                let num_addrs_to_drain = addrs.len() - (old_entry.length - trim_length);
+                let num_addrs_to_drain = addrs.len() - (old_summary.length - trim_length);
                 let new_head = addrs[num_addrs_to_drain];
                 let new_entry = iv.m[list_addr].trim(new_head, trim_length, iv.modifications.len());
                 ListTableInternalView::<L>{
@@ -442,7 +439,7 @@ impl<PM, L> ListTable<PM, L>
         &self,
         list_addr: u64,
         trim_length: usize,
-        entry: &ListTableDurableEntry,
+        summary: &ListSummary,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
@@ -452,8 +449,8 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative.unwrap().m.contains_key(list_addr),
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Durable,
-            entry == self.m@[list_addr]->Durable_entry,
-            trim_length < entry.length,
+            summary == self.m@[list_addr]->Durable_summary,
+            trim_length < summary.length,
         ensures
             match result {
                 Ok((addrs, new_head)) => {
@@ -515,7 +512,7 @@ impl<PM, L> ListTable<PM, L>
         list_addr: u64,
         trim_length: usize,
         Ghost(durable_head): Ghost<u64>,
-        entry: &ListTableDurableEntry,
+        summary: &ListSummary,
         addrs: &Vec<u64>,
         journal: &Journal<TrustedKvPermission, PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
@@ -527,9 +524,9 @@ impl<PM, L> ListTable<PM, L>
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Modified,
             durable_head == self.m@[list_addr]->Modified_durable_head,
-            entry == self.m@[list_addr]->Modified_entry,
+            summary == self.m@[list_addr]->Modified_summary,
             addrs == self.m@[list_addr]->Modified_addrs,
-            trim_length < entry.length - addrs.len(),
+            trim_length < summary.length - addrs.len(),
         ensures
             match result {
                 Ok((addrs, new_head)) => {
@@ -553,7 +550,7 @@ impl<PM, L> ListTable<PM, L>
         
         for current_pos in 0..trim_length
             invariant
-                trim_length < entry.length - addrs.len(),
+                trim_length < summary.length - addrs.len(),
                 current_addr == tentative_addrs[current_pos as int],
                 current_addr != 0,
                 result@ == tentative_addrs.take(current_pos as int),
@@ -562,11 +559,11 @@ impl<PM, L> ListTable<PM, L>
                 self.durable_mapping@.list_info.contains_key(durable_head),
                 self.tentative_mapping@.list_info.contains_key(list_addr),
                 0 < durable_addrs.len(),
-                addrs.len() < entry.length,
-                entry.length - addrs.len() <= durable_addrs.len(),
+                addrs.len() < summary.length,
+                summary.length - addrs.len() <= durable_addrs.len(),
                 durable_addrs == self.durable_mapping@.list_info[durable_head],
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
-                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
+                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (summary.length - addrs.len())) + addrs@,
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
@@ -604,7 +601,7 @@ impl<PM, L> ListTable<PM, L>
             self@.tentative.unwrap().m.contains_key(list_addr),
             self.m@.contains_key(list_addr),
             self.m@[list_addr] is Modified,
-            num_durable_addrs == self.m@[list_addr]->Modified_entry.length - self.m@[list_addr]->Modified_addrs.len(),
+            num_durable_addrs == self.m@[list_addr]->Modified_summary.length - self.m@[list_addr]->Modified_addrs.len(),
         ensures
             match result {
                 Ok(addrs) => addrs@ == self.tentative_mapping@.list_info[list_addr].take(num_durable_addrs as int),
@@ -622,7 +619,7 @@ impl<PM, L> ListTable<PM, L>
 
         let mut current_addr = list_addr;
         let ghost durable_head = self.m@[list_addr]->Modified_durable_head@;
-        let ghost entry = self.m@[list_addr]->Modified_entry;
+        let ghost summary = self.m@[list_addr]->Modified_summary;
         let ghost addrs = self.m@[list_addr]->Modified_addrs;
         let ghost durable_addrs = self.durable_mapping@.list_info[durable_head];
         let pm = journal.get_pm_region_ref();
@@ -634,7 +631,7 @@ impl<PM, L> ListTable<PM, L>
 
         for current_pos in 0..num_durable_addrs
             invariant
-                num_durable_addrs == entry.length - addrs.len(),
+                num_durable_addrs == summary.length - addrs.len(),
                 current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
                 current_pos < num_durable_addrs ==> current_addr != 0,
                 result@ == tentative_addrs.take(current_pos as int),
@@ -643,11 +640,11 @@ impl<PM, L> ListTable<PM, L>
                 self.durable_mapping@.list_info.contains_key(durable_head),
                 self.tentative_mapping@.list_info.contains_key(list_addr),
                 0 < durable_addrs.len(),
-                addrs.len() < entry.length,
-                entry.length - addrs.len() <= durable_addrs.len(),
+                addrs.len() < summary.length,
+                summary.length - addrs.len() <= durable_addrs.len(),
                 durable_addrs == self.durable_mapping@.list_info[durable_head],
                 tentative_addrs == self.tentative_mapping@.list_info[list_addr],
-                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
+                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (summary.length - addrs.len())) + addrs@,
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
@@ -709,15 +706,15 @@ impl<PM, L> ListTable<PM, L>
                 assert(false);
                 Err(KvError::InternalError)
             },
-            Some(ListTableEntry::<L>::Durable{ ref entry }) => {
-                if entry.length < trim_length {
-                    Err(KvError::IndexOutOfRange{ upper_bound: entry.length })
+            Some(ListTableEntry::<L>::Durable{ ref summary }) => {
+                if summary.length < trim_length {
+                    Err(KvError::IndexOutOfRange{ upper_bound: summary.length })
                 }
-                else if entry.length == trim_length {
+                else if summary.length == trim_length {
                     Ok(TrimAction::Delete)
                 }
                 else {
-                    match self.get_addresses_to_trim_case_durable(list_addr, trim_length, entry, journal) {
+                    match self.get_addresses_to_trim_case_durable(list_addr, trim_length, summary, journal) {
                         Ok((pending_deallocations, new_head)) =>
                             Ok(TrimAction::Modify{ pending_deallocations, new_head }),
                         Err(KvError::CRCMismatch) => Err(KvError::CRCMismatch),
@@ -725,16 +722,16 @@ impl<PM, L> ListTable<PM, L>
                     }
                 }
             }
-            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref addrs, .. }) => {
-                if entry.length < trim_length {
-                    Err(KvError::IndexOutOfRange{ upper_bound: entry.length })
+            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref summary, ref addrs, .. }) => {
+                if summary.length < trim_length {
+                    Err(KvError::IndexOutOfRange{ upper_bound: summary.length })
                 }
-                else if entry.length == trim_length {
+                else if summary.length == trim_length {
                     Ok(TrimAction::Delete)
                 }
-                else if trim_length < entry.length - addrs.len() {
+                else if trim_length < summary.length - addrs.len() {
                     match self.get_addresses_to_trim_case_advance(list_addr, trim_length, Ghost(durable_head@),
-                                                                  entry, addrs, journal) {
+                                                                  summary, addrs, journal) {
                         Ok((pending_deallocations, new_head)) =>
                             Ok(TrimAction::Advance{ pending_deallocations, new_head }),
                         Err(KvError::CRCMismatch) => Err(KvError::CRCMismatch),
@@ -742,7 +739,7 @@ impl<PM, L> ListTable<PM, L>
                     }
                 }
                 else {
-                    match self.get_addresses_to_trim_case_drain(list_addr, entry.length - addrs.len(), journal) {
+                    match self.get_addresses_to_trim_case_drain(list_addr, summary.length - addrs.len(), journal) {
                         Ok(pending_deallocations) => Ok(TrimAction::Drain{ pending_deallocations }),
                         Err(KvError::CRCMismatch) => Err(KvError::CRCMismatch),
                         _ => { assert(false); Err(KvError::InternalError) },
@@ -850,10 +847,10 @@ impl<PM, L> ListTable<PM, L>
                     Some(e) => e,
                     None => { assert(false); return Err(KvError::InternalError); },
                 };
-                let (durable_entry, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
+                let (summary, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
                 self.m.insert(new_head, new_entry);
                 self.deletes_inverse = Ghost(new_iv.deletes_inverse);
-                self.deletes.push(durable_entry);
+                self.deletes.push(summary);
                 self.modifications.push(Some(new_head));
                 self.pending_deallocations.append(&mut pending_deallocations);
                 assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
@@ -876,7 +873,7 @@ impl<PM, L> ListTable<PM, L>
                     ListTableEntry::Modified{ which_modification, .. } => which_modification,
                     _ => { assert(false); return Err(KvError::InternalError); },
                 };
-                let (durable_entry, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
+                let (_summary, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
                 self.m.insert(new_head, new_entry);
                 self.modifications.set(which_modification, Some(new_head));
                 self.pending_deallocations.append(&mut pending_deallocations);
@@ -892,9 +889,9 @@ impl<PM, L> ListTable<PM, L>
                 match self.m.remove(&list_addr) {
                     None => { assert(false); return Err(KvError::InternalError); },
                     Some(ListTableEntry::Durable{ .. }) => { assert(false); return Err(KvError::InternalError); },
-                    Some(ListTableEntry::Modified{ which_modification, durable_head, entry,
+                    Some(ListTableEntry::Modified{ which_modification, durable_head, summary,
                                                    mut addrs, mut elements }) => {
-                        let new_length = entry.length - trim_length;
+                        let new_length = summary.length - trim_length;
                         let num_further_pending_deallocations = addrs.len() - new_length;
                         let new_addrs = addrs.split_off(num_further_pending_deallocations);
                         let new_elements = elements.split_off(num_further_pending_deallocations);
@@ -902,10 +899,10 @@ impl<PM, L> ListTable<PM, L>
                         let new_entry = ListTableEntry::Modified{
                             which_modification,
                             durable_head: Ghost(0),
-                            entry: ListTableDurableEntry{
+                            summary: ListSummary{
                                 head: new_head,
                                 length: new_length,
-                                ..entry
+                                ..summary
                             },
                             addrs: new_addrs,
                             elements: new_elements,
