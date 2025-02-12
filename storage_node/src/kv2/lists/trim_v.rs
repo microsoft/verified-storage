@@ -807,64 +807,6 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
-        self.trim_now(list_addr, trim_length, journal, Tracked(perm))
-    }
-
-    pub exec fn trim_now(
-        &mut self,
-        list_addr: u64,
-        trim_length: usize,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-    ) -> (result: Result<u64, KvError>)
-        requires
-            old(self).valid(old(journal)@),
-            old(journal).valid(),
-            old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
-            0 < trim_length,
-        ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            match result {
-                Ok(new_list_addr) => {
-                    let old_list = old(self)@.tentative.unwrap().m[list_addr];
-                    &&& {
-                           ||| new_list_addr == 0
-                           ||| new_list_addr == list_addr
-                           ||| !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
-                    }
-                    &&& trim_length <= old_list.len()
-                    &&& new_list_addr == 0 ==> old_list.skip(trim_length as int) == Seq::<L>::empty()
-                    &&& self@ == (ListTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
-                        ..old(self)@
-                    })
-                    &&& new_list_addr != 0 ==> self.validate_list_addr(new_list_addr)
-                },
-                Err(KvError::IndexOutOfRange{ upper_bound }) => {
-                    &&& self@ == old(self)@
-                    &&& trim_length > upper_bound
-                    &&& upper_bound == old(self)@.tentative.unwrap().m[list_addr].len()
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
-                Err(KvError::CRCMismatch) => {
-                    &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
-                _ => false,
-            }
-    {
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
@@ -888,7 +830,6 @@ impl<PM, L> ListTable<PM, L>
 
         let ghost old_iv = self.internal_view();
         let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
-        let ghost g_action = action;
         match action {
             TrimAction::Delete => {
                 match self.delete(list_addr, journal, Tracked(perm)) {
@@ -915,11 +856,9 @@ impl<PM, L> ListTable<PM, L>
                 self.deletes.push(durable_entry);
                 self.modifications.push(Some(new_head));
                 self.pending_deallocations.append(&mut pending_deallocations);
-                assert(self.internal_view() =~= g_action.apply(old_iv, list_addr, trim_length as int));
-                assert(self.internal_view() == old_iv.trim(list_addr, trim_length as int)) by {
-                    g_action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
-                }
+                assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
                 proof {
+                    action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
                     old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
                 }
                 Ok(new_head)
@@ -941,11 +880,9 @@ impl<PM, L> ListTable<PM, L>
                 self.m.insert(new_head, new_entry);
                 self.modifications.set(which_modification, Some(new_head));
                 self.pending_deallocations.append(&mut pending_deallocations);
-                assert(self.internal_view() =~= g_action.apply(old_iv, list_addr, trim_length as int));
-                assert(self.internal_view() == old_iv.trim(list_addr, trim_length as int)) by {
-                    g_action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
-                }
+                assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
                 proof {
+                    action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
                     old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
                 }
                 Ok(new_head)
@@ -955,7 +892,8 @@ impl<PM, L> ListTable<PM, L>
                 match self.m.remove(&list_addr) {
                     None => { assert(false); return Err(KvError::InternalError); },
                     Some(ListTableEntry::Durable{ .. }) => { assert(false); return Err(KvError::InternalError); },
-                    Some(ListTableEntry::Modified{ which_modification, durable_head, entry, mut addrs, mut elements }) => {
+                    Some(ListTableEntry::Modified{ which_modification, durable_head, entry,
+                                                   mut addrs, mut elements }) => {
                         let new_length = entry.length - trim_length;
                         let num_further_pending_deallocations = addrs.len() - new_length;
                         let new_addrs = addrs.split_off(num_further_pending_deallocations);
@@ -979,12 +917,11 @@ impl<PM, L> ListTable<PM, L>
                         self.modifications.set(which_modification, Some(new_head));
                         self.pending_deallocations.append(&mut pending_deallocations);
                         self.pending_deallocations.append(&mut addrs);
-                        assert(self.internal_view().m[new_head] =~= g_action.apply(old_iv, list_addr, trim_length as int).m[new_head]);
-                        assert(self.internal_view() =~= g_action.apply(old_iv, list_addr, trim_length as int));
-                        assert(self.internal_view() == old_iv.trim(list_addr, trim_length as int)) by {
-                            g_action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
-                        }
+                        assert(self.internal_view().m[new_head] =~=
+                               action.apply(old_iv, list_addr, trim_length as int).m[new_head]);
+                        assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
                         proof {
+                            action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
                             old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
                         }
                         Ok(new_head)
