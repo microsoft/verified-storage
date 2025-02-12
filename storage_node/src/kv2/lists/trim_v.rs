@@ -250,27 +250,23 @@ enum TrimAction
 
 impl TrimAction
 {
-    spec fn applicable<L>(
-        self,
-        iv: ListTableInternalView<L>,
-        list_addr: u64,
-        trim_length: int
-    ) -> bool
+    spec fn applicable<L>(self, iv: ListTableInternalView<L>, list_addr: u64, trim_length: int) -> bool
         where
             L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
         recommends
             iv.tentative_mapping.list_info.contains_key(list_addr),
     {
-        let new_iv = iv.trim(list_addr, trim_length);
         match self {
             TrimAction::Delete => iv.tentative_mapping.list_info[list_addr].len() == trim_length,
             TrimAction::Modify{ pending_deallocations, new_head } => {
+                &&& 0 < trim_length < iv.tentative_mapping.list_info[list_addr].len()
                 &&& iv.m.contains_key(list_addr)
                 &&& iv.m[list_addr] is Durable
                 &&& pending_deallocations@ == iv.tentative_mapping.list_info[list_addr].take(trim_length)
                     &&& new_head == iv.tentative_mapping.list_info[list_addr][trim_length]
             },
             TrimAction::Advance{ pending_deallocations, new_head } => {
+                &&& 0 < trim_length < iv.tentative_mapping.list_info[list_addr].len()
                 &&& iv.m.contains_key(list_addr)
                 &&& new_head == iv.tentative_mapping.list_info[list_addr][trim_length]
                 &&& pending_deallocations@ == iv.tentative_mapping.list_info[list_addr].take(trim_length)
@@ -280,6 +276,7 @@ impl TrimAction
                 }
             },
             TrimAction::Drain{ pending_deallocations } => {
+                &&& 0 < trim_length < iv.tentative_mapping.list_info[list_addr].len()
                 &&& iv.m.contains_key(list_addr)
                 &&& match iv.m[list_addr] {
                        ListTableEntryView::Modified{ entry, addrs, .. } => {
@@ -291,6 +288,76 @@ impl TrimAction
                    }
             },
         }
+    }
+
+    spec fn apply<L>(self, iv: ListTableInternalView<L>, list_addr: u64, trim_length: int) -> ListTableInternalView<L>
+        where
+            L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+        recommends
+            iv.tentative_mapping.list_info.contains_key(list_addr),
+    {
+        let new_iv = iv.trim(list_addr, trim_length);
+        match self {
+            TrimAction::Delete => iv,
+            TrimAction::Modify{ pending_deallocations, new_head } => {
+                let old_entry = iv.m[list_addr]->Durable_entry;
+                let new_entry = iv.m[list_addr].trim(new_head, trim_length, iv.modifications.len());
+                ListTableInternalView::<L>{
+                    m: iv.m.remove(list_addr).insert(new_head, new_entry),
+                    deletes: iv.deletes.push(old_entry),
+                    modifications: iv.modifications.push(Some(new_head)),
+                    pending_deallocations: iv.pending_deallocations + pending_deallocations@,
+                    ..new_iv
+                }
+            },
+            TrimAction::Advance{ pending_deallocations, new_head } => {
+                let which_modification = iv.m[list_addr]->Modified_which_modification;
+                let new_entry = iv.m[list_addr].trim(new_head, trim_length, iv.modifications.len());
+                ListTableInternalView::<L>{
+                    m: iv.m.remove(list_addr).insert(new_head, new_entry),
+                    modifications: iv.modifications.update(which_modification as int, Some(new_head)),
+                    pending_deallocations: iv.pending_deallocations + pending_deallocations@,
+                    ..new_iv
+                }
+            },
+            TrimAction::Drain{ pending_deallocations } => {
+                let which_modification = iv.m[list_addr]->Modified_which_modification;
+                let old_entry = iv.m[list_addr]->Modified_entry;
+                let addrs = iv.m[list_addr]->Modified_addrs;
+                let num_addrs_to_drain = addrs.len() - (old_entry.length - trim_length);
+                let new_head = addrs[num_addrs_to_drain];
+                let new_entry = iv.m[list_addr].trim(new_head, trim_length, iv.modifications.len());
+                ListTableInternalView::<L>{
+                    m: iv.m.remove(list_addr).insert(new_head, new_entry),
+                    modifications: iv.modifications.update(which_modification as int, Some(new_head)),
+                    pending_deallocations: iv.pending_deallocations + pending_deallocations@ +
+                                           iv.m[list_addr]->Modified_addrs.take(num_addrs_to_drain),
+                    ..new_iv
+                }
+            },
+        }
+    }
+
+    proof fn lemma_action_works<L>(
+        self,
+        iv: ListTableInternalView<L>,
+        list_addr: u64,
+        trim_length: int,
+        sm: ListTableStaticMetadata,
+    )
+        where
+            L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+        requires
+            iv.tentative_mapping.list_info.contains_key(list_addr),
+            iv.valid(sm),
+            iv.durable_mapping.internally_consistent(sm),
+            iv.tentative_mapping.internally_consistent(sm),
+            self.applicable::<L>(iv, list_addr, trim_length),
+            !(self is Delete),
+        ensures
+            self.apply(iv, list_addr, trim_length) == iv.trim(list_addr, trim_length),
+    {
+        assert(self.apply(iv, list_addr, trim_length) =~= iv.trim(list_addr, trim_length));
     }
 }
 
