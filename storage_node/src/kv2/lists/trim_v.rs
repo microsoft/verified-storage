@@ -925,6 +925,31 @@ impl<PM, L> ListTable<PM, L>
                 }
                 return Ok(new_head);
             },
+            TrimAction::Advance{ mut pending_deallocations, new_head } => {
+                self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+                self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+                self.row_info = Ghost(new_iv.row_info);
+                let old_entry = match self.m.remove(&list_addr) {
+                    Some(e) => e,
+                    None => { assert(false); return Err(KvError::InternalError); },
+                };
+                let which_modification = match old_entry {
+                    ListTableEntry::Modified{ which_modification, .. } => which_modification,
+                    _ => { assert(false); return Err(KvError::InternalError); },
+                };
+                let (durable_entry, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
+                self.m.insert(new_head, new_entry);
+                self.modifications.set(which_modification, Some(new_head));
+                self.pending_deallocations.append(&mut pending_deallocations);
+                assert(self.internal_view() =~= g_action.apply(old_iv, list_addr, trim_length as int));
+                assert(self.internal_view() == old_iv.trim(list_addr, trim_length as int)) by {
+                    g_action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
+                }
+                proof {
+                    old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
+                }
+                return Ok(new_head);
+            },
             _ => {},
         }
 
