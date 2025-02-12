@@ -602,6 +602,7 @@ impl<PM, L> ListTable<PM, L>
         Ok(result)
     }
 
+    #[inline]
     exec fn determine_action(
         &self,
         list_addr: u64,
@@ -711,7 +712,7 @@ impl<PM, L> ListTable<PM, L>
                         tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
                         ..old(self)@
                     })
-                    &&& self.validate_list_addr(new_list_addr)
+                    &&& new_list_addr != 0 ==> self.validate_list_addr(new_list_addr)
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
                     &&& self@ == old(self)@
@@ -734,6 +735,101 @@ impl<PM, L> ListTable<PM, L>
                 _ => false,
             }
     {
+        self.trim_now(list_addr, trim_length, journal, Tracked(perm))
+    }
+
+    pub exec fn trim_now(
+        &mut self,
+        list_addr: u64,
+        trim_length: usize,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (result: Result<u64, KvError>)
+        requires
+            old(self).valid(old(journal)@),
+            old(journal).valid(),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            0 < trim_length,
+        ensures
+            self.valid(journal@),
+            journal.valid(),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            match result {
+                Ok(new_list_addr) => {
+                    let old_list = old(self)@.tentative.unwrap().m[list_addr];
+                    &&& {
+                           ||| new_list_addr == 0
+                           ||| new_list_addr == list_addr
+                           ||| !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
+                    }
+                    &&& trim_length <= old_list.len()
+                    &&& new_list_addr == 0 ==> old_list.skip(trim_length as int) == Seq::<L>::empty()
+                    &&& self@ == (ListTableView {
+                        tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
+                        ..old(self)@
+                    })
+                    &&& new_list_addr != 0 ==> self.validate_list_addr(new_list_addr)
+                },
+                Err(KvError::IndexOutOfRange{ upper_bound }) => {
+                    &&& self@ == old(self)@
+                    &&& trim_length > upper_bound
+                    &&& upper_bound == old(self)@.tentative.unwrap().m[list_addr].len()
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& !journal@.pm_constants.impervious_to_corruption()
+                    &&& self@ == (ListTableView {
+                        tentative: None,
+                        ..old(self)@
+                    })
+                },
+                _ => false,
+            }
+    {
+        proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+            broadcast use group_hash_axioms;
+        }
+
+        let action = match self.determine_action(list_addr, trim_length, journal) {
+            Ok(act) => act,
+            Err(KvError::CRCMismatch) => {
+                self.must_abort = Ghost(true);
+                return Err(KvError::CRCMismatch);
+            },
+            Err(KvError::IndexOutOfRange{ upper_bound }) => {
+                return Err(KvError::IndexOutOfRange{ upper_bound });
+            },
+            _ => {
+                assert(false);
+                return Err(KvError::InternalError);
+            },
+        };
+
+        match action {
+            TrimAction::Delete => {
+                match self.delete(list_addr, journal, Tracked(perm)) {
+                    Ok(()) => {
+                        assert(old(self)@.tentative.unwrap().m[list_addr].len() == trim_length);
+                        assert(old(self)@.tentative.unwrap().m[list_addr].skip(trim_length as int) =~= Seq::<L>::empty());
+                        return Ok(0);
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+            },
+            _ => {},
+        }
+
         assume(false);
         Err(KvError::NotImplemented)
     }
