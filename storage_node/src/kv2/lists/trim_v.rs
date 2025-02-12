@@ -243,49 +243,53 @@ impl<L> ListTableInternalView<L>
 enum TrimAction
 {
     Delete,
-    Modify{ pending_deallocations: Vec<u64>, new_head: u64 },
-    AdvanceHead{ pending_deallocations: Vec<u64>, new_head: u64 },
-    Drain{ pending_deallocations: Vec<u64> },
+    Modify,
+    Advance,
+    Drain,
 }
 
-impl TrimAction
+spec fn trim_action_applicable<L>(
+    action: TrimAction,
+    pending_deallocations: Seq<u64>,
+    new_head: u64,
+    iv: ListTableInternalView<L>,
+    list_addr: u64,
+    trim_length: int
+) -> bool
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+    recommends
+        iv.tentative_mapping.list_info.contains_key(list_addr),
 {
-    pub(super) open spec fn applicable<L>(self, iv: ListTableInternalView<L>, list_addr: u64, trim_length: int) -> bool
-        where
-            L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
-        recommends
-            iv.tentative_mapping.list_info.contains_key(list_addr),
-    {
-        let new_iv = iv.trim(list_addr, trim_length);
-        match self {
-            TrimAction::Delete => iv.tentative_mapping.list_info[list_addr].len() == trim_length,
-            TrimAction::Modify{ pending_deallocations, new_head } => {
-                &&& iv.m.contains_key(list_addr)
-                &&& iv.m[list_addr] is Durable
-                &&& pending_deallocations@ == iv.tentative_mapping.list_info[list_addr].take(trim_length)
+    let new_iv = iv.trim(list_addr, trim_length);
+    match action {
+        TrimAction::Delete => iv.tentative_mapping.list_info[list_addr].len() == trim_length,
+        TrimAction::Modify => {
+            &&& iv.m.contains_key(list_addr)
+            &&& iv.m[list_addr] is Durable
+            &&& pending_deallocations == iv.tentative_mapping.list_info[list_addr].take(trim_length)
                 &&& new_head == iv.tentative_mapping.list_info[list_addr][trim_length]
-            },
-            TrimAction::AdvanceHead{ pending_deallocations, new_head } => {
-                &&& iv.m.contains_key(list_addr)
-                &&& new_head == iv.tentative_mapping.list_info[list_addr][trim_length]
-                &&& pending_deallocations@ == iv.tentative_mapping.list_info[list_addr].take(trim_length)
-                &&& match iv.m[list_addr] {
-                    ListTableEntryView::Modified{ entry, addrs, .. } => entry.length - trim_length > addrs.len(),
-                    _ => false,
-                }
-            },
-            TrimAction::Drain{ pending_deallocations } => {
-                &&& iv.m.contains_key(list_addr)
-                &&& match iv.m[list_addr] {
-                    ListTableEntryView::Modified{ entry, addrs, .. } => {
-                        &&& entry.length - trim_length <= addrs.len()
-                        &&& pending_deallocations@ ==
-                            iv.tentative_mapping.list_info[list_addr].take(entry.length - addrs.len())
-                    },
-                    _ => false,
-                }
-            },
-        }
+        },
+        TrimAction::Advance => {
+            &&& iv.m.contains_key(list_addr)
+            &&& new_head == iv.tentative_mapping.list_info[list_addr][trim_length]
+            &&& pending_deallocations == iv.tentative_mapping.list_info[list_addr].take(trim_length)
+            &&& match iv.m[list_addr] {
+                ListTableEntryView::Modified{ entry, addrs, .. } => entry.length - trim_length > addrs.len(),
+                _ => false,
+            }
+        },
+        TrimAction::Drain => {
+            &&& iv.m.contains_key(list_addr)
+            &&& match iv.m[list_addr] {
+                   ListTableEntryView::Modified{ entry, addrs, .. } => {
+                       &&& entry.length - trim_length <= addrs.len()
+                       &&& pending_deallocations ==
+                              iv.tentative_mapping.list_info[list_addr].take(entry.length - addrs.len())
+                   },
+                   _ => false,
+               }
+        },
     }
 }
 
@@ -366,12 +370,176 @@ impl<PM, L> ListTable<PM, L>
         Ok((result, current_addr))
     }
 
+    exec fn get_addresses_to_trim_case_advance(
+        &self,
+        list_addr: u64,
+        trim_length: usize,
+        Ghost(durable_head): Ghost<u64>,
+        entry: &ListTableDurableEntry,
+        addrs: &Vec<u64>,
+        journal: &Journal<TrustedKvPermission, PM>,
+    ) -> (result: Result<(Vec<u64>, u64), KvError>)
+        requires
+            self.valid(journal@),
+            journal.valid(),
+            self@.tentative.is_some(),
+            self@.tentative.unwrap().m.contains_key(list_addr),
+            self.m@.contains_key(list_addr),
+            self.m@[list_addr] is Modified,
+            durable_head == self.m@[list_addr]->Modified_durable_head,
+            entry == self.m@[list_addr]->Modified_entry,
+            addrs == self.m@[list_addr]->Modified_addrs,
+            trim_length < entry.length - addrs.len(),
+        ensures
+            match result {
+                Ok((addrs, new_head)) => {
+                    &&& addrs@ == self.tentative_mapping@.list_info[list_addr].take(trim_length as int)
+                    &&& new_head == self.tentative_mapping@.list_info[list_addr][trim_length as int]
+                },
+                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
+                _ => false,
+            }
+    {
+        let mut current_addr = list_addr;
+        let mut result = Vec::<u64>::new();
+        let ghost durable_addrs = self.durable_mapping@.list_info[durable_head];
+        let ghost tentative_addrs = self.tentative_mapping@.list_info[list_addr];
+        let pm = journal.get_pm_region_ref();
+
+        assert(tentative_addrs.take(0) =~= Seq::<u64>::empty());
+        assert(list_addr != 0) by {
+            broadcast use group_validate_row_addr;
+        }
+        
+        for current_pos in 0..trim_length
+            invariant
+                trim_length < entry.length - addrs.len(),
+                current_addr == tentative_addrs[current_pos as int],
+                current_addr != 0,
+                result@ == tentative_addrs.take(current_pos as int),
+                self.valid(journal@),
+                journal.valid(),
+                self.durable_mapping@.list_info.contains_key(durable_head),
+                self.tentative_mapping@.list_info.contains_key(list_addr),
+                0 < durable_addrs.len(),
+                addrs.len() < entry.length,
+                entry.length - addrs.len() <= durable_addrs.len(),
+                durable_addrs == self.durable_mapping@.list_info[durable_head],
+                tentative_addrs == self.tentative_mapping@.list_info[list_addr],
+                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
+                pm.inv(),
+                pm@.read_state == journal@.read_state,
+                pm.constants() == journal@.pm_constants,
+        {
+            proof {
+                broadcast use group_validate_row_addr;
+                broadcast use pmcopy_axioms;
+            }
+
+            assert(tentative_addrs.take(current_pos as int).push(current_addr) =~=
+                   tentative_addrs.take(current_pos + 1));
+            result.push(current_addr);
+
+            let next_addr = current_addr + self.sm.row_next_start;
+            let next_crc_addr = next_addr + size_of::<u64>() as u64;
+            current_addr = match exec_recover_object::<PM, u64>(pm, next_addr, next_crc_addr) {
+                Some(n) => n,
+                None => { return Err(KvError::CRCMismatch); },
+            };
+        }
+        
+        Ok((result, current_addr))
+    }
+
+    exec fn get_addresses_to_trim_case_drain(
+        &self,
+        list_addr: u64,
+        num_durable_addrs: usize,
+        journal: &Journal<TrustedKvPermission, PM>,
+    ) -> (result: Result<Vec<u64>, KvError>)
+        requires
+            self.valid(journal@),
+            journal.valid(),
+            self@.tentative.is_some(),
+            self@.tentative.unwrap().m.contains_key(list_addr),
+            self.m@.contains_key(list_addr),
+            self.m@[list_addr] is Modified,
+            num_durable_addrs == self.m@[list_addr]->Modified_entry.length - self.m@[list_addr]->Modified_addrs.len(),
+        ensures
+            match result {
+                Ok(addrs) => addrs@ == self.tentative_mapping@.list_info[list_addr].take(num_durable_addrs as int),
+                Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
+                _ => false,
+            }
+    {
+        let mut result = Vec::<u64>::new();
+        let ghost tentative_addrs = self.tentative_mapping@.list_info[list_addr];
+
+        if num_durable_addrs == 0 {
+            assert(tentative_addrs.take(0) =~= Seq::<u64>::empty());
+            return Ok(result);
+        }
+
+        let mut current_addr = list_addr;
+        let ghost durable_head = self.m@[list_addr]->Modified_durable_head@;
+        let ghost entry = self.m@[list_addr]->Modified_entry;
+        let ghost addrs = self.m@[list_addr]->Modified_addrs;
+        let ghost durable_addrs = self.durable_mapping@.list_info[durable_head];
+        let pm = journal.get_pm_region_ref();
+
+        assert(tentative_addrs.take(0) =~= Seq::<u64>::empty());
+        assert(list_addr != 0) by {
+            broadcast use group_validate_row_addr;
+        }
+
+        for current_pos in 0..num_durable_addrs
+            invariant
+                num_durable_addrs == entry.length - addrs.len(),
+                current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
+                current_pos < num_durable_addrs ==> current_addr != 0,
+                result@ == tentative_addrs.take(current_pos as int),
+                self.valid(journal@),
+                journal.valid(),
+                self.durable_mapping@.list_info.contains_key(durable_head),
+                self.tentative_mapping@.list_info.contains_key(list_addr),
+                0 < durable_addrs.len(),
+                addrs.len() < entry.length,
+                entry.length - addrs.len() <= durable_addrs.len(),
+                durable_addrs == self.durable_mapping@.list_info[durable_head],
+                tentative_addrs == self.tentative_mapping@.list_info[list_addr],
+                tentative_addrs == durable_addrs.skip(durable_addrs.len() - (entry.length - addrs.len())) + addrs@,
+                pm.inv(),
+                pm@.read_state == journal@.read_state,
+                pm.constants() == journal@.pm_constants,
+        {
+            proof {
+                broadcast use group_validate_row_addr;
+                broadcast use pmcopy_axioms;
+            }
+
+            assert(tentative_addrs.take(current_pos as int).push(current_addr) =~=
+                   tentative_addrs.take(current_pos + 1));
+            result.push(current_addr);
+
+            if current_pos < num_durable_addrs {
+                let next_addr = current_addr + self.sm.row_next_start;
+                let next_crc_addr = next_addr + size_of::<u64>() as u64;
+                current_addr = match exec_recover_object::<PM, u64>(pm, next_addr, next_crc_addr) {
+                    Some(n) => n,
+                    None => { return Err(KvError::CRCMismatch); },
+                };
+            }
+        }
+        
+        Ok(result)
+    }
+
     exec fn determine_action(
         &self,
         list_addr: u64,
         trim_length: usize,
         journal: &Journal<TrustedKvPermission, PM>,
-    ) -> (result: Result<TrimAction, KvError>)
+    ) -> (result: Result<(TrimAction, Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
             journal.valid(),
@@ -380,7 +548,9 @@ impl<PM, L> ListTable<PM, L>
             0 < trim_length,
         ensures
             match result {
-                Ok(action) => action.applicable(self.internal_view(), list_addr, trim_length as int),
+                Ok((action, pending_deallocations, new_head)) =>
+                   trim_action_applicable(action, pending_deallocations@, new_head, self.internal_view(),
+                                          list_addr, trim_length as int),
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
                     &&& upper_bound == self@.tentative.unwrap().m[list_addr].len()
@@ -405,20 +575,41 @@ impl<PM, L> ListTable<PM, L>
                     Err(KvError::IndexOutOfRange{ upper_bound: entry.length })
                 }
                 else if entry.length == trim_length {
-                    Ok(TrimAction::Delete)
+                    Ok((TrimAction::Delete, Vec::<u64>::new(), 0))
                 }
                 else {
                     match self.get_addresses_to_trim_case_durable(list_addr, trim_length, entry, journal) {
                         Ok((pending_deallocations, new_head)) =>
-                            Ok(TrimAction::Modify{ pending_deallocations, new_head }),
+                            Ok((TrimAction::Modify, pending_deallocations, new_head)),
                         Err(KvError::CRCMismatch) => Err(KvError::CRCMismatch),
                         _ => { assert(false); Err(KvError::InternalError) },
                     }
                 }
             }
-            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref elements, .. }) => {
-                assume(false);
-                Err(KvError::NotImplemented)
+            Some(ListTableEntry::<L>::Modified{ ref durable_head, ref entry, ref addrs, .. }) => {
+                if entry.length < trim_length {
+                    Err(KvError::IndexOutOfRange{ upper_bound: entry.length })
+                }
+                else if entry.length == trim_length {
+                    Ok((TrimAction::Delete, Vec::<u64>::new(), 0))
+                }
+                else if trim_length < entry.length - addrs.len() {
+                    match self.get_addresses_to_trim_case_advance(list_addr, trim_length, Ghost(durable_head@),
+                                                                  entry, addrs, journal) {
+                        Ok((pending_deallocations, new_head)) =>
+                            Ok((TrimAction::Advance, pending_deallocations, new_head)),
+                        Err(KvError::CRCMismatch) => Err(KvError::CRCMismatch),
+                        _ => { assert(false); Err(KvError::InternalError) },
+                    }
+                }
+                else {
+                    let num_durable_addrs = entry.length - addrs.len();
+                    match self.get_addresses_to_trim_case_drain(list_addr, num_durable_addrs, journal) {
+                        Ok(pending_deallocations) => Ok((TrimAction::Drain, pending_deallocations, 0)),
+                        Err(KvError::CRCMismatch) => Err(KvError::CRCMismatch),
+                        _ => { assert(false); Err(KvError::InternalError) },
+                    }
+                }
             }
         }
     }
