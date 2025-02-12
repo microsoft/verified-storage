@@ -26,24 +26,6 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<L> ListTableEntryView<L>
-    where
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
-{
-    pub(super) open spec fn entry(self) -> ListTableDurableEntry
-    {
-        match self {
-            ListTableEntryView::<L>::Durable{ entry } => entry,
-            ListTableEntryView::<L>::Modified{ entry, .. } => entry,
-        }
-    }
-
-    pub(super) open spec fn length(self) -> usize
-    {
-        self.entry().length
-    }
-}
-
 impl<L> ListRecoveryMapping<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
@@ -84,6 +66,30 @@ impl<L> ListTableEntryView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    pub(super) open spec fn entry(self) -> ListTableDurableEntry
+    {
+        match self {
+            ListTableEntryView::<L>::Durable{ entry } => entry,
+            ListTableEntryView::<L>::Modified{ entry, .. } => entry,
+        }
+    }
+
+    pub(super) open spec fn length(self) -> usize
+    {
+        self.entry().length
+    }
+
+    pub(super) open spec fn valid(self) -> bool
+    {
+        match self {
+            ListTableEntryView::Durable{ entry } => true,
+            ListTableEntryView::Modified{ entry, addrs, elements, .. } => {
+                &&& entry.length >= addrs.len()
+                &&& addrs.len() == elements.len()
+            },
+        }
+    }
+
     pub(super) open spec fn trim(self, new_head: u64, trim_length: int, num_modifications: nat) -> Self
         recommends
             match self {
@@ -118,6 +124,72 @@ impl<L> ListTableEntryView<L>
                     elements: if new_length <= elements.len() { elements.skip(elements.len() - new_length) }
                               else { elements },
                 }
+            },
+        }
+    }
+}
+
+impl<L> ListTableEntry<L>
+    where
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+{
+    pub(super) open spec fn entry(self) -> ListTableDurableEntry
+    {
+        match self {
+            ListTableEntry::Durable{ entry } => entry,
+            ListTableEntry::Modified{ entry, .. } => entry,
+        }
+    }
+
+    pub(super) open spec fn length(self) -> usize
+    {
+        self.entry().length
+    }
+
+    exec fn trim(self, new_head: u64, trim_length: usize, num_modifications: usize)
+                 -> (result: (ListTableDurableEntry, Self))
+        requires
+            self@.valid(),
+            0 < trim_length < self.length(),
+        ensures
+            ({
+                let (durable_entry, new_self) = result;
+                &&& new_self@ == self@.trim(new_head, trim_length as int, num_modifications as nat)
+                &&& durable_entry == self@.entry()
+            }),
+    {
+        match self {
+            ListTableEntry::Durable{ entry } =>
+            {
+                (entry, ListTableEntry::Modified{
+                    which_modification: num_modifications,
+                    durable_head: Ghost(entry.head),
+                    entry: ListTableDurableEntry{
+                        head: new_head,
+                        length: (entry.length - trim_length) as usize,
+                        ..entry
+                    },
+                    addrs: Vec::<u64>::new(),
+                    elements: Vec::<L>::new(),
+                })
+            },
+            ListTableEntry::Modified{ which_modification, durable_head, entry, mut addrs, mut elements } =>
+            {
+                let new_length = entry.length - trim_length;
+                let addrs_len = if new_length < addrs.len() { addrs.len() - new_length } else { 0 };
+                assert(addrs@.skip(0) =~= addrs@);
+                assert(elements@.skip(0) =~= elements@);
+                (entry, ListTableEntry::Modified{
+                    which_modification: which_modification,
+                    durable_head: if new_length > addrs.len() { durable_head } else { Ghost(0) },
+                    entry: ListTableDurableEntry{
+                        head: new_head,
+                        length: new_length as usize,
+                        ..entry
+                    },
+                    addrs: if new_length < addrs.len() { addrs.split_off(addrs_len) } else { addrs },
+                    elements: if new_length < elements.len() { elements.split_off(addrs_len) } else { elements },
+                })
             },
         }
     }
@@ -814,6 +886,9 @@ impl<PM, L> ListTable<PM, L>
             },
         };
 
+        let ghost old_iv = self.internal_view();
+        let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
+        let ghost g_action = action;
         match action {
             TrimAction::Delete => {
                 match self.delete(list_addr, journal, Tracked(perm)) {
@@ -826,6 +901,29 @@ impl<PM, L> ListTable<PM, L>
                         return Err(e);
                     },
                 };
+            },
+            TrimAction::Modify{ mut pending_deallocations, new_head } => {
+                self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+                self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+                self.row_info = Ghost(new_iv.row_info);
+                let old_entry = match self.m.remove(&list_addr) {
+                    Some(e) => e,
+                    None => { assert(false); return Err(KvError::InternalError); },
+                };
+                let (durable_entry, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
+                self.m.insert(new_head, new_entry);
+                self.deletes_inverse = Ghost(new_iv.deletes_inverse);
+                self.deletes.push(durable_entry);
+                self.modifications.push(Some(new_head));
+                self.pending_deallocations.append(&mut pending_deallocations);
+                assert(self.internal_view() =~= g_action.apply(old_iv, list_addr, trim_length as int));
+                assert(self.internal_view() == old_iv.trim(list_addr, trim_length as int)) by {
+                    g_action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
+                }
+                proof {
+                    old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
+                }
+                return Ok(new_head);
             },
             _ => {},
         }
