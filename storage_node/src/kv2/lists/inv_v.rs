@@ -114,6 +114,15 @@ pub(super) enum ListRowDisposition
     InBothPendingLists{ alloc_pos: nat, dealloc_pos: nat },
 }
 
+impl ListTableStaticMetadata
+{
+    pub(super) open spec fn corresponds_to_journal(self, jv: JournalView) -> bool
+    {
+        &&& jv.constants.app_area_start <= self.start()
+        &&& self.end() <= jv.constants.app_area_end
+    }
+}
+
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(L)]
 pub(super) struct ListTableInternalView<L>
@@ -152,6 +161,15 @@ impl<L> ListTableInternalView<L>
         &&& self.deletes_inverse_is_inverse_of_deletes()
         &&& self.row_info_complete(sm)
         &&& self.per_row_info_consistent(sm)
+    }
+
+    pub(super) open spec fn corresponds_to_journal(self, jv: JournalView, sm: ListTableStaticMetadata) -> bool
+    {
+        &&& self.valid(sm)
+        &&& self.corresponds_to_durable_state(jv.durable_state, sm)
+        &&& self.corresponds_to_durable_state(jv.read_state, sm)
+        &&& self.corresponds_to_tentative_state(jv.commit_state, sm)
+        &&& self.consistent_with_journaled_addrs(jv.journaled_addrs, sm)
     }
 
     pub(super) open spec fn durable_mapping_reflected_in_changes_or_m(self) -> bool
@@ -396,18 +414,13 @@ impl<PM, L> ListTable<PM, L>
 {
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
-        &&& 0 < self.sm.start()
-        &&& jv.constants.app_area_start <= self.sm.start()
-        &&& self.sm.end() <= jv.constants.app_area_end
         &&& self.sm.valid::<L>()
+        &&& 0 < self.sm.start()
+        &&& self.sm.corresponds_to_journal(jv)
         &&& self.space_needed_to_journal_next ==
             Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
             u64::spec_size_of() + u64::spec_size_of()
-        &&& self.internal_view().valid(self.sm)
-        &&& self.internal_view().corresponds_to_durable_state(jv.durable_state, self.sm)
-        &&& self.internal_view().corresponds_to_durable_state(jv.read_state, self.sm)
-        &&& self.internal_view().corresponds_to_tentative_state(jv.commit_state, self.sm)
-        &&& self.internal_view().consistent_with_journaled_addrs(jv.journaled_addrs, self.sm)
+        &&& self.internal_view().corresponds_to_journal(jv, self.sm)
     }
 
     pub(super) open spec fn internal_view(self) -> ListTableInternalView<L>
