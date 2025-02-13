@@ -341,14 +341,21 @@ impl<PM, L> ListTable<PM, L>
         ensures
             journal.valid(),
             self.sm == old(self).sm,
+            self.space_needed_to_journal_next == old(self).space_needed_to_journal_next,
             ({
                 let (success, new_entry) = result;
                 if success {
                     let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
                     let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                    &&& self@ == old(self)@
                     &&& next_iv.corresponds_to_journal(journal@, self.sm)
                     &&& match new_entry {
-                        ListTableEntry::Modified{ summary, addrs, .. } => summary.length == addrs.len(),
+                        ListTableEntry::Modified{ summary, addrs, elements, .. } => {
+                            &&& summary.length == addrs.len()
+                            &&& addrs.len() == elements.len()
+                            &&& addrs@ == self.tentative_mapping@.list_info[list_addr]
+                            &&& elements@ == self.tentative_mapping@.list_elements[list_addr]
+                        },
                         _ => false,
                     }
                 }
@@ -463,7 +470,7 @@ impl<PM, L> ListTable<PM, L>
         &mut self,
         list_addr: u64,
         idx: usize,
-        new_list_entry: L,
+        new_element: L,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<u64, KvError>)
@@ -483,11 +490,11 @@ impl<PM, L> ListTable<PM, L>
                     &&& new_list_addr != 0
                     &&& new_list_addr == list_addr || !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
                     &&& idx < old_list.len()
-                    &&& old_list[idx as int].start() == new_list_entry.start()
-                    &&& old_list[idx as int].end() == new_list_entry.end()
+                    &&& old_list[idx as int].start() == new_element.start()
+                    &&& old_list[idx as int].end() == new_element.end()
                     &&& self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().update_entry_at_index(list_addr, new_list_addr,
-                                                                                          idx, new_list_entry)),
+                                                                                          idx, new_element)),
                         ..old(self)@
                     })
                     &&& self.validate_list_addr(new_list_addr)
@@ -504,8 +511,8 @@ impl<PM, L> ListTable<PM, L>
                     &&& idx < old_list.len()
                     &&& old_start == old_list[idx as int].start()
                     &&& old_end == old_list[idx as int].end()
-                    &&& new_start == new_list_entry.start()
-                    &&& new_end == new_list_entry.end()
+                    &&& new_start == new_element.start()
+                    &&& new_end == new_element.end()
                     &&& old_start != new_start || old_end != new_end
                 }
                 Err(KvError::OutOfSpace) => {
@@ -530,6 +537,16 @@ impl<PM, L> ListTable<PM, L>
             broadcast use group_hash_axioms;
         }
 
+        if self.free_list.len() == 0 {
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+
+        if journal.remaining_capacity() < self.space_needed_to_journal_next {
+            self.must_abort = Ghost(true);
+            return Err(KvError::OutOfSpace);
+        }
+
         let entry = match self.m.remove(&list_addr) {
             None => { assert(false); return Err(KvError::InternalError); },
             Some(e) => e,
@@ -540,6 +557,43 @@ impl<PM, L> ListTable<PM, L>
             self.m.insert(list_addr, new_entry);
             self.must_abort = Ghost(true);
             return Err(KvError::CRCMismatch);
+        }
+
+        let result: Result<(), KvError> = match &new_entry {
+            ListTableEntry::Durable{ .. } => {
+                assert(false);
+                Err(KvError::InternalError)
+            },
+
+            ListTableEntry::Modified{ ref addrs, ref elements, .. } => {
+                if addrs.len() <= idx {
+                    Err(KvError::IndexOutOfRange{ upper_bound: addrs.len() })
+                }
+                else {
+                    let current_element = elements[idx];
+                    if current_element.start() != new_element.start() || current_element.end() != new_element.end() {
+                        Err(KvError::LogicalRangeUpdateNotAllowed{
+                            old_start: current_element.start(),
+                            old_end: current_element.end(),
+                            new_start: new_element.start(),
+                            new_end: new_element.end(),
+                        })
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+        };
+
+        match result {
+            Ok(()) => {},
+            Err(e) => {
+                let ghost updated_m = self.internal_view().m.insert(list_addr, new_entry@);
+                let ghost next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                self.m.insert(list_addr, new_entry);
+                assert(self.internal_view() =~= next_iv);
+                return Err(e);
+            }
         }
 
         assume(false);
