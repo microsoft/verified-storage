@@ -344,7 +344,6 @@ impl<L> ListTableInternalView<L>
             self.append_case_modified(list_addr, new_element).tentative_mapping.as_snapshot() ==
                 self.tentative_mapping.as_snapshot().append(list_addr, list_addr, new_element),
     {
-        
         let new_self = self.append_case_modified(list_addr, new_element);
         let old_snapshot = self.tentative_mapping.as_snapshot();
         let new_snapshot = new_self.tentative_mapping.as_snapshot();

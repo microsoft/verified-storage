@@ -80,6 +80,153 @@ impl<L> ListTableInternalView<L>
             self.complete_entry(list_addr).corresponds_to_journal(jv, sm),
     {
     }
+
+    pub(super) open spec fn update(self, list_addr: u64, idx: usize, new_element: L) -> Self
+    {
+        let new_row_addr = self.free_list.last();
+        let old_addrs = self.tentative_mapping.list_info[list_addr];
+        let new_addrs = old_addrs.update(idx as int, new_row_addr);
+        let new_head = if idx == 0 { new_row_addr } else { list_addr };
+        let old_row_addr = old_addrs[idx as int];
+
+        let old_elements = self.tentative_mapping.list_elements[list_addr];
+        let new_elements = old_elements.update(idx as int, new_element);
+
+        let next_addr = if idx == old_addrs.len() - 1 { 0 } else { old_addrs[idx + 1] };
+        let prev_addr = if idx == 0 { 0 } else { old_addrs[idx - 1] };
+
+        let new_row_info = Map::<u64, ListRowRecoveryInfo<L>>::new(
+            |row_addr: u64| {
+                ||| row_addr == new_row_addr
+                ||| {
+                       &&& self.tentative_mapping.row_info.contains_key(row_addr)
+                       &&& row_addr != old_row_addr
+                }
+            },
+            |row_addr: u64|
+            {
+                if row_addr == new_row_addr {
+                    ListRowRecoveryInfo::<L>{ element: new_element, head: new_head, next: next_addr, pos: idx as int }
+                }
+                else {
+                    let info = self.tentative_mapping.row_info[row_addr];
+                    if idx > 0 && row_addr == prev_addr {
+                        ListRowRecoveryInfo::<L>{ head: new_head, next: new_row_addr, ..info }
+                    }
+                    else if info.head == list_addr {
+                        ListRowRecoveryInfo::<L>{ head: new_head, ..info }
+                    }
+                    else {
+                        info
+                    }
+                }
+            }
+        );
+
+        let new_tentative_mapping = ListRecoveryMapping::<L>{
+            row_info: new_row_info,
+            list_info: self.tentative_mapping.list_info.remove(list_addr).insert(new_head, new_addrs),
+            list_elements: self.tentative_mapping.list_elements.remove(list_addr).insert(new_head, new_elements),
+        };
+
+        let new_allocated_disposition =
+            ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() };
+        let new_deallocated_disposition =
+            self.row_info[old_row_addr].add_to_pending_deallocations(self.pending_deallocations.len());
+        let new_row_dispositions =
+            self.row_info.insert(new_row_addr, new_allocated_disposition)
+                         .insert(old_row_addr, new_deallocated_disposition);
+
+        let new_modifications = match self.m[list_addr] {
+            ListTableEntryView::Durable{ .. } => self.modifications,
+            ListTableEntryView::Modified{ which_modification, .. } =>
+                self.modifications.update(which_modification as int, Some(new_head)),
+        };
+
+        let new_entry = match self.m[list_addr] {
+            ListTableEntryView::Durable{ .. } => self.m[list_addr],
+            ListTableEntryView::Modified{ which_modification, durable_head, summary, addrs, elements } => {
+                let new_summary = ListSummary{
+                    head: new_head,
+                    tail: new_addrs.last(),
+                    length: summary.length,
+                    end_of_logical_range: new_elements.last().end(),
+                };
+                ListTableEntryView::Modified{
+                    which_modification,
+                    durable_head,
+                    summary: new_summary,
+                    addrs: addrs.update(idx as int, new_row_addr),
+                    elements: elements.update(idx as int, new_element),
+                }
+            },
+        };
+
+        Self{
+            free_list: self.free_list.drop_last(),
+            tentative_mapping: new_tentative_mapping,
+            row_info: new_row_dispositions,
+            m: self.m.remove(list_addr).insert(new_head, new_entry),
+            pending_allocations: self.pending_allocations.push(new_row_addr),
+            pending_deallocations: self.pending_deallocations.push(old_row_addr),
+            modifications: new_modifications,
+            ..self
+        }
+    }
+
+    pub(super) proof fn lemma_update_works(
+        self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        sm: ListTableStaticMetadata
+    )
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            0 < self.free_list.len(),
+            self.m.contains_key(list_addr),
+            match self.m[list_addr] {
+                ListTableEntryView::Modified{ summary, addrs, elements, .. } => {
+                    &&& summary.length == addrs.len()
+                    &&& addrs.len() == elements.len()
+                    &&& idx < addrs.len()
+                    &&& elements[idx as int].start() == new_element.start()
+                    &&& elements[idx as int].end() == new_element.end()
+                },
+                _ => false,
+            },
+        ensures
+            self.update(list_addr, idx, new_element).valid(sm),
+            ({
+                let new_row_addr = self.free_list.last();
+                let new_head = if idx == 0 { new_row_addr } else { list_addr };
+                self.update(list_addr, idx, new_element).tentative_mapping.as_snapshot() ==
+                    self.tentative_mapping.as_snapshot().update_entry_at_index(list_addr, new_head, idx, new_element)
+            }),
+    {
+        let new_self = self.update(list_addr, idx, new_element);
+        let old_snapshot = self.tentative_mapping.as_snapshot();
+        let new_snapshot = new_self.tentative_mapping.as_snapshot();
+
+        let new_row_addr = self.free_list.last();
+        let new_head = if idx == 0 { new_row_addr } else { list_addr };
+
+        assert(new_snapshot =~= old_snapshot.update_entry_at_index(list_addr, new_head, idx, new_element));
+        assert(new_row_addr > 0) by {
+            broadcast use group_validate_row_addr;
+        }
+
+        match new_self.m[new_head] {
+            ListTableEntryView::Modified{ durable_head, summary, addrs, elements, .. } => {
+                assert(durable_head == 0);
+                assert(summary.length == addrs.len());
+                assert(addrs.len() == elements.len());
+            },
+            _ => { assert(false); },
+        }
+    }
 }
 
 impl<PM, L> ListTable<PM, L>
