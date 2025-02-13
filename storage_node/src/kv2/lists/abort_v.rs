@@ -27,11 +27,6 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-#[verifier::ext_equal]
-pub(super) enum ListTableStatus {
-    Quiescent,
-}
-
 impl<L> ListTableInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
@@ -76,9 +71,7 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn abort(self) -> Self
     {
         Self {
-            durable_list_addrs: self.durable_list_addrs,
             tentative_list_addrs: self.durable_list_addrs,
-            durable_mapping: self.durable_mapping,
             tentative_mapping: self.durable_mapping,
             row_info: self.abort_row_info(),
             m: self.abort_m(),
@@ -88,6 +81,7 @@ impl<L> ListTableInternalView<L>
             free_list: self.free_list + self.pending_allocations,
             pending_allocations: Seq::<u64>::empty(),
             pending_deallocations: Seq::<u64>::empty(),
+            ..self
         }
     }
 

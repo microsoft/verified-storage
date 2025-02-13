@@ -28,6 +28,7 @@ verus! {
 #[verifier::ext_equal]
 pub(super) enum ListTableStatus {
     Quiescent,
+    PoppedEntry,
 }
 
 #[verifier::ext_equal]
@@ -129,6 +130,7 @@ pub(super) struct ListTableInternalView<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
+    pub status: ListTableStatus,
     pub durable_list_addrs: Set<u64>,
     pub tentative_list_addrs: Set<u64>,
     pub durable_mapping: ListRecoveryMapping<L>,
@@ -405,6 +407,14 @@ impl<L> ListTableInternalView<L>
         &&& self.pending_allocations_consistent(sm)
         &&& self.pending_deallocations_consistent(sm)
     }
+
+    pub(super) open spec fn add_entry(self, list_addr: u64, entry: ListTableEntryView<L>) -> Self
+    {
+        Self{
+            m: self.m.insert(list_addr, entry),
+            ..self
+        }
+    }
 }
 
 impl<PM, L> ListTable<PM, L>
@@ -420,12 +430,13 @@ impl<PM, L> ListTable<PM, L>
         &&& self.space_needed_to_journal_next ==
             Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
             u64::spec_size_of() + u64::spec_size_of()
-        &&& self.internal_view().corresponds_to_journal(jv, self.sm)
+        &&& self.status@ is Quiescent ==> self.internal_view().corresponds_to_journal(jv, self.sm)
     }
 
     pub(super) open spec fn internal_view(self) -> ListTableInternalView<L>
     {
         ListTableInternalView{
+            status: self.status@,
             durable_list_addrs: self.durable_list_addrs@,
             tentative_list_addrs: self.tentative_list_addrs@,
             durable_mapping: self.durable_mapping@,

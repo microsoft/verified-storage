@@ -340,8 +340,8 @@ impl<PM, L> ListTable<PM, L>
             old(self).m@ == prev_self.m@.remove(list_addr),
         ensures
             journal.valid(),
-            self.sm == old(self).sm,
-            self.space_needed_to_journal_next == old(self).space_needed_to_journal_next,
+            self == (Self{ m: self.m, deletes: self.deletes, deletes_inverse: self.deletes_inverse,
+                           modifications: self.modifications, ..*old(self) }),
             ({
                 let (success, new_entry) = result;
                 if success {
@@ -466,6 +466,56 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
+    exec fn update_normal_case(
+        &mut self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        entry: ListTableEntry<L>,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    ) -> (new_list_addr: u64)
+        requires
+            old(self).inv(old(journal)@),
+            old(self).status@ is PoppedEntry,
+            old(self).internal_view().add_entry(list_addr, entry@).corresponds_to_journal(old(journal)@, old(self).sm),
+            old(journal).valid(),
+            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            idx == 0 || old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
+            old(self).free_list.len() > 0,
+            match entry {
+                ListTableEntry::Modified{ summary, addrs, elements, .. } => {
+                    &&& summary.length == addrs.len()
+                    &&& addrs.len() == elements.len()
+                    &&& idx < addrs.len()
+                    &&& elements[idx as int].start() == new_element.start()
+                    &&& elements[idx as int].end() == new_element.end()
+                },
+                _ => false,
+            },
+        ensures
+            self.valid(journal@),
+            journal.valid(),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            new_list_addr != 0,
+            new_list_addr == list_addr || !old(self)@.tentative.unwrap().m.contains_key(new_list_addr),
+            self@ == (ListTableView {
+                tentative: Some(old(self)@.tentative.unwrap().update_entry_at_index(list_addr, new_list_addr,
+                                                                                  idx, new_element)),
+                ..old(self)@
+            }),
+            self.validate_list_addr(new_list_addr),
+            ({
+                let old_list = old(self)@.tentative.unwrap().m[list_addr];
+                &&& idx < old_list.len()
+                &&& old_list[idx as int].start() == new_element.start()
+                &&& old_list[idx as int].end() == new_element.end()
+            }),
+    {
+        assume(false);
+        0
+    }
+
     pub exec fn update(
         &mut self,
         list_addr: u64,
@@ -542,7 +592,7 @@ impl<PM, L> ListTable<PM, L>
             return Err(KvError::OutOfSpace);
         }
 
-        if journal.remaining_capacity() < self.space_needed_to_journal_next {
+        if idx != 0 || journal.remaining_capacity() < self.space_needed_to_journal_next {
             self.must_abort = Ghost(true);
             return Err(KvError::OutOfSpace);
         }
@@ -596,8 +646,8 @@ impl<PM, L> ListTable<PM, L>
             }
         }
 
-        assume(false);
-        Err(KvError::NotImplemented)
+        self.status = Ghost(ListTableStatus::PoppedEntry);
+        Ok(self.update_normal_case(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
     }
 }
 
