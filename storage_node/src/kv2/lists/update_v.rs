@@ -359,11 +359,20 @@ impl<PM, L> ListTable<PM, L>
                 }
             }),
     {
-        proof {
-            journal.lemma_valid_implications();
-            broadcast use group_validate_row_addr;
-            broadcast use pmcopy_axioms;
-            broadcast use group_hash_axioms;
+        let already_complete = match &entry {
+            ListTableEntry::Durable{ .. } => false,
+            ListTableEntry::Modified{ ref summary, ref addrs, .. } => addrs.len() == summary.length,
+        };
+        if already_complete {
+            proof {
+                let updated_m = self.internal_view().m.insert(list_addr, entry@);
+                let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                assert(next_iv == prev_self.internal_view().complete_entry(list_addr));
+                prev_self.internal_view().lemma_complete_entry_maintains_correspondence(
+                    list_addr, journal@, self.sm
+                );
+            }
+            return (true, entry);
         }
 
         match entry {
@@ -401,63 +410,49 @@ impl<PM, L> ListTable<PM, L>
 
             ListTableEntry::Modified{ which_modification, durable_head, summary, mut addrs, mut elements } => {
                 let num_addrs = addrs.len();
-                if num_addrs == summary.length {
-                    let new_entry =
-                        ListTableEntry::Modified{ which_modification, durable_head, summary, addrs, elements };
-                    proof {
-                        let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
-                        let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
-                        assert(next_iv == prev_self.internal_view().complete_entry(list_addr));
-                        prev_self.internal_view().lemma_complete_entry_maintains_correspondence(
-                            list_addr, journal@, self.sm
-                        );
-                    }
-                    (true, new_entry)
-                }
-                else {
-                    match self.get_addresses_and_elements_case_modified(list_addr, &summary, journal, num_addrs,
-                                                                        Ghost(prev_self)) {
-                        Ok((mut durable_addrs, mut durable_elements)) => {
-                            durable_addrs.append(&mut addrs);
-                            durable_elements.append(&mut elements);
-                            let new_entry = ListTableEntry::Modified{
-                                which_modification,
-                                durable_head: Ghost(0),
-                                summary,
-                                addrs: durable_addrs,
-                                elements: durable_elements,
-                            };
-                            proof {
-                                let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
-                                let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
-                                let g_durable_addrs = self.durable_mapping@.list_info[durable_head@];
-                                let g_durable_elements = self.durable_mapping@.list_elements[durable_head@];
-                                let num_durable_addrs = summary.length - num_addrs;
-                                assert(self.tentative_mapping@.list_info[list_addr].take(num_durable_addrs) ==
-                                       g_durable_addrs.skip(g_durable_addrs.len() - (summary.length - num_addrs)));
-                                assert(durable_addrs@ ==
-                                       prev_self.internal_view().tentative_mapping.list_info[list_addr]);
-                                assert(self.tentative_mapping@.list_elements[list_addr].take(num_durable_addrs) ==
-                                       g_durable_elements.skip(g_durable_elements.len() -
-                                                               (summary.length - num_addrs)));
-                                assert(durable_elements@ ==
-                                       prev_self.internal_view().tentative_mapping.list_elements[list_addr]);
-                                assert(next_iv =~= prev_self.internal_view().complete_entry(list_addr));
-                                prev_self.internal_view().lemma_complete_entry_maintains_correspondence(
-                                    list_addr, journal@, self.sm
-                                );
-                            }
-                            (true, new_entry)
-                        },
-                        Err(KvError::CRCMismatch) => {
-                            (false,
-                             ListTableEntry::Modified{ which_modification, durable_head, summary, addrs, elements })
-                        },
-                        Err(e) => {
-                            assert(false);
-                            (false,
-                             ListTableEntry::Modified{ which_modification, durable_head, summary, addrs, elements })
+                assert(num_addrs < summary.length);
+                match self.get_addresses_and_elements_case_modified(list_addr, &summary, journal, num_addrs,
+                                                                    Ghost(prev_self)) {
+                    Ok((mut durable_addrs, mut durable_elements)) => {
+                        durable_addrs.append(&mut addrs);
+                        durable_elements.append(&mut elements);
+                        let new_entry = ListTableEntry::Modified{
+                            which_modification,
+                            durable_head: Ghost(0),
+                            summary,
+                            addrs: durable_addrs,
+                            elements: durable_elements,
+                        };
+                        proof {
+                            let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
+                            let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                            let g_durable_addrs = self.durable_mapping@.list_info[durable_head@];
+                            let g_durable_elements = self.durable_mapping@.list_elements[durable_head@];
+                            let num_durable_addrs = summary.length - num_addrs;
+                            assert(self.tentative_mapping@.list_info[list_addr].take(num_durable_addrs) ==
+                                   g_durable_addrs.skip(g_durable_addrs.len() - (summary.length - num_addrs)));
+                            assert(durable_addrs@ ==
+                                   prev_self.internal_view().tentative_mapping.list_info[list_addr]);
+                            assert(self.tentative_mapping@.list_elements[list_addr].take(num_durable_addrs) ==
+                                   g_durable_elements.skip(g_durable_elements.len() -
+                                                           (summary.length - num_addrs)));
+                            assert(durable_elements@ ==
+                                   prev_self.internal_view().tentative_mapping.list_elements[list_addr]);
+                            assert(next_iv =~= prev_self.internal_view().complete_entry(list_addr));
+                            prev_self.internal_view().lemma_complete_entry_maintains_correspondence(
+                                list_addr, journal@, self.sm
+                            );
                         }
+                        (true, new_entry)
+                    },
+                    Err(KvError::CRCMismatch) => {
+                        (false,
+                         ListTableEntry::Modified{ which_modification, durable_head, summary, addrs, elements })
+                    },
+                    Err(e) => {
+                        assert(false);
+                        (false,
+                         ListTableEntry::Modified{ which_modification, durable_head, summary, addrs, elements })
                     }
                 }
             },
