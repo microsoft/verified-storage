@@ -27,6 +27,55 @@ use vstd::std_specs::hash::*;
 
 verus! {
     
+impl<L> ListTableEntry<L>
+    where
+        L: LogicalRange + PmCopy + std::fmt::Debug,
+{
+    // TODO - Do in place somehow
+    exec fn update(self, idx: usize, new_row_addr: u64, new_element: L) -> (result: Self)
+        requires
+            match self {
+                ListTableEntry::Modified{ summary, addrs, elements, .. } => {
+                    &&& summary.length == addrs.len()
+                    &&& addrs.len() == elements.len()
+                    &&& idx < summary.length
+                },
+                _ => false,
+            },
+        ensures
+            result@ == match self@ {
+                ListTableEntryView::Modified{ which_modification, summary, durable_head, addrs, elements } =>
+                    ListTableEntryView::Modified{
+                        which_modification,
+                        summary: ListSummary{
+                            head: if idx == 0 { new_row_addr } else { summary.head },
+                            tail: if idx == addrs.len() - 1 { new_row_addr } else { summary.tail },
+                            ..summary
+                        },
+                        durable_head,
+                        addrs: addrs.update(idx as int, new_row_addr),
+                        elements: elements.update(idx as int, new_element)
+                    },
+                _ => self@,
+            }
+    {
+        match self {
+            ListTableEntry::Durable{ summary } => ListTableEntry::Durable{ summary },
+            ListTableEntry::Modified{ which_modification, mut summary, durable_head, mut addrs, mut elements } => {
+                addrs.set(idx, new_row_addr);
+                elements.set(idx, new_element);
+                if idx == 0 {
+                    summary.head = new_row_addr;
+                }
+                if idx == addrs.len() - 1 {
+                    summary.tail = new_row_addr;
+                }
+                ListTableEntry::Modified{ which_modification, summary, durable_head, addrs, elements }
+            },
+        }
+    }
+}
+    
 impl<L> ListTableInternalView<L>
     where
         L: LogicalRange + PmCopy + std::fmt::Debug,
@@ -497,6 +546,7 @@ impl<PM, L> ListTable<PM, L>
                     let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
                     let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
                     &&& self@ == old(self)@
+                    &&& !self.m@.contains_key(list_addr)
                     &&& next_iv.corresponds_to_journal(journal@, self.sm)
                     &&& match new_entry {
                         ListTableEntry::Modified{ summary, addrs, elements, .. } => {
@@ -620,7 +670,7 @@ impl<PM, L> ListTable<PM, L>
         list_addr: u64,
         idx: usize,
         new_element: L,
-        entry: ListTableEntry<L>,
+        entry: &ListTableEntry<L>,
         new_row_addr: u64,
         journal: &mut Journal<TrustedKvPermission, PM>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
@@ -692,6 +742,7 @@ impl<PM, L> ListTable<PM, L>
             },
     {
         let ghost old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
+        assert(old_iv.m.contains_key(list_addr)); // Triggers various facts
 
         proof {
             journal.lemma_valid_implications();
@@ -706,9 +757,6 @@ impl<PM, L> ListTable<PM, L>
                 perm
             );
 
-            assert(journal@.constants.app_area_start <= self.sm.start());
-            assert(self.sm.end() <= journal@.constants.app_area_end);
-
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
@@ -718,7 +766,6 @@ impl<PM, L> ListTable<PM, L>
         match entry {
             ListTableEntry::Durable{ .. } => { assert(false); },
             ListTableEntry::Modified{ addrs, .. } => {
-                assert(old_iv.m.contains_key(list_addr));
                 assert(old_iv.m[list_addr] == entry@);
                 assert(addrs@ == old_iv.tentative_mapping.list_info[list_addr]);
                 let element_addr = new_row_addr + self.sm.row_element_start;
@@ -786,6 +833,7 @@ impl<PM, L> ListTable<PM, L>
             old(self).inv(old(journal)@),
             old(self).status@ is PoppedEntry,
             old(self).internal_view().add_entry(list_addr, entry@).corresponds_to_journal(old(journal)@, old(self).sm),
+            !old(self).m@.contains_key(list_addr),
             old(journal).valid(),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
             idx == 0 || old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
@@ -827,6 +875,7 @@ impl<PM, L> ListTable<PM, L>
                                                                         old_iv.durable_list_addrs,
                                                                         self.sm);
             journal.lemma_valid_implications();
+            broadcast use group_hash_axioms;
         }
 
         let new_row_addr = match self.free_list.pop() {
@@ -834,9 +883,41 @@ impl<PM, L> ListTable<PM, L>
             None => { assert(false); 0 },
         };
 
-        self.update_normal_case_write_step(list_addr, idx, new_element, entry, new_row_addr, journal, Tracked(perm));
+        self.update_normal_case_write_step(list_addr, idx, new_element, &entry, new_row_addr, journal, Tracked(perm));
+
+        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+        self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+        self.row_info = Ghost(new_iv.row_info);
+        self.pending_allocations.push(new_row_addr);
+
+        assert(old_iv.m.contains_key(list_addr)); // Triggers various facts
+
+        let new_head = if idx == 0 { new_row_addr } else { list_addr };
+
+        let (which_modification, old_row_addr) = match &entry {
+            ListTableEntry::Durable{ .. } => { assert(false); (0usize, 0u64) },
+            ListTableEntry::Modified{ ref which_modification, ref addrs, .. } => (*which_modification, addrs[idx]),
+        };
+
+        self.pending_deallocations.push(old_row_addr);
+        if idx == 0 {
+            self.modifications.set(which_modification, Some(new_row_addr));
+        }
+        else {
+            assert(self.modifications[which_modification as int] == Some(list_addr));
+        }
+
+        let new_entry = entry.update(idx, new_row_addr, new_element);
+        self.m.insert(new_head, new_entry);
+
+        assert(old(self).internal_view().m == old_iv.m.remove(list_addr));
+        assert(new_entry@ =~= new_iv.m[new_head]);
+        assert(self.internal_view().m == old_iv.m.remove(list_addr).insert(new_head, new_entry@));
+        assert(self.internal_view().m =~= new_iv.m);
+        assert(self.internal_view() =~= new_iv);
+
         assume(false);
-        0
+        new_head
     }
 
     pub exec fn update(
