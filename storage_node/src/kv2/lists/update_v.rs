@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
-use super::util_v::lemma_writing_next_and_crc_together_enables_recovery;
+use super::util_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 use vstd::std_specs::hash::*;

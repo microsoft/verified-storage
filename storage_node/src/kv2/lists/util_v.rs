@@ -26,39 +26,6 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-pub(super) proof fn lemma_writing_next_and_crc_together_enables_recovery(
-    s1: Seq<u8>,
-    s2: Seq<u8>,
-    next: u64,
-    next_addr: int,
-    bytes_written: Seq<u8>
-)
-    requires
-        0 <= next_addr,
-        next_addr + bytes_written.len() <= s1.len(),
-        bytes_written.len() == u64::spec_size_of() + u64::spec_size_of(),
-        s2 == update_bytes(s1, next_addr, bytes_written),
-        bytes_written == next.spec_to_bytes() + spec_crc_bytes(next.spec_to_bytes()),
-    ensures
-        recover_object::<u64>(s2, next_addr, next_addr + u64::spec_size_of()) == Some(next),
-{
-    broadcast use group_update_bytes_effect;
-    broadcast use pmcopy_axioms;
-
-    let next_crc = spec_crc_bytes(next.spec_to_bytes());
-    lemma_subrange_subrange(s2,
-                            next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
-                            next_addr as int, next_addr + u64::spec_size_of());
-    lemma_subrange_subrange(s2,
-                            next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
-                            next_addr + u64::spec_size_of(),
-                            next_addr + u64::spec_size_of() + u64::spec_size_of());
-    assert(bytes_written.subrange(0, u64::spec_size_of() as int) =~= next.spec_to_bytes());
-    assert(bytes_written.subrange(u64::spec_size_of() as int, (u64::spec_size_of() + u64::spec_size_of()) as int)
-           =~= next_crc);
-    assert(recover_object::<u64>(s2, next_addr, next_addr + u64::spec_size_of()) =~= Some(next));
-}
-
 pub(super) proof fn lemma_writing_element_and_next_effect_on_recovery<L>(
     s1: Seq<u8>,
     s5: Seq<u8>,
@@ -145,10 +112,19 @@ pub(super) proof fn lemma_writing_next_and_crc_together_effect_on_recovery<L>(
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     broadcast use group_validate_row_addr;
 
-    lemma_writing_next_and_crc_together_enables_recovery(
-        s1, s2, next, row_addr + sm.row_next_start,
-        next.spec_to_bytes() + spec_crc_bytes(next.spec_to_bytes())
-    );
+    let next_addr = row_addr + sm.row_next_start;
+    let bytes_written = next.spec_to_bytes() + spec_crc_bytes(next.spec_to_bytes());
+    lemma_subrange_subrange(s2,
+                            next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
+                            next_addr as int, next_addr + u64::spec_size_of());
+    lemma_subrange_subrange(s2,
+                            next_addr as int, next_addr + u64::spec_size_of() + u64::spec_size_of(),
+                            next_addr + u64::spec_size_of(),
+                            next_addr + u64::spec_size_of() + u64::spec_size_of());
+    assert(bytes_written.subrange(0, u64::spec_size_of() as int) =~= next.spec_to_bytes());
+    assert(bytes_written.subrange(u64::spec_size_of() as int, (u64::spec_size_of() + u64::spec_size_of()) as int)
+           =~= spec_crc_bytes(next.spec_to_bytes()));
+    assert(recover_object::<u64>(s2, next_addr, next_addr + u64::spec_size_of()) =~= Some(next));
 }
 
 impl<PM, L> ListTable<PM, L>

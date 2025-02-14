@@ -418,152 +418,6 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    proof fn lemma_append_case_durable_works(
-        iv1: ListTableInternalView<L>,
-        iv2: ListTableInternalView<L>,
-        commit_state1: Seq<u8>,
-        commit_state2: Seq<u8>,
-        commit_state3: Seq<u8>,
-        list_addr: u64,
-        new_element: L,
-        new_row_addr: u64,
-        tail_row_addr: u64,
-        sm: ListTableStaticMetadata,
-    )
-        requires
-            sm.valid::<L>(),
-            0 < sm.start(),
-            iv1.valid(sm),
-            iv1.m.contains_key(list_addr),
-            match iv1.m[list_addr] {
-                ListTableEntryView::Durable{ summary } => {
-                    &&& tail_row_addr == summary.tail
-                    &&& summary.length < usize::MAX
-                },
-                _ => false,
-            },
-            iv1.free_list.len() > 0,
-            new_row_addr == iv1.free_list.last(),
-            iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case_durable(list_addr, new_element),
-            seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
-                                       new_row_addr + sm.table.row_size),
-            seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
-                                       tail_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()),
-            recover_object::<u64>(commit_state2, new_row_addr + sm.row_next_start,
-                                  new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(commit_state2, new_row_addr + sm.row_element_start,
-                                new_row_addr + sm.row_element_crc_start) == Some(new_element),
-            recover_object::<u64>(commit_state3, tail_row_addr + sm.row_next_start,
-                                  tail_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr),
-        ensures
-            iv2.corresponds_to_tentative_state(commit_state3, sm),
-    {
-        iv1.lemma_append_case_durable_works(list_addr, new_element, sm);
-
-        broadcast use group_validate_row_addr;
-        broadcast use pmcopy_axioms;
-        broadcast use group_update_bytes_effect;
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        assert(iv2.tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
-
-        assert forall|row_addr: u64| iv2.tentative_mapping.row_info.contains_key(row_addr)
-            implies {
-                let row_info = iv2.tentative_mapping.row_info[row_addr];
-                recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                      row_addr + sm.row_next_start + u64::spec_size_of()) == Some(row_info.next)
-            } by {
-            let row_info = iv2.tentative_mapping.row_info[row_addr];
-            if row_addr == new_row_addr {
-                assert(row_info.next == 0);
-                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64));
-            }
-            else if row_addr == tail_row_addr {
-                assert(row_info.next == new_row_addr);
-                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr));
-            }
-            else {
-                assert(iv1.tentative_mapping.row_info.contains_key(row_addr));
-                assert(row_info == iv1.tentative_mapping.row_info[row_addr]);
-            }
-        }
-    }
-
-    proof fn lemma_append_case_modified_works(
-        iv1: ListTableInternalView<L>,
-        iv2: ListTableInternalView<L>,
-        commit_state1: Seq<u8>,
-        commit_state2: Seq<u8>,
-        commit_state3: Seq<u8>,
-        list_addr: u64,
-        new_element: L,
-        new_row_addr: u64,
-        tail_row_addr: u64,
-        sm: ListTableStaticMetadata,
-    )
-        requires
-            sm.valid::<L>(),
-            0 < sm.start(),
-            iv1.valid(sm),
-            iv1.m.contains_key(list_addr),
-            match iv1.m[list_addr] {
-                ListTableEntryView::Modified{ summary, .. } => {
-                    &&& tail_row_addr == summary.tail
-                    &&& summary.length < usize::MAX
-                },
-                _ => false,
-            },
-            iv1.free_list.len() > 0,
-            new_row_addr == iv1.free_list.last(),
-            iv1.corresponds_to_tentative_state(commit_state1, sm),
-            iv2 == iv1.append_case_modified(list_addr, new_element),
-            seqs_match_except_in_range(commit_state1, commit_state2, new_row_addr as int,
-                                       new_row_addr + sm.table.row_size),
-            seqs_match_except_in_range(commit_state2, commit_state3, tail_row_addr + sm.row_next_start,
-                                       tail_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()),
-            recover_object::<u64>(commit_state2, new_row_addr + sm.row_next_start,
-                                  new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(commit_state2, new_row_addr + sm.row_element_start,
-                                new_row_addr + sm.row_element_crc_start) == Some(new_element),
-            recover_object::<u64>(commit_state3, tail_row_addr + sm.row_next_start,
-                                  tail_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr),
-        ensures
-            iv2.corresponds_to_tentative_state(commit_state3, sm),
-    {
-        iv1.lemma_append_case_modified_works(list_addr, new_element, sm);
-        
-        broadcast use group_validate_row_addr;
-        broadcast use pmcopy_axioms;
-        broadcast use group_update_bytes_effect;
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        assert(iv2.tentative_mapping.row_info[tail_row_addr].next == new_row_addr);
-
-        assert forall|row_addr: u64| iv2.tentative_mapping.row_info.contains_key(row_addr)
-            implies {
-                let row_info = iv2.tentative_mapping.row_info[row_addr];
-                recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                      row_addr + sm.row_next_start + u64::spec_size_of()) == Some(row_info.next)
-            } by {
-            let row_info = iv2.tentative_mapping.row_info[row_addr];
-            if row_addr == new_row_addr {
-                assert(row_info.next == 0);
-                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(0u64));
-            }
-            else if row_addr == tail_row_addr {
-                assert(row_info.next == new_row_addr);
-                assert(recover_object::<u64>(commit_state3, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) == Some(new_row_addr));
-            }
-            else {
-                assert(iv1.tentative_mapping.row_info.contains_key(row_addr));
-                assert(row_info == iv1.tentative_mapping.row_info[row_addr]);
-            }
-        }
-    }
-
     #[inline]
     exec fn append_case_durable(
         &mut self,
@@ -705,18 +559,9 @@ impl<PM, L> ListTable<PM, L>
             }
         }
 
-        assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
-                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
-               Some(new_row_addr)) by {
-            lemma_writing_next_and_crc_together_enables_recovery(old(journal)@.commit_state, journal@.commit_state,
-                                                                 new_row_addr, next_addr as int, bytes_to_write@);
-        }
-
         proof {
-            Self::lemma_append_case_durable_works(
-                prev_self.internal_view(), self.internal_view(),
-                prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
-                list_addr, new_element, new_row_addr, tail_row_addr, self.sm
+            lemma_writing_next_and_crc_together_effect_on_recovery::<L>(
+                old(journal)@.commit_state, journal@.commit_state, tail_row_addr, new_row_addr, self.sm
             );
         }
 
@@ -857,18 +702,9 @@ impl<PM, L> ListTable<PM, L>
             }
         }
 
-        assert(recover_object::<u64>(journal@.commit_state, tail_row_addr + self.sm.row_next_start,
-                                     tail_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
-               Some(new_row_addr)) by {
-            lemma_writing_next_and_crc_together_enables_recovery(old(journal)@.commit_state, journal@.commit_state,
-                                                                 new_row_addr, next_addr as int, bytes_to_write@);
-        }
-
         proof {
-            Self::lemma_append_case_modified_works(
-                prev_self.internal_view(), self.internal_view(),
-                prev_jv.commit_state, old(journal)@.commit_state, journal@.commit_state,
-                list_addr, new_element, new_row_addr, tail_row_addr, self.sm
+            lemma_writing_next_and_crc_together_effect_on_recovery::<L>(
+                old(journal)@.commit_state, journal@.commit_state, tail_row_addr, new_row_addr, self.sm
             );
         }
 
