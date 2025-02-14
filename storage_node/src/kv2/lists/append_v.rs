@@ -454,12 +454,23 @@ impl<PM, L> ListTable<PM, L>
                 ..prev_jv
             }),
             new_row_addr == prev_self.free_list@.last(),
-            seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
-                                       new_row_addr + prev_self.sm.table.row_size),
-            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
-                                  new_row_addr + prev_self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
-                                new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
+            forall|other_row_addr: u64| {
+                &&& old(self).sm.table.validate_row_addr(other_row_addr)
+                &&& other_row_addr != new_row_addr
+            } ==> {
+                &&& recover_object::<L>(old(journal)@.commit_state, other_row_addr + old(self).sm.row_element_start,
+                                      other_row_addr + old(self).sm.row_element_crc_start)
+                    == recover_object::<L>(prev_jv.commit_state, other_row_addr + old(self).sm.row_element_start,
+                                           other_row_addr + old(self).sm.row_element_crc_start)
+                &&& recover_object::<u64>(old(journal)@.commit_state, other_row_addr + old(self).sm.row_next_start,
+                                        other_row_addr + old(self).sm.row_next_start + u64::spec_size_of())
+                    == recover_object::<u64>(prev_jv.commit_state, other_row_addr + old(self).sm.row_next_start,
+                                             other_row_addr + old(self).sm.row_next_start + u64::spec_size_of())
+            },
+            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + old(self).sm.row_next_start,
+                                  new_row_addr + old(self).sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+            recover_object::<L>(old(journal)@.commit_state, new_row_addr + old(self).sm.row_element_start,
+                                new_row_addr + old(self).sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
             entry == prev_self.m[list_addr],
             match entry@ {
@@ -604,12 +615,23 @@ impl<PM, L> ListTable<PM, L>
                 ..prev_jv
             }),
             new_row_addr == prev_self.free_list@.last(),
-            seqs_match_except_in_range(prev_jv.commit_state, old(journal)@.commit_state, new_row_addr as int,
-                                       new_row_addr + prev_self.sm.table.row_size),
-            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_next_start,
-                                  new_row_addr + prev_self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(old(journal)@.commit_state, new_row_addr + prev_self.sm.row_element_start,
-                                new_row_addr + prev_self.sm.row_element_crc_start) == Some(new_element),
+            forall|other_row_addr: u64| {
+                &&& old(self).sm.table.validate_row_addr(other_row_addr)
+                &&& other_row_addr != new_row_addr
+            } ==> {
+                &&& recover_object::<L>(old(journal)@.commit_state, other_row_addr + old(self).sm.row_element_start,
+                                      other_row_addr + old(self).sm.row_element_crc_start)
+                    == recover_object::<L>(prev_jv.commit_state, other_row_addr + old(self).sm.row_element_start,
+                                           other_row_addr + old(self).sm.row_element_crc_start)
+                &&& recover_object::<u64>(old(journal)@.commit_state, other_row_addr + old(self).sm.row_next_start,
+                                        other_row_addr + old(self).sm.row_next_start + u64::spec_size_of())
+                    == recover_object::<u64>(prev_jv.commit_state, other_row_addr + old(self).sm.row_next_start,
+                                             other_row_addr + old(self).sm.row_next_start + u64::spec_size_of())
+            },
+            recover_object::<u64>(old(journal)@.commit_state, new_row_addr + old(self).sm.row_next_start,
+                                  new_row_addr + old(self).sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+            recover_object::<L>(old(journal)@.commit_state, new_row_addr + old(self).sm.row_element_start,
+                                new_row_addr + old(self).sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
             entry == prev_self.m[list_addr],
             match entry@ {
@@ -868,6 +890,12 @@ impl<PM, L> ListTable<PM, L>
         // of the journal.
         assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
         assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
+
+        proof {
+            lemma_writing_element_and_next_effect_on_recovery::<L>(
+                old(journal)@.commit_state, journal@.commit_state, row_addr, new_element, 0u64, self.sm
+            );
+        }
 
         match entry {
             ListTableEntry::<L>::Durable{ .. } =>
