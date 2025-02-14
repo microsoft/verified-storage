@@ -810,9 +810,8 @@ impl<PM, L> ListTable<PM, L>
 
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use group_update_bytes_effect;
             broadcast use group_hash_axioms;
+            broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
         if self.free_list.len() == 0 {
