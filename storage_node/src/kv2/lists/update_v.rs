@@ -942,6 +942,7 @@ impl<PM, L> ListTable<PM, L>
                 &&& new_jv.journaled_addrs == old_jv.journaled_addrs
             },
         ensures
+            new_iv.valid(sm),
             new_iv.corresponds_to_tentative_state(new_jv.commit_state, sm),
             new_iv.consistent_with_journaled_addrs(new_jv.journaled_addrs, sm),
             new_iv.tentative_mapping.as_snapshot() ==
@@ -1063,10 +1064,6 @@ impl<PM, L> ListTable<PM, L>
         assert(self.internal_view().m == old_iv.m.remove(list_addr).insert(new_head, new_entry@));
         assert(self.internal_view().m =~= new_iv.m);
         assert(self.internal_view() =~= new_iv);
-
-        proof {
-            old_iv.lemma_update_works(list_addr, idx, new_element, self.sm);
-        }
 
         self.status = Ghost(ListTableStatus::Quiescent);
 
