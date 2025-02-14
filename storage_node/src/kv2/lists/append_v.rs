@@ -733,6 +733,96 @@ impl<PM, L> ListTable<PM, L>
         Ok(list_addr)
     }
 
+    #[inline]
+    exec fn write_tail_to_free_slot(
+        &self,
+        new_element: L,
+        row_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+        Ghost(prev_self): Ghost<Self>,
+    )
+        requires
+            self == (Self{ free_list: self.free_list, m: self.m, ..prev_self }),
+            prev_self.free_list@.len() > 0,
+            self.free_list@ == prev_self.free_list@.drop_last(),
+            row_addr == prev_self.free_list@.last(),
+            prev_self.valid(old(journal)@),
+            prev_self@.tentative is Some,
+            old(journal).valid(),
+            forall|s: Seq<u8>| prev_self.state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+        ensures
+            journal.valid(),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.journaled_addrs == old(journal)@.journaled_addrs,
+            journal@.remaining_capacity == old(journal)@.remaining_capacity,
+            self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm),
+            self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm),
+            forall|other_row_addr: u64| {
+                &&& self.sm.table.validate_row_addr(other_row_addr)
+                &&& other_row_addr != row_addr
+            } ==> {
+                &&& recover_object::<L>(journal@.commit_state, other_row_addr + self.sm.row_element_start,
+                                      other_row_addr + self.sm.row_element_crc_start)
+                    == recover_object::<L>(old(journal)@.commit_state, other_row_addr + self.sm.row_element_start,
+                                           other_row_addr + self.sm.row_element_crc_start)
+                &&& recover_object::<u64>(journal@.commit_state, other_row_addr + self.sm.row_next_start,
+                                        other_row_addr + self.sm.row_next_start + u64::spec_size_of())
+                    == recover_object::<u64>(old(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
+                                             other_row_addr + self.sm.row_next_start + u64::spec_size_of())
+            },
+            recover_object::<L>(journal@.commit_state, row_addr + self.sm.row_element_start,
+                                row_addr + self.sm.row_element_crc_start) == Some(new_element),
+            recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
+                                  row_addr + self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
+    {
+        proof {
+            prev_self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+            assert(prev_self@.durable.m.dom() =~= prev_self.internal_view().durable_list_addrs);
+            Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                prev_self.internal_view(),
+                journal@,
+                prev_self.sm,
+                prev_self.free_list@.len() - 1,
+                row_addr,
+                perm
+            );
+
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use group_hash_axioms;
+            broadcast use broadcast_journal_view_matches_in_range_transitive;
+        }
+
+        let element_addr = row_addr + self.sm.row_element_start;
+        let element_crc_addr = row_addr + self.sm.row_element_crc_start;
+        let element_crc = calculate_crc(&new_element);
+
+        journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
+        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
+
+        let next_addr = row_addr + self.sm.row_next_start;
+        let next_crc_addr = next_addr + size_of::<u64>() as u64;
+        let next: u64 = 0;
+        let next_crc = calculate_crc(&next);
+
+        journal.write_object::<u64>(next_addr, &next, Tracked(perm));
+        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+
+        // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
+        // to conclude that `self` is still consistent with both the durable and read state
+        // of the journal.
+        assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
+        assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
+
+        proof {
+            lemma_writing_element_and_next_effect_on_recovery(
+                old(journal)@.commit_state, journal@.commit_state, row_addr, new_element, 0u64, self.sm
+            );
+        }
+    }
+
     pub exec fn append(
         &mut self,
         list_addr: u64,
@@ -869,32 +959,7 @@ impl<PM, L> ListTable<PM, L>
 
         assert(row_addr == old(self).free_list@[old(self).free_list@.len() - 1]);
 
-        let element_addr = row_addr + self.sm.row_element_start;
-        let element_crc_addr = row_addr + self.sm.row_element_crc_start;
-        let element_crc = calculate_crc(&new_element);
-
-        journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
-        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
-
-        let next_addr = row_addr + self.sm.row_next_start;
-        let next_crc_addr = next_addr + size_of::<u64>() as u64;
-        let next: u64 = 0;
-        let next_crc = calculate_crc(&next);
-
-        journal.write_object::<u64>(next_addr, &next, Tracked(perm));
-        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
-
-        // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
-        // to conclude that `self` is still consistent with both the durable and read state
-        // of the journal.
-        assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
-        assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
-
-        proof {
-            lemma_writing_element_and_next_effect_on_recovery::<L>(
-                old(journal)@.commit_state, journal@.commit_state, row_addr, new_element, 0u64, self.sm
-            );
-        }
+        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm), Ghost(*old(self)));
 
         match entry {
             ListTableEntry::<L>::Durable{ .. } =>
@@ -904,82 +969,6 @@ impl<PM, L> ListTable<PM, L>
                 self.append_case_modified(list_addr, new_element, journal, row_addr, entry,
                                           Ghost(*old(self)), Ghost(old(journal)@)),
         }
-    }
-
-    #[inline]
-    exec fn create_singleton_write_step(
-        &self,
-        new_element: L,
-        row_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
-        Ghost(prev_self): Ghost<Self>,
-    )
-        requires
-            self == (Self{ free_list: self.free_list, ..prev_self }),
-            prev_self.free_list@.len() > 0,
-            self.free_list@ == prev_self.free_list@.drop_last(),
-            row_addr == prev_self.free_list@.last(),
-            prev_self.valid(old(journal)@),
-            prev_self@.tentative is Some,
-            old(journal).valid(),
-            forall|s: Seq<u8>| prev_self.state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
-        ensures
-            journal.valid(),
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.matches_except_in_range(old(journal)@, row_addr as int, row_addr + self.sm.table.row_size),
-            journal@.journaled_addrs == old(journal)@.journaled_addrs,
-            self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm),
-            self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm),
-            recover_object::<L>(journal@.read_state, row_addr + self.sm.row_element_start,
-                                row_addr + self.sm.row_element_crc_start) == Some(new_element),
-            recover_object::<u64>(journal@.read_state, row_addr + self.sm.row_next_start,
-                                  row_addr + self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-            recover_object::<L>(journal@.commit_state, row_addr + self.sm.row_element_start,
-                                row_addr + self.sm.row_element_crc_start) == Some(new_element),
-            recover_object::<u64>(journal@.commit_state, row_addr + self.sm.row_next_start,
-                                  row_addr + self.sm.row_next_start + u64::spec_size_of()) == Some(0u64),
-    {
-        proof {
-            prev_self.lemma_valid_implications(journal@);
-            journal.lemma_valid_implications();
-            assert(prev_self@.durable.m.dom() =~= prev_self.internal_view().durable_list_addrs);
-            Self::lemma_writing_to_free_slot_has_permission_later_forall(
-                prev_self.internal_view(),
-                journal@,
-                prev_self.sm,
-                prev_self.free_list@.len() - 1,
-                row_addr,
-                perm
-            );
-
-            broadcast use group_validate_row_addr;
-            broadcast use pmcopy_axioms;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use group_update_bytes_effect;
-            broadcast use group_hash_axioms;
-        }
-
-        let element_addr = row_addr + self.sm.row_element_start;
-        let element_crc_addr = row_addr + self.sm.row_element_crc_start;
-        let element_crc = calculate_crc(&new_element);
-
-        journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
-        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
-
-        let next_addr = row_addr + self.sm.row_next_start;
-        let next_crc_addr = next_addr + size_of::<u64>() as u64;
-        let next: u64 = 0;
-        let next_crc = calculate_crc(&next);
-
-        journal.write_object::<u64>(next_addr, &next, Tracked(perm));
-        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
-
-        // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
-        // to conclude that `self` is still consistent with both the durable and read state
-        // of the journal.
-        assert(self.internal_view().corresponds_to_durable_state(journal@.durable_state, self.sm));
-        assert(self.internal_view().corresponds_to_durable_state(journal@.read_state, self.sm));
     }
 
     pub exec fn create_singleton(
@@ -1058,7 +1047,7 @@ impl<PM, L> ListTable<PM, L>
         };
         assert(old(self).free_list@[self.free_list@.len() as int] == row_addr);
 
-        self.create_singleton_write_step(new_element, row_addr, journal, Tracked(perm), Ghost(*old(self)));
+        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm), Ghost(*old(self)));
 
         self.tentative_list_addrs = Ghost(self.tentative_list_addrs@.insert(row_addr));
         self.tentative_mapping = Ghost(self.tentative_mapping@.create_singleton(row_addr, new_element));
