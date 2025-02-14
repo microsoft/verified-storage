@@ -216,7 +216,6 @@ impl<L> ListTableInternalView<L>
 
         Self{
             free_list: self.free_list.drop_last(),
-            tentative_list_addrs: self.tentative_list_addrs.remove(list_addr).insert(new_head),
             tentative_mapping: new_tentative_mapping,
             row_info: new_row_dispositions,
             m: self.m.remove(list_addr).insert(new_head, new_entry),
@@ -676,7 +675,8 @@ impl<PM, L> ListTable<PM, L>
         requires
             self.inv(old(journal)@),
             self.status@ is PoppedEntry,
-            Self::recover(old(journal)@.durable_state, self.durable_list_addrs@, self@.sm) == Some(self@.durable),
+            Self::recover(old(journal)@.durable_state, self.durable_mapping@.list_elements.dom(), self@.sm)
+                == Some(self@.durable),
             self.internal_view()
                 .add_entry(list_addr, entry@)
                 .push_to_free_list(new_row_addr)
@@ -758,7 +758,6 @@ impl<PM, L> ListTable<PM, L>
         proof {
             journal.lemma_valid_implications();
             assert(new_row_addr == old_iv.free_list.last());
-            assert(self@.durable.m.dom() =~= old_iv.durable_list_addrs);
             Self::lemma_writing_to_free_slot_has_permission_later_forall(
                 old_iv,
                 journal@,
@@ -1017,7 +1016,7 @@ impl<PM, L> ListTable<PM, L>
 
         proof {
             old_iv.durable_mapping.lemma_corresponds_implies_equals_new(journal@.durable_state,
-                                                                        old_iv.durable_list_addrs,
+                                                                        old_iv.durable_mapping.list_elements.dom(),
                                                                         self.sm);
             journal.lemma_valid_implications();
             broadcast use group_hash_axioms;
@@ -1034,7 +1033,6 @@ impl<PM, L> ListTable<PM, L>
 
         self.update_normal_case_write_step(list_addr, idx, new_element, &entry, new_row_addr, journal, Tracked(perm));
 
-        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
         self.tentative_mapping = Ghost(new_iv.tentative_mapping);
         self.row_info = Ghost(new_iv.row_info);
         self.pending_allocations.push(new_row_addr);

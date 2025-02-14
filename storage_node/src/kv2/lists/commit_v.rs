@@ -58,7 +58,6 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn commit(self) -> Self
     {
         Self {
-            durable_list_addrs: self.tentative_list_addrs,
             durable_mapping: self.tentative_mapping,
             row_info: self.commit_row_info(),
             m: self.commit_m(),
@@ -195,7 +194,6 @@ impl<PM, L> ListTable<PM, L>
         }
 
         self.update_m_to_reflect_commit(Ghost(jv_before_commit));
-        self.durable_list_addrs = self.tentative_list_addrs;
         self.durable_mapping = self.tentative_mapping;
         self.deletes_inverse = Ghost(new_iv.deletes_inverse);
         self.deletes.clear();

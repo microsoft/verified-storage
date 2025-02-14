@@ -81,12 +81,6 @@ impl<L> ListRecoveryMapping<L>
             }
     }
 
-    pub(super) open spec fn list_info_corresponds(self, list_addrs: Set<u64>) -> bool
-    {
-        &&& forall|head: u64| #[trigger] self.list_info.contains_key(head) ==> list_addrs.contains(head)
-        &&& forall|head: u64| #[trigger] list_addrs.contains(head) ==> self.list_info.contains_key(head)
-    }
-
     pub(super) open spec fn internally_consistent(self, sm: ListTableStaticMetadata) -> bool
     {
         &&& forall|row_addr: u64| #[trigger] self.row_info.contains_key(row_addr) ==> {
@@ -126,7 +120,7 @@ impl<L> ListRecoveryMapping<L>
     {
         &&& self.internally_consistent(sm)
         &&& self.row_info_corresponds(s, sm)
-        &&& self.list_info_corresponds(list_addrs)
+        &&& self.list_elements.dom() == list_addrs
     }
 
     pub(super) proof fn lemma_uniqueness_element(self, other: Self, s: Seq<u8>, list_addrs: Set<u64>,

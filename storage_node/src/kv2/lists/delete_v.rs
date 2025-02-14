@@ -105,7 +105,6 @@ impl<L> ListTableInternalView<L>
                 self.modifications
             };
         Self{
-            tentative_list_addrs: self.tentative_list_addrs.remove(list_addr),
             tentative_mapping: self.tentative_mapping.delete(list_addr),
             row_info: new_row_info,
             m: self.m.remove(list_addr),
@@ -418,7 +417,6 @@ impl<PM, L> ListTable<PM, L>
             },
         }
 
-        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
         self.tentative_mapping = Ghost(new_iv.tentative_mapping);
         self.row_info = Ghost(new_iv.row_info);
         self.deletes_inverse = Ghost(new_iv.deletes_inverse);

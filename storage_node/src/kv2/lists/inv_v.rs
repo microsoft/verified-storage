@@ -131,8 +131,6 @@ pub(super) struct ListTableInternalView<L>
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     pub status: ListTableStatus,
-    pub durable_list_addrs: Set<u64>,
-    pub tentative_list_addrs: Set<u64>,
     pub durable_mapping: ListRecoveryMapping<L>,
     pub tentative_mapping: ListRecoveryMapping<L>,
     pub row_info: Map<u64, ListRowDisposition>,
@@ -302,12 +300,12 @@ impl<L> ListTableInternalView<L>
 
     pub(super) open spec fn corresponds_to_durable_state(self, s: Seq<u8>, sm: ListTableStaticMetadata) -> bool
     {
-        &&& self.durable_mapping.corresponds(s, self.durable_list_addrs, sm)
+        &&& self.durable_mapping.corresponds(s, self.durable_mapping.list_elements.dom(), sm)
     }
 
     pub(super) open spec fn corresponds_to_tentative_state(self, s: Seq<u8>, sm: ListTableStaticMetadata) -> bool
     {
-        &&& self.tentative_mapping.corresponds(s, self.tentative_list_addrs, sm)
+        &&& self.tentative_mapping.corresponds(s, self.tentative_mapping.list_elements.dom(), sm)
     }
 
     pub(super) open spec fn consistent_with_journaled_addrs(
@@ -445,8 +443,6 @@ impl<PM, L> ListTable<PM, L>
     {
         ListTableInternalView{
             status: self.status@,
-            durable_list_addrs: self.durable_list_addrs@,
-            tentative_list_addrs: self.tentative_list_addrs@,
             durable_mapping: self.durable_mapping@,
             tentative_mapping: self.tentative_mapping@,
             row_info: self.row_info@,

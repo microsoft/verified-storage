@@ -253,7 +253,6 @@ impl<L> ListTableInternalView<L>
         };
 
         Self{
-            tentative_list_addrs: self.tentative_list_addrs.insert(row_addr),
             tentative_mapping: self.tentative_mapping.create_singleton(row_addr, new_element),
             row_info: self.row_info.insert(row_addr, disposition),
             modifications: self.modifications.push(Some(row_addr)),
@@ -777,7 +776,6 @@ impl<PM, L> ListTable<PM, L>
         proof {
             prev_self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
-            assert(prev_self@.durable.m.dom() =~= prev_self.internal_view().durable_list_addrs);
             Self::lemma_writing_to_free_slot_has_permission_later_forall(
                 prev_self.internal_view(),
                 journal@,
@@ -884,7 +882,6 @@ impl<PM, L> ListTable<PM, L>
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
-            assert(self@.durable.m.dom() =~= self.internal_view().durable_list_addrs);
             if self.free_list@.len() > 0 {
                 Self::lemma_writing_to_free_slot_has_permission_later_forall(
                     self.internal_view(),
@@ -1021,7 +1018,6 @@ impl<PM, L> ListTable<PM, L>
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
-            assert(self@.durable.m.dom() =~= self.internal_view().durable_list_addrs);
 
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
@@ -1047,7 +1043,6 @@ impl<PM, L> ListTable<PM, L>
 
         self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm), Ghost(*old(self)));
 
-        self.tentative_list_addrs = Ghost(self.tentative_list_addrs@.insert(row_addr));
         self.tentative_mapping = Ghost(self.tentative_mapping@.create_singleton(row_addr, new_element));
 
         let ghost disposition =

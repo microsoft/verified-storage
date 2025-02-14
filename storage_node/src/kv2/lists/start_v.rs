@@ -387,8 +387,6 @@ impl<PM, L> ListTable<PM, L>
             must_abort: Ghost(false),
             logical_range_gaps_policy,
             space_needed_to_journal_next,
-            durable_list_addrs: Ghost(list_addrs@.to_set()),
-            tentative_list_addrs: Ghost(list_addrs@.to_set()),
             durable_mapping: Ghost(mapping),
             tentative_mapping: Ghost(mapping),
             row_info: Ghost(row_info),

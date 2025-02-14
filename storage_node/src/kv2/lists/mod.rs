@@ -112,8 +112,6 @@ pub struct ListTable<PM, L>
     must_abort: Ghost<bool>,
     logical_range_gaps_policy: LogicalRangeGapsPolicy,
     space_needed_to_journal_next: u64,
-    durable_list_addrs: Ghost<Set<u64>>,
-    tentative_list_addrs: Ghost<Set<u64>>,
     durable_mapping: Ghost<ListRecoveryMapping<L>>,
     tentative_mapping: Ghost<ListRecoveryMapping<L>>,
     row_info: Ghost<Map<u64, ListRowDisposition>>,

@@ -240,7 +240,6 @@ impl<L> ListTableInternalView<L>
                     self.modifications.update(which_modification as int, Some(new_head)),
             };
         Self{
-            tentative_list_addrs: self.tentative_list_addrs.remove(list_addr).insert(new_head),
             tentative_mapping: self.tentative_mapping.trim(list_addr, trim_length),
             row_info: new_row_info,
             m: self.m.remove(list_addr).insert(new_head, new_entry),
@@ -794,7 +793,6 @@ impl<PM, L> ListTable<PM, L>
         let ghost old_iv = self.internal_view();
         let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
 
-        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
         self.tentative_mapping = Ghost(new_iv.tentative_mapping);
         self.row_info = Ghost(new_iv.row_info);
         let old_entry = match self.m.remove(&list_addr) {
@@ -861,7 +859,6 @@ impl<PM, L> ListTable<PM, L>
         let ghost old_iv = self.internal_view();
         let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
 
-        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
         self.tentative_mapping = Ghost(new_iv.tentative_mapping);
         self.row_info = Ghost(new_iv.row_info);
         let old_entry = match self.m.remove(&list_addr) {
@@ -943,7 +940,6 @@ impl<PM, L> ListTable<PM, L>
                     addrs: new_addrs,
                     elements: new_elements,
                 };
-                self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
                 self.tentative_mapping = Ghost(new_iv.tentative_mapping);
                 self.row_info = Ghost(new_iv.row_info);
                 self.m.insert(new_head, new_entry);

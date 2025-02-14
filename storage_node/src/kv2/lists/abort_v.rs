@@ -71,7 +71,6 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn abort(self) -> Self
     {
         Self {
-            tentative_list_addrs: self.durable_list_addrs,
             tentative_mapping: self.durable_mapping,
             row_info: self.abort_row_info(),
             m: self.abort_m(),
@@ -300,7 +299,6 @@ impl<PM, L> ListTable<PM, L>
         }
 
         self.update_m_to_reflect_abort(Ghost(jv_before_abort));
-        self.tentative_list_addrs = self.durable_list_addrs;
         self.tentative_mapping = self.durable_mapping;
         self.deletes_inverse = Ghost(new_iv.deletes_inverse);
         self.deletes.clear();

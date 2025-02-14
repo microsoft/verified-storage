@@ -153,16 +153,19 @@ impl<PM, L> ListTable<PM, L>
             seqs_match_except_in_range(s1, s2, start, end),
         ensures
             iv.corresponds_to_durable_state(s2, sm),
-            Self::recover(s2, iv.durable_list_addrs, sm) == Self::recover(s1, iv.durable_list_addrs, sm),
+            Self::recover(s2, iv.durable_mapping.list_elements.dom(), sm) ==
+                Self::recover(s1, iv.durable_mapping.list_elements.dom(), sm),
     {
         broadcast use group_validate_row_addr;
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 
         assert(iv.row_info[row_addr] is InFreeList);
         assert(iv.corresponds_to_durable_state(s2, sm));
-        iv.durable_mapping.lemma_corresponds_implies_equals_new(s1, iv.durable_list_addrs, sm);
-        iv.durable_mapping.lemma_corresponds_implies_equals_new(s2, iv.durable_list_addrs, sm);
-        assert(Self::recover(s2, iv.durable_list_addrs, sm) =~= Self::recover(s1, iv.durable_list_addrs, sm));
+
+        let list_addrs = iv.durable_mapping.list_elements.dom();
+        iv.durable_mapping.lemma_corresponds_implies_equals_new(s1, list_addrs, sm);
+        iv.durable_mapping.lemma_corresponds_implies_equals_new(s2, list_addrs, sm);
+        assert(Self::recover(s2, list_addrs, sm) =~= Self::recover(s1, list_addrs, sm));
     }
 
     pub(super) proof fn lemma_writing_to_free_slot_has_permission_later_forall(
@@ -184,7 +187,7 @@ impl<PM, L> ListTable<PM, L>
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
             sm.table.end <= initial_jv.durable_state.len(),
-            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, iv.durable_list_addrs,
+            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, iv.durable_mapping.list_elements.dom(),
                                                                  initial_jv.durable_state, initial_jv.constants, sm)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -192,14 +195,14 @@ impl<PM, L> ListTable<PM, L>
                 #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
             {
                 &&& seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_mapping.list_elements.dom(),
                                                          initial_jv.durable_state, initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(new_durable_state,
                                                                                 initial_jv.constants)
             } ==> {
-                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_list_addrs,
+                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_mapping.list_elements.dom(),
                                                          initial_jv.durable_state, initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(new_durable_state, sm)
                 &&& perm.check_permission(new_durable_state)
@@ -224,14 +227,14 @@ impl<PM, L> ListTable<PM, L>
                 #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
             {
                 &&& seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_list_addrs,
+                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_mapping.list_elements.dom(),
                                                          initial_jv.durable_state, initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(new_durable_state,
                                                                                 initial_jv.constants)
             } implies {
-                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_list_addrs,
+                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_mapping.list_elements.dom(),
                                                          initial_jv.durable_state, initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(new_durable_state, sm)
                 &&& perm.check_permission(new_durable_state)
