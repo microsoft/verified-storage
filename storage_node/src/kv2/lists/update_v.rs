@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use super::*;
 use super::recover_v::*;
+use super::util_v::lemma_writing_next_and_crc_together_enables_recovery;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 use vstd::std_specs::hash::*;
@@ -164,6 +165,7 @@ impl<L> ListTableInternalView<L>
 
         Self{
             free_list: self.free_list.drop_last(),
+            tentative_list_addrs: self.tentative_list_addrs.remove(list_addr).insert(new_head),
             tentative_mapping: new_tentative_mapping,
             row_info: new_row_dispositions,
             m: self.m.remove(list_addr).insert(new_head, new_entry),
@@ -613,7 +615,165 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-    exec fn update_normal_case(
+    exec fn update_normal_case_write_step(
+        &self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        entry: ListTableEntry<L>,
+        new_row_addr: u64,
+        journal: &mut Journal<TrustedKvPermission, PM>,
+        Tracked(perm): Tracked<&TrustedKvPermission>,
+    )
+        requires
+            self.inv(old(journal)@),
+            self.status@ is PoppedEntry,
+            Self::recover(old(journal)@.durable_state, self.durable_list_addrs@, self@.sm) == Some(self@.durable),
+            self.internal_view()
+                .add_entry(list_addr, entry@)
+                .push_to_free_list(new_row_addr)
+                .corresponds_to_journal(old(journal)@, self.sm),
+            old(journal).valid(),
+            forall|s: Seq<u8>| self.state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            idx == 0 || old(journal)@.remaining_capacity >= self.space_needed_to_journal_next,
+            match entry {
+                ListTableEntry::Modified{ summary, addrs, elements, .. } => {
+                    &&& summary.length == addrs.len()
+                    &&& addrs.len() == elements.len()
+                    &&& idx < addrs.len()
+                    &&& elements[idx as int].start() == new_element.start()
+                    &&& elements[idx as int].end() == new_element.end()
+                },
+                _ => false,
+            },
+        ensures
+            journal.valid(),
+            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            ({
+                let old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
+                &&& old_iv.corresponds_to_durable_state(journal@.durable_state, self.sm)
+                &&& old_iv.corresponds_to_durable_state(journal@.read_state, self.sm)
+            }),
+            ({
+                let addrs = entry->Modified_addrs@;
+                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+                let prev_row_addr: u64 = if idx == 0 { 0 } else { addrs[idx - 1] };
+                let s1 = old(journal)@.commit_state;
+                let s2 = update_bytes(s1, new_row_addr + self.sm.row_element_start, new_element.spec_to_bytes());
+                let s3 = update_bytes(s2, new_row_addr + self.sm.row_element_crc_start,
+                                      spec_crc_bytes(new_element.spec_to_bytes()));
+                let s4 = update_bytes(s3, new_row_addr + self.sm.row_next_start, next.spec_to_bytes());
+                let s5 = update_bytes(s4, new_row_addr + self.sm.row_next_start + u64::spec_size_of(),
+                                      spec_crc_bytes(next.spec_to_bytes()));
+                let s6 = if idx == 0 { s5 }
+                         else { update_bytes(s5, prev_row_addr + self.sm.row_next_start,
+                                             new_row_addr.spec_to_bytes() +
+                                             spec_crc_bytes(new_row_addr.spec_to_bytes())) };
+                journal@.commit_state == s6
+            }),
+            ({
+                let addrs = entry->Modified_addrs@;
+                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+                let s1 = old(journal)@.read_state;
+                let s2 = update_bytes(s1, new_row_addr + self.sm.row_element_start, new_element.spec_to_bytes());
+                let s3 = update_bytes(s2, new_row_addr + self.sm.row_element_crc_start,
+                                      spec_crc_bytes(new_element.spec_to_bytes()));
+                let s4 = update_bytes(s3, new_row_addr + self.sm.row_next_start, next.spec_to_bytes());
+                let s5 = update_bytes(s4, new_row_addr + self.sm.row_next_start + u64::spec_size_of(),
+                                      spec_crc_bytes(next.spec_to_bytes()));
+                journal@.read_state == s5
+            }),
+            idx > 0 ==> {
+                let addrs = entry->Modified_addrs@;
+                let prev_row_addr: u64 = addrs[idx - 1];
+                recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
+                                      prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+                    Some(new_row_addr)
+            },
+    {
+        let ghost old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
+
+        proof {
+            journal.lemma_valid_implications();
+            assert(new_row_addr == old_iv.free_list.last());
+            assert(self@.durable.m.dom() =~= old_iv.durable_list_addrs);
+            Self::lemma_writing_to_free_slot_has_permission_later_forall(
+                old_iv,
+                journal@,
+                self.sm,
+                self.free_list@.len() as int,
+                new_row_addr,
+                perm
+            );
+
+            assert(journal@.constants.app_area_start <= self.sm.start());
+            assert(self.sm.end() <= journal@.constants.app_area_end);
+
+            broadcast use group_validate_row_addr;
+            broadcast use pmcopy_axioms;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            broadcast use group_update_bytes_effect;
+        }
+
+        match entry {
+            ListTableEntry::Durable{ .. } => { assert(false); },
+            ListTableEntry::Modified{ addrs, .. } => {
+                assert(old_iv.m.contains_key(list_addr));
+                assert(old_iv.m[list_addr] == entry@);
+                assert(addrs@ == old_iv.tentative_mapping.list_info[list_addr]);
+                let element_addr = new_row_addr + self.sm.row_element_start;
+                let element_crc_addr = new_row_addr + self.sm.row_element_crc_start;
+                let element_crc = calculate_crc(&new_element);
+        
+                journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
+                journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
+        
+                let next_addr = new_row_addr + self.sm.row_next_start;
+                let next_crc_addr = next_addr + size_of::<u64>() as u64;
+                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+                let next_crc = calculate_crc(&next);
+        
+                journal.write_object::<u64>(next_addr, &next, Tracked(perm));
+                journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+        
+                // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
+                // to conclude that `self` is still consistent with both the durable and read state
+                // of the journal.
+                assert(old_iv.corresponds_to_durable_state(journal@.durable_state, self.sm));
+                assert(old_iv.corresponds_to_durable_state(journal@.read_state, self.sm));
+
+                if idx > 0 {
+                    let ghost jv = journal@;
+                    
+                    let prev_row_addr = addrs[idx - 1];
+                    assert(prev_row_addr == old_iv.tentative_mapping.list_info[list_addr][idx - 1]);
+                    assert(self.sm.table.validate_row_addr(prev_row_addr));
+                    let prev_next_addr = prev_row_addr + self.sm.row_next_start;
+                    let prev_next_crc = calculate_crc(&new_row_addr);
+
+                    let mut bytes_to_write = Vec::<u8>::new();
+                    extend_vec_u8_from_slice(&mut bytes_to_write, new_row_addr.as_byte_slice());
+                    extend_vec_u8_from_slice(&mut bytes_to_write, prev_next_crc.as_byte_slice());
+
+                    match journal.journal_write(prev_next_addr, bytes_to_write) {
+                        Ok(()) => {},
+                        _ => { assert(false); },
+                    }
+
+                    assert(recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
+                                                 prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+                           Some(new_row_addr)) by {
+                        lemma_writing_next_and_crc_together_enables_recovery(
+                            jv.commit_state, journal@.commit_state,
+                            new_row_addr, prev_next_addr as int, bytes_to_write@
+                        );
+                    }
+                }
+            },
+        }
+    }
+
+    exec fn update_normal_case_now(
         &mut self,
         list_addr: u64,
         idx: usize,
@@ -659,6 +819,22 @@ impl<PM, L> ListTable<PM, L>
                 &&& old_list[idx as int].end() == new_element.end()
             }),
     {
+        let ghost old_iv = self.internal_view().add_entry(list_addr, entry@);
+        let ghost new_iv = old_iv.update(list_addr, idx, new_element);
+
+        proof {
+            old_iv.durable_mapping.lemma_corresponds_implies_equals_new(journal@.durable_state,
+                                                                        old_iv.durable_list_addrs,
+                                                                        self.sm);
+            journal.lemma_valid_implications();
+        }
+
+        let new_row_addr = match self.free_list.pop() {
+            Some(a) => a,
+            None => { assert(false); 0 },
+        };
+
+        self.update_normal_case_write_step(list_addr, idx, new_element, entry, new_row_addr, journal, Tracked(perm));
         assume(false);
         0
     }
@@ -794,7 +970,7 @@ impl<PM, L> ListTable<PM, L>
         }
 
         self.status = Ghost(ListTableStatus::PoppedEntry);
-        Ok(self.update_normal_case(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
+        Ok(self.update_normal_case_now(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
     }
 }
 

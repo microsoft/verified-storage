@@ -415,6 +415,14 @@ impl<L> ListTableInternalView<L>
             ..self
         }
     }
+
+    pub(super) open spec fn push_to_free_list(self, row_addr: u64) -> Self
+    {
+        Self{
+            free_list: self.free_list.push(row_addr),
+            ..self
+        }
+    }
 }
 
 impl<PM, L> ListTable<PM, L>
