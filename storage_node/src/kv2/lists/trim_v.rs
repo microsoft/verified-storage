@@ -749,6 +749,231 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
+    #[inline]
+    exec fn trim_case_modify(
+        &mut self,
+        list_addr: u64,
+        trim_length: usize,
+        pending_deallocations: Vec<u64>,
+        new_head: u64,
+        journal: &Journal<TrustedKvPermission, PM>,
+    ) -> (new_list_addr: u64)
+        requires
+            old(self).valid(journal@),
+            journal.valid(),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
+            0 < trim_length,
+            (TrimAction::Modify{ pending_deallocations, new_head })
+                .applicable(old(self).internal_view(), list_addr, trim_length as int),
+        ensures
+            self.valid(journal@),
+            new_list_addr != 0,
+            self.validate_list_addr(new_list_addr),
+            ({
+                let old_list = old(self)@.tentative.unwrap().m[list_addr];
+                &&& {
+                       ||| new_list_addr == 0
+                       ||| new_list_addr == list_addr
+                       ||| !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
+                }
+                &&& trim_length <= old_list.len()
+                &&& new_list_addr == 0 ==> old_list.skip(trim_length as int) == Seq::<L>::empty()
+                &&& self@ == (ListTableView {
+                    tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
+                    ..old(self)@
+                })
+            }),
+    {
+        proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+            broadcast use group_hash_axioms;
+        }
+
+        let mut pending_deallocations = pending_deallocations;
+        let ghost action = TrimAction::Modify{ pending_deallocations, new_head };
+        let ghost old_iv = self.internal_view();
+        let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
+
+        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+        self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+        self.row_info = Ghost(new_iv.row_info);
+        let old_entry = match self.m.remove(&list_addr) {
+            Some(e) => e,
+            None => { assert(false); return 0; },
+        };
+        let (summary, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
+        self.m.insert(new_head, new_entry);
+        self.deletes_inverse = Ghost(new_iv.deletes_inverse);
+        self.deletes.push(summary);
+        self.modifications.push(Some(new_head));
+        self.pending_deallocations.append(&mut pending_deallocations);
+        assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
+        proof {
+            action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
+            old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
+        }
+
+        new_head
+    }
+
+    #[inline]
+    exec fn trim_case_advance(
+        &mut self,
+        list_addr: u64,
+        trim_length: usize,
+        pending_deallocations: Vec<u64>,
+        new_head: u64,
+        journal: &Journal<TrustedKvPermission, PM>,
+    ) -> (new_list_addr: u64)
+        requires
+            old(self).valid(journal@),
+            journal.valid(),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
+            0 < trim_length,
+            (TrimAction::Advance{ pending_deallocations, new_head })
+                .applicable(old(self).internal_view(), list_addr, trim_length as int),
+        ensures
+            self.valid(journal@),
+            new_list_addr != 0,
+            self.validate_list_addr(new_list_addr),
+            ({
+                let old_list = old(self)@.tentative.unwrap().m[list_addr];
+                &&& {
+                       ||| new_list_addr == 0
+                       ||| new_list_addr == list_addr
+                       ||| !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
+                }
+                &&& trim_length <= old_list.len()
+                &&& new_list_addr == 0 ==> old_list.skip(trim_length as int) == Seq::<L>::empty()
+                &&& self@ == (ListTableView {
+                    tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
+                    ..old(self)@
+                })
+            }),
+    {
+        proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+            broadcast use group_hash_axioms;
+        }
+
+        let mut pending_deallocations = pending_deallocations;
+        let ghost action = TrimAction::Advance{ pending_deallocations, new_head };
+        let ghost old_iv = self.internal_view();
+        let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
+
+        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+        self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+        self.row_info = Ghost(new_iv.row_info);
+        let old_entry = match self.m.remove(&list_addr) {
+            Some(e) => e,
+            None => { assert(false); return 0; },
+        };
+        let which_modification = match old_entry {
+            ListTableEntry::Modified{ which_modification, .. } => which_modification,
+            _ => { assert(false); return 0; },
+        };
+        let (_summary, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
+        self.m.insert(new_head, new_entry);
+        self.modifications.set(which_modification, Some(new_head));
+        self.pending_deallocations.append(&mut pending_deallocations);
+        assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
+        proof {
+            action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
+            old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
+        }
+        new_head
+    }
+
+    #[inline]
+    exec fn trim_case_drain(
+        &mut self,
+        list_addr: u64,
+        trim_length: usize,
+        pending_deallocations: Vec<u64>,
+        journal: &Journal<TrustedKvPermission, PM>,
+    ) -> (new_list_addr: u64)
+        requires
+            old(self).valid(journal@),
+            journal.valid(),
+            old(self)@.tentative is Some,
+            old(self)@.tentative.unwrap().m.contains_key(list_addr),
+            0 < trim_length,
+            (TrimAction::Drain{ pending_deallocations })
+                .applicable(old(self).internal_view(), list_addr, trim_length as int),
+        ensures
+            self.valid(journal@),
+            new_list_addr != 0,
+            self.validate_list_addr(new_list_addr),
+            ({
+                let old_list = old(self)@.tentative.unwrap().m[list_addr];
+                &&& {
+                       ||| new_list_addr == 0
+                       ||| new_list_addr == list_addr
+                       ||| !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
+                }
+                &&& trim_length <= old_list.len()
+                &&& new_list_addr == 0 ==> old_list.skip(trim_length as int) == Seq::<L>::empty()
+                &&& self@ == (ListTableView {
+                    tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
+                    ..old(self)@
+                })
+            }),
+    {
+        proof {
+            self.lemma_valid_implications(journal@);
+            journal.lemma_valid_implications();
+            broadcast use group_hash_axioms;
+        }
+
+        let mut pending_deallocations = pending_deallocations;
+        let ghost action = TrimAction::Drain{ pending_deallocations };
+        let ghost old_iv = self.internal_view();
+        let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
+
+        match self.m.remove(&list_addr) {
+            None => { assert(false); 0 },
+            Some(ListTableEntry::Durable{ .. }) => { assert(false); 0 },
+            Some(ListTableEntry::Modified{ which_modification, durable_head, summary,
+                                           mut addrs, mut elements }) => {
+                let new_length = summary.length - trim_length;
+                let num_further_pending_deallocations = addrs.len() - new_length;
+                let new_addrs = addrs.split_off(num_further_pending_deallocations);
+                let new_elements = elements.split_off(num_further_pending_deallocations);
+                let new_head = new_addrs[0];
+                let new_entry = ListTableEntry::Modified{
+                    which_modification,
+                    durable_head: Ghost(0),
+                    summary: ListSummary{
+                        head: new_head,
+                        length: new_length,
+                        ..summary
+                    },
+                    addrs: new_addrs,
+                    elements: new_elements,
+                };
+                self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
+                self.tentative_mapping = Ghost(new_iv.tentative_mapping);
+                self.row_info = Ghost(new_iv.row_info);
+                self.m.insert(new_head, new_entry);
+                self.modifications.set(which_modification, Some(new_head));
+                self.pending_deallocations.append(&mut pending_deallocations);
+                self.pending_deallocations.append(&mut addrs);
+                assert(self.internal_view().m[new_head] =~=
+                       action.apply(old_iv, list_addr, trim_length as int).m[new_head]);
+                assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
+                proof {
+                    action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
+                    old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
+                }
+                new_head
+            },
+        }
+    }
+
     pub exec fn trim(
         &mut self,
         list_addr: u64,
@@ -839,92 +1064,14 @@ impl<PM, L> ListTable<PM, L>
                 }
             },
 
-            TrimAction::Modify{ mut pending_deallocations, new_head } => {
-                self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
-                self.tentative_mapping = Ghost(new_iv.tentative_mapping);
-                self.row_info = Ghost(new_iv.row_info);
-                let old_entry = match self.m.remove(&list_addr) {
-                    Some(e) => e,
-                    None => { assert(false); return Err(KvError::InternalError); },
-                };
-                let (summary, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
-                self.m.insert(new_head, new_entry);
-                self.deletes_inverse = Ghost(new_iv.deletes_inverse);
-                self.deletes.push(summary);
-                self.modifications.push(Some(new_head));
-                self.pending_deallocations.append(&mut pending_deallocations);
-                assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
-                proof {
-                    action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
-                    old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
-                }
-                Ok(new_head)
-            },
+            TrimAction::Modify{ mut pending_deallocations, new_head } =>
+                Ok(self.trim_case_modify(list_addr, trim_length, pending_deallocations, new_head, journal)),
 
-            TrimAction::Advance{ mut pending_deallocations, new_head } => {
-                self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
-                self.tentative_mapping = Ghost(new_iv.tentative_mapping);
-                self.row_info = Ghost(new_iv.row_info);
-                let old_entry = match self.m.remove(&list_addr) {
-                    Some(e) => e,
-                    None => { assert(false); return Err(KvError::InternalError); },
-                };
-                let which_modification = match old_entry {
-                    ListTableEntry::Modified{ which_modification, .. } => which_modification,
-                    _ => { assert(false); return Err(KvError::InternalError); },
-                };
-                let (_summary, new_entry) = old_entry.trim(new_head, trim_length, self.modifications.len());
-                self.m.insert(new_head, new_entry);
-                self.modifications.set(which_modification, Some(new_head));
-                self.pending_deallocations.append(&mut pending_deallocations);
-                assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
-                proof {
-                    action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
-                    old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
-                }
-                Ok(new_head)
-            },
+            TrimAction::Advance{ mut pending_deallocations, new_head } =>
+                Ok(self.trim_case_advance(list_addr, trim_length, pending_deallocations, new_head, journal)),
 
-            TrimAction::Drain{ mut pending_deallocations } => {
-                match self.m.remove(&list_addr) {
-                    None => { assert(false); return Err(KvError::InternalError); },
-                    Some(ListTableEntry::Durable{ .. }) => { assert(false); return Err(KvError::InternalError); },
-                    Some(ListTableEntry::Modified{ which_modification, durable_head, summary,
-                                                   mut addrs, mut elements }) => {
-                        let new_length = summary.length - trim_length;
-                        let num_further_pending_deallocations = addrs.len() - new_length;
-                        let new_addrs = addrs.split_off(num_further_pending_deallocations);
-                        let new_elements = elements.split_off(num_further_pending_deallocations);
-                        let new_head = new_addrs[0];
-                        let new_entry = ListTableEntry::Modified{
-                            which_modification,
-                            durable_head: Ghost(0),
-                            summary: ListSummary{
-                                head: new_head,
-                                length: new_length,
-                                ..summary
-                            },
-                            addrs: new_addrs,
-                            elements: new_elements,
-                        };
-                        self.tentative_list_addrs = Ghost(new_iv.tentative_list_addrs);
-                        self.tentative_mapping = Ghost(new_iv.tentative_mapping);
-                        self.row_info = Ghost(new_iv.row_info);
-                        self.m.insert(new_head, new_entry);
-                        self.modifications.set(which_modification, Some(new_head));
-                        self.pending_deallocations.append(&mut pending_deallocations);
-                        self.pending_deallocations.append(&mut addrs);
-                        assert(self.internal_view().m[new_head] =~=
-                               action.apply(old_iv, list_addr, trim_length as int).m[new_head]);
-                        assert(self.internal_view() =~= action.apply(old_iv, list_addr, trim_length as int));
-                        proof {
-                            action.lemma_action_works(old_iv, list_addr, trim_length as int, self.sm);
-                            old_iv.lemma_trim_works(list_addr, trim_length as int, old(self).sm);
-                        }
-                        Ok(new_head)
-                    },
-                }
-            },
+            TrimAction::Drain{ mut pending_deallocations } =>
+                Ok(self.trim_case_drain(list_addr, trim_length, pending_deallocations, journal)),
         }
     }
 }
