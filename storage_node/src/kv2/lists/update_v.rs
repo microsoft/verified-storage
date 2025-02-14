@@ -733,12 +733,18 @@ impl<PM, L> ListTable<PM, L>
                                       spec_crc_bytes(next.spec_to_bytes()));
                 journal@.read_state == s5
             }),
-            idx > 0 ==> {
+            if idx > 0 {
                 let addrs = entry->Modified_addrs@;
                 let prev_row_addr: u64 = addrs[idx - 1];
-                recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
-                                      prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
-                    Some(new_row_addr)
+                &&& recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
+                                        prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+                        Some(new_row_addr)
+                &&& journal@.journaled_addrs ==
+                    old(journal)@.journaled_addrs +
+                    Set::<int>::new(|i: int| prev_row_addr + self.sm.row_next_start <= i
+                                  < prev_row_addr + self.sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
+            } else {
+                journal@.journaled_addrs == old(journal)@.journaled_addrs
             },
     {
         let ghost old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
@@ -820,7 +826,155 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-    exec fn update_normal_case_now(
+    proof fn lemma_update_normal_case(
+        old_iv: ListTableInternalView<L>,
+        new_iv: ListTableInternalView<L>,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        entry: ListTableEntry<L>,
+        old_jv: JournalView,
+        new_jv: JournalView,
+        sm: ListTableStaticMetadata,
+        new_row_addr: u64,
+        new_list_addr: u64,
+    )
+        requires
+            sm.valid::<L>(),
+            0 < sm.start(),
+            sm.corresponds_to_journal(old_jv),
+            old_jv.valid(),
+            old_iv.corresponds_to_journal(old_jv, sm),
+            old_iv.tentative_mapping.list_info.contains_key(list_addr),
+            idx < old_iv.tentative_mapping.list_info[list_addr].len(),
+            new_iv == old_iv.update(list_addr, idx, new_element),
+            0 < old_iv.free_list.len(),
+            new_row_addr == old_iv.free_list.last(),
+            new_list_addr == if idx == 0 { new_row_addr } else { list_addr },
+            old_iv.m.contains_key(list_addr),
+            match old_iv.m[list_addr] {
+                ListTableEntryView::Modified{ summary, addrs, elements, .. } => {
+                    &&& summary.length == addrs.len()
+                    &&& addrs.len() == elements.len()
+                    &&& idx < addrs.len()
+                    &&& elements[idx as int].start() == new_element.start()
+                    &&& elements[idx as int].end() == new_element.end()
+                },
+                _ => false,
+            },
+            ({
+                let addrs = old_iv.tentative_mapping.list_info[list_addr];
+                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+                let prev_row_addr: u64 = if idx == 0 { 0 } else { addrs[idx - 1] };
+                let s1 = old_jv.commit_state;
+                let s2 = update_bytes(s1, new_row_addr + sm.row_element_start, new_element.spec_to_bytes());
+                let s3 = update_bytes(s2, new_row_addr + sm.row_element_crc_start,
+                                      spec_crc_bytes(new_element.spec_to_bytes()));
+                let s4 = update_bytes(s3, new_row_addr + sm.row_next_start, next.spec_to_bytes());
+                let s5 = update_bytes(s4, new_row_addr + sm.row_next_start + u64::spec_size_of(),
+                                      spec_crc_bytes(next.spec_to_bytes()));
+                let s6 = if idx == 0 { s5 }
+                         else { update_bytes(s5, prev_row_addr + sm.row_next_start,
+                                             new_row_addr.spec_to_bytes() +
+                                             spec_crc_bytes(new_row_addr.spec_to_bytes())) };
+                new_jv.commit_state == s6
+            }),
+            ({
+                let elements = old_iv.tentative_mapping.list_elements[list_addr];
+                &&& idx < elements.len()
+                &&& elements[idx as int].start() == new_element.start()
+                &&& elements[idx as int].end() == new_element.end()
+            }),
+            if idx > 0 {
+                let addrs = old_iv.tentative_mapping.list_info[list_addr];
+                let prev_row_addr: u64 = addrs[idx - 1];
+                &&& recover_object::<u64>(new_jv.commit_state, prev_row_addr + sm.row_next_start,
+                                        prev_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                        Some(new_row_addr)
+                &&& new_jv.journaled_addrs ==
+                    old_jv.journaled_addrs +
+                    Set::<int>::new(|i: int| prev_row_addr + sm.row_next_start <= i
+                                  < prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
+            } else {
+                new_jv.journaled_addrs == old_jv.journaled_addrs
+            },
+        ensures
+            new_iv.corresponds_to_tentative_state(new_jv.commit_state, sm),
+            new_iv.consistent_with_journaled_addrs(new_jv.journaled_addrs, sm),
+            new_iv.tentative_mapping.as_snapshot() ==
+                old_iv.tentative_mapping.as_snapshot().update_entry_at_index(list_addr, new_list_addr,
+                                                                             idx, new_element),
+            ({
+                let old_list = old_iv.tentative_mapping.as_snapshot().m[list_addr];
+                &&& idx < old_list.len()
+                &&& old_list[idx as int].start() == new_element.start()
+                &&& old_list[idx as int].end() == new_element.end()
+            }),
+    {
+        let addrs = old_iv.tentative_mapping.list_info[list_addr];
+        let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+        let prev_row_addr: u64 = if idx == 0 { 0 } else { addrs[idx - 1] };
+        assert(idx > 0 ==> sm.table.validate_row_addr(prev_row_addr));
+        assert(sm.table.validate_row_addr(new_row_addr));
+
+        let s1 = old_jv.commit_state;
+        let s2 = update_bytes(s1, new_row_addr + sm.row_element_start, new_element.spec_to_bytes());
+        let s3 = update_bytes(s2, new_row_addr + sm.row_element_crc_start,
+                              spec_crc_bytes(new_element.spec_to_bytes()));
+        let s4 = update_bytes(s3, new_row_addr + sm.row_next_start, next.spec_to_bytes());
+        let s5 = update_bytes(s4, new_row_addr + sm.row_next_start + u64::spec_size_of(),
+                              spec_crc_bytes(next.spec_to_bytes()));
+        let s6 = if idx == 0 { s5 }
+                 else { update_bytes(s5, prev_row_addr + sm.row_next_start,
+                                     new_row_addr.spec_to_bytes() +
+                                     spec_crc_bytes(new_row_addr.spec_to_bytes())) };
+
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_update_bytes_effect;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use pmcopy_axioms;
+        
+        old_iv.lemma_update_works(list_addr, idx, new_element, sm);
+
+        assert forall|row_addr: u64| #[trigger] new_iv.tentative_mapping.row_info.contains_key(row_addr) implies
+        {
+            let row_info = new_iv.tentative_mapping.row_info[row_addr];
+            &&& recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
+                                    row_addr + sm.row_next_start + u64::spec_size_of())
+                == Some(row_info.next)
+            &&& recover_object::<L>(new_jv.commit_state, row_addr + sm.row_element_start,
+                                  row_addr + sm.row_element_crc_start as int)
+                == Some(row_info.element)
+        } by {
+            if row_addr == new_row_addr {
+                assume(recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                       Some(next));
+                assume(recover_object::<L>(new_jv.commit_state, row_addr + sm.row_element_start,
+                                           row_addr + sm.row_element_crc_start) == Some(new_element));
+            }
+            else if idx > 0 && row_addr == prev_row_addr {
+                assert(recover_object::<L>(new_jv.commit_state, row_addr + sm.row_element_start,
+                                           row_addr + sm.row_element_crc_start) ==
+                       recover_object::<L>(old_jv.commit_state, row_addr + sm.row_element_start,
+                                           row_addr + sm.row_element_crc_start));
+                assume(recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                       Some(new_row_addr));
+            }
+            else {
+                assert(sm.table.validate_row_addr(row_addr));
+                assert(seqs_match_in_range(old_jv.commit_state, new_jv.commit_state, row_addr as int,
+                                           row_addr + sm.table.row_size));
+                assert(recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                       recover_object::<u64>(old_jv.commit_state, row_addr + sm.row_next_start,
+                                             row_addr + sm.row_next_start + u64::spec_size_of()));
+            }
+        }
+    }
+
+    exec fn update_normal_case(
         &mut self,
         list_addr: u64,
         idx: usize,
@@ -831,6 +985,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> (new_list_addr: u64)
         requires
             old(self).inv(old(journal)@),
+            !old(self).must_abort@,
             old(self).status@ is PoppedEntry,
             old(self).internal_view().add_entry(list_addr, entry@).corresponds_to_journal(old(journal)@, old(self).sm),
             !old(self).m@.contains_key(list_addr),
@@ -838,6 +993,7 @@ impl<PM, L> ListTable<PM, L>
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
             idx == 0 || old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
             old(self).free_list.len() > 0,
+            list_addr != 0,
             match entry {
                 ListTableEntry::Modified{ summary, addrs, elements, .. } => {
                     &&& summary.length == addrs.len()
@@ -853,7 +1009,7 @@ impl<PM, L> ListTable<PM, L>
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             new_list_addr != 0,
-            new_list_addr == list_addr || !old(self)@.tentative.unwrap().m.contains_key(new_list_addr),
+            new_list_addr == list_addr || new_list_addr == old(self).free_list@.last(),
             self@ == (ListTableView {
                 tentative: Some(old(self)@.tentative.unwrap().update_entry_at_index(list_addr, new_list_addr,
                                                                                   idx, new_element)),
@@ -882,6 +1038,10 @@ impl<PM, L> ListTable<PM, L>
             Some(a) => a,
             None => { assert(false); 0 },
         };
+        assert(new_row_addr == old_iv.free_list.last());
+        assert(new_row_addr != 0) by {
+            broadcast use group_validate_row_addr;
+        }
 
         self.update_normal_case_write_step(list_addr, idx, new_element, &entry, new_row_addr, journal, Tracked(perm));
 
@@ -916,7 +1076,17 @@ impl<PM, L> ListTable<PM, L>
         assert(self.internal_view().m =~= new_iv.m);
         assert(self.internal_view() =~= new_iv);
 
-        assume(false);
+        proof {
+            old_iv.lemma_update_works(list_addr, idx, new_element, self.sm);
+        }
+
+        self.status = Ghost(ListTableStatus::Quiescent);
+
+        proof {
+            Self::lemma_update_normal_case(old_iv, new_iv, list_addr, idx, new_element, entry, old(journal)@,
+                                           journal@, self.sm, new_row_addr, new_head);
+        }
+
         new_head
     }
 
@@ -1050,8 +1220,12 @@ impl<PM, L> ListTable<PM, L>
             }
         }
 
+        assert(list_addr != 0) by {
+            broadcast use group_validate_row_addr;
+        }
+
         self.status = Ghost(ListTableStatus::PoppedEntry);
-        Ok(self.update_normal_case_now(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
+        Ok(self.update_normal_case(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
     }
 }
 
