@@ -545,8 +545,7 @@ impl<PM, L> ListTable<PM, L>
             ({
                 let (success, new_entry) = result;
                 if success {
-                    let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
-                    let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                    let next_iv = self.internal_view().add_entry(list_addr, new_entry@);
                     &&& self@ == old(self)@
                     &&& !self.m@.contains_key(list_addr)
                     &&& next_iv.corresponds_to_journal(journal@, self.sm)
@@ -573,9 +572,8 @@ impl<PM, L> ListTable<PM, L>
         };
         if already_complete {
             proof {
-                let updated_m = self.internal_view().m.insert(list_addr, entry@);
-                let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
-                assert(next_iv == prev_self.internal_view().complete_entry(list_addr));
+                let next_iv = self.internal_view().add_entry(list_addr, entry@);
+                assert(next_iv =~= prev_self.internal_view().complete_entry(list_addr));
                 prev_self.internal_view().lemma_complete_entry_maintains_correspondence(
                     list_addr, journal@, self.sm
                 );
@@ -597,8 +595,7 @@ impl<PM, L> ListTable<PM, L>
                         self.deletes_inverse = Ghost(self.deletes_inverse@.insert(list_addr, which_delete));
                         self.modifications.push(Some(list_addr));
                         proof {
-                            let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
-                            let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                            let next_iv = self.internal_view().add_entry(list_addr, new_entry@);
                             assert(next_iv =~= prev_self.internal_view().complete_entry(list_addr));
                             prev_self.internal_view().lemma_complete_entry_maintains_correspondence(
                                 list_addr, journal@, self.sm
@@ -632,8 +629,7 @@ impl<PM, L> ListTable<PM, L>
                             elements: durable_elements,
                         };
                         proof {
-                            let updated_m = self.internal_view().m.insert(list_addr, new_entry@);
-                            let next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                            let next_iv = self.internal_view().add_entry(list_addr, new_entry@);
                             let g_durable_addrs = self.durable_mapping@.list_info[durable_head@];
                             let g_durable_elements = self.durable_mapping@.list_elements[durable_head@];
                             let num_durable_addrs = summary.length - num_addrs;
@@ -1204,10 +1200,9 @@ impl<PM, L> ListTable<PM, L>
         match result {
             Ok(()) => {},
             Err(e) => {
-                let ghost updated_m = self.internal_view().m.insert(list_addr, new_entry@);
-                let ghost next_iv = ListTableInternalView::<L>{ m: updated_m, ..self.internal_view() };
+                let ghost old_iv = self.internal_view();
                 self.m.insert(list_addr, new_entry);
-                assert(self.internal_view() =~= next_iv);
+                assert(self.internal_view() =~= old_iv.add_entry(list_addr, new_entry@));
                 return Err(e);
             }
         }
