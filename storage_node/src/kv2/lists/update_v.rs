@@ -667,7 +667,6 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
-    #[verifier::rlimit(20)]
     exec fn update_normal_case_write_step(
         &self,
         list_addr: u64,
@@ -775,6 +774,7 @@ impl<PM, L> ListTable<PM, L>
 
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
+            broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
         match entry {
@@ -850,11 +850,6 @@ impl<PM, L> ListTable<PM, L>
                     }
                 }
             },
-        }
-
-        assert(journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int)) by {
-            broadcast use group_update_bytes_effect;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
     }
 

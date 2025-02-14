@@ -31,6 +31,7 @@ use write_v::*;
 verus! {
 
 pub use spec_v::{broadcast_journal_view_matches_in_range_can_narrow_range,
+                 broadcast_journal_view_matches_in_range_transitive,
                  JournalConstants, JournalError, JournalView, RecoveredJournal};
 
 pub struct Journal<Perm, PM>

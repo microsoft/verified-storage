@@ -118,10 +118,29 @@ pub broadcast proof fn broadcast_journal_view_matches_in_range_can_narrow_range(
     inner_end: int,
 )
     requires
-        #[trigger] jv1.matches_in_range(jv2, outer_start, outer_end),
+        #[trigger] jv2.matches_in_range(jv1, outer_start, outer_end),
         0 <= outer_start <= inner_start <= inner_end <= outer_end <= jv1.len(),
     ensures
-        #[trigger] jv1.matches_in_range(jv2, inner_start, inner_end),
+        #[trigger] jv2.matches_in_range(jv1, inner_start, inner_end),
+{
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+}
+
+pub broadcast proof fn broadcast_journal_view_matches_in_range_transitive(
+    jv1: JournalView,
+    jv2: JournalView,
+    jv3: JournalView,
+    outer_start: int,
+    outer_end: int,
+    inner_start: int,
+    inner_end: int,
+)
+    requires
+        jv3.matches_in_range(jv2, inner_start, inner_end),
+        #[trigger] jv2.matches_in_range(jv1, outer_start, outer_end),
+        0 <= outer_start <= inner_start <= inner_end <= outer_end <= jv1.len(),
+    ensures
+        #[trigger] jv3.matches_in_range(jv1, inner_start, inner_end),
 {
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 }
