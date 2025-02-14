@@ -786,8 +786,6 @@ impl<PM, L> ListTable<PM, L>
             }),
     {
         proof {
-            self.lemma_valid_implications(journal@);
-            journal.lemma_valid_implications();
             broadcast use group_hash_axioms;
         }
 
@@ -855,8 +853,6 @@ impl<PM, L> ListTable<PM, L>
             }),
     {
         proof {
-            self.lemma_valid_implications(journal@);
-            journal.lemma_valid_implications();
             broadcast use group_hash_axioms;
         }
 
@@ -908,15 +904,9 @@ impl<PM, L> ListTable<PM, L>
             self.valid(journal@),
             new_list_addr != 0,
             self.validate_list_addr(new_list_addr),
+            new_list_addr == list_addr || !old(self)@.tentative.unwrap().m.contains_key(new_list_addr),
             ({
                 let old_list = old(self)@.tentative.unwrap().m[list_addr];
-                &&& {
-                       ||| new_list_addr == 0
-                       ||| new_list_addr == list_addr
-                       ||| !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
-                }
-                &&& trim_length <= old_list.len()
-                &&& new_list_addr == 0 ==> old_list.skip(trim_length as int) == Seq::<L>::empty()
                 &&& self@ == (ListTableView {
                     tentative: Some(old(self)@.tentative.unwrap().trim(list_addr, new_list_addr, trim_length as int)),
                     ..old(self)@
@@ -924,8 +914,6 @@ impl<PM, L> ListTable<PM, L>
             }),
     {
         proof {
-            self.lemma_valid_implications(journal@);
-            journal.lemma_valid_implications();
             broadcast use group_hash_axioms;
         }
 
