@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+use util_v::lemma_writing_element_and_next_effect_on_recovery;
+use util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
@@ -665,6 +667,7 @@ impl<PM, L> ListTable<PM, L>
         }
     }
 
+    #[verifier::rlimit(20)]
     exec fn update_normal_case_write_step(
         &self,
         list_addr: u64,
@@ -707,31 +710,19 @@ impl<PM, L> ListTable<PM, L>
             ({
                 let addrs = entry->Modified_addrs@;
                 let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
-                let prev_row_addr: u64 = if idx == 0 { 0 } else { addrs[idx - 1] };
-                let s1 = old(journal)@.commit_state;
-                let s2 = update_bytes(s1, new_row_addr + self.sm.row_element_start, new_element.spec_to_bytes());
-                let s3 = update_bytes(s2, new_row_addr + self.sm.row_element_crc_start,
-                                      spec_crc_bytes(new_element.spec_to_bytes()));
-                let s4 = update_bytes(s3, new_row_addr + self.sm.row_next_start, next.spec_to_bytes());
-                let s5 = update_bytes(s4, new_row_addr + self.sm.row_next_start + u64::spec_size_of(),
-                                      spec_crc_bytes(next.spec_to_bytes()));
-                let s6 = if idx == 0 { s5 }
-                         else { update_bytes(s5, prev_row_addr + self.sm.row_next_start,
-                                             new_row_addr.spec_to_bytes() +
-                                             spec_crc_bytes(new_row_addr.spec_to_bytes())) };
-                journal@.commit_state == s6
-            }),
-            ({
-                let addrs = entry->Modified_addrs@;
-                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
-                let s1 = old(journal)@.read_state;
-                let s2 = update_bytes(s1, new_row_addr + self.sm.row_element_start, new_element.spec_to_bytes());
-                let s3 = update_bytes(s2, new_row_addr + self.sm.row_element_crc_start,
-                                      spec_crc_bytes(new_element.spec_to_bytes()));
-                let s4 = update_bytes(s3, new_row_addr + self.sm.row_next_start, next.spec_to_bytes());
-                let s5 = update_bytes(s4, new_row_addr + self.sm.row_next_start + u64::spec_size_of(),
-                                      spec_crc_bytes(next.spec_to_bytes()));
-                journal@.read_state == s5
+                &&& recover_object::<L>(journal@.commit_state, new_row_addr + self.sm.row_element_start,
+                                       new_row_addr + self.sm.row_element_crc_start) == Some(new_element)
+                &&& recover_object::<u64>(journal@.commit_state, new_row_addr + self.sm.row_next_start,
+                                         new_row_addr + self.sm.row_next_start + u64::spec_size_of()) == Some(next)
+                &&& forall|other_row_addr: u64| {
+                    &&& self.sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<L>(journal@.commit_state, other_row_addr + self.sm.row_element_start,
+                                        other_row_addr + self.sm.row_element_crc_start) ==
+                    recover_object::<L>(old(journal)@.commit_state, other_row_addr + self.sm.row_element_start,
+                                        other_row_addr + self.sm.row_element_crc_start)
+                }
             }),
             if idx > 0 {
                 let addrs = entry->Modified_addrs@;
@@ -739,12 +730,31 @@ impl<PM, L> ListTable<PM, L>
                 &&& recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
                                         prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
                         Some(new_row_addr)
+                &&& forall|other_row_addr: u64| {
+                    &&& self.sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                    &&& other_row_addr != prev_row_addr
+                } ==> {
+                    recover_object::<u64>(journal@.commit_state, other_row_addr + self.sm.row_next_start,
+                                        other_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
+                                          other_row_addr + self.sm.row_next_start + u64::spec_size_of())
+                }
                 &&& journal@.journaled_addrs ==
                     old(journal)@.journaled_addrs +
                     Set::<int>::new(|i: int| prev_row_addr + self.sm.row_next_start <= i
                                   < prev_row_addr + self.sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
             } else {
-                journal@.journaled_addrs == old(journal)@.journaled_addrs
+                &&& forall|other_row_addr: u64| {
+                    &&& self.sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<u64>(journal@.commit_state, other_row_addr + self.sm.row_next_start,
+                                          other_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
+                                          other_row_addr + self.sm.row_next_start + u64::spec_size_of())
+                }
+                &&& journal@.journaled_addrs == old(journal)@.journaled_addrs
             },
     {
         let ghost old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
@@ -765,8 +775,6 @@ impl<PM, L> ListTable<PM, L>
 
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
-            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use group_update_bytes_effect;
         }
 
         match entry {
@@ -795,6 +803,27 @@ impl<PM, L> ListTable<PM, L>
                 assert(old_iv.corresponds_to_durable_state(journal@.durable_state, self.sm));
                 assert(old_iv.corresponds_to_durable_state(journal@.read_state, self.sm));
 
+                proof {
+                    lemma_writing_element_and_next_effect_on_recovery::<L>(
+                        old(journal)@.commit_state,
+                        journal@.commit_state,
+                        new_row_addr,
+                        new_element,
+                        next,
+                        self.sm
+                    );
+                }
+
+                assert(forall|other_row_addr: u64| {
+                    &&& self.sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<L>(journal@.commit_state, other_row_addr + self.sm.row_element_start,
+                                        other_row_addr + self.sm.row_element_crc_start) ==
+                    recover_object::<L>(old(journal)@.commit_state, other_row_addr + self.sm.row_element_start,
+                                        other_row_addr + self.sm.row_element_crc_start)
+                });
+
                 if idx > 0 {
                     let ghost jv = journal@;
                     
@@ -813,16 +842,19 @@ impl<PM, L> ListTable<PM, L>
                         _ => { assert(false); },
                     }
 
-                    assert(recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
-                                                 prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
-                           Some(new_row_addr)) by {
-                        lemma_writing_next_and_crc_together_enables_recovery(
+                    proof {
+                        lemma_writing_next_and_crc_together_effect_on_recovery::<L>(
                             jv.commit_state, journal@.commit_state,
-                            new_row_addr, prev_next_addr as int, bytes_to_write@
+                            prev_row_addr, new_row_addr, self.sm
                         );
                     }
                 }
             },
+        }
+
+        assert(journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int)) by {
+            broadcast use group_update_bytes_effect;
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
     }
 
@@ -866,18 +898,19 @@ impl<PM, L> ListTable<PM, L>
                 let addrs = old_iv.tentative_mapping.list_info[list_addr];
                 let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
                 let prev_row_addr: u64 = if idx == 0 { 0 } else { addrs[idx - 1] };
-                let s1 = old_jv.commit_state;
-                let s2 = update_bytes(s1, new_row_addr + sm.row_element_start, new_element.spec_to_bytes());
-                let s3 = update_bytes(s2, new_row_addr + sm.row_element_crc_start,
-                                      spec_crc_bytes(new_element.spec_to_bytes()));
-                let s4 = update_bytes(s3, new_row_addr + sm.row_next_start, next.spec_to_bytes());
-                let s5 = update_bytes(s4, new_row_addr + sm.row_next_start + u64::spec_size_of(),
-                                      spec_crc_bytes(next.spec_to_bytes()));
-                let s6 = if idx == 0 { s5 }
-                         else { update_bytes(s5, prev_row_addr + sm.row_next_start,
-                                             new_row_addr.spec_to_bytes() +
-                                             spec_crc_bytes(new_row_addr.spec_to_bytes())) };
-                new_jv.commit_state == s6
+                &&& recover_object::<L>(new_jv.commit_state, new_row_addr + sm.row_element_start,
+                                        new_row_addr + sm.row_element_crc_start) == Some(new_element)
+                &&& recover_object::<u64>(new_jv.commit_state, new_row_addr + sm.row_next_start,
+                                          new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(next)
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<L>(new_jv.commit_state, other_row_addr + sm.row_element_start,
+                                        other_row_addr + sm.row_element_crc_start) ==
+                    recover_object::<L>(old_jv.commit_state, other_row_addr + sm.row_element_start,
+                                        other_row_addr + sm.row_element_crc_start)
+                }
             }),
             ({
                 let elements = old_iv.tentative_mapping.list_elements[list_addr];
@@ -891,12 +924,31 @@ impl<PM, L> ListTable<PM, L>
                 &&& recover_object::<u64>(new_jv.commit_state, prev_row_addr + sm.row_next_start,
                                         prev_row_addr + sm.row_next_start + u64::spec_size_of()) ==
                         Some(new_row_addr)
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                    &&& other_row_addr != prev_row_addr
+                } ==> {
+                    recover_object::<u64>(new_jv.commit_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old_jv.commit_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of())
+                }
                 &&& new_jv.journaled_addrs ==
                     old_jv.journaled_addrs +
                     Set::<int>::new(|i: int| prev_row_addr + sm.row_next_start <= i
                                   < prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
             } else {
-                new_jv.journaled_addrs == old_jv.journaled_addrs
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<u64>(new_jv.commit_state, other_row_addr + sm.row_next_start,
+                                        other_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old_jv.commit_state, other_row_addr + sm.row_next_start,
+                                        other_row_addr + sm.row_next_start + u64::spec_size_of())
+                }
+                &&& new_jv.journaled_addrs == old_jv.journaled_addrs
             },
         ensures
             new_iv.corresponds_to_tentative_state(new_jv.commit_state, sm),
@@ -911,67 +963,12 @@ impl<PM, L> ListTable<PM, L>
                 &&& old_list[idx as int].end() == new_element.end()
             }),
     {
-        let addrs = old_iv.tentative_mapping.list_info[list_addr];
-        let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
-        let prev_row_addr: u64 = if idx == 0 { 0 } else { addrs[idx - 1] };
-        assert(idx > 0 ==> sm.table.validate_row_addr(prev_row_addr));
-        assert(sm.table.validate_row_addr(new_row_addr));
-
-        let s1 = old_jv.commit_state;
-        let s2 = update_bytes(s1, new_row_addr + sm.row_element_start, new_element.spec_to_bytes());
-        let s3 = update_bytes(s2, new_row_addr + sm.row_element_crc_start,
-                              spec_crc_bytes(new_element.spec_to_bytes()));
-        let s4 = update_bytes(s3, new_row_addr + sm.row_next_start, next.spec_to_bytes());
-        let s5 = update_bytes(s4, new_row_addr + sm.row_next_start + u64::spec_size_of(),
-                              spec_crc_bytes(next.spec_to_bytes()));
-        let s6 = if idx == 0 { s5 }
-                 else { update_bytes(s5, prev_row_addr + sm.row_next_start,
-                                     new_row_addr.spec_to_bytes() +
-                                     spec_crc_bytes(new_row_addr.spec_to_bytes())) };
-
         broadcast use group_validate_row_addr;
         broadcast use broadcast_update_bytes_effect;
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use pmcopy_axioms;
         
         old_iv.lemma_update_works(list_addr, idx, new_element, sm);
-
-        assert forall|row_addr: u64| #[trigger] new_iv.tentative_mapping.row_info.contains_key(row_addr) implies
-        {
-            let row_info = new_iv.tentative_mapping.row_info[row_addr];
-            &&& recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
-                                    row_addr + sm.row_next_start + u64::spec_size_of())
-                == Some(row_info.next)
-            &&& recover_object::<L>(new_jv.commit_state, row_addr + sm.row_element_start,
-                                  row_addr + sm.row_element_crc_start as int)
-                == Some(row_info.element)
-        } by {
-            if row_addr == new_row_addr {
-                assume(recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) ==
-                       Some(next));
-                assume(recover_object::<L>(new_jv.commit_state, row_addr + sm.row_element_start,
-                                           row_addr + sm.row_element_crc_start) == Some(new_element));
-            }
-            else if idx > 0 && row_addr == prev_row_addr {
-                assert(recover_object::<L>(new_jv.commit_state, row_addr + sm.row_element_start,
-                                           row_addr + sm.row_element_crc_start) ==
-                       recover_object::<L>(old_jv.commit_state, row_addr + sm.row_element_start,
-                                           row_addr + sm.row_element_crc_start));
-                assume(recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) ==
-                       Some(new_row_addr));
-            }
-            else {
-                assert(sm.table.validate_row_addr(row_addr));
-                assert(seqs_match_in_range(old_jv.commit_state, new_jv.commit_state, row_addr as int,
-                                           row_addr + sm.table.row_size));
-                assert(recover_object::<u64>(new_jv.commit_state, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()) ==
-                       recover_object::<u64>(old_jv.commit_state, row_addr + sm.row_next_start,
-                                             row_addr + sm.row_next_start + u64::spec_size_of()));
-            }
-        }
     }
 
     exec fn update_normal_case(

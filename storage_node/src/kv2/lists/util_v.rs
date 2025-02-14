@@ -59,6 +59,98 @@ pub(super) proof fn lemma_writing_next_and_crc_together_enables_recovery(
     assert(recover_object::<u64>(s2, next_addr, next_addr + u64::spec_size_of()) =~= Some(next));
 }
 
+pub(super) proof fn lemma_writing_element_and_next_effect_on_recovery<L>(
+    s1: Seq<u8>,
+    s5: Seq<u8>,
+    row_addr: u64,
+    element: L,
+    next: u64,
+    sm: ListTableStaticMetadata,
+)
+    where 
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+    requires
+        sm.valid::<L>(),
+        0 < sm.start(),
+        sm.end() <= s1.len(),
+        sm.table.validate_row_addr(row_addr),
+        ({
+            let s2 = update_bytes(s1, row_addr + sm.row_element_start, element.spec_to_bytes());
+            let s3 = update_bytes(s2, row_addr + sm.row_element_crc_start,
+                                  spec_crc_bytes(element.spec_to_bytes()));
+            let s4 = update_bytes(s3, row_addr + sm.row_next_start, next.spec_to_bytes());
+            s5 == update_bytes(s4, row_addr + sm.row_next_start + u64::spec_size_of(),
+                               spec_crc_bytes(next.spec_to_bytes()))
+        }),
+    ensures
+        forall|other_row_addr: u64| {
+            &&& sm.table.validate_row_addr(other_row_addr)
+            &&& other_row_addr != row_addr
+        } ==> {
+            &&& recover_object::<L>(s5, other_row_addr + sm.row_element_start,
+                                    other_row_addr + sm.row_element_crc_start)
+                == recover_object::<L>(s1, other_row_addr + sm.row_element_start,
+                                       other_row_addr + sm.row_element_crc_start)
+            &&& recover_object::<u64>(s5, other_row_addr + sm.row_next_start,
+                                      other_row_addr + sm.row_next_start + u64::spec_size_of())
+                == recover_object::<u64>(s1, other_row_addr + sm.row_next_start,
+                                         other_row_addr + sm.row_next_start + u64::spec_size_of())
+        },
+        recover_object::<L>(s5, row_addr + sm.row_element_start, row_addr + sm.row_element_crc_start)
+            == Some(element),
+        recover_object::<u64>(s5, row_addr + sm.row_next_start, row_addr + sm.row_next_start + u64::spec_size_of())
+            == Some(next),
+{
+    broadcast use group_update_bytes_effect;
+    broadcast use pmcopy_axioms;
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+    broadcast use group_validate_row_addr;
+}
+
+pub(super) proof fn lemma_writing_next_and_crc_together_effect_on_recovery<L>(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    row_addr: u64,
+    next: u64,
+    sm: ListTableStaticMetadata,
+)
+    where 
+        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+    requires
+        sm.valid::<L>(),
+        0 < sm.start(),
+        sm.end() <= s1.len(),
+        sm.table.validate_row_addr(row_addr),
+        s2 == update_bytes(s1, row_addr + sm.row_next_start,
+                           next.spec_to_bytes() + spec_crc_bytes(next.spec_to_bytes())),
+    ensures
+        recover_object::<u64>(s2, row_addr + sm.row_next_start, row_addr + sm.row_next_start + u64::spec_size_of())
+            == Some(next),
+        forall|other_row_addr: u64| {
+            &&& sm.table.validate_row_addr(other_row_addr)
+            &&& other_row_addr != row_addr
+        } ==>
+            recover_object::<u64>(s2, other_row_addr + sm.row_next_start,
+                                  other_row_addr + sm.row_next_start + u64::spec_size_of())
+                == recover_object::<u64>(s1, other_row_addr + sm.row_next_start,
+                                        other_row_addr + sm.row_next_start + u64::spec_size_of()),
+        forall|any_row_addr: u64| sm.table.validate_row_addr(any_row_addr) ==>
+            recover_object::<L>(s2, any_row_addr + sm.row_element_start,
+                                any_row_addr + sm.row_element_crc_start)
+                == recover_object::<L>(s1, any_row_addr + sm.row_element_start,
+                                       any_row_addr + sm.row_element_crc_start),
+{
+    broadcast use group_update_bytes_effect;
+    broadcast use pmcopy_axioms;
+    broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+    broadcast use group_validate_row_addr;
+
+    lemma_writing_next_and_crc_together_enables_recovery(
+        s1, s2, next, row_addr + sm.row_next_start,
+        next.spec_to_bytes() + spec_crc_bytes(next.spec_to_bytes())
+    );
+}
+
 impl<PM, L> ListTable<PM, L>
     where
         PM: PersistentMemoryRegion,
@@ -188,7 +280,8 @@ impl<PM, L> ListTable<PM, L>
                 let new_read_state = update_bytes(current_read_state, start, bytes);
                 &&& iv.corresponds_to_durable_state(new_read_state, sm)
                 &&& seqs_match_except_in_range(initial_jv.read_state, new_read_state, sm.start() as int, sm.end() as int)
-            } by {
+            } by
+        {
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use broadcast_update_bytes_effect;
