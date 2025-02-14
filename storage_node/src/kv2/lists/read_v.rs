@@ -166,10 +166,9 @@ impl<PM, L> ListTable<PM, L>
             broadcast use group_validate_row_addr;
         }
 
-        while current_pos < num_durable_addrs
+        for current_pos in 0..num_durable_addrs
             invariant
                 num_durable_addrs == summary.length - elements.len(),
-                0 <= current_pos <= num_durable_addrs,
                 current_pos < num_durable_addrs ==> current_addr == tentative_addrs[current_pos as int],
                 result@ == tentative_elements.take(current_pos as int),
                 self.valid(journal@),
@@ -191,8 +190,6 @@ impl<PM, L> ListTable<PM, L>
                 pm.inv(),
                 pm@.read_state == journal@.read_state,
                 pm.constants() == journal@.pm_constants,
-            decreases
-                num_durable_addrs - current_pos,
         {
             proof {
                 broadcast use group_validate_row_addr;
@@ -233,8 +230,6 @@ impl<PM, L> ListTable<PM, L>
                     None => { return Err(KvError::CRCMismatch); },
                 };
             }
-
-            current_pos = current_pos + 1;
         }
 
         assert(tentative_elements == result@ + elements@) by {
