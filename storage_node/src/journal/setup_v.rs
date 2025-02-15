@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::traits_t::size_of;
+use crate::pmem::traits_t::{align_of, size_of};
 use crate::pmem::wrpm_t::*;
 use crate::common::align_v::*;
 use crate::common::overflow_v::*;
@@ -72,18 +72,25 @@ impl <Perm, PM> Journal<Perm, PM>
     {
         let journal_version_metadata_start: int = 0;
         let journal_version_metadata_end = JournalVersionMetadata::spec_size_of() as int;
-        let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
-            spec_reserve_space::<u64>(journal_version_metadata_end);
-        let (journal_static_metadata_start, journal_static_metadata_end) =
-            spec_reserve_space::<JournalStaticMetadata>(journal_version_metadata_crc_end);
-        let (journal_static_metadata_crc_start, journal_static_metadata_crc_end) =
-            spec_reserve_space::<u64>(journal_static_metadata_end);
-        let (committed_cdb_start, committed_cdb_end) = spec_reserve_space::<u64>(journal_static_metadata_crc_end);
-        let (journal_length_start, journal_length_end) = spec_reserve_space::<u64>(committed_cdb_end);
-        let (journal_length_crc_start, journal_length_crc_end) = spec_reserve_space::<u64>(journal_length_end);
-        let (journal_entries_crc_start, journal_entries_crc_end) = spec_reserve_space::<u64>(journal_length_crc_end);
-        let (journal_entries_start, journal_entries_end) =
-            spec_reserve_specified_space(journal_entries_crc_end, journal_capacity as int, u64::spec_size_of() as int);
+        let journal_version_metadata_crc_start =
+            round_up_to_alignment(journal_version_metadata_end, u64::spec_align_of() as int);
+        let journal_version_metadata_crc_end = journal_version_metadata_crc_start + u64::spec_size_of();
+        let journal_static_metadata_start =
+            round_up_to_alignment(journal_version_metadata_crc_end, JournalStaticMetadata::spec_align_of() as int);
+        let journal_static_metadata_end = journal_static_metadata_start + JournalStaticMetadata::spec_size_of();
+        let journal_static_metadata_crc_start =
+            round_up_to_alignment(journal_static_metadata_end, u64::spec_align_of() as int);
+        let journal_static_metadata_crc_end = journal_static_metadata_crc_start + u64::spec_size_of();
+        let committed_cdb_start = round_up_to_alignment(journal_static_metadata_crc_end, u64::spec_align_of() as int);
+        let committed_cdb_end = committed_cdb_start + u64::spec_size_of();
+        let journal_length_start = round_up_to_alignment(committed_cdb_end, u64::spec_align_of() as int);
+        let journal_length_end = journal_length_start + u64::spec_size_of();
+        let journal_length_crc_start = round_up_to_alignment(journal_length_end, u64::spec_align_of() as int);
+        let journal_length_crc_end = journal_length_crc_start + u64::spec_size_of();
+        let journal_entries_crc_start = round_up_to_alignment(journal_length_crc_end, u64::spec_align_of() as int);
+        let journal_entries_crc_end = journal_entries_crc_start + u64::spec_size_of();
+        let journal_entries_start = round_up_to_alignment(journal_entries_crc_end, u64::spec_align_of() as int);
+        let journal_entries_end = journal_entries_start + journal_capacity;
         journal_entries_end as nat
     }
     
@@ -93,18 +100,22 @@ impl <Perm, PM> Journal<Perm, PM>
             journal_capacity@ <= result@,
     {
         let journal_version_metadata_end = OverflowingU64::new(size_of::<JournalVersionMetadata>() as u64);
-        let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
-            reserve_space::<u64>(&journal_version_metadata_end);
-        let (journal_static_metadata_start, journal_static_metadata_end) =
-            reserve_space::<JournalStaticMetadata>(&journal_version_metadata_crc_end);
-        let (journal_static_metadata_crc_start, journal_static_metadata_crc_end) =
-            reserve_space::<u64>(&journal_static_metadata_end);
-        let (committed_cdb_start, committed_cdb_end) = reserve_space::<u64>(&journal_static_metadata_crc_end);
-        let (journal_length_start, journal_length_end) = reserve_space::<u64>(&committed_cdb_end);
-        let (journal_length_crc_start, journal_length_crc_end) = reserve_space::<u64>(&journal_length_end);
-        let (journal_entries_crc_start, journal_entries_crc_end) = reserve_space::<u64>(&journal_length_crc_end);
-        let (journal_entries_start, journal_entries_end) =
-            reserve_specified_space_overflowing_u64(&journal_entries_crc_end, &journal_capacity, size_of::<u64>() as u64);
+        let journal_version_metadata_crc_start = journal_version_metadata_end.align(align_of::<u64>());
+        let journal_version_metadata_crc_end = journal_version_metadata_crc_start.add_usize(size_of::<u64>());
+        let journal_static_metadata_start = journal_version_metadata_crc_end.align(align_of::<JournalStaticMetadata>());
+        let journal_static_metadata_end = journal_static_metadata_start.add_usize(size_of::<JournalStaticMetadata>());
+        let journal_static_metadata_crc_start = journal_static_metadata_end.align(align_of::<u64>());
+        let journal_static_metadata_crc_end = journal_static_metadata_crc_start.add_usize(size_of::<u64>());
+        let committed_cdb_start = journal_static_metadata_crc_end.align(align_of::<u64>());
+        let committed_cdb_end = committed_cdb_start.add_usize(size_of::<u64>());
+        let journal_length_start = committed_cdb_end.align(align_of::<u64>());
+        let journal_length_end = journal_length_start.add_usize(size_of::<u64>());
+        let journal_length_crc_start = journal_length_end.align(align_of::<u64>());
+        let journal_length_crc_end = journal_length_crc_start.add_usize(size_of::<u64>());
+        let journal_entries_crc_start = journal_length_crc_end.align(align_of::<u64>());
+        let journal_entries_crc_end = journal_entries_crc_start.add_usize(size_of::<u64>());
+        let journal_entries_start = journal_entries_crc_end.align(align_of::<u64>());
+        let journal_entries_end = journal_entries_start.add_overflowing_u64(&journal_capacity);
         journal_entries_end
     }
     
@@ -119,18 +130,22 @@ impl <Perm, PM> Journal<Perm, PM>
             }
     {
         let journal_version_metadata_end = OverflowingU64::new(size_of::<JournalVersionMetadata>() as u64);
-        let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
-            reserve_space::<u64>(&journal_version_metadata_end);
-        let (journal_static_metadata_start, journal_static_metadata_end) =
-            reserve_space::<JournalStaticMetadata>(&journal_version_metadata_crc_end);
-        let (journal_static_metadata_crc_start, journal_static_metadata_crc_end) =
-            reserve_space::<u64>(&journal_static_metadata_end);
-        let (committed_cdb_start, committed_cdb_end) = reserve_space::<u64>(&journal_static_metadata_crc_end);
-        let (journal_length_start, journal_length_end) = reserve_space::<u64>(&committed_cdb_end);
-        let (journal_length_crc_start, journal_length_crc_end) = reserve_space::<u64>(&journal_length_end);
-        let (journal_entries_crc_start, journal_entries_crc_end) = reserve_space::<u64>(&journal_length_crc_end);
-        let (journal_entries_start, journal_entries_end) =
-            reserve_specified_space(&journal_entries_crc_end, journal_capacity, size_of::<u64>() as u64);
+        let journal_version_metadata_crc_start = journal_version_metadata_end.align(align_of::<u64>());
+        let journal_version_metadata_crc_end = journal_version_metadata_crc_start.add_usize(size_of::<u64>());
+        let journal_static_metadata_start = journal_version_metadata_crc_end.align(align_of::<JournalStaticMetadata>());
+        let journal_static_metadata_end = journal_static_metadata_start.add_usize(size_of::<JournalStaticMetadata>());
+        let journal_static_metadata_crc_start = journal_static_metadata_end.align(align_of::<u64>());
+        let journal_static_metadata_crc_end = journal_static_metadata_crc_start.add_usize(size_of::<u64>());
+        let committed_cdb_start = journal_static_metadata_crc_end.align(align_of::<u64>());
+        let committed_cdb_end = committed_cdb_start.add_usize(size_of::<u64>());
+        let journal_length_start = committed_cdb_end.align(align_of::<u64>());
+        let journal_length_end = journal_length_start.add_usize(size_of::<u64>());
+        let journal_length_crc_start = journal_length_end.align(align_of::<u64>());
+        let journal_length_crc_end = journal_length_crc_start.add_usize(size_of::<u64>());
+        let journal_entries_crc_start = journal_length_crc_end.align(align_of::<u64>());
+        let journal_entries_crc_end = journal_entries_crc_start.add_usize(size_of::<u64>());
+        let journal_entries_start = journal_entries_crc_end.align(align_of::<u64>());
+        let journal_entries_end = journal_entries_start.add(journal_capacity);
     
         if journal_entries_end.is_overflowed() {
             None
