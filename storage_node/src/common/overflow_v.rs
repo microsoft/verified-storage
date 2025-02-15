@@ -1,9 +1,5 @@
 use builtin::*;
 use builtin_macros::*;
-use crate::common::align_v::{get_space_needed_for_alignment, lemma_space_needed_for_alignment_works,
-                             is_aligned, round_up_to_alignment};
-use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
-use crate::pmem::traits_t::{size_of, align_of};
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
                                 lemma_mod_division_less_than_divisor};
 use vstd::arithmetic::mul::{lemma_mul_by_zero_is_zero, lemma_mul_inequality, lemma_mul_is_commutative};
@@ -54,9 +50,18 @@ impl OverflowingU64 {
     #[verifier::when_used_as_spec(spec_new)]
     pub exec fn new(v: u64) -> (result: Self)
         ensures
-            result@ == v
+            result@ == v,
     {
         Self{ i: Ghost(v as nat), v: Some(v) }
+    }
+
+    pub exec fn new_overflowed(Ghost(i): Ghost<int>) -> (result: Self)
+        requires
+            i > u64::MAX,
+        ensures
+            result@ == i,
+    {
+        Self{ i: Ghost(i as nat), v: None }
     }
 
     pub open spec fn spec_is_overflowed(&self) -> bool
@@ -118,60 +123,6 @@ impl OverflowingU64 {
             result@ == self@ + v2,
     {
         self.add(v2 as u64)
-    }
-
-    #[inline]
-    pub exec fn align_u64(&self, alignment: u64) -> (result: Self)
-        requires
-            0 < alignment,
-        ensures
-            self@ <= result@,
-            result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@ as int, alignment as int),
-            is_aligned(result@ as int, alignment as int),
-    {
-        proof {
-            use_type_invariant(self);
-            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
-        }
-
-        match self.v {
-            None => Self{
-                i: Ghost(round_up_to_alignment(self.i@ as int, alignment as int) as nat),
-                v: None,
-            },
-            Some(v) => {
-                let increment_amount = get_space_needed_for_alignment(v, alignment);
-                self.add(increment_amount)
-            },
-        }
-    }
-
-    #[inline]
-    pub exec fn align(&self, alignment: usize) -> (result: Self)
-        requires
-            0 < alignment,
-        ensures
-            self@ <= result@,
-            result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@ as int, alignment as int),
-            is_aligned(result@ as int, alignment as int),
-    {
-        proof {
-            use_type_invariant(self);
-            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
-        }
-
-        match self.v {
-            None => Self{
-                i: Ghost(round_up_to_alignment(self.i@ as int, alignment as int) as nat),
-                v: None,
-            },
-            Some(v) => {
-                let increment_amount = get_space_needed_for_alignment(v, alignment as u64);
-                self.add(increment_amount)
-            },
-        }
     }
 
     #[inline]
@@ -280,64 +231,6 @@ impl OverflowingU64 {
             self.mul(v2.v.unwrap())
         }
     }
-}
-
-#[inline]
-pub exec fn reserve_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU64, OverflowingU64))
-    where
-        T: PmCopy
-    requires
-        0 < T::spec_align_of(),
-    ensures
-        ({
-            let (start, end) = bounds;
-            &&& offset@ <= start@ < offset@ + T::spec_align_of()
-            &&& start@ == round_up_to_alignment(offset@ as int, T::spec_align_of() as int)
-            &&& is_aligned(start@ as int, T::spec_align_of() as int)
-            &&& end@ - start@ == T::spec_size_of()
-        })
-{
-    let start = offset.align(align_of::<T>());
-    let end = start.add_usize(size_of::<T>());
-    (start, end)
-}
-
-#[inline]
-pub exec fn reserve_specified_space(offset: &OverflowingU64, size: u64, alignment: u64)
-                                    -> (bounds: (OverflowingU64, OverflowingU64))
-    requires
-        0 < alignment,
-    ensures
-        ({
-            let (start, end) = bounds;
-            &&& offset@ <= start@ < offset@ + alignment
-            &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
-            &&& is_aligned(start@ as int, alignment as int)
-            &&& end@ - start@ == size
-        })
-{
-    let start = offset.align_u64(alignment);
-    let end = start.add(size);
-    (start, end)
-}
-
-#[inline]
-pub exec fn reserve_specified_space_overflowing_u64(offset: &OverflowingU64, size: &OverflowingU64, alignment: u64)
-                                                    -> (bounds: (OverflowingU64, OverflowingU64))
-    requires
-        0 < alignment,
-    ensures
-        ({
-            let (start, end) = bounds;
-            &&& offset@ <= start@ < offset@ + alignment
-            &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
-            &&& is_aligned(start@ as int, alignment as int)
-            &&& end@ - start@ == size@
-        })
-{
-    let start = offset.align_u64(alignment);
-    let end = start.add_overflowing_u64(size);
-    (start, end)
 }
 
 }

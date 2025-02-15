@@ -1,7 +1,8 @@
 use builtin::*;
 use builtin_macros::*;
-use crate::pmem::pmcopy_t::PmCopy;
-use crate::pmem::traits_t::align_of;
+use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
+use crate::pmem::traits_t::{align_of, size_of};
+use super::overflow_v::OverflowingU64;
 use vstd::prelude::*;
 use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish};
 
@@ -120,6 +121,110 @@ pub open spec fn spec_reserve_specified_space(offset: int, size: int, alignment:
 {
     let start = round_up_to_alignment(offset, alignment);
     let end = start + size;
+    (start, end)
+}
+
+impl OverflowingU64 {
+    #[inline]
+    pub exec fn align_u64(&self, alignment: u64) -> (result: Self)
+        requires
+            0 < alignment,
+        ensures
+            self@ <= result@,
+            result@ < self@ + alignment,
+            result@ == round_up_to_alignment(self@ as int, alignment as int),
+            is_aligned(result@ as int, alignment as int),
+    {
+        proof {
+            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
+        }
+
+        if self.is_overflowed() {
+            Self::new_overflowed(Ghost(round_up_to_alignment(self@ as int, alignment as int)))
+        }
+        else {
+            self.add(get_space_needed_for_alignment(self.unwrap(), alignment))
+        }
+    }
+
+    #[inline]
+    pub exec fn align(&self, alignment: usize) -> (result: Self)
+        requires
+            0 < alignment,
+        ensures
+            self@ <= result@,
+            result@ < self@ + alignment,
+            result@ == round_up_to_alignment(self@ as int, alignment as int),
+            is_aligned(result@ as int, alignment as int),
+    {
+        proof {
+            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
+        }
+
+        if self.is_overflowed() {
+            Self::new_overflowed(Ghost(round_up_to_alignment(self@ as int, alignment as int)))
+        }
+        else {
+            self.add_usize(get_space_needed_for_alignment_usize(self.unwrap(), alignment))
+        }
+    }
+}
+
+#[inline]
+pub exec fn reserve_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU64, OverflowingU64))
+    where
+        T: PmCopy
+    requires
+        0 < T::spec_align_of(),
+    ensures
+        ({
+            let (start, end) = bounds;
+            &&& offset@ <= start@ < offset@ + T::spec_align_of()
+            &&& start@ == round_up_to_alignment(offset@ as int, T::spec_align_of() as int)
+            &&& is_aligned(start@ as int, T::spec_align_of() as int)
+            &&& end@ - start@ == T::spec_size_of()
+        })
+{
+    let start = offset.align(align_of::<T>());
+    let end = start.add_usize(size_of::<T>());
+    (start, end)
+}
+
+#[inline]
+pub exec fn reserve_specified_space(offset: &OverflowingU64, size: u64, alignment: u64)
+                                    -> (bounds: (OverflowingU64, OverflowingU64))
+    requires
+        0 < alignment,
+    ensures
+        ({
+            let (start, end) = bounds;
+            &&& offset@ <= start@ < offset@ + alignment
+            &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
+            &&& is_aligned(start@ as int, alignment as int)
+            &&& end@ - start@ == size
+        })
+{
+    let start = offset.align_u64(alignment);
+    let end = start.add(size);
+    (start, end)
+}
+
+#[inline]
+pub exec fn reserve_specified_space_overflowing_u64(offset: &OverflowingU64, size: &OverflowingU64, alignment: u64)
+                                                    -> (bounds: (OverflowingU64, OverflowingU64))
+    requires
+        0 < alignment,
+    ensures
+        ({
+            let (start, end) = bounds;
+            &&& offset@ <= start@ < offset@ + alignment
+            &&& start@ == round_up_to_alignment(offset@ as int, alignment as int)
+            &&& is_aligned(start@ as int, alignment as int)
+            &&& end@ - start@ == size@
+        })
+{
+    let start = offset.align_u64(alignment);
+    let end = start.add_overflowing_u64(size);
     (start, end)
 }
 
