@@ -1,3 +1,46 @@
+/// This file defines the `OverflowableU64` struct and its associated methods
+/// to handle `u64` values that can overflow. The struct includes a ghost value
+/// representing the true value (not subject to overflow), so that the `view`
+/// function can provide the true value.
+///
+/// Examples of use:
+/// 
+/// ```
+/// fn test1()
+/// {
+///     let w = OverflowableU64::new(0xFFFFFFFFFFFFFFFF);
+///     let x = w.add(1);
+///     assert(x.is_overflowed());
+///     assert(x.view() == 0x10000000000000000);
+///
+///     let y = OverflowableU64::new(0x8000000000000000);
+///     let z = y.mul(2);
+///     assert(z.is_overflowed());
+///     assert(z.view() == 0x10000000000000000);
+/// }
+///
+/// fn test2(a: u64, b: u64, c: u64, d: u64) -> (e: Option<u64>)
+///     ensures
+///         match e {
+///             Some(v) => v == a * b + c * d,
+///             None => a * b + c * d > u64::MAX,
+///         }
+/// {
+///     let a_times_b = OverflowableU64::new(a).mul(b);
+///     let c_times_d = OverflowableU64::new(c).mul(d);
+///     let sum_of_products = a_times_b.add_overflowable_u64(&c_times_d);
+///     if sum_of_products.is_overflowed() {
+///         assert(a * b + c * d > u64::MAX);
+///         None
+///     }
+///     else {
+///         let i: u64 = sum_of_products.unwrap();
+///         assert(i == a * b + c * d);
+///         Some(i)
+///     }
+/// }
+/// ```
+
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
@@ -7,11 +50,16 @@ use vstd::prelude::*;
 
 verus! {
 
+/// This struct represents a `u64` value that can overflow. The `i` field
+/// is a ghost value that represents the true value, while the `v` field
+/// is `None` when the value has overflowed and `Some(x)` when the value
+/// `x` fits in a `u64`.
 pub struct OverflowableU64 {
     i: Ghost<nat>,
     v: Option<u64>,
 }
 
+/// The view of an `OverflowableU64` instance is the true value of the instance.
 impl View for OverflowableU64
 {
     type V = nat;
@@ -23,6 +71,8 @@ impl View for OverflowableU64
 }
 
 impl Clone for OverflowableU64 {
+    /// Clones the `OverflowableU64` instance.
+    /// Ensures the cloned instance has the same value as the original.
     exec fn clone(&self) -> (result: Self)
         ensures
             result@ == self@
@@ -33,6 +83,8 @@ impl Clone for OverflowableU64 {
 }
 
 impl OverflowableU64 {
+    /// This is the internal type invariant for an `OverflowableU64`.
+    /// It ensures the key invariant that relates `i` and `v`.
     #[verifier::type_invariant]
     spec fn well_formed(self) -> bool
     {
@@ -42,11 +94,15 @@ impl OverflowableU64 {
         }
     }
 
+    /// Creates a new `OverflowableU64` instance from a `u64` value.
+    /// Ensures the internal representation matches the provided value.
     pub closed spec fn spec_new(v: u64) -> OverflowableU64
     {
         OverflowableU64{ i: Ghost(v as nat), v: Some(v) }
     }
 
+    /// Creates a new `OverflowableU64` instance from a `u64` value.
+    /// Ensures the internal representation matches the provided value.
     #[verifier::when_used_as_spec(spec_new)]
     pub exec fn new(v: u64) -> (result: Self)
         ensures
@@ -55,6 +111,9 @@ impl OverflowableU64 {
         Self{ i: Ghost(v as nat), v: Some(v) }
     }
 
+    /// Creates a new `OverflowableU64` instance with an overflowed value.
+    /// Requires the provided value to be greater than `u64::MAX`.
+    /// Ensures the internal representation matches the provided value.
     pub exec fn new_overflowed(Ghost(i): Ghost<int>) -> (result: Self)
         requires
             i > u64::MAX,
@@ -64,11 +123,15 @@ impl OverflowableU64 {
         Self{ i: Ghost(i as nat), v: None }
     }
 
+    /// Checks if the `OverflowableU64` instance is overflowed.
+    /// Returns true if the value is greater than `u64::MAX`.
     pub open spec fn spec_is_overflowed(&self) -> bool
     {
         self@ > u64::MAX
     }
 
+    /// Checks if the `OverflowableU64` instance is overflowed.
+    /// Returns true if the value is greater than `u64::MAX`.
     #[verifier::when_used_as_spec(spec_is_overflowed)]
     pub exec fn is_overflowed(&self) -> (result: bool)
         ensures
@@ -78,6 +141,9 @@ impl OverflowableU64 {
         self.v.is_none()
     }
 
+    /// Unwraps the `OverflowableU64` instance to get the `u64` value.
+    /// Requires the instance to not be overflowed.
+    /// Ensures the returned value matches the internal representation.
     pub exec fn unwrap(&self) -> (result: u64)
         requires
             !self.is_overflowed(),
@@ -88,6 +154,8 @@ impl OverflowableU64 {
         self.v.unwrap()
     }
 
+    /// Converts the `OverflowableU64` instance to an `Option<u64>`.
+    /// Ensures the returned option matches the internal representation.
     pub exec fn to_option(&self) -> (result: Option<u64>)
         ensures
             match result {
@@ -99,6 +167,8 @@ impl OverflowableU64 {
         self.v
     }
 
+    /// Adds a `u64` value to the `OverflowableU64` instance.
+    /// Ensures the resulting value matches the sum of the internal representation and the provided value.
     #[inline]
     pub exec fn add(&self, v2: u64) -> (result: Self)
         ensures
@@ -117,6 +187,8 @@ impl OverflowableU64 {
         }
     }
 
+    /// Adds a `usize` value to the `OverflowableU64` instance.
+    /// Ensures the resulting value matches the sum of the internal representation and the provided value.
     #[inline]
     pub exec fn add_usize(&self, v2: usize) -> (result: Self)
         ensures
@@ -125,6 +197,8 @@ impl OverflowableU64 {
         self.add(v2 as u64)
     }
 
+    /// Adds another `OverflowableU64` instance to the current instance.
+    /// Ensures the resulting value matches the sum of the internal representations of both instances.
     #[inline]
     pub exec fn add_overflowable_u64(&self, v2: &OverflowableU64) -> (result: Self)
         ensures
@@ -144,6 +218,8 @@ impl OverflowableU64 {
         }
     }
 
+    /// Multiplies the `OverflowableU64` instance by a `u64` value.
+    /// Ensures the resulting value matches the product of the internal representation and the provided value.
     #[inline]
     pub exec fn mul(&self, v2: u64) -> (result: Self)
         ensures
@@ -167,6 +243,9 @@ impl OverflowableU64 {
             Self{ i, v: None }
         }
         else if self.v.unwrap() > u64::MAX / v2 {
+            // To make sure the multiplication won't overflow, we compare `self.v` to
+            // `u64::MAX / v2`. If it's greater, we can prove that it will overflow
+            // so we don't need to do the multiplication.
             proof {
                 assert(self@ >= self.v.unwrap() >= u64::MAX / v2 + 1);
                 assert(self@ >= (u64::MAX + v2) / v2 as int) by {
@@ -188,6 +267,8 @@ impl OverflowableU64 {
             Self{ i, v: None }
         }
         else {
+            // If `self.v <= u64::MAX / v2`, then we can prove the multiplication
+            // won't overflow.
             proof {
                 assert(self.v.unwrap() * v2 <= (u64::MAX / v2) * v2) by {
                     lemma_mul_inequality(self.v.unwrap() as int, u64::MAX as int / v2 as int, v2 as int);
@@ -203,6 +284,8 @@ impl OverflowableU64 {
         }
     }
 
+    /// Multiplies the `OverflowableU64` instance by another `OverflowableU64` instance.
+    /// Ensures the resulting value matches the product of the internal representations of both instances.
     #[inline]
     pub exec fn mul_overflowable_u64(&self, v2: &Self) -> (result: Self)
         ensures
