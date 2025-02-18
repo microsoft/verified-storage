@@ -30,8 +30,8 @@ impl<PM, I> ItemTable<PM, I>
         PM: PersistentMemoryRegion,
         I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &OverflowingU64)
-                                             -> (result: OverflowingU64)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &OverflowableU64)
+                                             -> (result: OverflowableU64)
         requires
             ps.valid(),
         ensures
@@ -39,14 +39,14 @@ impl<PM, I> ItemTable<PM, I>
     {
         broadcast use pmcopy_axioms;
     
-        let row_item_end = OverflowingU64::new(size_of::<I>() as u64);
+        let row_item_end = OverflowableU64::new(size_of::<I>() as u64);
         let row_item_crc_end = row_item_end.add_usize(size_of::<u64>());
-        let num_rows = OverflowingU64::new(ps.num_keys);
-        let table_size = num_rows.mul_overflowing_u64(&row_item_crc_end);
+        let num_rows = OverflowableU64::new(ps.num_keys);
+        let table_size = num_rows.mul_overflowable_u64(&row_item_crc_end);
         let initial_space = if min_start.is_overflowed() { 0 } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
         };
-        OverflowingU64::new(initial_space).add_overflowing_u64(&table_size)
+        OverflowableU64::new(initial_space).add_overflowable_u64(&table_size)
     }
     
     exec fn setup_given_metadata(
@@ -106,12 +106,12 @@ impl<PM, I> ItemTable<PM, I>
             broadcast use pmcopy_axioms;
         }
     
-        let row_item_end = OverflowingU64::new(size_of::<I>() as u64);
+        let row_item_end = OverflowableU64::new(size_of::<I>() as u64);
         let row_item_crc_end = row_item_end.add_usize(size_of::<u64>());
-        let num_rows = OverflowingU64::new(ps.num_keys);
-        let start = OverflowingU64::new(min_start).align(size_of::<u64>());
-        let table_size = num_rows.mul_overflowing_u64(&row_item_crc_end);
-        let end = start.add_overflowing_u64(&table_size);
+        let num_rows = OverflowableU64::new(ps.num_keys);
+        let start = OverflowableU64::new(min_start).align(size_of::<u64>());
+        let table_size = num_rows.mul_overflowable_u64(&row_item_crc_end);
+        let end = start.add_overflowable_u64(&table_size);
     
         assert(end@ - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(table_size@ >= row_item_crc_end@) by {

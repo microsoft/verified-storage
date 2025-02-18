@@ -7,12 +7,12 @@ use vstd::prelude::*;
 
 verus! {
 
-pub struct OverflowingU64 {
+pub struct OverflowableU64 {
     i: Ghost<nat>,
     v: Option<u64>,
 }
 
-impl View for OverflowingU64
+impl View for OverflowableU64
 {
     type V = nat;
 
@@ -22,7 +22,7 @@ impl View for OverflowingU64
     }
 }
 
-impl Clone for OverflowingU64 {
+impl Clone for OverflowableU64 {
     exec fn clone(&self) -> (result: Self)
         ensures
             result@ == self@
@@ -32,7 +32,7 @@ impl Clone for OverflowingU64 {
     }
 }
 
-impl OverflowingU64 {
+impl OverflowableU64 {
     #[verifier::type_invariant]
     spec fn well_formed(self) -> bool
     {
@@ -42,9 +42,9 @@ impl OverflowingU64 {
         }
     }
 
-    pub closed spec fn spec_new(v: u64) -> OverflowingU64
+    pub closed spec fn spec_new(v: u64) -> OverflowableU64
     {
-        OverflowingU64{ i: Ghost(v as nat), v: Some(v) }
+        OverflowableU64{ i: Ghost(v as nat), v: Some(v) }
     }
 
     #[verifier::when_used_as_spec(spec_new)]
@@ -126,7 +126,7 @@ impl OverflowingU64 {
     }
 
     #[inline]
-    pub exec fn add_overflowing_u64(&self, v2: &OverflowingU64) -> (result: Self)
+    pub exec fn add_overflowable_u64(&self, v2: &OverflowableU64) -> (result: Self)
         ensures
             result@ == self@ + v2@,
     {
@@ -204,7 +204,7 @@ impl OverflowingU64 {
     }
 
     #[inline]
-    pub exec fn mul_overflowing_u64(&self, v2: &Self) -> (result: Self)
+    pub exec fn mul_overflowable_u64(&self, v2: &Self) -> (result: Self)
         ensures
             result@ == self@ as int * v2@ as int,
     {

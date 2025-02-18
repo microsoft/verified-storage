@@ -2,7 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
 use crate::pmem::traits_t::{align_of, size_of};
-use super::overflow_v::OverflowingU64;
+use super::overflow_v::OverflowableU64;
 use vstd::prelude::*;
 use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish};
 
@@ -124,7 +124,7 @@ pub open spec fn spec_reserve_specified_space(offset: int, size: int, alignment:
     (start, end)
 }
 
-impl OverflowingU64 {
+impl OverflowableU64 {
     #[inline]
     pub exec fn align_u64(&self, alignment: u64) -> (result: Self)
         requires
@@ -171,7 +171,7 @@ impl OverflowingU64 {
 }
 
 #[inline]
-pub exec fn reserve_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU64, OverflowingU64))
+pub exec fn reserve_space<T>(offset: &OverflowableU64) -> (bounds: (OverflowableU64, OverflowableU64))
     where
         T: PmCopy
     requires
@@ -191,8 +191,8 @@ pub exec fn reserve_space<T>(offset: &OverflowingU64) -> (bounds: (OverflowingU6
 }
 
 #[inline]
-pub exec fn reserve_specified_space(offset: &OverflowingU64, size: u64, alignment: u64)
-                                    -> (bounds: (OverflowingU64, OverflowingU64))
+pub exec fn reserve_specified_space(offset: &OverflowableU64, size: u64, alignment: u64)
+                                    -> (bounds: (OverflowableU64, OverflowableU64))
     requires
         0 < alignment,
     ensures
@@ -210,8 +210,8 @@ pub exec fn reserve_specified_space(offset: &OverflowingU64, size: u64, alignmen
 }
 
 #[inline]
-pub exec fn reserve_specified_space_overflowing_u64(offset: &OverflowingU64, size: &OverflowingU64, alignment: u64)
-                                                    -> (bounds: (OverflowingU64, OverflowingU64))
+pub exec fn reserve_specified_space_overflowable_u64(offset: &OverflowableU64, size: &OverflowableU64, alignment: u64)
+                                                    -> (bounds: (OverflowableU64, OverflowableU64))
     requires
         0 < alignment,
     ensures
@@ -224,7 +224,7 @@ pub exec fn reserve_specified_space_overflowing_u64(offset: &OverflowingU64, siz
         })
 {
     let start = offset.align_u64(alignment);
-    let end = start.add_overflowing_u64(size);
+    let end = start.add_overflowable_u64(size);
     (start, end)
 }
 
