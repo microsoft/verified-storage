@@ -7,12 +7,8 @@ use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
-use vstd::arithmetic::div_mod::{
-    lemma_div_of0, lemma_div_plus_one, lemma_fundamental_div_mod_converse,
-};
-use vstd::arithmetic::mul::{
-    lemma_mul_basics, lemma_mul_inequality, lemma_mul_is_distributive_add_other_way,
-};
+use vstd::arithmetic::div_mod::*;
+use vstd::arithmetic::mul::*;
 
 verus! {
 

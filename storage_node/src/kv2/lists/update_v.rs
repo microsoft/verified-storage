@@ -1,8 +1,7 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
-use util_v::lemma_writing_element_and_next_effect_on_recovery;
-use util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
+use util_v::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
