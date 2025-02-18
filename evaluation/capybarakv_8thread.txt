@@ -1,0 +1,330 @@
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36348 ms    (estimated total cpu time 66554 ms)
+    rust-time:                3599 ms
+        init-and-types:           1766 ms
+        lifetime-time:             283 ms
+        compile-time:             1550 ms
+    verification-time:       32459 ms
+        vir-time:                 1379 ms
+            hir-time:                  537 ms
+            import-time:                44 ms
+            rust-to-vir:               389 ms
+        verify-crate-time:       31079 ms
+    unaccounted-time:          288 ms
+
+verify-crate-time-breakdown
+    total verify-time:          61106 ms   (8 threads)
+    total air-time:              3708 ms   (8 threads)
+    total smt-time:             53260 ms   (8 threads)
+        total smt-init:              1279 ms   (8 threads)
+        total smt-run:              51981 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36135 ms    (estimated total cpu time 65917 ms)
+    rust-time:                3565 ms
+        init-and-types:           1692 ms
+        lifetime-time:             290 ms
+        compile-time:             1582 ms
+    verification-time:       32274 ms
+        vir-time:                 1381 ms
+            hir-time:                  530 ms
+            import-time:                42 ms
+            rust-to-vir:               393 ms
+        verify-crate-time:       30892 ms
+    unaccounted-time:          295 ms
+
+verify-crate-time-breakdown
+    total verify-time:          60490 ms   (8 threads)
+    total air-time:              3585 ms   (8 threads)
+    total smt-time:             52891 ms   (8 threads)
+        total smt-init:              1244 ms   (8 threads)
+        total smt-run:              51647 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36079 ms    (estimated total cpu time 65850 ms)
+    rust-time:                3547 ms
+        init-and-types:           1706 ms
+        lifetime-time:             285 ms
+        compile-time:             1555 ms
+    verification-time:       32233 ms
+        vir-time:                 1378 ms
+            hir-time:                  531 ms
+            import-time:                42 ms
+            rust-to-vir:               386 ms
+        verify-crate-time:       30855 ms
+    unaccounted-time:          297 ms
+
+verify-crate-time-breakdown
+    total verify-time:          60441 ms   (8 threads)
+    total air-time:              3644 ms   (8 threads)
+    total smt-time:             52776 ms   (8 threads)
+        total smt-init:              1281 ms   (8 threads)
+        total smt-run:              51495 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           38621 ms    (estimated total cpu time 68676 ms)
+    rust-time:                3588 ms
+        init-and-types:           1720 ms
+        lifetime-time:             283 ms
+        compile-time:             1583 ms
+    verification-time:       34710 ms
+        vir-time:                 1389 ms
+            hir-time:                  539 ms
+            import-time:                43 ms
+            rust-to-vir:               392 ms
+        verify-crate-time:       33321 ms
+    unaccounted-time:          322 ms
+
+verify-crate-time-breakdown
+    total verify-time:          63194 ms   (8 threads)
+    total air-time:              3668 ms   (8 threads)
+    total smt-time:             55411 ms   (8 threads)
+        total smt-init:              1288 ms   (8 threads)
+        total smt-run:              54123 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36716 ms    (estimated total cpu time 66765 ms)
+    rust-time:                3597 ms
+        init-and-types:           1715 ms
+        lifetime-time:             284 ms
+        compile-time:             1597 ms
+    verification-time:       32825 ms
+        vir-time:                 1390 ms
+            hir-time:                  535 ms
+            import-time:                43 ms
+            rust-to-vir:               396 ms
+        verify-crate-time:       31434 ms
+    unaccounted-time:          294 ms
+
+verify-crate-time-breakdown
+    total verify-time:          61300 ms   (8 threads)
+    total air-time:              3660 ms   (8 threads)
+    total smt-time:             53610 ms   (8 threads)
+        total smt-init:              1245 ms   (8 threads)
+        total smt-run:              52365 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           37985 ms    (estimated total cpu time 67533 ms)
+    rust-time:                3601 ms
+        init-and-types:           1688 ms
+        lifetime-time:             284 ms
+        compile-time:             1628 ms
+    verification-time:       34086 ms
+        vir-time:                 1384 ms
+            hir-time:                  532 ms
+            import-time:                42 ms
+            rust-to-vir:               391 ms
+        verify-crate-time:       32702 ms
+    unaccounted-time:          296 ms
+
+verify-crate-time-breakdown
+    total verify-time:          62062 ms   (8 threads)
+    total air-time:              3685 ms   (8 threads)
+    total smt-time:             54250 ms   (8 threads)
+        total smt-init:              1282 ms   (8 threads)
+        total smt-run:              52968 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           37041 ms    (estimated total cpu time 66926 ms)
+    rust-time:                3644 ms
+        init-and-types:           1765 ms
+        lifetime-time:             282 ms
+        compile-time:             1596 ms
+    verification-time:       33102 ms
+        vir-time:                 1418 ms
+            hir-time:                  542 ms
+            import-time:                56 ms
+            rust-to-vir:               403 ms
+        verify-crate-time:       31683 ms
+    unaccounted-time:          294 ms
+
+verify-crate-time-breakdown
+    total verify-time:          61386 ms   (8 threads)
+    total air-time:              3646 ms   (8 threads)
+    total smt-time:             53637 ms   (8 threads)
+        total smt-init:              1273 ms   (8 threads)
+        total smt-run:              52364 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36230 ms    (estimated total cpu time 66344 ms)
+    rust-time:                3637 ms
+        init-and-types:           1725 ms
+        lifetime-time:             284 ms
+        compile-time:             1626 ms
+    verification-time:       32302 ms
+        vir-time:                 1395 ms
+            hir-time:                  537 ms
+            import-time:                43 ms
+            rust-to-vir:               398 ms
+        verify-crate-time:       30906 ms
+    unaccounted-time:          290 ms
+
+verify-crate-time-breakdown
+    total verify-time:          60838 ms   (8 threads)
+    total air-time:              3620 ms   (8 threads)
+    total smt-time:             53334 ms   (8 threads)
+        total smt-init:              1352 ms   (8 threads)
+        total smt-run:              51982 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36843 ms    (estimated total cpu time 66671 ms)
+    rust-time:                3621 ms
+        init-and-types:           1723 ms
+        lifetime-time:             287 ms
+        compile-time:             1610 ms
+    verification-time:       32928 ms
+        vir-time:                 1388 ms
+            hir-time:                  534 ms
+            import-time:                43 ms
+            rust-to-vir:               395 ms
+        verify-crate-time:       31539 ms
+    unaccounted-time:          293 ms
+
+verify-crate-time-breakdown
+    total verify-time:          61184 ms   (8 threads)
+    total air-time:              3545 ms   (8 threads)
+    total smt-time:             53646 ms   (8 threads)
+        total smt-init:              1266 ms   (8 threads)
+        total smt-run:              52380 ms, 640312339 rlimit (8 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           36390 ms    (estimated total cpu time 66858 ms)
+    rust-time:                3616 ms
+        init-and-types:           1726 ms
+        lifetime-time:             283 ms
+        compile-time:             1607 ms
+    verification-time:       32483 ms
+        vir-time:                 1394 ms
+            hir-time:                  539 ms
+            import-time:                43 ms
+            rust-to-vir:               395 ms
+        verify-crate-time:       31089 ms
+    unaccounted-time:          290 ms
+
+verify-crate-time-breakdown
+    total verify-time:          61375 ms   (8 threads)
+    total air-time:              3626 ms   (8 threads)
+    total smt-time:             53742 ms   (8 threads)
+        total smt-init:              1282 ms   (8 threads)
+        total smt-run:              52460 ms, 640312339 rlimit (8 threads)

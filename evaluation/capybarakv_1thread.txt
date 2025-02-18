@@ -1,0 +1,1120 @@
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55029 ms
+    rust-time:                3560 ms
+        init-and-types:           1712 ms
+        lifetime-time:             300 ms
+        compile-time:             1547 ms
+    verification-time:       51137 ms
+        vir-time:                 1564 ms
+            hir-time:                  546 ms
+            import-time:                45 ms
+            rust-to-vir:               413 ms
+        verify-crate-time:       49572 ms
+    unaccounted-time:          331 ms
+
+verify-crate-time-breakdown
+    total verify-time:          48821 ms   (1 threads)
+    total air-time:              2727 ms   (1 threads)
+    total smt-time:             43114 ms   (1 threads)
+        total smt-init:              1020 ms   (1 threads)
+        total smt-run:              42094 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           54968 ms
+    rust-time:                3481 ms
+        init-and-types:           1660 ms
+        lifetime-time:             281 ms
+        compile-time:             1539 ms
+    verification-time:       51196 ms
+        vir-time:                 1353 ms
+            hir-time:                  522 ms
+            import-time:                41 ms
+            rust-to-vir:               379 ms
+        verify-crate-time:       49842 ms
+    unaccounted-time:          290 ms
+
+verify-crate-time-breakdown
+    total verify-time:          49275 ms   (1 threads)
+    total air-time:              2657 ms   (1 threads)
+    total smt-time:             43719 ms   (1 threads)
+        total smt-init:              1005 ms   (1 threads)
+        total smt-run:              42714 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55249 ms
+    rust-time:                3518 ms
+        init-and-types:           1705 ms
+        lifetime-time:             279 ms
+        compile-time:             1533 ms
+    verification-time:       51445 ms
+        vir-time:                 1377 ms
+            hir-time:                  534 ms
+            import-time:                43 ms
+            rust-to-vir:               391 ms
+        verify-crate-time:       50068 ms
+    unaccounted-time:          285 ms
+
+verify-crate-time-breakdown
+    total verify-time:          49506 ms   (1 threads)
+    total air-time:              2677 ms   (1 threads)
+    total smt-time:             43901 ms   (1 threads)
+        total smt-init:              1011 ms   (1 threads)
+        total smt-run:              42890 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           56631 ms
+    rust-time:                3559 ms
+        init-and-types:           1693 ms
+        lifetime-time:             284 ms
+        compile-time:             1581 ms
+    verification-time:       52783 ms
+        vir-time:                 1369 ms
+            hir-time:                  529 ms
+            import-time:                42 ms
+            rust-to-vir:               388 ms
+        verify-crate-time:       51414 ms
+    unaccounted-time:          287 ms
+
+verify-crate-time-breakdown
+    total verify-time:          50861 ms   (1 threads)
+    total air-time:              2677 ms   (1 threads)
+    total smt-time:             45271 ms   (1 threads)
+        total smt-init:               999 ms   (1 threads)
+        total smt-run:              44272 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55884 ms
+    rust-time:                3598 ms
+        init-and-types:           1716 ms
+        lifetime-time:             277 ms
+        compile-time:             1603 ms
+    verification-time:       52001 ms
+        vir-time:                 1372 ms
+            hir-time:                  532 ms
+            import-time:                43 ms
+            rust-to-vir:               389 ms
+        verify-crate-time:       50628 ms
+    unaccounted-time:          285 ms
+
+verify-crate-time-breakdown
+    total verify-time:          50065 ms   (1 threads)
+    total air-time:              2688 ms   (1 threads)
+    total smt-time:             44478 ms   (1 threads)
+        total smt-init:              1005 ms   (1 threads)
+        total smt-run:              43473 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55960 ms
+    rust-time:                3721 ms
+        init-and-types:           1720 ms
+        lifetime-time:             285 ms
+        compile-time:             1714 ms
+    verification-time:       51939 ms
+        vir-time:                 1404 ms
+            hir-time:                  540 ms
+            import-time:                43 ms
+            rust-to-vir:               401 ms
+        verify-crate-time:       50535 ms
+    unaccounted-time:          299 ms
+
+verify-crate-time-breakdown
+    total verify-time:          49890 ms   (1 threads)
+    total air-time:              2716 ms   (1 threads)
+    total smt-time:             44088 ms   (1 threads)
+        total smt-init:              1012 ms   (1 threads)
+        total smt-run:              43076 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           61931 ms
+    rust-time:                3702 ms
+        init-and-types:           1824 ms
+        lifetime-time:             288 ms
+        compile-time:             1590 ms
+    verification-time:       57918 ms
+        vir-time:                 1414 ms
+            hir-time:                  556 ms
+            import-time:                44 ms
+            rust-to-vir:               390 ms
+        verify-crate-time:       56504 ms
+    unaccounted-time:          310 ms
+
+verify-crate-time-breakdown
+    total verify-time:          55834 ms   (1 threads)
+    total air-time:              3168 ms   (1 threads)
+    total smt-time:             48711 ms   (1 threads)
+        total smt-init:              1117 ms   (1 threads)
+        total smt-run:              47594 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55117 ms
+    rust-time:                3572 ms
+        init-and-types:           1707 ms
+        lifetime-time:             284 ms
+        compile-time:             1580 ms
+    verification-time:       51252 ms
+        vir-time:                 1385 ms
+            hir-time:                  532 ms
+            import-time:                42 ms
+            rust-to-vir:               394 ms
+        verify-crate-time:       49867 ms
+    unaccounted-time:          292 ms
+
+verify-crate-time-breakdown
+    total verify-time:          49304 ms   (1 threads)
+    total air-time:              2669 ms   (1 threads)
+    total smt-time:             43693 ms   (1 threads)
+        total smt-init:              1015 ms   (1 threads)
+        total smt-run:              42678 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55384 ms
+    rust-time:                3603 ms
+        init-and-types:           1715 ms
+        lifetime-time:             281 ms
+        compile-time:             1606 ms
+    verification-time:       51490 ms
+        vir-time:                 1386 ms
+            hir-time:                  534 ms
+            import-time:                43 ms
+            rust-to-vir:               395 ms
+        verify-crate-time:       50103 ms
+    unaccounted-time:          290 ms
+
+verify-crate-time-breakdown
+    total verify-time:          49538 ms   (1 threads)
+    total air-time:              2667 ms   (1 threads)
+    total smt-time:             43922 ms   (1 threads)
+        total smt-init:              1015 ms   (1 threads)
+        total smt-run:              42907 ms, 640312339 rlimit (1 threads)
+[H[2J[3JBuilding deps_hack
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Building pmsafe
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+Verifying
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:3539:15
+     |
+3539 |           proof fn lemma_helper_for_justify_validify_log_entry(
+     |  _______________^
+3540 | |             self,
+3541 | |             old_self: Self,
+3542 | |             self_before_main_table_create: Self,
+...    |
+3548 | |             perm: &Perm,
+3549 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check finished in 3 seconds
+    --> kv/durable/durableimpl_v.rs:4064:15
+     |
+4064 |           proof fn lemma_justify_validify_log_entry(
+     |  _______________^
+4065 | |             self,
+4066 | |             old_self: Self,
+4067 | |             self_before_main_table_create: Self,
+...    |
+4074 | |             perm: &Perm,
+4075 | |         )
+     | |_________^
+
+note: function body check has been running for 2 seconds
+      reporting errors as they are discovered (they may not be in source order)
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+note: function body check finished in 2 seconds
+    --> kv/durable/durableimpl_v.rs:6547:9
+     |
+6547 | /         pub fn tentative_update_item(
+6548 | |             &mut self,
+6549 | |             offset: u64,
+6550 | |             item: &I,
+6551 | |             kvstore_id: u128,
+6552 | |             Tracked(perm): Tracked<&Perm>,
+6553 | |         ) -> (result: Result<(), KvError<K>>)
+     | |____________________________________________^
+
+verification results:: 493 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2024.11.22.51b5ebf
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.79.0-x86_64-unknown-linux-gnu
+
+total-time:           55267 ms
+    rust-time:                3593 ms
+        init-and-types:           1719 ms
+        lifetime-time:             280 ms
+        compile-time:             1593 ms
+    verification-time:       51383 ms
+        vir-time:                 1384 ms
+            hir-time:                  536 ms
+            import-time:                42 ms
+            rust-to-vir:               391 ms
+        verify-crate-time:       49999 ms
+    unaccounted-time:          290 ms
+
+verify-crate-time-breakdown
+    total verify-time:          49422 ms   (1 threads)
+    total air-time:              2661 ms   (1 threads)
+    total smt-time:             43810 ms   (1 threads)
+        total smt-init:               989 ms   (1 threads)
+        total smt-run:              42821 ms, 640312339 rlimit (1 threads)
