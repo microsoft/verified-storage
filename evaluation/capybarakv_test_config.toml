@@ -1,0 +1,11 @@
+[capybarakv_config]
+kv_file = "capybarakv"
+num_keys = 100
+region_size = 1048576
+num_list_entries = 100
+max_ops_per_transaction = 5
+
+[experiment_config]
+results_dir = "test_results"
+mount_point = "/mnt/pmem"
+pm_device = "/dev/pmem0"

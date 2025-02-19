@@ -29,6 +29,7 @@ pub mod kv_interface;
 pub mod redis_client;
 // pub mod rocksdb_client;
 pub mod capybarakv_client;
+mod test;
 
 // length of key and value in byte for most tests
 const KEY_LEN: usize = 64;
@@ -156,17 +157,18 @@ impl Value for BigTestValue {
 // because it has to be PmCopy (so we can't use () or something)
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
-pub struct PlaceholderListElem {
-    val: usize,
+pub struct TestListElem {
+    start: u64,
+    end: u64,
 }
 
-impl LogicalRange for PlaceholderListElem {
+impl LogicalRange for TestListElem {
     fn start(&self) -> usize {
-        self.val 
+        self.start as usize
     } 
 
     fn end(&self) -> usize {
-        self.val
+        self.end as usize
     }
 }
 
@@ -234,7 +236,7 @@ fn main() {
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     // let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
-    let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
+    let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, TestListElem>::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
     // fs::create_dir_all(&rocksdb_output_dir).unwrap();
@@ -244,13 +246,13 @@ fn main() {
     for i in 1..ITERATIONS+1 {
         run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
         // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, TestListElem>>(&capybara_output_dir, i).unwrap();
     }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
     run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
     // run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, TestListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
 }
 
 fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>

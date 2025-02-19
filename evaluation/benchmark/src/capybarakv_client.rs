@@ -10,6 +10,51 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use std::process::Command;
+
+use serde::Deserialize;
+use std::fs;
+use toml;
+
+
+// Reusing the same/similar configuration strcts from ycsb_ffi just 
+// to keep all of the config files we are using consistent.
+// the experiment and DB options are separate in that crate
+// so that everything works properly with YCSB
+#[derive(Deserialize, Debug)]
+struct CapybaraKvConfig {
+    capybarakv_config: DbOptions,
+    experiment_config: ExperimentOptions
+}
+
+#[derive(Deserialize, Debug)]
+struct ExperimentConfig {
+    experiment_config: ExperimentOptions,
+}
+
+#[derive(Deserialize, Debug)]
+struct DbOptions {
+    kv_file: String,
+    num_keys: u64, 
+    region_size: u64, 
+    num_list_entries: u64,
+    max_ops_per_transaction: u64
+}
+
+// Most of these options are not used at all in this crate,
+// but a few are, and reading from this config file makes it 
+// easier to ensure that we use the same configurations everywhere
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+struct ExperimentOptions {
+    results_dir: String,
+    threads: Option<u64>,
+    mount_point: String,
+    pm_device: String,
+    iterations: Option<u64>,
+    op_count: Option<u64>,
+    record_count: Option<u64>,
+}
 
 // TODO: read these from config file
 const KVSTORE_ID: u128 = 1234;
@@ -115,6 +160,80 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
     fn flush(&mut self) {}
 }
 
+// TODO: make these part of the KvInterface trait?
+impl<K, V, L> CapybaraKvClient<K, V, L>
+    where 
+        K: PmCopy + Key + Debug + Hash,
+        V: PmCopy + Value + Debug + Hash,
+        L: PmCopy + Debug + LogicalRange,
+{
+    // TODO: use this as the main trait setup fn
+    pub fn setup_from_config_file(config_file_path: &str) -> Result<(), KvError> {
+        let capybarakv_config_contents = match fs::read_to_string(&config_file_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Could not read file `{}`: {}", config_file_path, e);
+                panic!();
+            }
+        };
+        let capybarakv_config: CapybaraKvConfig = toml::from_str(&capybarakv_config_contents).unwrap();
+        
+        init_and_mount_pm_fs_from_config(&capybarakv_config.experiment_config);
+
+        let setup_parameters = SetupParameters {
+            kvstore_id: KVSTORE_ID,
+            logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsPermitted,
+            num_keys: capybarakv_config.capybarakv_config.num_keys,
+            num_list_entries: capybarakv_config.capybarakv_config.num_list_entries,
+            max_operations_per_transaction: capybarakv_config.capybarakv_config.max_ops_per_transaction,
+        };
+
+        let kvstore_file = capybarakv_config.experiment_config.mount_point + "/" +
+            &capybarakv_config.capybarakv_config.kv_file;
+        
+
+        let mut kv_region = create_pm_region(&kvstore_file, capybarakv_config.capybarakv_config.region_size);
+        KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
+            &mut kv_region, &setup_parameters
+        )?;
+
+        Ok(())
+    }
+
+    pub fn append_to_list(&mut self, key: &K, list_entry: L) -> Result<(), KvError> {
+        self.kv.tentatively_append_to_list(key, list_entry)?;
+        self.kv.commit()
+    }
+
+    pub fn update_list_entry_at_index(
+        &mut self, 
+        key: &K, 
+        idx: usize, 
+        list_entry: L
+    ) -> Result<(), KvError> {
+        self.kv.tentatively_update_list_entry_at_index(key, idx, list_entry)?;
+        self.kv.commit()
+    }
+
+    pub fn trim_list(
+        &mut self,
+        key: &K,
+        trim_length: usize
+    ) -> Result<(), KvError> {
+        self.kv.tentatively_trim_list(key, trim_length)?;
+        self.kv.commit()
+    }
+
+    pub fn read_list(&mut self, key: &K) -> Result<Vec<L>, KvError> {
+        self.kv.read_list(key)
+    }
+
+    pub fn get_list_length(&mut self, key: &K) -> Result<usize, KvError> {
+        self.kv.get_list_length(key)
+    }
+
+}
+
 fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
 {
     #[cfg(target_os = "windows")]
@@ -149,4 +268,55 @@ fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMe
     ).unwrap();
 
     pm_region
+}
+
+
+fn init_and_mount_pm_fs_from_config(config: &ExperimentOptions) {
+    println!("Mounting PM FS...");
+
+    unmount_pm_fs();
+
+    println!("Unmounted");
+
+    // Set up PM with a fresh file system instance
+    let status = Command::new("sudo")
+        .args(["mkfs.ext4", &config.pm_device, "-F"])
+        .status()
+        .expect("mkfs.ext4 failed");
+
+    let status = Command::new("sudo")
+        .args(["mount", "-o", "dax", &config.pm_device, &config.mount_point])
+        .status()
+        .expect("mount failed");
+
+    let status = Command::new("sudo")
+        .args(["chmod", "777", &config.mount_point])
+        .status()
+        .expect("chmod failed");
+    println!("Mounted");
+}
+
+
+fn remount_pm_fs_from_config(config: &ExperimentOptions) {
+    println!("Remounting existing FS...");
+
+    unmount_pm_fs();
+
+    println!("Unmounted");
+
+    let status = Command::new("sudo")
+        .args(["mount", "-o", "dax", &config.pm_device, &config.mount_point])
+        .status()
+        .expect("mount failed");
+
+    println!("Mounted");
+}
+
+fn unmount_pm_fs_from_config(config: &ExperimentOptions) {
+    let status = Command::new("sudo")
+        .args(["umount", &config.pm_device])
+        .status();
+    if let Err(e) = status {
+        println!("{:?}", e);
+    }
 }
