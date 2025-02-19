@@ -50,7 +50,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
         let overhead_times_four = OverflowableU64::new(overhead).mul(4);
         let eight_u64_size = size_of::<u64>() * 8;
-        let bytes_per_operation = overhead_times_four.add_usize(eight_u64_size);
+        let bytes_per_operation = overhead_times_four.add(eight_u64_size as u64);
         OverflowableU64::new(ps.max_operations_per_transaction).mul_overflowable_u64(&bytes_per_operation)
     }
     
@@ -75,8 +75,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let journal_capacity = Self::space_needed_for_journal_capacity(ps);
         let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
         let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
-        let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
-        let sm_crc_end = sm_end.add_usize(size_of::<u64>());
+        let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
+        let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
         let key_table_size = KeyTable::<PM, K>::space_needed_for_setup(ps, &sm_crc_end);
         let key_table_end = sm_crc_end.add_overflowable_u64(&key_table_size);
         let item_table_size = ItemTable::<PM, I>::space_needed_for_setup(ps, &key_table_end);
@@ -162,8 +162,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let journal_capacity = Self::space_needed_for_journal_capacity(ps);
         let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
         let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
-        let sm_end = sm_start.add_usize(size_of::<KvStaticMetadata>());
-        let sm_crc_end = sm_end.add_usize(size_of::<u64>());
+        let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
+        let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
         if sm_crc_end.is_overflowed() {
             return Err(KvError::OutOfSpace);
         }

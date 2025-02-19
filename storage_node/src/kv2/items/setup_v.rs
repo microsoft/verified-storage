@@ -40,7 +40,7 @@ impl<PM, I> ItemTable<PM, I>
         broadcast use pmcopy_axioms;
     
         let row_item_end = OverflowableU64::new(size_of::<I>() as u64);
-        let row_item_crc_end = row_item_end.add_usize(size_of::<u64>());
+        let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
         let num_rows = OverflowableU64::new(ps.num_keys);
         let table_size = num_rows.mul_overflowable_u64(&row_item_crc_end);
         let initial_space = if min_start.is_overflowed() { 0 } else {
@@ -107,7 +107,7 @@ impl<PM, I> ItemTable<PM, I>
         }
     
         let row_item_end = OverflowableU64::new(size_of::<I>() as u64);
-        let row_item_crc_end = row_item_end.add_usize(size_of::<u64>());
+        let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
         let num_rows = OverflowableU64::new(ps.num_keys);
         let start = OverflowableU64::new(min_start).align(size_of::<u64>());
         let table_size = num_rows.mul_overflowable_u64(&row_item_crc_end);

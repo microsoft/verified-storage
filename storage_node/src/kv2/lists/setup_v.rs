@@ -41,9 +41,9 @@ impl<PM, L> ListTable<PM, L>
         broadcast use pmcopy_axioms;
     
         let row_next_crc_start = OverflowableU64::new(size_of::<u64>() as u64);
-        let row_element_start = row_next_crc_start.add_usize(size_of::<u64>());
-        let row_element_crc_start = row_element_start.add_usize(size_of::<L>());
-        let row_size = row_element_crc_start.add_usize(size_of::<u64>());
+        let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
+        let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
+        let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
         let num_rows = OverflowableU64::new(ps.num_list_entries);
         let table_size = num_rows.mul_overflowable_u64(&row_size);
         let initial_space = if min_start.is_overflowed() { 0 } else {
@@ -120,9 +120,9 @@ impl<PM, L> ListTable<PM, L>
     
         let start = OverflowableU64::new(min_start).align(size_of::<u64>());
         let row_next_crc_start = OverflowableU64::new(size_of::<u64>() as u64);
-        let row_element_start = row_next_crc_start.add_usize(size_of::<u64>());
-        let row_element_crc_start = row_element_start.add_usize(size_of::<L>());
-        let row_size = row_element_crc_start.add_usize(size_of::<u64>());
+        let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
+        let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
+        let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
         let num_rows = OverflowableU64::new(ps.num_list_entries);
         let table_size = num_rows.mul_overflowable_u64(&row_size);
         let end = start.add_overflowable_u64(&table_size);
