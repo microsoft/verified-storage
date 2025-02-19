@@ -22,6 +22,7 @@ use super::recover_v::*;
 use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -47,7 +48,7 @@ impl<PM, K> KeyTable<PM, K>
             self.sm == old(self).sm,
             self.undo_records@ == old(self).undo_records@.drop_last(),    
     {
-        broadcast use group_hash_axioms;
+        broadcast use vstd::std_specs::hash::group_hash_axioms;
 
         let undo_record = self.undo_records.pop().unwrap();
         match undo_record {

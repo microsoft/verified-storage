@@ -23,6 +23,7 @@ use super::*;
 use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -331,7 +332,7 @@ impl<PM, L> ListTable<PM, L>
             }
     {
         proof {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         match self.m.get(&list_addr) {
@@ -388,7 +389,7 @@ impl<PM, L> ListTable<PM, L>
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         let mut row_addrs = match self.get_row_addrs(list_addr, journal) {

@@ -1,20 +1,19 @@
-// use storage_node::kv::kvimpl_t::*;
-// use storage_node::pmem::linux_pmemfile_t::*;
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+use storage_node::kv2::spec_t::*;
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmsafe::PmCopy;
 
-#[allow(unused_imports)]
 use builtin::*;
-#[allow(unused_imports)]
 use builtin_macros::*;
 
 use redis::{FromRedisValue, RedisResult};
 
 use std::fs;
 use std::env;
-use std::time::{Instant, Duration};
-use std::thread::sleep;
+use std::time::Instant;
 use std::io::{BufWriter, Write};
 use std::process::Command;
 
@@ -23,12 +22,12 @@ use rand::seq::SliceRandom;
 
 use crate::kv_interface::*;
 use crate::redis_client::*;
-use crate::rocksdb_client::*;
+// use crate::rocksdb_client::*;
 use crate::capybarakv_client::*;
 
 pub mod kv_interface;
 pub mod redis_client;
-pub mod rocksdb_client;
+// pub mod rocksdb_client;
 pub mod capybarakv_client;
 
 // length of key and value in byte for most tests
@@ -158,7 +157,17 @@ impl Value for BigTestValue {
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
 pub struct PlaceholderListElem {
-    _val: u64,
+    val: usize,
+}
+
+impl LogicalRange for PlaceholderListElem {
+    fn start(&self) -> usize {
+        self.val 
+    } 
+
+    fn end(&self) -> usize {
+        self.val
+    }
 }
 
 impl FromRedisValue for TestValue {
@@ -224,23 +233,23 @@ fn main() {
 
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
-    let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
+    // let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
     let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
-    fs::create_dir_all(&rocksdb_output_dir).unwrap();
+    // fs::create_dir_all(&rocksdb_output_dir).unwrap();
     fs::create_dir_all(&capybara_output_dir).unwrap();
 
 
     for i in 1..ITERATIONS+1 {
         run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
         run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
     }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
     run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
+    // run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
     run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
 }
 

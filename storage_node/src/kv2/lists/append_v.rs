@@ -23,6 +23,7 @@ use super::recover_v::*;
 use super::util_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -521,7 +522,7 @@ impl<PM, L> ListTable<PM, L>
             journal.lemma_valid_implications();
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
@@ -681,7 +682,7 @@ impl<PM, L> ListTable<PM, L>
             journal.lemma_valid_implications();
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
@@ -787,7 +788,7 @@ impl<PM, L> ListTable<PM, L>
 
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
@@ -895,7 +896,7 @@ impl<PM, L> ListTable<PM, L>
 
             broadcast use group_validate_row_addr;
             broadcast use pmcopy_axioms;
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
@@ -1021,7 +1022,7 @@ impl<PM, L> ListTable<PM, L>
 
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         match self.logical_range_gaps_policy {

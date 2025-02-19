@@ -346,7 +346,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 num_entries_installed = num_entries_installed + 1;
             }
             
-            start += (twice_u64_size + len as usize);
+            start += twice_u64_size + len as usize;
         }
     
         wrpm.flush();

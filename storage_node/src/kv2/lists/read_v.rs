@@ -22,6 +22,7 @@ use super::*;
 use super::recover_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -261,7 +262,7 @@ impl<PM, L> ListTable<PM, L>
             }
     {
         proof {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         match self.m.get(&list_addr) {
@@ -296,7 +297,7 @@ impl<PM, L> ListTable<PM, L>
             }
     {
         proof {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         match self.m.get(&list_addr) {

@@ -31,12 +31,9 @@ pub use winapi::um::winnt::{
 
 pub use pmsafe::{PmCopy, pmcopy_primitive};
 
-/*
+
 #[cfg(target_os = "linux")]
 pub mod pmem;
-*/
-
-/*
 #[cfg(target_os = "linux")]
 include!("./bindings.rs");
-*/
+

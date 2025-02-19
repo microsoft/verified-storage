@@ -23,6 +23,7 @@ use super::recover_v::*;
 use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -143,7 +144,7 @@ impl<PM, L> ListTable<PM, L>
                 forall|i: int| 0 <= i < which_modification ==>
                     (#[trigger] self.modifications[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
         {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             match self.modifications[which_modification] {
                 None => {},
                 Some(list_addr) => { self.m.remove(&list_addr); },
@@ -245,7 +246,7 @@ impl<PM, L> ListTable<PM, L>
                        }
             },
         {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             let ghost prev_self = *self;
             let summary = self.deletes[which_delete];
             self.m.insert(summary.head, ListTableEntry::<L>::Durable{ summary });

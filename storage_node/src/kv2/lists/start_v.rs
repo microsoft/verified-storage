@@ -22,6 +22,7 @@ use std::hash::Hash;
 use super::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -108,7 +109,7 @@ impl<PM, L> ListTable<PM, L>
             decreases
                 row_addrs.len() - num_elements_processed,
         {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             broadcast use group_validate_row_addr;
 
             assert(sm.table.validate_row_addr(current_addr));
@@ -216,7 +217,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& summary.end_of_logical_range == mapping.row_info[summary.tail].element.end()
                 }
         {
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
 
             let ghost old_m = m@;
 

@@ -1,6 +1,6 @@
-# We have to use 1.79.0 to be compatible with Verus,
+# We have to use 1.82.0 to be compatible with Verus,
 # and we have to use a nightly release to use unstable 
 # features. This release is compatible.
 
 [toolchain]
-channel = "nightly-2024-06-15"
+channel = "nightly-2024-10-15"

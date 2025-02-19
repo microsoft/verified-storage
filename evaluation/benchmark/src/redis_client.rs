@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(dependency_on_unit_never_type_fallback)]
 use redis::{Client, Connection, RedisResult, RedisError, Commands, FromRedisValue};
 use crate::kv_interface::{KvInterface, Key, Value};
 use std::process::*;

@@ -8,7 +8,7 @@ pub trait KvInterface<K, V> : Sized
 {
     type E;
 
-    fn setup(num_keys: u64) -> Result<(), Self::E> { Ok(()) }
+    fn setup(_num_keys: u64) -> Result<(), Self::E> { Ok(()) }
 
     // Initialize the KV store and return an instance of itself.
     // We'll always build KVs from scratch in these tests, so we'll 

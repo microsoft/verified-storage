@@ -24,6 +24,7 @@ use super::recover_v::*;
 use super::util_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
@@ -1018,7 +1019,7 @@ impl<PM, L> ListTable<PM, L>
                                                                         old_iv.durable_mapping.list_elements.dom(),
                                                                         self.sm);
             journal.lemma_valid_implications();
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         let new_row_addr = match self.free_list.pop() {
@@ -1140,7 +1141,7 @@ impl<PM, L> ListTable<PM, L>
         proof {
             self.lemma_valid_implications(journal@);
             journal.lemma_valid_implications();
-            broadcast use group_hash_axioms;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         if self.free_list.len() == 0 {
