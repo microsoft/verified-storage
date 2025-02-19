@@ -117,14 +117,6 @@ impl SaturatingU64 {
     }
 
     #[inline]
-    pub exec fn add_usize(&self, v2: usize) -> (result: Self)
-        ensures
-            result@ == self@ + v2,
-    {
-        self.add(v2 as u64)
-    }
-
-    #[inline]
     pub exec fn align(&self, alignment: usize) -> (result: Self)
         requires
             0 < alignment,
@@ -147,7 +139,7 @@ impl SaturatingU64 {
         }
         else {
             let increment_amount = get_space_needed_for_alignment_usize(self.v, alignment);
-            self.add_usize(increment_amount)
+            self.add(increment_amount as u64)
         }
     }
 

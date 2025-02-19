@@ -189,16 +189,6 @@ impl OverflowableU64 {
         }
     }
 
-    /// Adds a `usize` value to the `OverflowableU64` instance.
-    /// Ensures the resulting value matches the sum of the internal representation and the provided value.
-    #[inline]
-    pub exec fn add_usize(&self, v2: usize) -> (result: Self)
-        ensures
-            result@ == self@ + v2,
-    {
-        self.add(v2 as u64)
-    }
-
     /// Adds another `OverflowableU64` instance to the current instance.
     /// Ensures the resulting value matches the sum of the internal representations of both instances.
     #[inline]

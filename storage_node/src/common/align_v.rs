@@ -165,7 +165,7 @@ impl OverflowableU64 {
             Self::new_overflowed(Ghost(round_up_to_alignment(self@ as int, alignment as int)))
         }
         else {
-            self.add_usize(get_space_needed_for_alignment_usize(self.unwrap(), alignment))
+            self.add(get_space_needed_for_alignment_usize(self.unwrap(), alignment) as u64)
         }
     }
 }
@@ -186,7 +186,7 @@ pub exec fn reserve_space<T>(offset: &OverflowableU64) -> (bounds: (Overflowable
         })
 {
     let start = offset.align(align_of::<T>());
-    let end = start.add_usize(size_of::<T>());
+    let end = start.add(size_of::<T>() as u64);
     (start, end)
 }
 
