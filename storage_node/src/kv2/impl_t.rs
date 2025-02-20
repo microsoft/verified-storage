@@ -165,7 +165,7 @@ where
         UntrustedKvStoreImpl::<PM, K, I, L>::setup(pm, ps)
     }
 
-    pub exec fn start(mut pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError>)
+    pub exec fn start(pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError>)
         requires 
             pm.inv(),
             UntrustedKvStoreImpl::<PM, K, I, L>::recover(pm@.read_state) is Some,

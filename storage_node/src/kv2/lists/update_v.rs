@@ -426,7 +426,6 @@ impl<PM, L> ListTable<PM, L>
         let mut current_addr = list_addr;
         let mut result_addrs = Vec::<u64>::new();
         let mut result_elements = Vec::<L>::new();
-        let mut current_pos: usize = 0;
         let ghost durable_head = prev_self.m@[list_addr]->Modified_durable_head@;
         let ghost durable_addrs = prev_self.durable_mapping@.list_info[durable_head];
         let ghost durable_elements = prev_self.durable_mapping@.list_elements[durable_head];
@@ -435,13 +434,13 @@ impl<PM, L> ListTable<PM, L>
         let pm = journal.get_pm_region_ref();
 
         let num_durable_addrs = summary.length - num_addrs;
-        assert(tentative_addrs.take(current_pos as int) =~= Seq::<u64>::empty());
-        assert(tentative_elements.take(current_pos as int) =~= Seq::<L>::empty());
+        assert(tentative_addrs.take(0) =~= Seq::<u64>::empty());
+        assert(tentative_elements.take(0) =~= Seq::<L>::empty());
         assert(tentative_addrs.take(num_durable_addrs as int) =~=
                durable_addrs.skip(durable_addrs.len() - num_durable_addrs));
         assert(tentative_elements.take(num_durable_addrs as int) =~=
                durable_elements.skip(durable_elements.len() - num_durable_addrs));
-        
+
         assert(list_addr != 0) by {
             broadcast use group_validate_row_addr;
         }

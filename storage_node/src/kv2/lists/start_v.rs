@@ -265,7 +265,6 @@ impl<PM, L> ListTable<PM, L>
     {
         let mut free_list = Vec::<u64>::new();
         let ghost row_info = Map::<u64, ListRowDisposition>::empty();
-        let mut row_index: u64 = 0;
         let mut row_addr = sm.table.start;
     
         proof {
