@@ -2,7 +2,7 @@
 kv_file = "capybarakv"
 num_keys = 100
 region_size = 1048576
-num_list_entries = 100
+num_list_entries = 300
 max_ops_per_transaction = 5
 
 [experiment_config]

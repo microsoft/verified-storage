@@ -22,7 +22,7 @@ use toml;
 // the experiment and DB options are separate in that crate
 // so that everything works properly with YCSB
 #[derive(Deserialize, Debug)]
-struct CapybaraKvConfig {
+pub struct CapybaraKvConfig {
     capybarakv_config: DbOptions,
     experiment_config: ExperimentOptions
 }
@@ -168,7 +168,7 @@ impl<K, V, L> CapybaraKvClient<K, V, L>
         L: PmCopy + Debug + LogicalRange,
 {
     // TODO: use this as the main trait setup fn
-    pub fn setup_from_config_file(config_file_path: &str) -> Result<(), KvError> {
+    pub fn setup_from_config_file(config_file_path: &str) -> Result<CapybaraKvConfig, KvError> {
         let capybarakv_config_contents = match fs::read_to_string(&config_file_path) {
             Ok(c) => c,
             Err(e) => {
@@ -188,8 +188,8 @@ impl<K, V, L> CapybaraKvClient<K, V, L>
             max_operations_per_transaction: capybarakv_config.capybarakv_config.max_ops_per_transaction,
         };
 
-        let kvstore_file = capybarakv_config.experiment_config.mount_point + "/" +
-            &capybarakv_config.capybarakv_config.kv_file;
+        let kvstore_file = capybarakv_config.experiment_config.mount_point.clone() + "/" +
+            &capybarakv_config.capybarakv_config.kv_file.clone();
         
 
         let mut kv_region = create_pm_region(&kvstore_file, capybarakv_config.capybarakv_config.region_size);
@@ -197,7 +197,23 @@ impl<K, V, L> CapybaraKvClient<K, V, L>
             &mut kv_region, &setup_parameters
         )?;
 
-        Ok(())
+        Ok(capybarakv_config)
+    }
+
+    pub fn start_from_config(config: &CapybaraKvConfig) -> Result<Self, KvError> {
+        let kvstore_file = config.experiment_config.mount_point.clone() + "/" +
+            &config.capybarakv_config.kv_file;
+        let region = open_pm_region(&kvstore_file, 
+            config.capybarakv_config.region_size);
+        let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
+            region, KVSTORE_ID)?;
+        
+        Ok(Self { kv })
+    }
+
+    pub fn cleanup_from_config(config: &CapybaraKvConfig) {
+        sleep(Duration::from_secs(1));
+        unmount_pm_fs_from_config(&config.experiment_config);
     }
 
     pub fn append_to_list(&mut self, key: &K, list_entry: L) -> Result<(), KvError> {
