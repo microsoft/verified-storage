@@ -1,7 +1,10 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
-use util_v::*;
+#[cfg(verus_keep_ghost)]
+use util_v::lemma_writing_element_and_next_effect_on_recovery;
+#[cfg(verus_keep_ghost)]
+use util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;

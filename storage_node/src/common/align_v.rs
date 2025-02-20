@@ -4,7 +4,8 @@ use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
 use crate::pmem::traits_t::{align_of, size_of};
 use super::overflow_v::OverflowableU64;
 use vstd::prelude::*;
-use vstd::arithmetic::div_mod::*;
+#[cfg(verus_keep_ghost)]
+use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish};
 
 verus! {
 
