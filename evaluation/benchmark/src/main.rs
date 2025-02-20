@@ -236,11 +236,7 @@ fn main() {
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     // let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
-<<<<<<< HEAD
     let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, TestListElem>::db_name();
-=======
-    let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
->>>>>>> 1a4feee9 (Fix cargo build issues)
 
     fs::create_dir_all(&redis_output_dir).unwrap();
     // fs::create_dir_all(&rocksdb_output_dir).unwrap();
@@ -250,21 +246,13 @@ fn main() {
     for i in 1..ITERATIONS+1 {
         run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
         // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-<<<<<<< HEAD
         run_experiments::<CapybaraKvClient<TestKey, TestValue, TestListElem>>(&capybara_output_dir, i).unwrap();
-=======
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
->>>>>>> 1a4feee9 (Fix cargo build issues)
     }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
     run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
     // run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
-<<<<<<< HEAD
     run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, TestListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
-=======
-    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
->>>>>>> 1a4feee9 (Fix cargo build issues)
 }
 
 fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
