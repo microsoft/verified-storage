@@ -152,7 +152,6 @@ impl<PM, L> ListTable<PM, L>
 
         let mut current_addr = list_addr;
         let mut result = Vec::<L>::new();
-        let mut current_pos: usize = 0;
         let ghost durable_addrs = self.durable_mapping@.list_info[durable_head];
         let ghost durable_elements = self.durable_mapping@.list_elements[durable_head];
         let ghost tentative_addrs = self.tentative_mapping@.list_info[list_addr];
@@ -160,7 +159,7 @@ impl<PM, L> ListTable<PM, L>
         let pm = journal.get_pm_region_ref();
 
         let num_durable_addrs = summary.length - elements.len();
-        assert(tentative_elements.take(current_pos as int) =~= Seq::<L>::empty());
+        assert(tentative_elements.take(0) =~= Seq::<L>::empty());
         assert(tentative_addrs.take(num_durable_addrs as int) =~=
                durable_addrs.skip(durable_addrs.len() - num_durable_addrs));
         assert(list_addr != 0) by {

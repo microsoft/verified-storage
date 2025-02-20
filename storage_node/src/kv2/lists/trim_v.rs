@@ -1049,13 +1049,13 @@ impl<PM, L> ListTable<PM, L>
                 }
             },
 
-            TrimAction::Modify{ mut pending_deallocations, new_head } =>
+            TrimAction::Modify{ pending_deallocations, new_head } =>
                 Ok(self.trim_case_modify(list_addr, trim_length, pending_deallocations, new_head, journal)),
 
-            TrimAction::Advance{ mut pending_deallocations, new_head } =>
+            TrimAction::Advance{ pending_deallocations, new_head } =>
                 Ok(self.trim_case_advance(list_addr, trim_length, pending_deallocations, new_head, journal)),
 
-            TrimAction::Drain{ mut pending_deallocations } =>
+            TrimAction::Drain{ pending_deallocations } =>
                 Ok(self.trim_case_drain(list_addr, trim_length, pending_deallocations, journal)),
         }
     }
