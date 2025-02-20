@@ -1,7 +1,9 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+#[cfg(verus_keep_ghost)]
 use util_v::lemma_writing_element_and_next_effect_on_recovery;
+#[cfg(verus_keep_ghost)]
 use util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
 use vstd::prelude::*;
 
@@ -25,6 +27,7 @@ use super::recover_v::*;
 use super::util_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {

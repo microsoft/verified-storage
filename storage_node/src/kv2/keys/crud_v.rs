@@ -23,6 +23,7 @@ use super::spec_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 use vstd::slice::slice_to_vec;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
 
 verus! {
