@@ -77,32 +77,31 @@ verus! {
 
 type U128Alias = u128;
 
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-enum TestEnum1 {
-    V1, 
-    V2, 
-    V3
-}
-
-#[repr(C)]
-#[derive(PmCopy, Copy)]
-union TestUnion {
-    a: u8,
-    b: u64,
-    c: u128
-}
-
+// #[repr(C)]
+// #[derive(PmCopy, Copy)]
+// enum TestEnum1 {
+//     V1, 
+//     V2, 
+//     V3
+// }
 
 // #[repr(C)]
-// #[derive(PmCopy)]
-// enum TestEnum1 {
-//     V1,
-//     V2,
-//     V3(u128_alias),
-//     V4(u128),
-//     V5{named_field: u128_alias}
+// #[derive(PmCopy, Copy)]
+// union TestUnion {
+//     a: u8,
+//     b: u64,
+//     c: u128
 // }
+
+
+#[repr(C)]
+#[derive(PmCopy)]
+enum TestEnum1 {
+    V1(U128Alias),
+    V2(u128),
+    V3{named_field: U128Alias},
+    V4,
+}
 
 
 // #[repr(C)]

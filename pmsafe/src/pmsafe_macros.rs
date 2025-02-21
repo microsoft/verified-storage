@@ -6,10 +6,22 @@ use proc_macro::TokenStream;
 use syn::{self, spanned::Spanned};
 use quote::{quote, quote_spanned};
 
+// each enum variant may have multiple (or no) fields, but within
+// a single variant they will all be named or unnamed.
+enum EnumVariantFields {
+    Unit,
+    Named(Vec<syn::Type>, Vec<syn::Ident>),
+    Unnamed(Vec<syn::Type>)
+}
+
 enum LayoutType<'a> {
     Struct(Vec<&'a syn::Type>, Vec<syn::Ident>),
     FieldlessEnum(Vec<syn::Ident>),
-    EnumWithFields(Vec<&'a syn::Type>, Vec<Option<syn::Ident>>),
+    EnumWithFields(Vec<syn::Ident>, Vec<EnumVariantFields>),
+    // // vec of variant names, map variant -> vec of (field name, field type)
+    // EnumWithNamedFields(Vec<syn::Ident>, HashMap<syn::Ident, Vec<(syn::Ident, syn::Type)>>),
+    // // vec of variant names, map variant -> vec of field types
+    // EnumWithUnnamedFields(Vec<syn::Ident>, HashMap<syn::Ident, syn::Type>),
     Union(Vec<&'a syn::Type>, Vec<syn::Ident>),
 }
 
@@ -38,8 +50,8 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
 
     match layout_type {
         LayoutType::Struct(types, idents) => generate_impls_for_struct(&name, &ast, &types, &idents),
-        LayoutType::FieldlessEnum(idents) => generate_impls_for_fieldless_enum(&name, &ast, &idents),
-        LayoutType::EnumWithFields(types, idents) => todo!(),
+        LayoutType::FieldlessEnum(variants) => generate_impls_for_fieldless_enum(&name, &variants),
+        LayoutType::EnumWithFields(variants, fields) => todo!(),
         LayoutType::Union(types, idents) => generate_impls_for_union(&name, &ast, &types, &idents),
     }
 }
@@ -91,7 +103,6 @@ const C_ABI_ENUM_ALIGN: usize = 4;
 // can ignore them.
 fn generate_impls_for_fieldless_enum(
     name: &syn::Ident,
-    ast: &syn::DeriveInput,
     idents: &Vec<syn::Ident>,
 ) -> TokenStream {
     // fieldless enums are always PmSafe
@@ -240,7 +251,7 @@ pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(
 
 // This function obtains a list of the types of the fields of a structure. We do not
 // attempt to process the field names to keep things simple.
-pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType<'a>, TokenStream> 
+fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType<'a>, TokenStream> 
 {
     let mut type_vec = Vec::new();
     let mut name_vec = Vec::new();
@@ -272,15 +283,42 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<Layout
             // println!("{:#?}", data);
 
             let mut variant_vec = Vec::new();
-            // TODO: handle variants with fields
+            let mut field_vec = Vec::new();
+            let mut has_fields = false;
 
             let variants = &data.variants;
             for variant in variants.iter() {
                 // add each variant to the list of variants
                 variant_vec.push(variant.ident.clone());
+                // handle the variant's fields, if there are any
+                match &variant.fields {
+                    syn::Fields::Unit => {},
+                    syn::Fields::Unnamed(fields) => {
+                        has_fields = true;
+                        let mut field_types = Vec::new();
+                        for field in fields.unnamed.iter() {
+                            field_types.push(field.ty.clone());
+                        }
+                        field_vec.push(EnumVariantFields::Unnamed(field_types));
+                    }
+                    syn::Fields::Named(fields) => {
+                        has_fields = true;
+                        let mut field_types = Vec::new();
+                        let mut field_names = Vec::new();
+                        for field in fields.named.iter() {
+                            field_types.push(field.ty.clone());
+                            field_names.push(field.ident.clone().unwrap());
+                        }
+                        field_vec.push(EnumVariantFields::Named(field_types, field_names));
+                    }
+                }
             }
 
-            Ok(LayoutType::FieldlessEnum(variant_vec))
+            if has_fields {
+                Ok(LayoutType::EnumWithFields(variant_vec, field_vec))
+            } else {
+                Ok(LayoutType::FieldlessEnum(variant_vec))
+            }
         }
         syn::Data::Union(data) => {
             let mut name_vec = Vec::new();
