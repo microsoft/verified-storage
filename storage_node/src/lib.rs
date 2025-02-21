@@ -70,6 +70,48 @@ use super::*;
 }
 
 verus! {
+
+// TODO @hayley
+// - enums with fields/values
+// - unit-only enums
+
+type u128_alias = u128;
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum1 {
+    V1, 
+    V2, 
+    V3
+}
+
+// #[repr(C)]
+// #[derive(PmCopy)]
+// enum TestEnum1 {
+//     V1,
+//     V2,
+//     V3(u128_alias),
+//     V4(u128),
+//     V5{named_field: u128_alias}
+// }
+
+// #[repr(C)]
+// #[derive(PmCopy)]
+// union TestUnion {
+//     A: u8,
+//     B: u64,
+//     C: u128
+// }
+
+// #[repr(C)]
+// #[derive(PmCopy)]
+// enum TestEnum2 {
+//     V1,
+//     V2,
+//     V3(u128_alias),
+//     V4{named_field: u128_alias}
+// }
+
 // // this function is defined outside of the test module so that we can both
 // // run verification on it and call it in a test to ensure that all operations
 // // succeed
