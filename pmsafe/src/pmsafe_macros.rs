@@ -40,7 +40,7 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
         LayoutType::Struct(types, idents) => generate_impls_for_struct(&name, &ast, &types, &idents),
         LayoutType::FieldlessEnum(idents) => generate_impls_for_fieldless_enum(&name, &ast, &idents),
         LayoutType::EnumWithFields(types, idents) => todo!(),
-        LayoutType::Union(types, idents) => todo!()
+        LayoutType::Union(types, idents) => generate_impls_for_union(&name, &ast, &types, &idents),
     }
 }
 
@@ -53,18 +53,18 @@ fn generate_impls_for_struct<'a>(
     let pmsafe = check_pmsafe(ast, &types);
     match pmsafe {
         Ok(pmsafe) => {
-            let pmsized = generate_pmsized(ast, &types);
+            let pmsized = generate_pmsized_for_structs(ast, &types);
             match pmsized {
                 Ok(pmsized) => {
                     let cloneproof = generate_clone_proof(ast, &names);
                     match cloneproof {
                         Ok(cloneproof) => {
                             let gen = quote!{
-                                #cloneproof
-
                                 #pmsafe
 
                                 #pmsized
+
+                                #cloneproof
 
                                 impl PmCopy for #name {}
                             };
@@ -135,6 +135,39 @@ fn generate_impls_for_fieldless_enum(
     };
 
     gen.into()
+}
+
+fn generate_impls_for_union<'a>(
+    name: &syn::Ident,
+    ast: &syn::DeriveInput, 
+    types: &Vec<&'a syn::Type>, 
+    names: &Vec<syn::Ident>
+) -> TokenStream {
+    // Like structs, unions are only PmSafe if all of their fields
+    // are PmSafe.
+    let pmsafe = check_pmsafe(ast, &types);
+    match pmsafe {
+        Ok(pmsafe) => {
+            let pmsized = generate_pmsized_for_unions(ast, types);
+            match pmsized {
+                Ok(pmsized) => {
+                    let cloneproof = generate_clone_and_eq_proofs_for_union(name, names);
+                    let gen = quote! {
+                        #pmsafe 
+
+                        #pmsized 
+
+                        #cloneproof 
+
+                        impl PmCopy for #name {}
+                    };
+                    gen.into()
+                }
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    }
 }
 
 // This function checks whether a given structure is PmSafe and, if it is, generates
@@ -230,13 +263,13 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<Layout
                 _ => Err(
                     quote_spanned! {
                         name.span() =>
-                        compile_error!("PmSafe can only be derived for structs with named fields");
+                        compile_error!("PmCopy can only be derived for structs with named fields");
                     }.into()
                 )
             }
         }
         syn::Data::Enum(data) => {
-            println!("{:#?}", data);
+            // println!("{:#?}", data);
 
             let mut variant_vec = Vec::new();
             // TODO: handle variants with fields
@@ -250,11 +283,20 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<Layout
             Ok(LayoutType::FieldlessEnum(variant_vec))
         }
         syn::Data::Union(data) => {
-            println!("{:#?}", data);
-            Err(quote_spanned! {
-                name.span() =>
-                compile_error!("unions are currently unsupported");
-            }.into())
+            let mut name_vec = Vec::new();
+            let mut type_vec = Vec::new();
+
+            let fields = &data.fields;
+            for field in fields.named.iter() {
+                let ty = &field.ty;
+                type_vec.push(ty);
+                // The borrow checker is annoying about the fact that field.ident has type Option<Ident>,
+                // so we have to clone the ident to put it in the vector. We know that the ident is not 
+                // None because we've already established that the fields are named.
+                let name = field.ident.clone().unwrap();
+                name_vec.push(name);
+            }
+            Ok(LayoutType::Union(type_vec, name_vec))
         }
     }
 }
@@ -278,11 +320,74 @@ fn generate_static_assertions(name: &syn::Ident) -> proc_macro2::TokenStream {
     gen
 }
 
+// First return value is the exec code to find the largest field, second is corresponding spec code
+fn max_alignment_of_fields<'a>(types: &Vec<&'a syn::Type>) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    // The alignment of a repr(C) struct or union is the alignment of the most-aligned field in it (i.e. the field with the largest
+    // alignment). We currently unroll all of the fields and check which has the largest alignment without using a loop;
+    // to make the generated code more concise, we could put the alignments in an array and use a while loop over it 
+    // (for loops are not supported in const contexts).
+    let mut exec_align_vec = Vec::new();
+    for ty in types.iter() {
+        let new_tokens = quote! {
+            if largest_alignment <= <#ty>::ALIGN {
+                largest_alignment = <#ty>::ALIGN;
+            }
+        };
+        exec_align_vec.push(new_tokens);
+    }
+    let exec_alignment = quote! {
+        let mut largest_alignment: usize = 0;
+        #( #exec_align_vec )*
+        largest_alignment
+    };
+
+    // Since the executable implementation of alignment calculation requires a mutable value and/or a loop, it's not 
+    // straightforward to generate an identical spec function for it. Instead, we just create a sequence of all of the 
+    // alignments and find the maximum. If we ever want to prove that the alignment calculation is correct, the exec
+    // side code generation will have to include proof code.
+    let spec_alignment = quote! {
+        let alignment_seq = seq![#(<#types>::spec_align_of(),)*];
+        nat_seq_max(alignment_seq)
+    };
+
+    (exec_alignment, spec_alignment)
+}
+
+fn max_size_of_fields<'a>(name: &syn::Ident, types: &Vec<&'a syn::Type>) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    let mut exec_size_vec = Vec::new();
+    for ty in types.iter() {
+        let new_tokens = quote! {
+            if largest_size <= <#ty>::ALIGN {
+                largest_size = <#ty>::ALIGN;
+            }
+        };
+        exec_size_vec.push(new_tokens);
+    }
+    let final_token = quote! {
+        let largest_size: usize = largest_size + padding_needed(largest_size, <#name>::ALIGN);
+    };
+    exec_size_vec.push(final_token);
+    let exec_size = quote! {
+        let mut largest_size: usize = 0;
+        #( #exec_size_vec )*
+        largest_size
+    };
+
+    let spec_size = quote! {
+        let size_seq = seq![#(<#types>::spec_align_of(),)*];
+        let largest_size = nat_seq_max(size_seq);
+        let largest_size = largest_size + spec_padding_needed(largest_size, <#name>::spec_align_of());
+        largest_size
+    };
+
+    (exec_size, spec_size)
+}
+
 // This function generates an implementation of PmSized. 
 // It also generates implementations for SpecPmSized, ConstPmSized,
 // UnsafeSpecPmSized, and two compile-time assertions to check that we calculate
 // the size of each type correctly.
-pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
+pub fn generate_pmsized_for_structs<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
     let name = &ast.ident;
 
     // The size of a repr(C) struct is determined by the following algorithm, from the Rust reference:
@@ -328,30 +433,8 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
     };
     spec_tokens_vec.push(final_token);
 
-    // The alignment of a repr(C) struct is the alignment of the most-aligned field in it (i.e. the field with the largest
-    // alignment). We currently unroll all of the fields and check which has the largest alignment without using a loop;
-    // to make the generated code more concise, we could put the alignments in an array and use a while loop over it 
-    // (for loops are not supported in const contexts).
-    let mut exec_align_vec = Vec::new();
-    for ty in types.iter() {
-        let new_tokens = quote! {
-            if largest_alignment <= <#ty>::ALIGN {
-                largest_alignment = <#ty>::ALIGN;
-            }
-        };
-        exec_align_vec.push(new_tokens);
-    }
+    let (exec_alignment, spec_alignment) = max_alignment_of_fields(types);
 
-    // Since the executable implementation of alignment calculation requires a mutable value and/or a loop, it's not 
-    // straightforward to generate an identical spec function for it. Instead, we just create a sequence of all of the 
-    // alignments and find the maximum. If we ever want to prove that the alignment calculation is correct, the exec
-    // side code generation will have to include proof code.
-    let spec_alignment = quote! {
-        let alignment_seq = seq![#(<#types>::spec_align_of(),)*];
-        nat_seq_max(alignment_seq)
-    };
-
-    // let (size_check, align_check) = generate_size_check_ident(&name);
     let static_assertions = generate_static_assertions(&name);
 
     let gen = quote! {
@@ -384,11 +467,68 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
                 offset
             };
             const ALIGN: usize = {
-                let mut largest_alignment: usize = 0;
-                #( #exec_align_vec )*
-                largest_alignment
+                #exec_alignment
+            };  
+        }
+
+        #static_assertions
+
+        unsafe impl UnsafeSpecPmSized for #name {}
+    };
+
+    Ok(gen)
+}
+
+fn generate_pmsized_for_unions<'a>(
+    ast: &syn::DeriveInput, 
+    types: &Vec<&'a syn::Type>
+) -> Result<proc_macro2::TokenStream, TokenStream> {
+    let name = &ast.ident;
+    // The size of a repr(C) union is the maximum size 
+    // of all of its fields rounded to its alignment, and 
+    // its alignment is the maximum alignment of all of its fields.
+    // Note that the max size and max alignment may come from
+    // different fields!
+
+    // This function generates code to find the maximum size of 
+    // all of the fields, then rounds up to the alignment of
+    // the largest field. We haven't generated the alignment-calculating
+    // code yet, but since we don't run that code here, it doesn't matter.
+    let (exec_size, spec_size) = max_size_of_fields(name, types);
+
+    // Union and struct alignment is calculated in the same way, so 
+    // we use the same function for them.
+    let (exec_alignment, spec_alignment) = max_alignment_of_fields(types);
+
+    let static_assertions = generate_static_assertions(&name);
+
+    let gen = quote! {
+        ::builtin_macros::verus!(
+            impl SpecPmSized for #name {
+                open spec fn spec_size_of() -> ::builtin::nat
+                {
+                    #spec_size
+                }
+
+                open spec fn spec_align_of() -> ::builtin::nat 
+                {
+                    #spec_alignment
+                }
+            }
+        );
+
+        unsafe impl PmSized for #name {
+            fn size_of() -> usize { Self::SIZE }
+            fn align_of() -> usize { Self::ALIGN }
+        }
+
+        unsafe impl ConstPmSized for #name {
+            const SIZE: usize = {
+                #exec_size
             };
-            
+            const ALIGN: usize = {
+                #exec_alignment
+            };
         }
 
         #static_assertions
@@ -468,6 +608,38 @@ fn generate_clone_and_eq_proofs_for_fieldless_enum(
                 match (self, other) {
                     #( (#name::#idents, #name::#idents) => true, )*
                     (_, _) => false
+                }
+            }
+        }
+
+        #eq_and_clone_spec
+    };
+
+    gen
+}
+
+fn generate_clone_and_eq_proofs_for_union(
+    name: &syn::Ident,
+    idents: &Vec<syn::Ident>,
+) -> proc_macro2::TokenStream {
+    let eq_and_clone_spec = generate_eq_and_clone_specs(&name);
+
+    let gen = quote! {
+        impl Clone for #name {
+            fn clone(&self) -> Self 
+            {
+                *self
+            }
+        }
+
+        impl PartialEq for #name {
+            fn eq(&self, other: &Self) -> bool 
+            {
+                unsafe {
+                    match (self, other) {
+                        #( (#name { #idents: val0 }, # name { #idents: val1 }) => val0 == val1, )*
+                        (_, _) => false
+                    }
                 }
             }
         }
