@@ -73,9 +73,9 @@ verus! {
 
 // TODO @hayley
 // - enums with fields/values
-// - unit-only enums
+// - disallow combining repr c with primitive represntations (at least for now)
 
-type u128_alias = u128;
+type U128Alias = u128;
 
 #[repr(C)]
 #[derive(PmCopy, Copy)]
@@ -84,6 +84,15 @@ enum TestEnum1 {
     V2, 
     V3
 }
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+union TestUnion {
+    a: u8,
+    b: u64,
+    c: u128
+}
+
 
 // #[repr(C)]
 // #[derive(PmCopy)]
@@ -95,13 +104,6 @@ enum TestEnum1 {
 //     V5{named_field: u128_alias}
 // }
 
-// #[repr(C)]
-// #[derive(PmCopy)]
-// union TestUnion {
-//     A: u8,
-//     B: u64,
-//     C: u128
-// }
 
 // #[repr(C)]
 // #[derive(PmCopy)]
