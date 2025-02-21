@@ -6,6 +6,13 @@ use proc_macro::TokenStream;
 use syn::{self, spanned::Spanned};
 use quote::{quote, quote_spanned};
 
+enum LayoutType<'a> {
+    Struct(Vec<&'a syn::Type>, Vec<syn::Ident>),
+    FieldlessEnum(Vec<syn::Ident>),
+    EnumWithFields(Vec<&'a syn::Type>, Vec<Option<syn::Ident>>),
+    Union(Vec<&'a syn::Type>, Vec<syn::Ident>),
+}
+
 // This is the main function called by the PmCopy derive macro.
 // It calls functions to check that structures are PmSafe,
 // implementations for PmSized-related traits, and methods
@@ -21,7 +28,7 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
     }
 
     let data = &ast.data;
-    let (types, names) = match get_types(name, data) {
+    let layout_type = match get_types(name, data) {
         Ok(types) => types,
         Err(e) => return e,
     };
@@ -29,6 +36,20 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
     // for all of the generated code, but some does depend on it, so we 
     // can't deduplicate here
 
+    match layout_type {
+        LayoutType::Struct(types, idents) => generate_impls_for_struct(&name, &ast, &types, &idents),
+        LayoutType::FieldlessEnum(idents) => generate_impls_for_fieldless_enum(&name, &ast, &idents),
+        LayoutType::EnumWithFields(types, idents) => todo!(),
+        LayoutType::Union(types, idents) => todo!()
+    }
+}
+
+fn generate_impls_for_struct<'a>(
+    name: &syn::Ident,
+    ast: &syn::DeriveInput, 
+    types: &Vec<&'a syn::Type>, 
+    names: &Vec<syn::Ident>
+) -> TokenStream {
     let pmsafe = check_pmsafe(ast, &types);
     match pmsafe {
         Ok(pmsafe) => {
@@ -51,13 +72,69 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
                         }
                         Err(e) => e
                     }
-                    
                 }
                 Err(e) => e,
             }
         }
         Err(e) => e,
     }
+}
+
+const C_ABI_ENUM_SIZE: usize = 4;
+const C_ABI_ENUM_ALIGN: usize = 4;
+
+// Fieldless enums are always PmSafe. Their size and alignment matches 
+// those used by the target platforms C ABI, which we expect to be 4 bytes.
+// This function generates impls/specs for PmSized and related traits, Clone,
+// and Eq for fieldless enums. The PartialEq implementation requires a list 
+// of variant idents so that it can match on them, but otherwise we 
+// can ignore them.
+fn generate_impls_for_fieldless_enum(
+    name: &syn::Ident,
+    ast: &syn::DeriveInput,
+    idents: &Vec<syn::Ident>,
+) -> TokenStream {
+    // fieldless enums are always PmSafe
+    let eq_and_clone_proof = generate_clone_and_eq_proofs_for_fieldless_enum(name, idents);
+    let static_assertions = generate_static_assertions(&name);
+
+    let gen = quote! {
+        ::builtin_macros::verus!(
+            impl SpecPmSized for #name {
+                open spec fn spec_size_of() -> ::builtin::nat
+                { 
+                    #C_ABI_ENUM_SIZE as ::builtin::nat
+                }
+
+                open spec fn spec_align_of() -> ::builtin::nat
+                {
+                    #C_ABI_ENUM_ALIGN as ::builtin::nat
+                }
+            }
+        );
+
+        unsafe impl PmSized for #name {
+            fn size_of() -> usize { Self::SIZE }
+            fn align_of() -> usize { Self::ALIGN }
+        }
+
+        unsafe impl ConstPmSized for #name {
+            const SIZE: usize = #C_ABI_ENUM_SIZE;
+            const ALIGN: usize = #C_ABI_ENUM_ALIGN;
+        }
+
+        unsafe impl UnsafeSpecPmSized for #name {}
+
+        unsafe impl PmSafe for #name {}
+
+        impl PmCopy for #name {}
+
+        #eq_and_clone_proof
+
+        #static_assertions
+    };
+
+    gen.into()
 }
 
 // This function checks whether a given structure is PmSafe and, if it is, generates
@@ -130,7 +207,7 @@ pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(
 
 // This function obtains a list of the types of the fields of a structure. We do not
 // attempt to process the field names to keep things simple.
-pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<(Vec<&'a syn::Type>, Vec<syn::Ident>), TokenStream> 
+pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType<'a>, TokenStream> 
 {
     let mut type_vec = Vec::new();
     let mut name_vec = Vec::new();
@@ -148,7 +225,7 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<(Vec<&
                         let name = field.ident.clone().unwrap();
                         name_vec.push(name);
                     }
-                    Ok((type_vec, name_vec))
+                    Ok(LayoutType::Struct(type_vec, name_vec))
                 }
                 _ => Err(
                     quote_spanned! {
@@ -158,13 +235,47 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<(Vec<&
                 )
             }
         }
-        _ => {
+        syn::Data::Enum(data) => {
+            println!("{:#?}", data);
+
+            let mut variant_vec = Vec::new();
+            // TODO: handle variants with fields
+
+            let variants = &data.variants;
+            for variant in variants.iter() {
+                // add each variant to the list of variants
+                variant_vec.push(variant.ident.clone());
+            }
+
+            Ok(LayoutType::FieldlessEnum(variant_vec))
+        }
+        syn::Data::Union(data) => {
+            println!("{:#?}", data);
             Err(quote_spanned! {
                 name.span() =>
-                compile_error!("PmSafe can only be derived for structs");
+                compile_error!("unions are currently unsupported");
             }.into())
         }
     }
+}
+
+fn generate_size_check_ident(name: &syn::Ident) -> (syn::Ident, syn::Ident) {
+    // This is the name of the constant that will perform the compile-time assertion that the calculated size of the struct
+    // is equal to the real size. This is not an associated constant in an external trait implementation because the compiler 
+    // will optimize the check out if it lives in an associated constant that is never used in any methods. In constrast,
+    // it will always be evaluated if it is a standalone constant.
+    let size_check = syn::Ident::new(&format!("SIZE_CHECK_{}", name.to_string().to_uppercase()), name.span());
+    let align_check = syn::Ident::new(&format!("ALIGN_CHECK_{}", name.to_string().to_uppercase()), name.span());
+    (size_check, align_check)
+}
+
+fn generate_static_assertions(name: &syn::Ident) -> proc_macro2::TokenStream {
+    let (size_check, align_check) = generate_size_check_ident(name);
+    let gen = quote! {
+        const #size_check: usize = (core::mem::size_of::<#name>() == <#name>::SIZE) as usize - 1;
+        const #align_check: usize = (core::mem::align_of::<#name>() == <#name>::ALIGN) as usize - 1;
+    };
+    gen
 }
 
 // This function generates an implementation of PmSized. 
@@ -240,12 +351,8 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
         nat_seq_max(alignment_seq)
     };
 
-    // This is the name of the constant that will perform the compile-time assertion that the calculated size of the struct
-    // is equal to the real size. This is not an associated constant in an external trait implementation because the compiler 
-    // will optimize the check out if it lives in an associated constant that is never used in any methods. In constrast,
-    // it will always be evaluated if it is a standalone constant.
-    let size_check = syn::Ident::new(&format!("SIZE_CHECK_{}", name.to_string().to_uppercase()), name.span());
-    let align_check = syn::Ident::new(&format!("ALIGN_CHECK_{}", name.to_string().to_uppercase()), name.span());
+    // let (size_check, align_check) = generate_size_check_ident(&name);
+    let static_assertions = generate_static_assertions(&name);
 
     let gen = quote! {
         ::builtin_macros::verus!(
@@ -284,8 +391,7 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
             
         }
 
-        const #size_check: usize = (core::mem::size_of::<#name>() == <#name>::SIZE) as usize - 1;
-        const #align_check: usize = (core::mem::align_of::<#name>() == <#name>::ALIGN) as usize - 1;
+        #static_assertions
 
         unsafe impl UnsafeSpecPmSized for #name {}
     };
@@ -301,11 +407,11 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
 pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>) -> Result<proc_macro2::TokenStream, TokenStream>
 {
     let name = &ast.ident;
-    let clone_spec_name = syn::Ident::new(&format!("ex_{}_clone", name.to_string().to_lowercase()), name.span());
-    let eq_spec_name = syn::Ident::new(&format!("ex_{}_eq", name.to_string().to_lowercase()), name.span());
 
     let first_n_names = &names[0..names.len()-1];
     let last_name = &names[names.len()-1];
+
+    let eq_and_clone_spec = generate_eq_and_clone_specs(&name);
 
     let gen = quote!{
         // to ensure that the deriver does not provide a conflicting implementation 
@@ -335,6 +441,48 @@ pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>)
             } 
         }
 
+        #eq_and_clone_spec
+        
+    };
+
+    Ok(gen)
+}
+
+fn generate_clone_and_eq_proofs_for_fieldless_enum(
+    name: &syn::Ident,
+    idents: &Vec<syn::Ident>,
+) -> proc_macro2::TokenStream {
+    let eq_and_clone_spec = generate_eq_and_clone_specs(&name);
+
+    let gen = quote! {
+        impl Clone for #name {
+            fn clone(&self) -> Self 
+            {
+                *self
+            }
+        }
+
+        impl PartialEq for #name {
+            fn eq(&self, other: &Self) -> bool 
+            {
+                match (self, other) {
+                    #( (#name::#idents, #name::#idents) => true, )*
+                    (_, _) => false
+                }
+            }
+        }
+
+        #eq_and_clone_spec
+    };
+
+    gen
+}
+
+fn generate_eq_and_clone_specs(name: &syn::Ident) -> proc_macro2::TokenStream {
+    let clone_spec_name = syn::Ident::new(&format!("ex_{}_clone", name.to_string().to_lowercase()), name.span());
+    let eq_spec_name = syn::Ident::new(&format!("ex_{}_eq", name.to_string().to_lowercase()), name.span());
+
+    let gen = quote! {
         impl Eq for #name {}
 
         ::builtin_macros::verus!{
@@ -376,7 +524,7 @@ pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>)
         }
     };
 
-    Ok(gen)
+    gen
 }
 
 // Alignment is the same as size on x86. 
