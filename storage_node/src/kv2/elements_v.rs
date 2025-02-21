@@ -31,12 +31,10 @@ where
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     #[inline]
-    pub exec fn read_list(&mut self, key: &K) -> (result: Result<Vec<L>, KvError>)
+    pub exec fn read_list(&self, key: &K) -> (result: Result<Vec<L>, KvError>)
         requires
-            old(self).valid(),
-        ensures
             self.valid(),
-            self@ == old(self)@,
+        ensures
             match result {
                 Ok(lst) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
@@ -67,12 +65,10 @@ where
     }
 
     #[inline]
-    pub exec fn read_item_and_list(&mut self, key: &K) -> (result: Result<(I, Vec<L>), KvError>)
+    pub exec fn read_item_and_list(&self, key: &K) -> (result: Result<(I, Vec<L>), KvError>)
         requires
-            old(self).valid(),
-        ensures
             self.valid(),
-            self@ == old(self)@,
+        ensures
             match result {
                 Ok((item, lst)) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))

@@ -242,18 +242,16 @@ impl<PM, L> ListTable<PM, L>
     }
 
     pub exec fn read(
-        &mut self,
+        &self,
         list_addr: u64,
         journal: &Journal<TrustedKvPermission, PM>
     ) -> (result: Result<Vec<L>, KvError>)
         requires
-            old(self).valid(journal@),
-            journal.valid(),
-            old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().m.contains_key(list_addr),
-        ensures
             self.valid(journal@),
-            self@ == old(self)@,
+            journal.valid(),
+            self@.tentative is Some,
+            self@.tentative.unwrap().m.contains_key(list_addr),
+        ensures
             match result {
                 Ok(lst) => self@.tentative.unwrap().m[list_addr] == lst@,
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),

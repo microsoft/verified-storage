@@ -353,7 +353,7 @@ where
     }
 
     pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError>)
-        requires 
+        requires
             self.valid(),
         ensures 
             match result {
@@ -369,14 +369,12 @@ where
     }
 
     pub exec fn read_item_and_list(
-        &mut self,
+        &self,
         key: &K,
     ) -> (result: Result<(I, Vec<L>), KvError>)
         requires 
-            old(self).valid(),
-        ensures
             self.valid(),
-            self@ == old(self)@,
+        ensures
             match result {
                 Ok((item, lst)) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
@@ -393,12 +391,10 @@ where
         self.untrusted_kv_impl.read_item_and_list(key)
     }
 
-    pub exec fn read_list(&mut self, key: &K) -> (result: Result<Vec<L>, KvError>)
+    pub exec fn read_list(&self, key: &K) -> (result: Result<Vec<L>, KvError>)
         requires
-            old(self).valid(),
-        ensures
             self.valid(),
-            self@ == old(self)@,
+        ensures
             match result {
                 Ok(lst) => {
                     &&& self@.tentative.read_item_and_list(*key) matches Ok((i, l))
