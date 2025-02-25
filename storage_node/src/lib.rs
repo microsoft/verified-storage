@@ -8,6 +8,8 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unused_mut)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 
 use builtin::*;
 use builtin_macros::*;
@@ -72,46 +74,73 @@ use super::*;
 verus! {
 
 // TODO @hayley
-// - enums with fields/values
-// - disallow combining repr c with primitive represntations (at least for now)
+// - disallow combining repr c with primitive representations (at least for now)
+// - move PmCopy and related trait defs in to pmsafe crate
 
-type U128Alias = u128;
 
-// #[repr(C)]
-// #[derive(PmCopy, Copy)]
-// enum TestEnum1 {
-//     V1, 
-//     V2, 
-//     V3
-// }
 
-// #[repr(C)]
-// #[derive(PmCopy, Copy)]
-// union TestUnion {
-//     a: u8,
-//     b: u64,
-//     c: u128
-// }
-
+// These definitions test PmCopy-generated static assertions for various different types
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+union TestUnion {
+    a: u8,
+    b: u64,
+    c: u128
+}
 
 #[repr(C)]
 #[derive(PmCopy, Copy)]
 enum TestEnum1 {
-    V1(U128Alias),
-    V2(u128, u128),
-    V3{named_field: U128Alias},
-    V4,
+    V1,
 }
 
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum2 {
+    V1,
+    V2,
+    V3, 
+    V4
+}
 
-// #[repr(C)]
-// #[derive(PmCopy)]
-// enum TestEnum2 {
-//     V1,
-//     V2,
-//     V3(u128_alias),
-//     V4{named_field: u128_alias}
-// }
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum3 {
+    V1(u16),
+}
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum4 {
+    V1(u16),
+    V2(u8),
+    V3(u64),
+}
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum5 {
+    V1,
+    V2(u128),
+    V3(u32),
+}
+
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum6 {
+    V1 {f0: u64, f1: u8, f3: u128, f4: u16}
+}
+
+#[allow(inconsistent_fields)]
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+enum TestEnum7 {
+    V1 {f0: u64, f1: u8, f3: u128, f4: u16},
+    V2,
+    V3(u16),
+    V4 {f0: u128, f1: u16}
+}
+
 
 // // this function is defined outside of the test module so that we can both
 // // run verification on it and call it in a test to ensure that all operations
