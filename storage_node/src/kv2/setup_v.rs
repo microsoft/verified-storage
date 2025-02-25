@@ -43,15 +43,15 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: OverflowableU64)
+    pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: CheckedU64)
         ensures
             result@ == Self::spec_space_needed_for_journal_capacity(*ps),
     {
         let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
-        let overhead_times_four = OverflowableU64::new(overhead).mul(4);
+        let overhead_times_four = CheckedU64::new(overhead).mul(4);
         let eight_u64_size = size_of::<u64>() * 8;
         let bytes_per_operation = overhead_times_four.add(eight_u64_size as u64);
-        OverflowableU64::new(ps.max_operations_per_transaction).mul_overflowable_u64(&bytes_per_operation)
+        CheckedU64::new(ps.max_operations_per_transaction).mul_checked_u64(&bytes_per_operation)
     }
     
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
@@ -78,11 +78,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
         let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
         let key_table_size = KeyTable::<PM, K>::space_needed_for_setup(ps, &sm_crc_end);
-        let key_table_end = sm_crc_end.add_overflowable_u64(&key_table_size);
+        let key_table_end = sm_crc_end.add_checked_u64(&key_table_size);
         let item_table_size = ItemTable::<PM, I>::space_needed_for_setup(ps, &key_table_end);
-        let item_table_end = key_table_end.add_overflowable_u64(&item_table_size);
+        let item_table_end = key_table_end.add_checked_u64(&item_table_size);
         let list_table_size = ListTable::<PM, L>::space_needed_for_setup(ps, &item_table_end);
-        let list_table_end = item_table_end.add_overflowable_u64(&list_table_size);
+        let list_table_end = item_table_end.add_checked_u64(&list_table_size);
         assert(list_table_end@ == Self::spec_space_needed_for_setup(*ps));
         if list_table_end.is_overflowed() {
             Err(KvError::OutOfSpace)

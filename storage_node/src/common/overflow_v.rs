@@ -1,21 +1,21 @@
-/// This file defines the `OverflowableU32` and `OverflowableU64`
+/// This file defines the `CheckedU32` and `CheckedU64`
 /// structs and their associated methods to handle `u32` and `u64`
 /// values that can overflow. Each struct includes a ghost value
 /// representing the true value (not subject to overflow), so that the
 /// `view` function can provide the true value.
 ///
-/// Here are some examples using `OverflowableU64`. (The type
-/// `OverflowableU32` can be used analogously.)
+/// Here are some examples using `CheckedU64`. (The type
+/// `CheckedU32` can be used analogously.)
 /// 
 /// ```ignore
 /// fn example1()
 /// {
-///     let w = OverflowableU64::new(0xFFFFFFFFFFFFFFFF);
+///     let w = CheckedU64::new(0xFFFFFFFFFFFFFFFF);
 ///     let x = w.add(1);
 ///     assert(x.is_overflowed());
 ///     assert(x.view() == 0x10000000000000000);
 ///
-///     let y = OverflowableU64::new(0x8000000000000000);
+///     let y = CheckedU64::new(0x8000000000000000);
 ///     let z = y.mul(2);
 ///     assert(z.is_overflowed());
 ///     assert(z.view() == 0x10000000000000000);
@@ -28,9 +28,9 @@
 ///             None => a * b + c * d > u64::MAX,
 ///         }
 /// {
-///     let a_times_b = OverflowableU64::new(a).mul(b);
-///     let c_times_d = OverflowableU64::new(c).mul(d);
-///     let sum_of_products = a_times_b.add_overflowable_u64(&c_times_d);
+///     let a_times_b = CheckedU64::new(a).mul(b);
+///     let c_times_d = CheckedU64::new(c).mul(d);
+///     let sum_of_products = a_times_b.add_checked_u64(&c_times_d);
 ///     if sum_of_products.is_overflowed() {
 ///         assert(a * b + c * d > u64::MAX);
 ///         None
@@ -45,6 +45,7 @@
 
 use builtin::*;
 use builtin_macros::*;
+use std::ops::{Add, Mul};
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
                                 lemma_mod_division_less_than_divisor};
@@ -59,13 +60,13 @@ verus! {
 /// is a ghost value that represents the true value, while the `v` field
 /// is `None` when the value has overflowed and `Some(x)` when the value
 /// `x` fits in a `u64`.
-pub struct OverflowableU64 {
+pub struct CheckedU64 {
     i: Ghost<nat>,
     v: Option<u64>,
 }
 
-/// The view of an `OverflowableU64` instance is the true value of the instance.
-impl View for OverflowableU64
+/// The view of an `CheckedU64` instance is the true value of the instance.
+impl View for CheckedU64
 {
     type V = nat;
 
@@ -75,8 +76,8 @@ impl View for OverflowableU64
     }
 }
 
-impl Clone for OverflowableU64 {
-    /// Clones the `OverflowableU64` instance.
+impl Clone for CheckedU64 {
+    /// Clones the `CheckedU64` instance.
     /// Ensures the cloned instance has the same value as the original.
     exec fn clone(&self) -> (result: Self)
         ensures
@@ -87,8 +88,8 @@ impl Clone for OverflowableU64 {
     }
 }
 
-impl OverflowableU64 {
-    /// This is the internal type invariant for an `OverflowableU64`.
+impl CheckedU64 {
+    /// This is the internal type invariant for an `CheckedU64`.
     /// It ensures the key invariant that relates `i` and `v`.
     #[verifier::type_invariant]
     spec fn well_formed(self) -> bool
@@ -99,14 +100,14 @@ impl OverflowableU64 {
         }
     }
 
-    /// Creates a new `OverflowableU64` instance from a `u64` value.
+    /// Creates a new `CheckedU64` instance from a `u64` value.
     /// Ensures the internal representation matches the provided value.
-    pub closed spec fn spec_new(v: u64) -> OverflowableU64
+    pub closed spec fn spec_new(v: u64) -> CheckedU64
     {
-        OverflowableU64{ i: Ghost(v as nat), v: Some(v) }
+        CheckedU64{ i: Ghost(v as nat), v: Some(v) }
     }
 
-    /// Creates a new `OverflowableU64` instance from a `u64` value.
+    /// Creates a new `CheckedU64` instance from a `u64` value.
     /// Ensures the internal representation matches the provided value.
     #[verifier::when_used_as_spec(spec_new)]
     pub exec fn new(v: u64) -> (result: Self)
@@ -116,7 +117,7 @@ impl OverflowableU64 {
         Self{ i: Ghost(v as nat), v: Some(v) }
     }
 
-    /// Creates a new `OverflowableU64` instance with an overflowed value.
+    /// Creates a new `CheckedU64` instance with an overflowed value.
     /// Requires the provided value to be greater than `u64::MAX`.
     /// Ensures the internal representation matches the provided value.
     pub exec fn new_overflowed(Ghost(i): Ghost<int>) -> (result: Self)
@@ -128,14 +129,14 @@ impl OverflowableU64 {
         Self{ i: Ghost(i as nat), v: None }
     }
 
-    /// Checks if the `OverflowableU64` instance is overflowed.
+    /// Checks if the `CheckedU64` instance is overflowed.
     /// Returns true if the value is greater than `u64::MAX`.
     pub open spec fn spec_is_overflowed(&self) -> bool
     {
         self@ > u64::MAX
     }
 
-    /// Checks if the `OverflowableU64` instance is overflowed.
+    /// Checks if the `CheckedU64` instance is overflowed.
     /// Returns true if the value is greater than `u64::MAX`.
     #[verifier::when_used_as_spec(spec_is_overflowed)]
     pub exec fn is_overflowed(&self) -> (result: bool)
@@ -146,7 +147,7 @@ impl OverflowableU64 {
         self.v.is_none()
     }
 
-    /// Unwraps the `OverflowableU64` instance to get the `u64` value.
+    /// Unwraps the `CheckedU64` instance to get the `u64` value.
     /// Requires the instance to not be overflowed.
     /// Ensures the returned value matches the internal representation.
     pub exec fn unwrap(&self) -> (result: u64)
@@ -159,7 +160,7 @@ impl OverflowableU64 {
         self.v.unwrap()
     }
 
-    /// Converts the `OverflowableU64` instance to an `Option<u64>`.
+    /// Converts the `CheckedU64` instance to an `Option<u64>`.
     /// Ensures the returned option matches the internal representation.
     pub exec fn to_option(&self) -> (result: Option<u64>)
         ensures
@@ -172,7 +173,7 @@ impl OverflowableU64 {
         self.v
     }
 
-    /// Adds a `u64` value to the `OverflowableU64` instance.
+    /// Adds a `u64` value to the `CheckedU64` instance.
     /// Ensures the resulting value matches the sum of the internal representation and the provided value.
     #[inline]
     pub exec fn add(&self, v2: u64) -> (result: Self)
@@ -189,10 +190,10 @@ impl OverflowableU64 {
         }
     }
 
-    /// Adds another `OverflowableU64` instance to the current instance.
+    /// Adds another `CheckedU64` instance to the current instance.
     /// Ensures the resulting value matches the sum of the internal representations of both instances.
     #[inline]
-    pub exec fn add_overflowable_u64(&self, v2: &OverflowableU64) -> (result: Self)
+    pub exec fn add_checked_u64(&self, v2: &CheckedU64) -> (result: Self)
         ensures
             result@ == self@ + v2@,
     {
@@ -207,7 +208,7 @@ impl OverflowableU64 {
         }
     }
 
-    /// Multiplies the `OverflowableU64` instance by a `u64` value.
+    /// Multiplies the `CheckedU64` instance by a `u64` value.
     /// Ensures the resulting value matches the product of the internal representation and the provided value.
     #[inline]
     pub exec fn mul(&self, v2: u64) -> (result: Self)
@@ -238,10 +239,10 @@ impl OverflowableU64 {
         }
     }
 
-    /// Multiplies the `OverflowableU64` instance by another `OverflowableU64` instance.
+    /// Multiplies the `CheckedU64` instance by another `CheckedU64` instance.
     /// Ensures the resulting value matches the product of the internal representations of both instances.
     #[inline]
-    pub exec fn mul_overflowable_u64(&self, v2: &Self) -> (result: Self)
+    pub exec fn mul_checked_u64(&self, v2: &Self) -> (result: Self)
         ensures
             result@ == self@ as int * v2@ as int,
     {

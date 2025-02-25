@@ -87,12 +87,12 @@ impl <Perm, PM> Journal<Perm, PM>
         journal_entries_end as nat
     }
     
-    pub exec fn space_needed_for_setup(journal_capacity: &OverflowableU64) -> (result: OverflowableU64)
+    pub exec fn space_needed_for_setup(journal_capacity: &CheckedU64) -> (result: CheckedU64)
         ensures
             result@ == Self::spec_space_needed_for_setup(journal_capacity@),
             journal_capacity@ <= result@,
     {
-        let journal_version_metadata_end = OverflowableU64::new(size_of::<JournalVersionMetadata>() as u64);
+        let journal_version_metadata_end = CheckedU64::new(size_of::<JournalVersionMetadata>() as u64);
         let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
             reserve_space::<u64>(&journal_version_metadata_end);
         let (journal_static_metadata_start, journal_static_metadata_end) =
@@ -104,7 +104,7 @@ impl <Perm, PM> Journal<Perm, PM>
         let (journal_length_crc_start, journal_length_crc_end) = reserve_space::<u64>(&journal_length_end);
         let (journal_entries_crc_start, journal_entries_crc_end) = reserve_space::<u64>(&journal_length_crc_end);
         let (journal_entries_start, journal_entries_end) =
-            reserve_specified_space_overflowable_u64(&journal_entries_crc_end, &journal_capacity, size_of::<u64>() as u64);
+            reserve_specified_space_checked_u64(&journal_entries_crc_end, &journal_capacity, size_of::<u64>() as u64);
         journal_entries_end
     }
     
@@ -118,7 +118,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 None => u64::MAX < Self::spec_space_needed_for_setup(journal_capacity as nat),
             }
     {
-        let journal_version_metadata_end = OverflowableU64::new(size_of::<JournalVersionMetadata>() as u64);
+        let journal_version_metadata_end = CheckedU64::new(size_of::<JournalVersionMetadata>() as u64);
         let (journal_version_metadata_crc_start, journal_version_metadata_crc_end) =
             reserve_space::<u64>(&journal_version_metadata_end);
         let (journal_static_metadata_start, journal_static_metadata_end) =

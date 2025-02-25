@@ -30,26 +30,26 @@ impl<PM, K> KeyTable<PM, K>
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &OverflowableU64)
-                                       -> (result: OverflowableU64)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &CheckedU64)
+                                       -> (result: CheckedU64)
         ensures
             result@ == Self::spec_space_needed_for_setup(*ps, min_start@),
     {
         broadcast use pmcopy_axioms;
     
-        let row_metadata_start = OverflowableU64::new(size_of::<u64>() as u64);
+        let row_metadata_start = CheckedU64::new(size_of::<u64>() as u64);
         let row_metadata_end = row_metadata_start.add(size_of::<KeyTableRowMetadata>() as u64);
         let row_metadata_crc_end = row_metadata_end.add(size_of::<u64>() as u64);
         let row_key_end = row_metadata_crc_end.add(size_of::<K>() as u64);
         let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
-        let num_rows = OverflowableU64::new(ps.num_keys);
-        let table_size = num_rows.mul_overflowable_u64(&row_key_crc_end);
+        let num_rows = CheckedU64::new(ps.num_keys);
+        let table_size = num_rows.mul_checked_u64(&row_key_crc_end);
         let initial_space: u64 = if min_start.is_overflowed() {
             0u64
         } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
         };
-        OverflowableU64::new(initial_space).add_overflowable_u64(&table_size)
+        CheckedU64::new(initial_space).add_checked_u64(&table_size)
     }
 
     exec fn setup_given_metadata(
@@ -163,16 +163,16 @@ impl<PM, K> KeyTable<PM, K>
             return Err(KvError::KeySizeTooSmall);
         }
     
-        let row_cdb_start = OverflowableU64::new(0);
+        let row_cdb_start = CheckedU64::new(0);
         let row_metadata_start = row_cdb_start.add(size_of::<u64>() as u64);
         let row_metadata_end = row_metadata_start.add(size_of::<KeyTableRowMetadata>() as u64);
         let row_metadata_crc_end = row_metadata_end.add(size_of::<u64>() as u64);
         let row_key_end = row_metadata_crc_end.add(key_size as u64);
         let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
-        let start = OverflowableU64::new(min_start).align(size_of::<u64>());
+        let start = CheckedU64::new(min_start).align(size_of::<u64>());
         let num_rows = ps.num_keys;
-        let space_required = OverflowableU64::new(num_rows).mul_overflowable_u64(&row_key_crc_end);
-        let end = start.add_overflowable_u64(&space_required);
+        let space_required = CheckedU64::new(num_rows).mul_checked_u64(&row_key_crc_end);
+        let end = start.add_checked_u64(&space_required);
     
         assert(end@ - min_start@ == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(space_required@ >= row_key_crc_end@) by {

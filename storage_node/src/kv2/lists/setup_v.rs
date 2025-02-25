@@ -31,8 +31,8 @@ impl<PM, L> ListTable<PM, L>
         PM: PersistentMemoryRegion,
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &OverflowableU64)
-                                             -> (result: OverflowableU64)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &CheckedU64)
+                                             -> (result: CheckedU64)
         requires
             ps.valid(),
         ensures
@@ -40,16 +40,16 @@ impl<PM, L> ListTable<PM, L>
     {
         broadcast use pmcopy_axioms;
     
-        let row_next_crc_start = OverflowableU64::new(size_of::<u64>() as u64);
+        let row_next_crc_start = CheckedU64::new(size_of::<u64>() as u64);
         let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
         let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
         let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
-        let num_rows = OverflowableU64::new(ps.num_list_entries);
-        let table_size = num_rows.mul_overflowable_u64(&row_size);
+        let num_rows = CheckedU64::new(ps.num_list_entries);
+        let table_size = num_rows.mul_checked_u64(&row_size);
         let initial_space = if min_start.is_overflowed() { 0 } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
         };
-        OverflowableU64::new(initial_space).add_overflowable_u64(&table_size)
+        CheckedU64::new(initial_space).add_checked_u64(&table_size)
     }
     
     exec fn setup_given_metadata(
@@ -118,14 +118,14 @@ impl<PM, L> ListTable<PM, L>
             broadcast use pmcopy_axioms;
         }
     
-        let start = OverflowableU64::new(min_start).align(size_of::<u64>());
-        let row_next_crc_start = OverflowableU64::new(size_of::<u64>() as u64);
+        let start = CheckedU64::new(min_start).align(size_of::<u64>());
+        let row_next_crc_start = CheckedU64::new(size_of::<u64>() as u64);
         let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
         let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
         let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
-        let num_rows = OverflowableU64::new(ps.num_list_entries);
-        let table_size = num_rows.mul_overflowable_u64(&row_size);
-        let end = start.add_overflowable_u64(&table_size);
+        let num_rows = CheckedU64::new(ps.num_list_entries);
+        let table_size = num_rows.mul_checked_u64(&row_size);
+        let end = start.add_checked_u64(&table_size);
     
         assert(end@ - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(table_size@ >= row_size@) by {
