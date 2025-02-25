@@ -244,7 +244,7 @@ fn generate_pmsized_for_enums_with_fields(
     // TODO: just call the union generate fn?
     let union_name = syn::Ident::new(&format!("{}_field_union", name.to_string()), name.span());
     // let union_pmsized = generate_pmsized_for_unions(&union_name, &payload_struct_types);
-    let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &payload_struct_names);
+    let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &variants);
     let payload_union = quote! {
         #[repr(C)]
         #[derive(Copy)]
@@ -286,6 +286,43 @@ fn generate_pmsized_for_enums_with_fields(
         #final_struct_impls
     };
 
+    let static_assertions = generate_static_assertions(&name);
+    let eq_and_clone_proof = generate_clone_and_eq_proofs_for_enum_with_fields(&name, variants, fields);
+
+    // Now we can implement everything for the initial enum itself
+    // using the structs and impls we have just generated.
+    let enum_impls = quote! {
+        ::builtin_macros::verus!{
+            impl SpecPmSized for #name {
+                open spec fn spec_size_of() -> ::builtin::nat 
+                {
+                    #final_struct_name::spec_size_of()
+                }
+
+                open spec fn spec_align_of() -> ::builtin::nat 
+                {
+                    #final_struct_name::spec_align_of()
+                }
+            }
+        }
+
+        unsafe impl PmSized for #name {
+            fn size_of() -> usize { Self::SIZE }
+            fn align_of() -> usize { Self::ALIGN }
+        }
+
+        unsafe impl ConstPmSized for #name {
+            const SIZE: usize = #final_struct_name::SIZE;
+            const ALIGN: usize = #final_struct_name::ALIGN;
+        }
+
+        unsafe impl UnsafeSpecPmSized for #name {}
+
+        #static_assertions
+
+        #eq_and_clone_proof      
+    };
+
 
     let gen = quote! {
         #( #payload_defs_and_impls)*
@@ -295,6 +332,8 @@ fn generate_pmsized_for_enums_with_fields(
         #discriminant_enum
 
         #final_struct
+
+        #enum_impls
     };
     gen
 
@@ -853,7 +892,11 @@ fn generate_clone_proof_for_unnamed_structs(
 ) -> proc_macro2::TokenStream {
     let eq_and_clone_spec = generate_eq_and_clone_specs(&name);
     let field_nums: Vec<usize> = (0..types.len()-1).collect();
-    let last_field_num = types.len()-1;
+    let mut field_idxes = Vec::new();
+    for i in field_nums {
+        field_idxes.push(syn::Index::from(i));
+    }
+    let last_field_num = syn::Index::from(types.len()-1);
 
     let gen = quote! {
         impl Clone for #name {
@@ -866,7 +909,7 @@ fn generate_clone_proof_for_unnamed_structs(
         impl PartialEq for #name {
             fn eq(&self, other: &Self) -> bool 
             {
-                #( self.#field_nums == other.#field_nums && )*
+                #( self.#field_idxes == other.#field_idxes && )*
                 self.#last_field_num == other.#last_field_num
             }
         }
@@ -902,6 +945,73 @@ fn generate_clone_and_eq_proofs_for_fieldless_enum(
         }
 
         #eq_and_clone_spec
+    };
+
+    gen
+}
+
+fn generate_clone_and_eq_proofs_for_enum_with_fields(
+    name: &syn::Ident,
+    variants: &Vec<syn::Ident>,
+    fields: &Vec<EnumVariantFields>
+) -> proc_macro2::TokenStream {
+    let eq_and_clone_specs = generate_eq_and_clone_specs(&name);
+
+    let mut eq_vec = Vec::new();
+
+    for (variant, variant_fields) in variants.iter().zip(fields.iter()) {
+        match variant_fields {
+            EnumVariantFields::Unit => {
+                // for unit variants, two enums are equal if they are 
+                // the same variant
+                let gen = quote! {
+                    (#name::#variant, #name::#variant) => true
+                };
+                eq_vec.push(gen);
+            }
+            EnumVariantFields::Unnamed(types) | EnumVariantFields::Named(types, _)  => {
+                let mut lhs_field_variable_names = Vec::new();
+                let mut rhs_field_variable_names = Vec::new();
+                for i in 0..types.len() {
+                    lhs_field_variable_names.push(syn::Ident::new(&format!("lhs_f{}", i), name.span()));
+                    rhs_field_variable_names.push(syn::Ident::new(&format!("rhs_f{}", i), name.span()));
+                }
+                let lhs_fields = quote! {
+                    #( #lhs_field_variable_names, )*
+                };
+                let rhs_fields = quote! {
+                    #( #rhs_field_variable_names, )*
+                };
+                let lhs_last_field = lhs_field_variable_names.pop().unwrap();
+                let rhs_last_field = rhs_field_variable_names.pop().unwrap();
+                let gen = quote! {
+                    (#name::#variant(#lhs_fields), #name::#variant(#rhs_fields)) => {
+                        #( #lhs_field_variable_names == #rhs_field_variable_names && )*
+                        #lhs_last_field == #rhs_last_field
+                    }
+                };
+                eq_vec.push(gen);
+            },
+        }
+    }
+
+    let gen = quote! {
+        impl Clone for #name {
+            fn clone(&self) -> Self 
+            {
+                *self
+            }
+        }
+
+        impl PartialEq for #name {
+            fn eq(&self, other: &self) -> bool 
+            {
+                match (self, other) {
+                    #( #eq_vec, )*
+                    (_, _) => false,
+                }
+            }
+        }
     };
 
     gen

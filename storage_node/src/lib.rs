@@ -95,10 +95,10 @@ type U128Alias = u128;
 
 
 #[repr(C)]
-#[derive(PmCopy)]
+#[derive(PmCopy, Copy)]
 enum TestEnum1 {
     V1(U128Alias),
-    V2(u128),
+    V2(u128, u128),
     V3{named_field: U128Alias},
     V4,
 }
