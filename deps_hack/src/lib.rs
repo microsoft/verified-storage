@@ -5,7 +5,6 @@
 pub use core;
 pub use crc64fast;
 pub use rand;
-/*
 #[cfg(target_os = "linux")]
 pub use nix;
 #[cfg(target_os = "windows")]
@@ -27,16 +26,11 @@ pub use winapi::um::winnt::{
     FILE_ATTRIBUTE_NORMAL, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ,
     GENERIC_WRITE, PAGE_READWRITE, ULARGE_INTEGER,
 };
-*/
 
 pub use pmsafe::{PmCopy, pmcopy_primitive};
 
-/*
 #[cfg(target_os = "linux")]
 pub mod pmem;
-*/
 
-/*
 #[cfg(target_os = "linux")]
 include!("./bindings.rs");
-*/

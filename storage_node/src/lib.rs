@@ -27,26 +27,25 @@ pub mod pmem;
 pub mod common;
 //pub mod log2;
 
-//use kv::durable::durableimpl_v::*;
-//use kv::kvspec_t::*;
-//use kv::kvimpl_v::*;
-//use kv::volatile::volatileimpl_v::*;
+use crate::kv2::impl_t::KvStore;
+use crate::kv2::spec_t::{KvError, LogicalRange, LogicalRangeGapsPolicy, SetupParameters};
 use crate::common::util_v::*;
 // use crate::log::logimpl_t::*;
 // use crate::multilog::layout_v::*;
 // use crate::multilog::multilogimpl_t::*;
 // use crate::multilog::multilogimpl_v::*;
 // use crate::multilog::multilogspec_t::*;
-//#[cfg(target_os = "linux")]
-//use crate::pmem::linux_pmemfile_t::*;
-//#[cfg(target_os = "windows")]
-//use crate::pmem::windows_pmemfile_t::*;
+#[cfg(target_os = "linux")]
+use crate::pmem::linux_pmemfile_t::*;
+#[cfg(target_os = "windows")]
+use crate::pmem::windows_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
+use deps_hack::rand::Rng;
 
 mod tests {
 
@@ -62,14 +61,22 @@ use super::*;
 //    test_durable_on_memory_mapped_file();
 //}
 
-//#[test]
-//fn check_kv_on_memory_mapped_file () {
-//    test_kv_on_memory_mapped_file();
-//}
+#[test]
+fn check_kv_on_memory_mapped_file () -> Result<(), ()>
+{
+    test_kv_on_memory_mapped_file()
+}
     
 }
 
 verus! {
+
+#[verifier::external_body]
+pub exec fn generate_fresh_id() -> (out: u128)
+{
+    deps_hack::rand::thread_rng().gen::<u128>()
+}
+
 // // this function is defined outside of the test module so that we can both
 // // run verification on it and call it in a test to ensure that all operations
 // // succeed
@@ -342,12 +349,66 @@ struct TestItem {
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
 struct TestListElement {
-    val: u64,
+    pub val: u64,
+    pub start: usize,
+    pub end: usize
+}
+
+impl LogicalRange for TestListElement {
+    open spec fn spec_start(&self) -> usize
+    {
+        self.start
+    }
+
+    open spec fn spec_end(&self) -> usize
+    {
+        self.end
+    }
+
+    fn start(&self) -> usize
+    {
+        self.start
+    }
+
+    fn end(&self) -> usize
+    {
+        self.end
+    }
+}
+
+#[verifier::external_body]
+fn print_message(msg: &'static str) {
+    println!("{}", msg);
+}
+
+#[verifier::external_body]
+fn print_result(msg: &'static str, value: u32) {
+    println!("{}: {value}", msg);
 }
 
 #[verifier::external_body]
 fn remove_file(name: &str) {
     let _ = std::fs::remove_file(name);
+}
+
+fn create_pm_region(file_name: &str, region_size: u64) -> (result: Result<FileBackedPersistentMemoryRegion, PmemError>)
+    ensures
+        result matches Ok(pm) ==> pm.inv(),
+{
+    #[cfg(target_os = "windows")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name, MemoryMappedFileMediaType::SSD,
+        region_size,
+        FileCloseBehavior::TestingSoDeleteOnClose
+    );
+    #[cfg(target_os = "linux")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name,
+        region_size,
+        PersistentMemoryCheck::DontCheckForPersistentMemory,
+    );
+
+    pm_region
 }
 
 /* Temporarily commented out for subregion development
@@ -491,74 +552,84 @@ fn test_durable_on_memory_mapped_file() {
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
 
 }
+*/
 
-fn test_kv_on_memory_mapped_file() {
-    assume(false);
-
-    let region_size = 4096;
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
+fn test_kv_on_memory_mapped_file() -> Result<(), ()>
+{
+    let kv_file_name = "test_kv";
 
     let num_keys = 16;
-    let node_size = 16;
+    let num_list_entries = 16;
 
-    // delete the test files if they already exist. Ignore the result,
-    // since it's ok if the files don't exist.
-    remove_file(log_file_name);
-    remove_file(metadata_file_name);
-    remove_file(item_table_file_name);
-    remove_file(list_file_name);
+    // delete the test file if it already exists. Ignore the result,
+    // since it's ok if the file doesn't exist.
+    remove_file(kv_file_name);
 
-    // Create a file, and a PM region, for each component
-    let mut log_region = create_pm_region(log_file_name, region_size);
-    let mut metadata_region = create_pm_region(metadata_file_name, region_size);
-    let mut item_table_region = create_pm_region(item_table_file_name, region_size);
-    let mut list_region = create_pm_region(list_file_name, region_size);
+    let kvstore_id = generate_fresh_id();
 
-    let kvstore_id = generate_fresh_log_id();
+    let ps = SetupParameters{
+        kvstore_id,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsForbidden,
+        num_keys,
+        num_list_entries,
+        max_operations_per_transaction: 4,
+    };
+   let region_size = match KvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
+        ::space_needed_for_setup(&ps) {
+        Ok(s) => s,
+        Err(e) => { print_message("Failed to compute space needed for setup"); return Err(()); },
+   };
 
-    UntrustedKvStoreImpl::<_, TestKey, TestItem, TestListElement, VolatileKvIndexImpl<TestKey>>::untrusted_setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, kvstore_id, num_keys, node_size).unwrap();
+    let mut pm = match create_pm_region(&kv_file_name, region_size) {
+        Ok(p) => p,
+        Err(e) => { print_message("Failed to create file for kv store"); return Err(()); },
+    };
 
-    let mut kv = UntrustedKvStoreImpl::<_, TestKey, TestItem, TestListElement, VolatileKvIndexImpl<TestKey>>::untrusted_start(metadata_region, item_table_region, list_region, log_region, kvstore_id, num_keys, node_size).unwrap();
+    assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    match KvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(&mut pm, &ps) {
+        Ok(()) => {},
+        Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
+    }
 
-    let key1 = TestKey { val: 0 };
-    let key2 = TestKey { val: 1 };
+    let mut kv = match KvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
+        ::start(pm, kvstore_id) {
+        Ok(kv) => kv,
+        Err(e) => { print_message("Failed to start KV store"); return Err(()); },
+    };
 
-    let item1 = TestItem { val: 10 };
-    let item2 = TestItem { val: 20 };
+    let key1 = TestKey { val: 0x33333333 };
+    let key2 = TestKey { val: 0x44444444 };
+
+    let item1 = TestItem { val: 0x55555555 };
+    let item2 = TestItem { val: 0x66666666 };
 
     // create a record
-    let tracked fake_kv_perm = TrustedKvPermission::fake_kv_perm();
-    kv.untrusted_create(&key1, &item1, kvstore_id, Tracked(&fake_kv_perm)).unwrap();
+    match kv.tentatively_create(&key1, &item1) {
+        Ok(()) => {},
+        Err(e) => { print_message("Error when creating key 1"); return Err(()); }
+    }
+    match kv.commit() {
+        Ok(()) => { },
+        Err(e) => { print_message("Error when committing"); return Err(()); }
+    }
 
     // read the item of the record we just created
-    let read_item1 = kv.untrusted_read_item(&key1).unwrap();
-    assert(read_item1.val == item1.val);
+    let read_item1 = match kv.read_item(&key1) {
+        Ok(i) => i,
+        Err(e) => { print_message("Error when reading key"); return Err(()); },
+    };
 
+    runtime_assert(read_item1.val == item1.val);
+
+    match kv.read_item(&key2) {
+        Ok(i) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
+        Err(KvError::KeyNotFound) => {},
+        Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
+    }
+
+    print_message("All kv operations gave expected results");
+    return Ok(());
 }
-
-fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
-{
-    assume(false);
-    #[cfg(target_os = "windows")]
-    let mut pm_region = FileBackedPersistentMemoryRegion::new(
-        &file_name, MemoryMappedFileMediaType::SSD,
-        region_size,
-        FileCloseBehavior::TestingSoDeleteOnClose
-    ).unwrap();
-    #[cfg(target_os = "linux")]
-    let mut pm_region = FileBackedPersistentMemoryRegion::new(
-        &file_name,
-        region_size,
-        PersistentMemoryCheck::DontCheckForPersistentMemory,
-    ).unwrap();
-
-    pm_region
-}
-
-*/
 
 #[allow(dead_code)]
 fn main()
@@ -567,5 +638,7 @@ fn main()
     // test_multilog_on_memory_mapped_file();
     // test_log_on_memory_mapped_file();
     // test_durable_on_memory_mapped_file();
+    let _ = test_kv_on_memory_mapped_file();
 }
+
 }

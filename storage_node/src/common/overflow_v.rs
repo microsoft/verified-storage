@@ -7,8 +7,8 @@
 /// Here are some examples using `OverflowableU64`. (The type
 /// `OverflowableU32` can be used analogously.)
 /// 
-/// ```
-/// fn test1()
+/// ```ignore
+/// fn example1()
 /// {
 ///     let w = OverflowableU64::new(0xFFFFFFFFFFFFFFFF);
 ///     let x = w.add(1);
@@ -21,7 +21,7 @@
 ///     assert(z.view() == 0x10000000000000000);
 /// }
 ///
-/// fn test2(a: u64, b: u64, c: u64, d: u64) -> (e: Option<u64>)
+/// fn example2(a: u64, b: u64, c: u64, d: u64) -> (e: Option<u64>)
 ///     ensures
 ///         match e {
 ///             Some(v) => v == a * b + c * d,
