@@ -216,9 +216,11 @@ fn generate_pmsized_for_enums_with_fields(
             EnumVariantFields::Unnamed(types) => {
                 let impls = generate_impls_for_unnamed_struct(&struct_name, types);
                 let gen = quote! {
-                    #[repr(C)]
-                    #[derive(Copy)]
-                    struct #struct_name( #( #types, )* );
+                    ::builtin_macros::verus! {
+                        #[repr(C)]
+                        #[derive(Copy)]
+                        struct #struct_name( #( #types, )* );
+                    }
 
                     #impls
                 };
@@ -227,10 +229,12 @@ fn generate_pmsized_for_enums_with_fields(
             EnumVariantFields::Named(types, names) => {
                 let impls = generate_impls_for_named_struct(&struct_name, types, names);
                 let gen = quote! {
-                    #[repr(C)]
-                    #[derive(Copy)]
-                    struct #struct_name {
-                        #( #names: #types, )*
+                    ::builtin_macros::verus! {
+                        #[repr(C)]
+                        #[derive(Copy)]
+                        struct #struct_name {
+                            #( #names: #types, )*
+                        }
                     }
 
                     #impls
@@ -246,10 +250,12 @@ fn generate_pmsized_for_enums_with_fields(
     // let union_pmsized = generate_pmsized_for_unions(&union_name, &payload_struct_types);
     let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &variants);
     let payload_union = quote! {
-        #[repr(C)]
-        #[derive(Copy)]
-        union #union_name {
-            #( #variants: #payload_struct_names, )*
+        ::builtin_macros::verus! {
+            #[repr(C)]
+            #[derive(Copy)]
+            union #union_name {
+                #( #variants: #payload_struct_names, )*
+            }
         }
 
         #union_impls
@@ -259,12 +265,14 @@ fn generate_pmsized_for_enums_with_fields(
     let discriminant_enum_name = syn::Ident::new(&format!("{}_enum_discriminant", name.to_string()), name.span());
     let discriminant_enum_impls = generate_impls_for_fieldless_enum(&discriminant_enum_name, &variants);
     let discriminant_enum = quote! {
-        #[repr(C)]
-        #[derive(Copy)]
-        enum #discriminant_enum_name {
-            #( #variants, )*
+        ::builtin_macros::verus!{ 
+            #[repr(C)]
+            #[derive(Copy)]
+            enum #discriminant_enum_name {
+                #( #variants, )*
+            }
         }
-
+        
         #discriminant_enum_impls
     };
 
@@ -276,13 +284,14 @@ fn generate_pmsized_for_enums_with_fields(
         &final_struct_name, &final_struct_field_types, &final_struct_field_names);
 
     let final_struct = quote! {
-        
-        #[repr(C)]
-        #[derive(Copy)]
-        struct #final_struct_name {
-            #( #final_struct_field_names: #final_struct_field_types,)*
+        ::builtin_macros::verus! {
+            #[repr(C)]
+            #[derive(Copy)]
+            struct #final_struct_name {
+                #( #final_struct_field_names: #final_struct_field_types,)*
+            }
         }
-
+        
         #final_struct_impls
     };
 
@@ -648,8 +657,8 @@ fn max_size_of_fields(name: &syn::Ident, types: &Vec<syn::Type>) -> (proc_macro2
     let mut exec_size_vec = Vec::new();
     for ty in types.iter() {
         let new_tokens = quote! {
-            if largest_size <= <#ty>::ALIGN {
-                largest_size = <#ty>::ALIGN;
+            if largest_size <= <#ty>::SIZE {
+                largest_size = <#ty>::SIZE;
             }
         };
         exec_size_vec.push(new_tokens);
@@ -665,7 +674,7 @@ fn max_size_of_fields(name: &syn::Ident, types: &Vec<syn::Type>) -> (proc_macro2
     };
 
     let spec_size = quote! {
-        let size_seq = seq![#(<#types>::spec_align_of(),)*];
+        let size_seq = seq![#(<#types>::spec_size_of(),)*];
         let largest_size = nat_seq_max(size_seq);
         let largest_size = largest_size + spec_padding_needed(largest_size, <#name>::spec_align_of());
         largest_size
