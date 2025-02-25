@@ -145,6 +145,10 @@ enum TestEnum7 {
     V4 {f0: u128, f1: u16}
 }
 
+#[repr(C)]
+#[derive(PmCopy, Copy)]
+struct TestUnnamedFieldStruct(u8, u128, u16);
+
 // // this function is defined outside of the test module so that we can both
 // // run verification on it and call it in a test to ensure that all operations
 // // succeed
