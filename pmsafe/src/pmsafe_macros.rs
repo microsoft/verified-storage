@@ -969,7 +969,7 @@ fn generate_clone_and_eq_proofs_for_enum_with_fields(
                 };
                 eq_vec.push(gen);
             }
-            EnumVariantFields::Unnamed(types) | EnumVariantFields::Named(types, _)  => {
+            EnumVariantFields::Unnamed(types) => {
                 let mut lhs_field_variable_names = Vec::new();
                 let mut rhs_field_variable_names = Vec::new();
                 for i in 0..types.len() {
@@ -992,6 +992,29 @@ fn generate_clone_and_eq_proofs_for_enum_with_fields(
                 };
                 eq_vec.push(gen);
             },
+            EnumVariantFields::Named(types, names) => {
+                let mut lhs_field_variable_names = Vec::new();
+                let mut rhs_field_variable_names = Vec::new();
+                for i in 0..types.len() {
+                    lhs_field_variable_names.push(syn::Ident::new(&format!("lhs_f{}", i), name.span()));
+                    rhs_field_variable_names.push(syn::Ident::new(&format!("rhs_f{}", i), name.span()));
+                }
+                let lhs_fields = quote! {
+                    #( #names: #lhs_field_variable_names, )*
+                };
+                let rhs_fields = quote! {
+                    #( #names: #rhs_field_variable_names, )*
+                };
+                let lhs_last_field = lhs_field_variable_names.pop().unwrap();
+                let rhs_last_field = rhs_field_variable_names.pop().unwrap();
+                let gen = quote! {
+                    (#name::#variant{#lhs_fields}, #name::#variant{#rhs_fields}) => {
+                        #( #lhs_field_variable_names == #rhs_field_variable_names && )*
+                        #lhs_last_field == #rhs_last_field
+                    }
+                };
+                eq_vec.push(gen);
+            }
         }
     }
 
@@ -1004,7 +1027,7 @@ fn generate_clone_and_eq_proofs_for_enum_with_fields(
         }
 
         impl PartialEq for #name {
-            fn eq(&self, other: &self) -> bool 
+            fn eq(&self, other: &Self) -> bool 
             {
                 match (self, other) {
                     #( #eq_vec, )*
@@ -1012,6 +1035,8 @@ fn generate_clone_and_eq_proofs_for_enum_with_fields(
                 }
             }
         }
+
+        #eq_and_clone_specs
     };
 
     gen
