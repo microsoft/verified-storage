@@ -176,8 +176,8 @@ fn generate_pmsized_for_enums_with_fields(
                         struct #struct_name {}
 
                         impl SpecPmSized for #struct_name {
-                            open spec fn spec_size_of() -> ::builtin::nat { #ZST_SIZE }
-                            open spec fn spec_align_of() -> ::builtin::nat { #ZST_ALIGN }
+                            open spec fn spec_size_of() -> ::builtin::nat { #ZST_SIZE as ::builtin::nat }
+                            open spec fn spec_align_of() -> ::builtin::nat { #ZST_ALIGN as ::builtin::nat }
                         }
                     }
 
