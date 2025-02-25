@@ -145,13 +145,6 @@ enum TestEnum7 {
     V4 {f0: u128, f1: u16}
 }
 
-
-#[verifier::external_body]
-pub exec fn generate_fresh_id() -> (out: u128)
-{
-    deps_hack::rand::thread_rng().gen::<u128>()
-}
-
 // // this function is defined outside of the test module so that we can both
 // // run verification on it and call it in a test to ensure that all operations
 // // succeed
