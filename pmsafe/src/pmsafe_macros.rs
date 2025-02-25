@@ -14,15 +14,12 @@ enum EnumVariantFields {
     Unnamed(Vec<syn::Type>)
 }
 
-enum LayoutType<'a> {
-    Struct(Vec<&'a syn::Type>, Vec<syn::Ident>),
+enum LayoutType {
+    NamedStruct(Vec<syn::Type>, Vec<syn::Ident>),
+    UnnamedStruct(Vec<syn::Type>),
     FieldlessEnum(Vec<syn::Ident>),
     EnumWithFields(Vec<syn::Ident>, Vec<EnumVariantFields>),
-    // // vec of variant names, map variant -> vec of (field name, field type)
-    // EnumWithNamedFields(Vec<syn::Ident>, HashMap<syn::Ident, Vec<(syn::Ident, syn::Type)>>),
-    // // vec of variant names, map variant -> vec of field types
-    // EnumWithUnnamedFields(Vec<syn::Ident>, HashMap<syn::Ident, syn::Type>),
-    Union(Vec<&'a syn::Type>, Vec<syn::Ident>),
+    Union(Vec<syn::Type>, Vec<syn::Ident>),
 }
 
 // This is the main function called by the PmCopy derive macro.
@@ -49,66 +46,71 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
     // can't deduplicate here
 
     match layout_type {
-        LayoutType::Struct(types, idents) => generate_impls_for_struct(&name, &ast, &types, &idents),
-        LayoutType::FieldlessEnum(variants) => generate_impls_for_fieldless_enum(&name, &variants),
-        LayoutType::EnumWithFields(variants, fields) => todo!(),
-        LayoutType::Union(types, idents) => generate_impls_for_union(&name, &ast, &types, &idents),
+        LayoutType::NamedStruct(types, idents) => generate_impls_for_named_struct(&name, &types, &idents).into(),
+        LayoutType::UnnamedStruct(types) => generate_impls_for_unnamed_struct(&name, &types).into(),
+        LayoutType::FieldlessEnum(variants) => generate_impls_for_fieldless_enum(&name, &variants).into(),
+        LayoutType::EnumWithFields(variants, fields) => generate_impls_for_enum_with_fields(&name, &variants, &fields),
+        LayoutType::Union(types, idents) => generate_impls_for_union(&name, &types, &idents).into(),
     }
 }
 
-fn generate_impls_for_struct<'a>(
+fn generate_impls_for_named_struct(
     name: &syn::Ident,
-    ast: &syn::DeriveInput, 
-    types: &Vec<&'a syn::Type>, 
+    types: &Vec<syn::Type>, 
     names: &Vec<syn::Ident>
-) -> TokenStream {
-    let pmsafe = check_pmsafe(ast, &types);
+) -> proc_macro2::TokenStream {
+    let pmsafe = check_pmsafe(&name, &types);
     match pmsafe {
         Ok(pmsafe) => {
-            let pmsized = generate_pmsized_for_structs(ast, &types);
-            match pmsized {
-                Ok(pmsized) => {
-                    let cloneproof = generate_clone_proof(ast, &names);
-                    match cloneproof {
-                        Ok(cloneproof) => {
-                            let gen = quote!{
-                                #pmsafe
+            let pmsized = generate_pmsized_for_structs(name, &types);
+            let cloneproof = generate_clone_proof_for_named_structs(name, &names);
+            let gen = quote!{
+                #pmsafe
 
-                                #pmsized
+                #pmsized
 
-                                #cloneproof
+                #cloneproof
 
-                                impl PmCopy for #name {}
-                            };
-                            gen.into()
-                        }
-                        Err(e) => e
-                    }
-                }
-                Err(e) => e,
-            }
+                impl PmCopy for #name {}
+            };
+            gen
         }
-        Err(e) => e,
+        Err(e) => e.into(),
+    }
+}
+
+fn generate_impls_for_unnamed_struct(
+    name: &syn::Ident,
+    types: &Vec<syn::Type>,
+) -> proc_macro2::TokenStream {
+    let pmsafe = check_pmsafe(&name, &types);
+    match pmsafe {
+        Ok(pmsafe) => {
+            let pmsized = generate_pmsized_for_structs(name, &types);
+            let cloneproof = generate_clone_proof_for_unnamed_structs(name, &types);
+            let gen = quote!{
+                #pmsafe
+
+                #pmsized
+
+                #cloneproof
+
+                impl PmCopy for #name {}
+            };
+            gen
+        }
+        Err(e) => e.into(),
     }
 }
 
 const C_ABI_ENUM_SIZE: usize = 4;
 const C_ABI_ENUM_ALIGN: usize = 4;
+const ZST_SIZE: usize = 0;
+const ZST_ALIGN: usize = 1;
 
-// Fieldless enums are always PmSafe. Their size and alignment matches 
-// those used by the target platforms C ABI, which we expect to be 4 bytes.
-// This function generates impls/specs for PmSized and related traits, Clone,
-// and Eq for fieldless enums. The PartialEq implementation requires a list 
-// of variant idents so that it can match on them, but otherwise we 
-// can ignore them.
-fn generate_impls_for_fieldless_enum(
+fn generate_pmsized_for_fieldless_enum(
     name: &syn::Ident,
-    idents: &Vec<syn::Ident>,
-) -> TokenStream {
-    // fieldless enums are always PmSafe
-    let eq_and_clone_proof = generate_clone_and_eq_proofs_for_fieldless_enum(name, idents);
-    let static_assertions = generate_static_assertions(&name);
-
+) -> proc_macro2::TokenStream {
     let gen = quote! {
         ::builtin_macros::verus!(
             impl SpecPmSized for #name {
@@ -135,6 +137,187 @@ fn generate_impls_for_fieldless_enum(
         }
 
         unsafe impl UnsafeSpecPmSized for #name {}
+    };
+
+    gen
+}
+
+// repr(C) enums with fields have the layout of a #[repr(C)] struct
+// with two fields, the tag and the payload. 
+// The tag is a repr(C) version of the enum with the fields removed.
+// The payload is a repr(C) union of repr(C) structs, each of which 
+// has the fields of one of the variants.
+fn generate_pmsized_for_enums_with_fields(
+    name: &syn::Ident,
+    variants: &Vec<syn::Ident>,
+    fields: &Vec<EnumVariantFields>,
+) -> proc_macro2::TokenStream {
+
+    // Generate the payload structs first
+    let mut payload_defs_and_impls = Vec::new();
+    let mut payload_struct_names = Vec::new();
+    let mut payload_struct_types = Vec::new();
+
+    for (variant, variant_fields) in variants.iter().zip(fields.iter()) {
+        // TODO: what should spans be in here?
+        let struct_name = syn::Ident::new(&format!("{}_{}_fields", name.to_string(), variant), variant.span());
+        let static_assertions = generate_static_assertions(&struct_name);
+        
+        payload_struct_names.push(struct_name.clone());
+        payload_struct_types.push(syn::Type::Verbatim(quote! {#struct_name} ));
+
+        match variant_fields {
+            EnumVariantFields::Unit => {
+                
+                let gen = quote! {
+                    ::builtin_macros::verus! {
+                        #[repr(C)]
+                        #[derive(Copy)]
+                        struct #struct_name {}
+
+                        impl SpecPmSized for #struct_name {
+                            open spec fn spec_size_of() -> ::builtin::nat { #ZST_SIZE }
+                            open spec fn spec_align_of() -> ::builtin::nat { #ZST_ALIGN }
+                        }
+                    }
+
+                    unsafe impl PmSafe for #struct_name {}
+
+                    unsafe impl PmSized for #struct_name {
+                        fn size_of() -> usize { Self::SIZE }
+                        fn align_of() -> usize { Self::ALIGN }
+                    }
+
+                    unsafe impl ConstPmSized for #struct_name {
+                        const SIZE: usize = #ZST_SIZE;
+                        const ALIGN: usize = #ZST_ALIGN;
+                    }
+
+                    unsafe impl UnsafeSpecPmSized for #struct_name {}
+
+                    #static_assertions
+
+                    impl Clone for #struct_name {
+                        fn clone(&self) -> Self {
+                            *self
+                        }
+                    }
+
+                    impl PartialEq for #struct_name {
+                        fn eq(&self, other: &Self) -> bool 
+                        {
+                            // two instances of the same ZST are always equal
+                            true
+                        }
+                    }
+                };
+                payload_defs_and_impls.push(gen);
+            }
+            EnumVariantFields::Unnamed(types) => {
+                let impls = generate_impls_for_unnamed_struct(&struct_name, types);
+                let gen = quote! {
+                    #[repr(C)]
+                    #[derive(Copy)]
+                    struct #struct_name( #( #types, )* );
+
+                    #impls
+                };
+                payload_defs_and_impls.push(gen);
+            }
+            EnumVariantFields::Named(types, names) => {
+                let impls = generate_impls_for_named_struct(&struct_name, types, names);
+                let gen = quote! {
+                    #[repr(C)]
+                    #[derive(Copy)]
+                    struct #struct_name {
+                        #( #names: #types, )*
+                    }
+
+                    #impls
+                };
+                payload_defs_and_impls.push(gen);
+            }
+        }
+    }
+
+    // generate the union of payload structs and impls for it
+    // TODO: just call the union generate fn?
+    let union_name = syn::Ident::new(&format!("{}_field_union", name.to_string()), name.span());
+    // let union_pmsized = generate_pmsized_for_unions(&union_name, &payload_struct_types);
+    let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &payload_struct_names);
+    let payload_union = quote! {
+        #[repr(C)]
+        #[derive(Copy)]
+        union #union_name {
+            #( #variants: #payload_struct_names, )*
+        }
+
+        #union_impls
+    };
+
+    // generate the discriminant enum definition and impls
+    let discriminant_enum_name = syn::Ident::new(&format!("{}_enum_discriminant", name.to_string()), name.span());
+    let discriminant_enum_impls = generate_impls_for_fieldless_enum(&discriminant_enum_name, &variants);
+    let discriminant_enum = quote! {
+        #[repr(C)]
+        #[derive(Copy)]
+        enum #discriminant_enum_name {
+            #( #variants, )*
+        }
+
+        #discriminant_enum_impls
+    };
+
+    let final_struct_field_names = vec![syn::Ident::new("tag", name.span()), syn::Ident::new("payload", name.span())];
+    let final_struct_field_types = vec![syn::Type::Verbatim(quote! {#discriminant_enum_name} ), syn::Type::Verbatim(quote! {#union_name} )];
+    
+    let final_struct_name = syn::Ident::new(&format!("{}_layout_struct", name.to_string()), name.span());
+    let final_struct_impls = generate_impls_for_named_struct(
+        &final_struct_name, &final_struct_field_types, &final_struct_field_names);
+
+    let final_struct = quote! {
+        
+        #[repr(C)]
+        #[derive(Copy)]
+        struct #final_struct_name {
+            #( #final_struct_field_names: #final_struct_field_types,)*
+        }
+
+        #final_struct_impls
+    };
+
+
+    let gen = quote! {
+        #( #payload_defs_and_impls)*
+
+        #payload_union
+
+        #discriminant_enum
+
+        #final_struct
+    };
+    gen
+
+}
+
+// Fieldless enums are always PmSafe. Their size and alignment matches 
+// those used by the target platforms C ABI, which we expect to be 4 bytes.
+// This function generates impls/specs for PmSized and related traits, Clone,
+// and Eq for fieldless enums. The PartialEq implementation requires a list 
+// of variant idents so that it can match on them, but otherwise we 
+// can ignore them.
+fn generate_impls_for_fieldless_enum(
+    name: &syn::Ident,
+    idents: &Vec<syn::Ident>,
+) -> proc_macro2::TokenStream {
+    // fieldless enums are always PmSafe
+
+    let pmsized = generate_pmsized_for_fieldless_enum(name);
+    let eq_and_clone_proof = generate_clone_and_eq_proofs_for_fieldless_enum(name, idents);
+    let static_assertions = generate_static_assertions(&name);
+
+    let gen = quote! {
+        #pmsized
 
         unsafe impl PmSafe for #name {}
 
@@ -145,39 +328,70 @@ fn generate_impls_for_fieldless_enum(
         #static_assertions
     };
 
-    gen.into()
+    gen
 }
 
-fn generate_impls_for_union<'a>(
+
+fn generate_impls_for_enum_with_fields(
     name: &syn::Ident,
-    ast: &syn::DeriveInput, 
-    types: &Vec<&'a syn::Type>, 
-    names: &Vec<syn::Ident>
+    variants: &Vec<syn::Ident>,
+    fields: &Vec<EnumVariantFields>,
 ) -> TokenStream {
-    // Like structs, unions are only PmSafe if all of their fields
-    // are PmSafe.
-    let pmsafe = check_pmsafe(ast, &types);
-    match pmsafe {
-        Ok(pmsafe) => {
-            let pmsized = generate_pmsized_for_unions(ast, types);
-            match pmsized {
-                Ok(pmsized) => {
-                    let cloneproof = generate_clone_and_eq_proofs_for_union(name, names);
-                    let gen = quote! {
-                        #pmsafe 
-
-                        #pmsized 
-
-                        #cloneproof 
-
-                        impl PmCopy for #name {}
-                    };
-                    gen.into()
-                }
-                Err(e) => e,
+    // enums with fields are only PmSafe if all fields types are PmSafe.
+    // we have to do a little more work to get the types out in this case
+    let mut types = Vec::new();
+    for variant_field_list in fields {
+        match variant_field_list {
+            EnumVariantFields::Unit => {},
+            EnumVariantFields::Named(variant_types, _) | EnumVariantFields::Unnamed(variant_types)=> {
+                types.extend(variant_types.clone());
             }
         }
+    }
+    let pmsafe = check_pmsafe(&name, &types);
+    match pmsafe {
+        Ok(pmsafe) => {
+            let pmsized = generate_pmsized_for_enums_with_fields(name, variants, fields);
+
+            // TODO: finish this up!
+            let gen = quote! {
+                #pmsafe
+
+                #pmsized
+
+                impl PmCopy for #name {}
+            };
+
+            gen.into()
+        }
         Err(e) => e,
+    }
+}
+
+fn generate_impls_for_union(
+    name: &syn::Ident,
+    types: &Vec<syn::Type>, 
+    names: &Vec<syn::Ident>
+) -> proc_macro2::TokenStream {
+    // Like structs, unions are only PmSafe if all of their fields
+    // are PmSafe.
+    let pmsafe = check_pmsafe(&name, &types);
+    match pmsafe {
+        Ok(pmsafe) => {
+            let pmsized = generate_pmsized_for_unions(name, types);
+            let cloneproof = generate_clone_and_eq_proofs_for_union(name, names);
+            let gen = quote! {
+                #pmsafe 
+
+                #pmsized 
+
+                #cloneproof 
+
+                impl PmCopy for #name {}
+            };
+            gen
+        }
+        Err(e) => e.into(),
     }
 }
 
@@ -204,8 +418,7 @@ fn generate_impls_for_union<'a>(
 // These trait bounds are easily checkable by the compiler. Compilation will
 // fail if we attempt to derive PmSafe on a struct with a field of type, e.g., 
 // *const u8, as the bound `const *u8: PmSafe` is not met.
-pub fn check_pmsafe<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
-    let name = &ast.ident;
+pub fn check_pmsafe(name: &syn::Ident, types: &Vec<syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
     let gen = quote! {
         unsafe impl PmSafe for #name 
             where 
@@ -251,7 +464,7 @@ pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(
 
 // This function obtains a list of the types of the fields of a structure. We do not
 // attempt to process the field names to keep things simple.
-fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType<'a>, TokenStream> 
+fn get_types(name: &syn::Ident, data: &syn::Data) -> Result<LayoutType, TokenStream> 
 {
     let mut type_vec = Vec::new();
     let mut name_vec = Vec::new();
@@ -262,26 +475,27 @@ fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType
                 syn::Fields::Named(fields) => {
                     for field in fields.named.iter() {
                         let ty = &field.ty;
-                        type_vec.push(ty);
+                        type_vec.push(ty.clone());
                         // The borrow checker is annoying about the fact that field.ident has type Option<Ident>,
                         // so we have to clone the ident to put it in the vector. We know that the ident is not 
                         // None because we've already established that the fields are named.
                         let name = field.ident.clone().unwrap();
                         name_vec.push(name);
                     }
-                    Ok(LayoutType::Struct(type_vec, name_vec))
+                    Ok(LayoutType::NamedStruct(type_vec, name_vec))
                 }
-                _ => Err(
-                    quote_spanned! {
-                        name.span() =>
-                        compile_error!("PmCopy can only be derived for structs with named fields");
-                    }.into()
-                )
+                syn::Fields::Unnamed(fields) => {
+                    for field in fields.unnamed.iter() {
+                        type_vec.push(field.ty.clone());
+                    }
+                    Ok(LayoutType::UnnamedStruct(type_vec))
+                }
+                _ => Err(quote_spanned! {
+                    name.span() => compile_error!("PmCopy cannot be derive on structs with unit fields")
+                }.into())
             }
         }
         syn::Data::Enum(data) => {
-            // println!("{:#?}", data);
-
             let mut variant_vec = Vec::new();
             let mut field_vec = Vec::new();
             let mut has_fields = false;
@@ -292,7 +506,7 @@ fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType
                 variant_vec.push(variant.ident.clone());
                 // handle the variant's fields, if there are any
                 match &variant.fields {
-                    syn::Fields::Unit => {},
+                    syn::Fields::Unit => field_vec.push(EnumVariantFields::Unit),
                     syn::Fields::Unnamed(fields) => {
                         has_fields = true;
                         let mut field_types = Vec::new();
@@ -327,7 +541,7 @@ fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<LayoutType
             let fields = &data.fields;
             for field in fields.named.iter() {
                 let ty = &field.ty;
-                type_vec.push(ty);
+                type_vec.push(ty.clone());
                 // The borrow checker is annoying about the fact that field.ident has type Option<Ident>,
                 // so we have to clone the ident to put it in the vector. We know that the ident is not 
                 // None because we've already established that the fields are named.
@@ -359,7 +573,7 @@ fn generate_static_assertions(name: &syn::Ident) -> proc_macro2::TokenStream {
 }
 
 // First return value is the exec code to find the largest field, second is corresponding spec code
-fn max_alignment_of_fields<'a>(types: &Vec<&'a syn::Type>) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+fn max_alignment_of_fields(types: &Vec<syn::Type>) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
     // The alignment of a repr(C) struct or union is the alignment of the most-aligned field in it (i.e. the field with the largest
     // alignment). We currently unroll all of the fields and check which has the largest alignment without using a loop;
     // to make the generated code more concise, we could put the alignments in an array and use a while loop over it 
@@ -391,7 +605,7 @@ fn max_alignment_of_fields<'a>(types: &Vec<&'a syn::Type>) -> (proc_macro2::Toke
     (exec_alignment, spec_alignment)
 }
 
-fn max_size_of_fields<'a>(name: &syn::Ident, types: &Vec<&'a syn::Type>) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+fn max_size_of_fields(name: &syn::Ident, types: &Vec<syn::Type>) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
     let mut exec_size_vec = Vec::new();
     for ty in types.iter() {
         let new_tokens = quote! {
@@ -421,13 +635,34 @@ fn max_size_of_fields<'a>(name: &syn::Ident, types: &Vec<&'a syn::Type>) -> (pro
     (exec_size, spec_size)
 }
 
+// NOTE: this function does not add the final token required to correctly calculate the size 
+fn exec_struct_size(types: &Vec<syn::Type>) -> Vec<proc_macro2::TokenStream> {
+    let mut exec_tokens_vec = Vec::new();
+    for ty in types.iter() {
+        let new_tokens = quote! {
+            let offset: usize = offset + <#ty>::SIZE + padding_needed(offset, <#ty>::ALIGN); 
+        };
+        exec_tokens_vec.push(new_tokens);
+    }
+    exec_tokens_vec
+}
+
+fn spec_struct_size(types: &Vec<syn::Type>) -> Vec<proc_macro2::TokenStream> {
+    let mut spec_tokens_vec = Vec::new();
+    for ty in types.iter() {
+        let new_tokens = quote! {
+            let offset: ::builtin::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
+        };
+        spec_tokens_vec.push(new_tokens);
+    }
+    spec_tokens_vec
+}
+
 // This function generates an implementation of PmSized. 
 // It also generates implementations for SpecPmSized, ConstPmSized,
 // UnsafeSpecPmSized, and two compile-time assertions to check that we calculate
 // the size of each type correctly.
-pub fn generate_pmsized_for_structs<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
-    let name = &ast.ident;
-
+pub fn generate_pmsized_for_structs(name: &syn::Ident, types: &Vec<syn::Type>) -> proc_macro2::TokenStream {
     // The size of a repr(C) struct is determined by the following algorithm, from the Rust reference:
     // https://doc.rust-lang.org/reference/type-layout.html#reprc-structs
     // "Start with a current offset of 0 bytes.
@@ -445,13 +680,8 @@ pub fn generate_pmsized_for_structs<'a>(ast: &syn::DeriveInput, types: &Vec<&'a 
     // trait impls is not mature enough and runs into panics in this project, so the const exec fns that calculate 
     // struct size can't be visible to the verifier. We could generate a non-associated constant fn for every 
     // struct that derives the trait, but generating such functions is tricky and ugly. 
-    let mut exec_tokens_vec = Vec::new();
-    for ty in types.iter() {
-        let new_tokens = quote! {
-            let offset: usize = offset + <#ty>::SIZE + padding_needed(offset, <#ty>::ALIGN); 
-        };
-        exec_tokens_vec.push(new_tokens);
-    }
+    
+    let mut exec_tokens_vec = exec_struct_size(types);
     let final_token = quote! {
         let offset: usize = offset + padding_needed(offset, <#name>::ALIGN);
     };
@@ -459,13 +689,7 @@ pub fn generate_pmsized_for_structs<'a>(ast: &syn::DeriveInput, types: &Vec<&'a 
 
     // We generate the size of a repr(C) struct in spec code using the same approach as in exec code, except we use 
     // spec functions to obtain the size, alignment, and padding needed. 
-    let mut spec_tokens_vec = Vec::new();
-    for ty in types.iter() {
-        let new_tokens = quote! {
-            let offset: ::builtin::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
-        };
-        spec_tokens_vec.push(new_tokens);
-    }
+    let mut spec_tokens_vec = spec_struct_size(types);
     let final_token = quote! {
         let offset: ::builtin::nat = offset + spec_padding_needed(offset, <#name>::spec_align_of());
     };
@@ -514,14 +738,13 @@ pub fn generate_pmsized_for_structs<'a>(ast: &syn::DeriveInput, types: &Vec<&'a 
         unsafe impl UnsafeSpecPmSized for #name {}
     };
 
-    Ok(gen)
+    gen
 }
 
-fn generate_pmsized_for_unions<'a>(
-    ast: &syn::DeriveInput, 
-    types: &Vec<&'a syn::Type>
-) -> Result<proc_macro2::TokenStream, TokenStream> {
-    let name = &ast.ident;
+fn generate_pmsized_for_unions(
+    name: &syn::Ident, 
+    types: &Vec<syn::Type>
+) -> proc_macro2::TokenStream {
     // The size of a repr(C) union is the maximum size 
     // of all of its fields rounded to its alignment, and 
     // its alignment is the maximum alignment of all of its fields.
@@ -574,7 +797,7 @@ fn generate_pmsized_for_unions<'a>(
         unsafe impl UnsafeSpecPmSized for #name {}
     };
 
-    Ok(gen)
+    gen
 }
 
 // This function generates the following for a type deriving PmCopy:
@@ -582,10 +805,8 @@ fn generate_pmsized_for_unions<'a>(
 // 2. A specification of `Clone::clone` that matches the generated impl
 // 3. An implementation of the `CloneProof` trait that makes it easier
 //    to reason about cloning generic PmCopy objects.
-pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>) -> Result<proc_macro2::TokenStream, TokenStream>
+pub fn generate_clone_proof_for_named_structs(name: &syn::Ident, names: &Vec<syn::Ident>) -> proc_macro2::TokenStream
 {
-    let name = &ast.ident;
-
     let first_n_names = &names[0..names.len()-1];
     let last_name = &names[names.len()-1];
 
@@ -623,7 +844,37 @@ pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>)
         
     };
 
-    Ok(gen)
+    gen
+}
+
+fn generate_clone_proof_for_unnamed_structs(
+    name: &syn::Ident,
+    types: &Vec<syn::Type>
+) -> proc_macro2::TokenStream {
+    let eq_and_clone_spec = generate_eq_and_clone_specs(&name);
+    let field_nums: Vec<usize> = (0..types.len()-1).collect();
+    let last_field_num = types.len()-1;
+
+    let gen = quote! {
+        impl Clone for #name {
+            fn clone(&self) -> Self 
+            {
+                *self
+            }
+        }
+
+        impl PartialEq for #name {
+            fn eq(&self, other: &Self) -> bool 
+            {
+                #( self.#field_nums == other.#field_nums && )*
+                self.#last_field_num == other.#last_field_num
+            }
+        }
+
+        #eq_and_clone_spec
+    };
+
+    gen
 }
 
 fn generate_clone_and_eq_proofs_for_fieldless_enum(
