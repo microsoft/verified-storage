@@ -51,6 +51,7 @@ use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_p
                                 lemma_mod_division_less_than_divisor};
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::mul::{lemma_mul_by_zero_is_zero, lemma_mul_inequality, lemma_mul_is_commutative};
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::num::*;
 use vstd::prelude::*;
 
