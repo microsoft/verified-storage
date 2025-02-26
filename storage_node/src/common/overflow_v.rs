@@ -4,6 +4,8 @@
 /// true value (not subject to overflow), so that the `view` function
 /// can provide the true value.
 ///
+/// It's a fully verified library, i.e., it contains no trusted code.
+///
 /// Here are some examples using `CheckedU64`.
 /// 
 /// ```ignore
@@ -45,9 +47,6 @@
 use builtin::*;
 use builtin_macros::*;
 
-#[cfg(verus_keep_ghost)]
-use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one,
-                                lemma_fundamental_div_mod, lemma_mod_division_less_than_divisor};
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::mul::{lemma_mul_by_zero_is_zero, lemma_mul_inequality, lemma_mul_is_commutative};
 #[cfg(verus_keep_ghost)]
