@@ -1151,7 +1151,7 @@ impl<PM, L> ListTable<PM, L>
             return Err(KvError::OutOfSpace);
         }
 
-        if idx != 0 || journal.remaining_capacity() < self.space_needed_to_journal_next {
+        if idx != 0 && journal.remaining_capacity() < self.space_needed_to_journal_next {
             self.must_abort = Ghost(true);
             return Err(KvError::OutOfSpace);
         }
