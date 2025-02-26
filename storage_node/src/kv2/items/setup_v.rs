@@ -4,7 +4,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::overflow_v::*;
+use crate::common::overflow_v::CheckedU64;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
@@ -42,11 +42,11 @@ impl<PM, I> ItemTable<PM, I>
         let row_item_end = CheckedU64::new(size_of::<I>() as u64);
         let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.num_keys);
-        let table_size = num_rows.mul_checked_u64(&row_item_crc_end);
+        let table_size = num_rows.mul_checked(&row_item_crc_end);
         let initial_space = if min_start.is_overflowed() { 0 } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
         };
-        CheckedU64::new(initial_space).add_checked_u64(&table_size)
+        CheckedU64::new(initial_space).add_checked(&table_size)
     }
     
     exec fn setup_given_metadata(
@@ -110,8 +110,8 @@ impl<PM, I> ItemTable<PM, I>
         let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.num_keys);
         let start = CheckedU64::new(min_start).align(size_of::<u64>());
-        let table_size = num_rows.mul_checked_u64(&row_item_crc_end);
-        let end = start.add_checked_u64(&table_size);
+        let table_size = num_rows.mul_checked(&row_item_crc_end);
+        let end = start.add_checked(&table_size);
     
         assert(end@ - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(table_size@ >= row_item_crc_end@) by {

@@ -225,7 +225,7 @@ pub exec fn reserve_specified_space_checked_u64(offset: &CheckedU64, size: &Chec
         })
 {
     let start = offset.align_u64(alignment);
-    let end = start.add_checked_u64(size);
+    let end = start.add_checked(size);
     (start, end)
 }
 

@@ -4,7 +4,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::overflow_v::*;
+use crate::common::overflow_v::CheckedU64;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
@@ -43,13 +43,13 @@ impl<PM, K> KeyTable<PM, K>
         let row_key_end = row_metadata_crc_end.add(size_of::<K>() as u64);
         let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.num_keys);
-        let table_size = num_rows.mul_checked_u64(&row_key_crc_end);
+        let table_size = num_rows.mul_checked(&row_key_crc_end);
         let initial_space: u64 = if min_start.is_overflowed() {
             0u64
         } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
         };
-        CheckedU64::new(initial_space).add_checked_u64(&table_size)
+        CheckedU64::new(initial_space).add_checked(&table_size)
     }
 
     exec fn setup_given_metadata(
@@ -171,8 +171,8 @@ impl<PM, K> KeyTable<PM, K>
         let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
         let start = CheckedU64::new(min_start).align(size_of::<u64>());
         let num_rows = ps.num_keys;
-        let space_required = CheckedU64::new(num_rows).mul_checked_u64(&row_key_crc_end);
-        let end = start.add_checked_u64(&space_required);
+        let space_required = CheckedU64::new(num_rows).mul_checked(&row_key_crc_end);
+        let end = start.add_checked(&space_required);
     
         assert(end@ - min_start@ == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(space_required@ >= row_key_crc_end@) by {

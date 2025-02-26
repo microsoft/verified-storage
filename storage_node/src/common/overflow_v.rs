@@ -1,11 +1,10 @@
-/// This file defines the `CheckedU32` and `CheckedU64`
-/// structs and their associated methods to handle `u32` and `u64`
-/// values that can overflow. Each struct includes a ghost value
-/// representing the true value (not subject to overflow), so that the
-/// `view` function can provide the true value.
+/// This file defines structs `CheckedU8`, `CheckedU16`, etc. and
+/// their associated methods to handle `u8`, `u16`, etc. values that
+/// can overflow. Each struct includes a ghost value representing the
+/// true value (not subject to overflow), so that the `view` function
+/// can provide the true value.
 ///
-/// Here are some examples using `CheckedU64`. (The type
-/// `CheckedU32` can be used analogously.)
+/// Here are some examples using `CheckedU64`.
 /// 
 /// ```ignore
 /// fn example1()
@@ -30,7 +29,7 @@
 /// {
 ///     let a_times_b = CheckedU64::new(a).mul(b);
 ///     let c_times_d = CheckedU64::new(c).mul(d);
-///     let sum_of_products = a_times_b.add_checked_u64(&c_times_d);
+///     let sum_of_products = a_times_b.add_checked(&c_times_d);
 ///     if sum_of_products.is_overflowed() {
 ///         assert(a * b + c * d > u64::MAX);
 ///         None
@@ -45,252 +44,275 @@
 
 use builtin::*;
 use builtin_macros::*;
-use std::ops::{Add, Mul};
+
 #[cfg(verus_keep_ghost)]
-use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one, lemma_fundamental_div_mod,
-                                lemma_mod_division_less_than_divisor};
+use vstd::arithmetic::div_mod::{lemma_div_is_ordered_by_denominator, lemma_div_plus_one,
+                                lemma_fundamental_div_mod, lemma_mod_division_less_than_divisor};
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::mul::{lemma_mul_by_zero_is_zero, lemma_mul_inequality, lemma_mul_is_commutative};
 #[cfg(verus_keep_ghost)]
 use vstd::std_specs::num::*;
 use vstd::prelude::*;
 
-verus! {
+macro_rules! checked_uint_gen {
 
-/// This struct represents a `u64` value that can overflow. The `i` field
-/// is a ghost value that represents the true value, while the `v` field
-/// is `None` when the value has overflowed and `Some(x)` when the value
-/// `x` fits in a `u64`.
-pub struct CheckedU64 {
-    i: Ghost<nat>,
-    v: Option<u64>,
-}
+    // This macro should be instantiated with the following parameters:
+    //
+    // $uty - The name of the `std` unsigned integer, e.g., `u64`
+    // $cty - The name of the checked struct to create, e.g., `CheckedU64`
 
-/// The view of an `CheckedU64` instance is the true value of the instance.
-impl View for CheckedU64
-{
-    type V = nat;
+    ($uty: ty, $cty: ty) => {
 
-    closed spec fn view(&self) -> nat
-    {
-        self.i@
-    }
-}
+        verus! {
 
-impl Clone for CheckedU64 {
-    /// Clones the `CheckedU64` instance.
-    /// Ensures the cloned instance has the same value as the original.
-    exec fn clone(&self) -> (result: Self)
-        ensures
-            result@ == self@
-    {
-        proof { use_type_invariant(self); }
-        Self{ i: self.i, v: self.v }
-    }
-}
-
-impl CheckedU64 {
-    /// This is the internal type invariant for an `CheckedU64`.
-    /// It ensures the key invariant that relates `i` and `v`.
-    #[verifier::type_invariant]
-    spec fn well_formed(self) -> bool
-    {
-        match self.v {
-            Some(v) => self.i@ == v,
-            None => self.i@ > u64::MAX,
-        }
-    }
-
-    /// Creates a new `CheckedU64` instance from a `u64` value.
-    /// Ensures the internal representation matches the provided value.
-    pub closed spec fn spec_new(v: u64) -> CheckedU64
-    {
-        CheckedU64{ i: Ghost(v as nat), v: Some(v) }
-    }
-
-    /// Creates a new `CheckedU64` instance from a `u64` value.
-    /// Ensures the internal representation matches the provided value.
-    #[verifier::when_used_as_spec(spec_new)]
-    pub exec fn new(v: u64) -> (result: Self)
-        ensures
-            result@ == v,
-    {
-        Self{ i: Ghost(v as nat), v: Some(v) }
-    }
-
-    /// Creates a new `CheckedU64` instance with an overflowed value.
-    /// Requires the provided value to be greater than `u64::MAX`.
-    /// Ensures the internal representation matches the provided value.
-    pub exec fn new_overflowed(Ghost(i): Ghost<int>) -> (result: Self)
-        requires
-            i > u64::MAX,
-        ensures
-            result@ == i,
-    {
-        Self{ i: Ghost(i as nat), v: None }
-    }
-
-    /// Checks if the `CheckedU64` instance is overflowed.
-    /// Returns true if the value is greater than `u64::MAX`.
-    pub open spec fn spec_is_overflowed(&self) -> bool
-    {
-        self@ > u64::MAX
-    }
-
-    /// Checks if the `CheckedU64` instance is overflowed.
-    /// Returns true if the value is greater than `u64::MAX`.
-    #[verifier::when_used_as_spec(spec_is_overflowed)]
-    pub exec fn is_overflowed(&self) -> (result: bool)
-        ensures
-            result == self.spec_is_overflowed()
-    {
-        proof { use_type_invariant(self) }
-        self.v.is_none()
-    }
-
-    /// Unwraps the `CheckedU64` instance to get the `u64` value.
-    /// Requires the instance to not be overflowed.
-    /// Ensures the returned value matches the internal representation.
-    pub exec fn unwrap(&self) -> (result: u64)
-        requires
-            !self.is_overflowed(),
-        ensures
-            result == self@,
-    {
-        proof { use_type_invariant(self) }
-        self.v.unwrap()
-    }
-
-    /// Converts the `CheckedU64` instance to an `Option<u64>`.
-    /// Ensures the returned option matches the internal representation.
-    pub exec fn to_option(&self) -> (result: Option<u64>)
-        ensures
-            match result {
-                Some(v) => self@ == v && v <= u64::MAX,
-                None => self@ > u64::MAX,
+            /// This struct represents a `$uty` value that can overflow. The `i` field
+            /// is a ghost value that represents the true value, while the `v` field
+            /// is `None` when the value has overflowed and `Some(x)` when the value
+            /// `x` fits in a `$uty`.
+            pub struct $cty {
+                i: Ghost<nat>,
+                v: Option<$uty>,
             }
-    {
-        proof { use_type_invariant(self); }
-        self.v
-    }
-
-    /// Adds a `u64` value to the `CheckedU64` instance.
-    /// Ensures the resulting value matches the sum of the internal representation and the provided value.
-    #[inline]
-    pub exec fn add(&self, v2: u64) -> (result: Self)
-        ensures
-            result@ == self@ + v2,
-    {
-        proof {
-            use_type_invariant(&self);
-        }
-        let i: Ghost<nat> = Ghost((&self@ + v2) as nat);
-        match self.v {
-            Some(v1) => Self{ i, v: v1.checked_add(v2) },
-            None => Self{ i, v: None },
-        }
-    }
-
-    /// Adds another `CheckedU64` instance to the current instance.
-    /// Ensures the resulting value matches the sum of the internal representations of both instances.
-    #[inline]
-    pub exec fn add_checked_u64(&self, v2: &CheckedU64) -> (result: Self)
-        ensures
-            result@ == self@ + v2@,
-    {
-        proof {
-            use_type_invariant(self);
-            use_type_invariant(v2);
-        }
-        let i: Ghost<nat> = Ghost((self@ + v2@) as nat);
-        match (self.v, v2.v) {
-            (Some(n1), Some(n2)) => Self{ i, v: n1.checked_add(n2) },
-            _ => Self{ i, v: None },
-        }
-    }
-
-    /// Multiplies the `CheckedU64` instance by a `u64` value.
-    /// Ensures the resulting value matches the product of the internal representation and the provided value.
-    #[inline]
-    pub exec fn mul(&self, v2: u64) -> (result: Self)
-        ensures
-            result@ == self@ as int * v2 as int,
-    {
-        proof {
-            use_type_invariant(self);
-        }
-        let i: Ghost<nat> = Ghost((self@ * v2) as nat);
-        match self.v {
-            Some(n1) => Self{ i, v: n1.checked_mul(v2) },
-            None => {
-                if v2 == 0 {
-                    assert(i@ == 0) by {
-                        lemma_mul_by_zero_is_zero(self@ as int);
-                    }
-                    Self{ i, v: Some(0) }
-                }
-                else {
-                    assert(self@ * v2 >= self@ * 1 == self@) by {
-                        lemma_mul_inequality(1, v2 as int, self@ as int);
-                        lemma_mul_is_commutative(self@ as int, v2 as int);
-                    }
-                    Self{ i, v: None }
-                }
-            },
-        }
-    }
-
-    /// Multiplies the `CheckedU64` instance by another `CheckedU64` instance.
-    /// Ensures the resulting value matches the product of the internal representations of both instances.
-    #[inline]
-    pub exec fn mul_checked_u64(&self, v2: &Self) -> (result: Self)
-        ensures
-            result@ == self@ as int * v2@ as int,
-    {
-        proof {
-            use_type_invariant(self);
-            use_type_invariant(v2);
-        }
-        let i: Ghost<nat> = Ghost((self@ * v2@) as nat);
-        match (self.v, v2.v) {
-            (Some(n1), Some(n2)) => Self{ i, v: n1.checked_mul(n2) },
-            (Some(n1), None) => {
-                if n1 == 0 {
-                    assert(i@ == 0) by {
-                        lemma_mul_by_zero_is_zero(v2@ as int);
-                    }
-                    Self{ i, v: Some(0) }
-                }
-                else {
-                    assert(self@ * v2@ >= 1 * v2@ == v2@) by {
-                        lemma_mul_inequality(1, self@ as int, v2@ as int);
-                    }
-                    Self{ i, v: None }
-                }
-            },
-            (None, Some(n2)) => {
-                if n2 == 0 {
-                    assert(i@ == 0) by {
-                        lemma_mul_by_zero_is_zero(self@ as int);
-                    }
-                    Self{ i, v: Some(0) }
-                }
-                else {
-                    assert(self@ * n2 >= self@ * 1 == self@) by {
-                        lemma_mul_inequality(1, n2 as int, self@ as int);
-                        lemma_mul_is_commutative(self@ as int, n2 as int);
-                    }
-                    Self{ i, v: None }
+            
+            /// The view of an `$cty` instance is the true value of the instance.
+            impl View for $cty
+            {
+                type V = nat;
+            
+                closed spec fn view(&self) -> nat
+                {
+                    self.i@
                 }
             }
-            (None, None) => {
-                assert(self@ * v2@ > u64::MAX) by {
-                    lemma_mul_inequality(1, self@ as int, v2@ as int);
+            
+            impl Clone for $cty {
+                /// Clones the `$cty` instance.
+                /// Ensures the cloned instance has the same value as the original.
+                exec fn clone(&self) -> (result: Self)
+                    ensures
+                        result@ == self@
+                {
+                    proof { use_type_invariant(self); }
+                    Self{ i: self.i, v: self.v }
                 }
-                Self{ i, v: None }
-            },
+            }
+            
+            impl $cty {
+                /// This is the internal type invariant for an `$cty`.
+                /// It ensures the key invariant that relates `i` and `v`.
+                #[verifier::type_invariant]
+                spec fn well_formed(self) -> bool
+                {
+                    match self.v {
+                        Some(v) => self.i@ == v,
+                        None => self.i@ > $uty::MAX,
+                    }
+                }
+            
+                /// Creates a new `$cty` instance from a `$uty` value.
+                /// Ensures the internal representation matches the provided value.
+                pub closed spec fn spec_new(v: $uty) -> $cty
+                {
+                    $cty{ i: Ghost(v as nat), v: Some(v) }
+                }
+            
+                /// Creates a new `$cty` instance from a `$uty` value.
+                /// Ensures the internal representation matches the provided value.
+                #[verifier::when_used_as_spec(spec_new)]
+                pub exec fn new(v: $uty) -> (result: Self)
+                    ensures
+                        result@ == v,
+                {
+                    Self{ i: Ghost(v as nat), v: Some(v) }
+                }
+            
+                /// Creates a new `$cty` instance with an overflowed value.
+                /// Requires the provided value to be greater than `$uty::MAX`.
+                /// Ensures the internal representation matches the provided value.
+                pub exec fn new_overflowed(Ghost(i): Ghost<int>) -> (result: Self)
+                    requires
+                        i > $uty::MAX,
+                    ensures
+                        result@ == i,
+                {
+                    Self{ i: Ghost(i as nat), v: None }
+                }
+            
+                /// Checks if the `$cty` instance is overflowed.
+                /// Returns true if the value is greater than `$uty::MAX`.
+                pub open spec fn spec_is_overflowed(&self) -> bool
+                {
+                    self@ > $uty::MAX
+                }
+            
+                /// Checks if the `$cty` instance is overflowed.
+                /// Returns true if the value is greater than `$uty::MAX`.
+                #[verifier::when_used_as_spec(spec_is_overflowed)]
+                pub exec fn is_overflowed(&self) -> (result: bool)
+                    ensures
+                        result == self.spec_is_overflowed()
+                {
+                    proof { use_type_invariant(self) }
+                    self.v.is_none()
+                }
+            
+                /// Unwraps the `$cty` instance to get the `$uty` value.
+                /// Requires the instance to not be overflowed.
+                /// Ensures the returned value matches the internal representation.
+                pub exec fn unwrap(&self) -> (result: $uty)
+                    requires
+                        !self.is_overflowed(),
+                    ensures
+                        result == self@,
+                {
+                    proof { use_type_invariant(self) }
+                    self.v.unwrap()
+                }
+            
+                /// Converts the `$cty` instance to an `Option<$uty>`.
+                /// Ensures the returned option matches the internal representation.
+                pub exec fn to_option(&self) -> (result: Option<$uty>)
+                    ensures
+                        match result {
+                            Some(v) => self@ == v && v <= $uty::MAX,
+                            None => self@ > $uty::MAX,
+                        }
+                {
+                    proof { use_type_invariant(self); }
+                    self.v
+                }
+            
+                /// Adds a `$uty` value to the `$cty` instance.
+                /// Ensures the resulting value matches the sum of
+                /// the internal representation and the provided
+                /// value.
+                #[inline]
+                pub exec fn add(&self, v2: $uty) -> (result: Self)
+                    ensures
+                        result@ == self@ + v2,
+                {
+                    proof {
+                        use_type_invariant(&self);
+                    }
+                    let i: Ghost<nat> = Ghost((&self@ + v2) as nat);
+                    match self.v {
+                        Some(v1) => Self{ i, v: v1.checked_add(v2) },
+                        None => Self{ i, v: None },
+                    }
+                }
+            
+                /// Adds another `$cty` instance to the current
+                /// instance. Ensures the resulting value matches
+                /// the sum of the internal representations of
+                /// both instances.
+                #[inline]
+                pub exec fn add_checked(&self, v2: &$cty) -> (result: Self)
+                    ensures
+                        result@ == self@ + v2@,
+                {
+                    proof {
+                        use_type_invariant(self);
+                        use_type_invariant(v2);
+                    }
+                    let i: Ghost<nat> = Ghost((self@ + v2@) as nat);
+                    match (self.v, v2.v) {
+                        (Some(n1), Some(n2)) => Self{ i, v: n1.checked_add(n2) },
+                        _ => Self{ i, v: None },
+                    }
+                }
+            
+                /// Multiplies the `$cty` instance by a `$uty`
+                /// value. Ensures the resulting value matches the
+                /// product of the internal representation and the
+                /// provided value.
+                #[inline]
+                pub exec fn mul(&self, v2: $uty) -> (result: Self)
+                    ensures
+                        result@ == self@ as int * v2 as int,
+                {
+                    proof {
+                        use_type_invariant(self);
+                    }
+                    let i: Ghost<nat> = Ghost((self@ * v2) as nat);
+                    match self.v {
+                        Some(n1) => Self{ i, v: n1.checked_mul(v2) },
+                        None => {
+                            if v2 == 0 {
+                                assert(i@ == 0) by {
+                                    lemma_mul_by_zero_is_zero(self@ as int);
+                                }
+                                Self{ i, v: Some(0) }
+                            }
+                            else {
+                                assert(self@ * v2 >= self@ * 1 == self@) by {
+                                    lemma_mul_inequality(1, v2 as int, self@ as int);
+                                    lemma_mul_is_commutative(self@ as int, v2 as int);
+                                }
+                                Self{ i, v: None }
+                            }
+                        },
+                    }
+                }
+            
+                /// Multiplies the `$cty` instance by another `$cty` instance.
+                /// Ensures the resulting value matches the product of the internal
+                /// representations of both instances.
+                #[inline]
+                pub exec fn mul_checked(&self, v2: &Self) -> (result: Self)
+                    ensures
+                        result@ == self@ as int * v2@ as int,
+                {
+                    proof {
+                        use_type_invariant(self);
+                        use_type_invariant(v2);
+                    }
+                    let i: Ghost<nat> = Ghost((self@ * v2@) as nat);
+                    match (self.v, v2.v) {
+                        (Some(n1), Some(n2)) => Self{ i, v: n1.checked_mul(n2) },
+                        (Some(n1), None) => {
+                            if n1 == 0 {
+                                assert(i@ == 0) by {
+                                    lemma_mul_by_zero_is_zero(v2@ as int);
+                                }
+                                Self{ i, v: Some(0) }
+                            }
+                            else {
+                                assert(self@ * v2@ >= 1 * v2@ == v2@) by {
+                                    lemma_mul_inequality(1, self@ as int, v2@ as int);
+                                }
+                                Self{ i, v: None }
+                            }
+                        },
+                        (None, Some(n2)) => {
+                            if n2 == 0 {
+                                assert(i@ == 0) by {
+                                    lemma_mul_by_zero_is_zero(self@ as int);
+                                }
+                                Self{ i, v: Some(0) }
+                            }
+                            else {
+                                assert(self@ * n2 >= self@ * 1 == self@) by {
+                                    lemma_mul_inequality(1, n2 as int, self@ as int);
+                                    lemma_mul_is_commutative(self@ as int, n2 as int);
+                                }
+                                Self{ i, v: None }
+                            }
+                        }
+                        (None, None) => {
+                            assert(self@ * v2@ > $uty::MAX) by {
+                                lemma_mul_inequality(1, self@ as int, v2@ as int);
+                            }
+                            Self{ i, v: None }
+                        },
+                    }
+                }
+            }
         }
     }
 }
 
-}
+checked_uint_gen!(u8, CheckedU8);
+checked_uint_gen!(u16, CheckedU16);
+checked_uint_gen!(u32, CheckedU32);
+checked_uint_gen!(u64, CheckedU64);
+checked_uint_gen!(u128, CheckedU128);
