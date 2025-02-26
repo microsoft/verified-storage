@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-proc-macro2 = "1.0.39"
+proc-macro2 = "1.0.93"
 syn = { version = "2.0", features = ["extra-traits"] }
 quote = "1.0"
 
