@@ -160,7 +160,7 @@ fn generate_pmsized_for_enums_with_fields(
 
     for (variant, variant_fields) in variants.iter().zip(fields.iter()) {
         // TODO: what should spans be in here?
-        let struct_name = syn::Ident::new(&format!("{}_{}_fields", name.to_string(), variant), variant.span());
+        let struct_name = syn::Ident::new(&format!("{}{}Fields", name.to_string(), variant), variant.span());
         let static_assertions = generate_static_assertions(&struct_name);
         
         payload_struct_names.push(struct_name.clone());
@@ -168,7 +168,6 @@ fn generate_pmsized_for_enums_with_fields(
 
         match variant_fields {
             EnumVariantFields::Unit => {
-                
                 let gen = quote! {
                     ::builtin_macros::verus! {
                         #[repr(C)]
@@ -228,12 +227,16 @@ fn generate_pmsized_for_enums_with_fields(
             }
             EnumVariantFields::Named(types, names) => {
                 let impls = generate_impls_for_named_struct(&struct_name, types, names);
+                let mut lowercase_names = Vec::new();
+                for n in names.iter() {
+                    lowercase_names.push(syn::Ident::new(&n.to_string().to_lowercase(), n.span()));
+                }
                 let gen = quote! {
                     ::builtin_macros::verus! {
                         #[repr(C)]
                         #[derive(Copy)]
                         struct #struct_name {
-                            #( #names: #types, )*
+                            #( #lowercase_names: #types, )*
                         }
                     }
 
@@ -244,17 +247,20 @@ fn generate_pmsized_for_enums_with_fields(
         }
     }
 
+    let mut lowercase_variant_names = Vec::new();
+    for v in variants {
+        lowercase_variant_names.push(syn::Ident::new(&v.to_string().to_lowercase(), v.span()));
+    }
+
     // generate the union of payload structs and impls for it
-    // TODO: just call the union generate fn?
-    let union_name = syn::Ident::new(&format!("{}_field_union", name.to_string()), name.span());
-    // let union_pmsized = generate_pmsized_for_unions(&union_name, &payload_struct_types);
-    let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &variants);
+    let union_name = syn::Ident::new(&format!("{}FieldUnion", name.to_string()), name.span());
+    let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &lowercase_variant_names);
     let payload_union = quote! {
         ::builtin_macros::verus! {
             #[repr(C)]
             #[derive(Copy)]
             union #union_name {
-                #( #variants: #payload_struct_names, )*
+                #( #lowercase_variant_names: #payload_struct_names, )*
             }
         }
 
@@ -262,7 +268,7 @@ fn generate_pmsized_for_enums_with_fields(
     };
 
     // generate the discriminant enum definition and impls
-    let discriminant_enum_name = syn::Ident::new(&format!("{}_enum_discriminant", name.to_string()), name.span());
+    let discriminant_enum_name = syn::Ident::new(&format!("{}EnumDiscriminant", name.to_string()), name.span());
     let discriminant_enum_impls = generate_impls_for_fieldless_enum(&discriminant_enum_name, &variants);
     let discriminant_enum = quote! {
         ::builtin_macros::verus!{ 
@@ -279,7 +285,7 @@ fn generate_pmsized_for_enums_with_fields(
     let final_struct_field_names = vec![syn::Ident::new("tag", name.span()), syn::Ident::new("payload", name.span())];
     let final_struct_field_types = vec![syn::Type::Verbatim(quote! {#discriminant_enum_name} ), syn::Type::Verbatim(quote! {#union_name} )];
     
-    let final_struct_name = syn::Ident::new(&format!("{}_layout_struct", name.to_string()), name.span());
+    let final_struct_name = syn::Ident::new(&format!("{}LayoutStruct", name.to_string()), name.span());
     let final_struct_impls = generate_impls_for_named_struct(
         &final_struct_name, &final_struct_field_types, &final_struct_field_names);
 
@@ -400,8 +406,6 @@ fn generate_impls_for_enum_with_fields(
     match pmsafe {
         Ok(pmsafe) => {
             let pmsized = generate_pmsized_for_enums_with_fields(name, variants, fields);
-
-            // TODO: finish this up!
             let gen = quote! {
                 #pmsafe
 
@@ -482,6 +486,7 @@ pub fn check_pmsafe(name: &syn::Ident, types: &Vec<syn::Type>) -> Result<proc_ma
 // values to PM.
 pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(), TokenStream>  
 {
+    let mut has_repr_c = false;
     // look for an attribute with "repr(C)"
     for attr in attrs {
         let meta = &attr.meta;
@@ -493,7 +498,12 @@ pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(
                         match token {
                             proc_macro::TokenTree::Ident(ident) => {
                                 if ident.to_string() == "C" {
-                                    return Ok(());
+                                    has_repr_c = true;
+                                } else {
+                                    return Err(quote_spanned! {
+                                        ident.span().into() =>
+                                        compile_error!("PmCopy currently does not support representations other than repr(C).");
+                                    }.into());
                                 }
                             }
                             _ => {}
@@ -504,10 +514,14 @@ pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(
             _ => {}
         }
     }
-    Err(quote_spanned! {
-        name.span() =>
-        compile_error!("PmSafe can only be derived for types with repr(C)");
-    }.into())
+    if has_repr_c {
+        Ok(())
+    } else {
+        Err(quote_spanned! {
+            name.span() =>
+            compile_error!("PmSafe can only be derived for types with repr(C)");
+        }.into())
+    }
 }
 
 // This function obtains a list of the types of the fields of a structure. We do not
@@ -867,7 +881,6 @@ pub fn generate_clone_proof_for_named_structs(name: &syn::Ident, names: &Vec<syn
         // all fields must also implement PmSafe and thus also have a generated
         // Clone impl, so the clone calls on fields will also give the 
         // expected output.
-        // TODO: just *self would be the same, right? is there any real difference?
         impl Clone for #name {
             fn clone(&self) -> Self 
             {

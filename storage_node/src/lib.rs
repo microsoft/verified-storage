@@ -8,8 +8,6 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unused_mut)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
 
 use builtin::*;
 use builtin_macros::*;
@@ -80,7 +78,6 @@ pub exec fn generate_fresh_id() -> (out: u128)
 }
 
 // TODO @hayley
-// - disallow combining repr c with primitive representations (at least for now)
 // - move PmCopy and related trait defs in to pmsafe crate
 
 // These definitions test PmCopy-generated static assertions for various different types
@@ -145,9 +142,25 @@ enum TestEnum7 {
     V4 {f0: u128, f1: u16}
 }
 
+// #[repr(C,u8)]
+// #[derive(PmCopy, Copy)]
+// enum TestEnum8 {
+//     V1,
+// }
+
 #[repr(C)]
 #[derive(PmCopy, Copy)]
 struct TestUnnamedFieldStruct(u8, u128, u16);
+
+
+pub type PmemOffset = u128;
+#[repr(C)]
+#[derive(Copy, Debug, PmCopy)]
+pub enum BlockOffsetType {
+    None,
+    InPMem(PmemOffset),
+    InFile,
+}
 
 // // this function is defined outside of the test module so that we can both
 // // run verification on it and call it in a test to ensure that all operations
