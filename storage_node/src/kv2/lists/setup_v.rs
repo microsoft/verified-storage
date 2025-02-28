@@ -44,7 +44,7 @@ impl<PM, L> ListTable<PM, L>
         let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
         let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
         let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
-        let num_rows = CheckedU64::new(ps.max_list_entries);
+        let num_rows = CheckedU64::new(ps.max_list_elements);
         let table_size = num_rows.mul_checked(&row_size);
         let initial_space = if min_start.is_overflowed() { 0 } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
@@ -104,7 +104,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& sm.valid::<L>()
                     &&& min_start <= sm.start() <= sm.end() <= max_end
                     &&& sm.end() - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)
-                    &&& sm.num_rows() == ps.max_list_entries
+                    &&& sm.num_rows() == ps.max_list_elements
                 },
                 Err(KvError::OutOfSpace) =>
                     max_end - min_start < Self::spec_space_needed_for_setup(*ps, min_start as nat),
@@ -123,13 +123,13 @@ impl<PM, L> ListTable<PM, L>
         let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
         let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
         let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
-        let num_rows = CheckedU64::new(ps.max_list_entries);
+        let num_rows = CheckedU64::new(ps.max_list_elements);
         let table_size = num_rows.mul_checked(&row_size);
         let end = start.add_checked(&table_size);
     
         assert(end@ - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(table_size@ >= row_size@) by {
-            vstd::arithmetic::mul::lemma_mul_ordering(ps.max_list_entries as int, row_size@ as int);
+            vstd::arithmetic::mul::lemma_mul_ordering(ps.max_list_elements as int, row_size@ as int);
         }
     
         if end.is_overflowed() {
@@ -143,7 +143,7 @@ impl<PM, L> ListTable<PM, L>
         let table = TableMetadata::new(
             start.unwrap(),
             end.unwrap(),
-            ps.max_list_entries,
+            ps.max_list_elements,
             row_size.unwrap(),
         );
         let sm = ListTableStaticMetadata {

@@ -69,7 +69,7 @@ pub struct SetupParameters {
     pub kvstore_id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub max_keys: u64,
-    pub max_list_entries: u64,
+    pub max_list_elements: u64,
     pub max_operations_per_transaction: u64,
 }
 
@@ -77,7 +77,7 @@ impl SetupParameters {
     pub open spec fn valid(self) -> bool
     {
         &&& 0 < self.max_keys
-        &&& 0 < self.max_list_entries
+        &&& 0 < self.max_list_elements
         &&& 0 < self.max_operations_per_transaction
     }
 }
@@ -100,15 +100,15 @@ pub trait LogicalRange {
         ;
 }
 
-pub open spec fn end_of_range<L>(list_entries: Seq<L>) -> usize
+pub open spec fn end_of_range<L>(list_elements: Seq<L>) -> usize
     where
         L: LogicalRange
 {
-    if list_entries.len() == 0 {
+    if list_elements.len() == 0 {
         0
     }
     else {
-        list_entries.last().end()
+        list_elements.last().end()
     }
 }
 
@@ -190,7 +190,7 @@ where
         }
     }
 
-    pub open spec fn read_list_entry_at_index(self, key: K, idx: nat) -> Result<L, KvError>
+    pub open spec fn read_list_element_at_index(self, key: K, idx: nat) -> Result<L, KvError>
     {
         if self.m.contains_key(key) {
             let (item, list) = self.m[key];
@@ -241,23 +241,23 @@ where
 
     }
 
-    pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError>
+    pub open spec fn append_to_list(self, key: K, new_list_element: L) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
-            Ok((item, list_entries)) => {
-                let end_of_valid_range = end_of_range(list_entries);
-                if new_list_entry.start() < end_of_valid_range {
+            Ok((item, list_elements)) => {
+                let end_of_valid_range = end_of_range(list_elements);
+                if new_list_element.start() < end_of_valid_range {
                     Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
                 }
                 else if {
                     &&& self.logical_range_gaps_policy is LogicalRangeGapsForbidden
-                    &&& new_list_entry.start() > end_of_valid_range
+                    &&& new_list_element.start() > end_of_valid_range
                 } {
                     Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
                 }
                 else {
                     Ok(Self {
-                        m: self.m.insert(key, (item, list_entries.push(new_list_entry))),
+                        m: self.m.insert(key, (item, list_elements.push(new_list_element))),
                         ..self
                     })
                 }
@@ -266,24 +266,24 @@ where
         }
     }
 
-    pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I)
+    pub open spec fn append_to_list_and_update_item(self, key: K, new_list_element: L, new_item: I)
                                                     -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
-            Ok((item, list_entries)) => {
-                let end_of_valid_range = end_of_range(list_entries);
-                if new_list_entry.start() < end_of_valid_range {
+            Ok((item, list_elements)) => {
+                let end_of_valid_range = end_of_range(list_elements);
+                if new_list_element.start() < end_of_valid_range {
                     Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
                 }
                 else if {
                     &&& self.logical_range_gaps_policy is LogicalRangeGapsForbidden
-                    &&& new_list_entry.start() > end_of_valid_range
+                    &&& new_list_element.start() > end_of_valid_range
                 } {
                     Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range })
                 }
                 else {
                     Ok(Self {
-                        m: self.m.insert(key, (new_item, list_entries.push(new_list_entry))),
+                        m: self.m.insert(key, (new_item, list_elements.push(new_list_element))),
                         ..self
                     })
                 }
@@ -292,25 +292,25 @@ where
         }
     }
 
-    pub open spec fn update_list_entry_at_index(self, key: K, idx: nat, new_list_entry: L) -> Result<Self, KvError>
+    pub open spec fn update_list_element_at_index(self, key: K, idx: nat, new_list_element: L) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
-            Ok((item, list_entries)) =>
-                if idx >= list_entries.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
+            Ok((item, list_elements)) =>
+                if idx >= list_elements.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_elements.len() as usize })
                 }
                 else {
-                    let old_list_entry = list_entries[idx as int];
-                    if old_list_entry.start() != new_list_entry.start() || old_list_entry.end() != new_list_entry.end() {
-                        Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_entry.start(),
-                                                                   old_end: old_list_entry.end(),
-                                                                   new_start: new_list_entry.start(),
-                                                                   new_end: new_list_entry.end() })
+                    let old_list_element = list_elements[idx as int];
+                    if old_list_element.start() != new_list_element.start() || old_list_element.end() != new_list_element.end() {
+                        Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_element.start(),
+                                                                   old_end: old_list_element.end(),
+                                                                   new_start: new_list_element.start(),
+                                                                   new_end: new_list_element.end() })
                     }
                     else {
-                        let new_list_entries = list_entries.update(idx as int, new_list_entry);
+                        let new_list_elements = list_elements.update(idx as int, new_list_element);
                         Ok(Self {
-                            m: self.m.insert(key, (item, new_list_entries)),
+                            m: self.m.insert(key, (item, new_list_elements)),
                             ..self
                         })
                     }
@@ -319,26 +319,26 @@ where
         }
     }
 
-    pub open spec fn update_list_entry_at_index_and_item(self, key: K, idx: nat, new_list_entry: L, new_item: I)
+    pub open spec fn update_list_element_at_index_and_item(self, key: K, idx: nat, new_list_element: L, new_item: I)
                                                          -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
-            Ok((item, list_entries)) => {
-                if idx >= list_entries.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
+            Ok((item, list_elements)) => {
+                if idx >= list_elements.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_elements.len() as usize })
                 }
                 else {
-                    let old_list_entry = list_entries[idx as int];
-                    if old_list_entry.start() != new_list_entry.start() || old_list_entry.end() != new_list_entry.end() {
-                        Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_entry.start(),
-                                                                   old_end: old_list_entry.end(),
-                                                                   new_start: new_list_entry.start(),
-                                                                   new_end: new_list_entry.end() })
+                    let old_list_element = list_elements[idx as int];
+                    if old_list_element.start() != new_list_element.start() || old_list_element.end() != new_list_element.end() {
+                        Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_element.start(),
+                                                                   old_end: old_list_element.end(),
+                                                                   new_start: new_list_element.start(),
+                                                                   new_end: new_list_element.end() })
                     }
                     else {
-                        let new_list_entries = list_entries.update(idx as int, new_list_entry);
+                        let new_list_elements = list_elements.update(idx as int, new_list_element);
                         Ok(Self {
-                            m: self.m.insert(key, (new_item, new_list_entries)),
+                            m: self.m.insert(key, (new_item, new_list_elements)),
                             ..self
                         })
                     }
@@ -351,14 +351,14 @@ where
     pub open spec fn trim_list(self, key: K, trim_length: nat) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
-            Ok((item, list_entries)) =>
-                if trim_length > list_entries.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
+            Ok((item, list_elements)) =>
+                if trim_length > list_elements.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_elements.len() as usize })
                 }
                 else {
-                    let new_list_entries = list_entries.skip(trim_length as int);
+                    let new_list_elements = list_elements.skip(trim_length as int);
                     Ok(Self {
-                        m: self.m.insert(key, (item, new_list_entries)),
+                        m: self.m.insert(key, (item, new_list_elements)),
                         ..self
                     })
                 },
@@ -369,14 +369,14 @@ where
     pub open spec fn trim_list_and_update_item(self, key: K, trim_length: nat, new_item: I) -> Result<Self, KvError>
     {
         match self.read_item_and_list(key) {
-            Ok((item, list_entries)) =>
-                if trim_length > list_entries.len() {
-                    Err(KvError::IndexOutOfRange{ upper_bound: list_entries.len() as usize })
+            Ok((item, list_elements)) =>
+                if trim_length > list_elements.len() {
+                    Err(KvError::IndexOutOfRange{ upper_bound: list_elements.len() as usize })
                 }
                 else {
-                    let new_list_entries = list_entries.skip(trim_length as int);
+                    let new_list_elements = list_elements.skip(trim_length as int);
                     Ok(Self {
-                        m: self.m.insert(key, (new_item, new_list_entries)),
+                        m: self.m.insert(key, (new_item, new_list_elements)),
                         ..self
                     })
                 },
@@ -396,7 +396,7 @@ pub struct KvStoreView<K, I, L>
     pub id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub max_keys: u64,
-    pub max_list_entries: u64,
+    pub max_list_elements: u64,
     pub max_operations_per_transaction: u64,
     pub pm_constants: PersistentMemoryConstants,
     pub durable: AtomicKvStore<K, I, L>,

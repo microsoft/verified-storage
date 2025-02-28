@@ -258,7 +258,7 @@ impl<L> ListTableInternalView<L>
                 let new_row_addr = self.free_list.last();
                 let new_head = if idx == 0 { new_row_addr } else { list_addr };
                 self.update(list_addr, idx, new_element).tentative_mapping.as_snapshot() ==
-                    self.tentative_mapping.as_snapshot().update_entry_at_index(list_addr, new_head, idx, new_element)
+                    self.tentative_mapping.as_snapshot().update_element_at_index(list_addr, new_head, idx, new_element)
             }),
     {
         let new_self = self.update(list_addr, idx, new_element);
@@ -268,7 +268,7 @@ impl<L> ListTableInternalView<L>
         let new_row_addr = self.free_list.last();
         let new_head = if idx == 0 { new_row_addr } else { list_addr };
 
-        assert(new_snapshot =~= old_snapshot.update_entry_at_index(list_addr, new_head, idx, new_element));
+        assert(new_snapshot =~= old_snapshot.update_element_at_index(list_addr, new_head, idx, new_element));
         assert(new_row_addr > 0) by {
             broadcast use group_validate_row_addr;
         }
@@ -947,7 +947,7 @@ impl<PM, L> ListTable<PM, L>
             new_iv.corresponds_to_tentative_state(new_jv.commit_state, sm),
             new_iv.consistent_with_journaled_addrs(new_jv.journaled_addrs, sm),
             new_iv.tentative_mapping.as_snapshot() ==
-                old_iv.tentative_mapping.as_snapshot().update_entry_at_index(list_addr, new_list_addr,
+                old_iv.tentative_mapping.as_snapshot().update_element_at_index(list_addr, new_list_addr,
                                                                              idx, new_element),
             ({
                 let old_list = old_iv.tentative_mapping.as_snapshot().m[list_addr];
@@ -1001,7 +1001,7 @@ impl<PM, L> ListTable<PM, L>
             new_list_addr != 0,
             new_list_addr == list_addr || new_list_addr == old(self).free_list@.last(),
             self@ == (ListTableView {
-                tentative: Some(old(self)@.tentative.unwrap().update_entry_at_index(list_addr, new_list_addr,
+                tentative: Some(old(self)@.tentative.unwrap().update_element_at_index(list_addr, new_list_addr,
                                                                                   idx, new_element)),
                 ..old(self)@
             }),
@@ -1102,7 +1102,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& old_list[idx as int].start() == new_element.start()
                     &&& old_list[idx as int].end() == new_element.end()
                     &&& self@ == (ListTableView {
-                        tentative: Some(old(self)@.tentative.unwrap().update_entry_at_index(list_addr, new_list_addr,
+                        tentative: Some(old(self)@.tentative.unwrap().update_element_at_index(list_addr, new_list_addr,
                                                                                           idx, new_element)),
                         ..old(self)@
                     })

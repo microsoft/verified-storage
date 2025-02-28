@@ -152,7 +152,7 @@ where
         key: &K,
         key_addr: u64,
         former_rm: &KeyTableRowMetadata,
-        new_list_entry: L,
+        new_list_element: L,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<u64, KvError>)
         requires
@@ -175,15 +175,15 @@ where
                     &&& self.lists@ == ListTableView { tentative: self.lists@.tentative, ..old(self).lists@ }
                     &&& self.lists@.tentative is Some
                     &&& self.lists@.tentative.unwrap() == if former_rm.list_addr == 0 {
-                        old(self).lists@.tentative.unwrap().create_singleton(list_addr, new_list_entry)
+                        old(self).lists@.tentative.unwrap().create_singleton(list_addr, new_list_element)
                     } else {
-                        old(self).lists@.tentative.unwrap().append(former_rm.list_addr, list_addr, new_list_entry)
+                        old(self).lists@.tentative.unwrap().append(former_rm.list_addr, list_addr, new_list_element)
                     }
                     &&& match self.lists@.logical_range_gaps_policy {
                         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            new_list_entry.start() == end_of_range(old_list),
+                            new_list_element.start() == end_of_range(old_list),
                         LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
-                            new_list_entry.start() >= end_of_range(old_list),
+                            new_list_element.start() >= end_of_range(old_list),
                     }
                     &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
                                                             self.lists@.sm.end() as int)
@@ -200,7 +200,7 @@ where
                 Err(e) => {
                     &&& self.valid()
                     &&& self@ == old(self)@
-                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Err(e_spec)
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Err(e_spec)
                     &&& e == e_spec
                 },
             },
@@ -215,10 +215,10 @@ where
         let result =
             if former_rm.list_addr == 0 {
                 assert(end_of_range(Seq::<L>::empty()) == 0);
-                self.lists.create_singleton(new_list_entry, &mut self.journal, Tracked(perm))
+                self.lists.create_singleton(new_list_element, &mut self.journal, Tracked(perm))
             }
             else {
-                self.lists.append(former_rm.list_addr, new_list_entry, &mut self.journal, Tracked(perm))
+                self.lists.append(former_rm.list_addr, new_list_element, &mut self.journal, Tracked(perm))
             };
         proof { self.lemma_reflect_list_table_update(self_before_list_append); }
 
@@ -251,7 +251,7 @@ where
     pub exec fn tentatively_append_to_list(
         &mut self,
         key: &K,
-        new_list_entry: L,
+        new_list_element: L,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires
@@ -262,7 +262,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Ok(new_self)
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
@@ -274,7 +274,7 @@ where
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
-                    &&& old(self)@.tentative.append_to_list(*key, new_list_entry) matches Err(e_spec)
+                    &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Err(e_spec)
                     &&& e == e_spec
                 },
             },
@@ -288,7 +288,7 @@ where
             None => { return Err(KvError::KeyNotFound); },
         };
 
-        let list_addr = match self.tentatively_append_to_list_step1(key, key_addr, &former_rm, new_list_entry,
+        let list_addr = match self.tentatively_append_to_list_step1(key, key_addr, &former_rm, new_list_element,
                                                                     Tracked(perm)) {
             Ok(a) => a,
             Err(e) => { return Err(e); },
@@ -313,14 +313,14 @@ where
 
         self.status = Ghost(KvStoreStatus::Quiescent);
 
-        assert(self@.tentative =~= old(self)@.tentative.append_to_list(*key, new_list_entry).unwrap());
+        assert(self@.tentative =~= old(self)@.tentative.append_to_list(*key, new_list_element).unwrap());
         Ok(())
     }
 
     pub exec fn tentatively_append_to_list_and_update_item(
         &mut self,
         key: &K,
-        new_list_entry: L,
+        new_list_element: L,
         new_item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
@@ -332,7 +332,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -345,7 +345,7 @@ where
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
-                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item)
+                    &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -360,7 +360,7 @@ where
             None => { return Err(KvError::KeyNotFound); },
         };
 
-        let list_addr = match self.tentatively_append_to_list_step1(key, key_addr, &former_rm, new_list_entry,
+        let list_addr = match self.tentatively_append_to_list_step1(key, key_addr, &former_rm, new_list_element,
                                                                     Tracked(perm)) {
             Ok(a) => a,
             Err(e) => { return Err(e); },
@@ -403,15 +403,15 @@ where
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~=
-               old(self)@.tentative.append_to_list_and_update_item(*key, new_list_entry, *new_item).unwrap());
+               old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item).unwrap());
         Ok(())
     }
 
-    pub exec fn tentatively_update_list_entry_at_index(
+    pub exec fn tentatively_update_list_element_at_index(
         &mut self,
         key: &K,
         idx: usize,
-        new_list_entry: L,
+        new_list_element: L,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
         requires
@@ -422,7 +422,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                    &&& old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -435,7 +435,7 @@ where
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
-                    &&& old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry)
+                    &&& old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element)
                         matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -457,7 +457,7 @@ where
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
         let ghost self_before_list_update = self.lemma_prepare_for_list_table_update(perm);
-        let result = self.lists.update(former_rm.list_addr, idx, new_list_entry, &mut self.journal, Tracked(perm));
+        let result = self.lists.update(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(perm));
         proof { self.lemma_reflect_list_table_update(self_before_list_update); }
 
         let list_addr = match result {
@@ -503,15 +503,15 @@ where
         self.status = Ghost(KvStoreStatus::Quiescent);
 
         assert(self@.tentative =~=
-               old(self)@.tentative.update_list_entry_at_index(*key, idx as nat, new_list_entry).unwrap());
+               old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element).unwrap());
         Ok(())
     }
 
-    pub exec fn tentatively_update_list_entry_at_index_and_item(
+    pub exec fn tentatively_update_list_element_at_index_and_item(
         &mut self,
         key: &K,
         idx: usize,
-        new_list_entry: L,
+        new_list_element: L,
         new_item: &I,
         Tracked(perm): Tracked<&TrustedKvPermission>
     ) -> (result: Result<(), KvError>)
@@ -523,7 +523,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
+                    &&& old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat, new_list_element,
                                                                               *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -536,7 +536,7 @@ where
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
-                    &&& old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat, new_list_entry,
+                    &&& old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat, new_list_element,
                                                                              *new_item) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -558,7 +558,7 @@ where
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
         let ghost self_before_list_update = self.lemma_prepare_for_list_table_update(perm);
-        let result = self.lists.update(former_rm.list_addr, idx, new_list_entry, &mut self.journal, Tracked(perm));
+        let result = self.lists.update(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(perm));
         proof { self.lemma_reflect_list_table_update(self_before_list_update); }
 
         let list_addr = match result {
@@ -621,8 +621,8 @@ where
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~=
-               old(self)@.tentative.update_list_entry_at_index_and_item(*key, idx as nat,
-                                                                      new_list_entry, *new_item).unwrap());
+               old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat,
+                                                                      new_list_element, *new_item).unwrap());
         Ok(())
     }
 

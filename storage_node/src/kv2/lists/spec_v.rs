@@ -51,8 +51,8 @@ impl<L> ListTableSnapshot<L>
         Self{ m: self.m.insert(new_list_addr, seq![new_element]) }
     }
 
-    pub open spec fn update_entry_at_index(&self, old_list_addr: u64, new_list_addr: u64, idx: usize,
-                                           new_element: L) -> Self
+    pub open spec fn update_element_at_index(&self, old_list_addr: u64, new_list_addr: u64, idx: usize,
+                                             new_element: L) -> Self
     {
         let new_list = self.m[old_list_addr].update(idx as int, new_element);
         Self{ m: self.m.remove(old_list_addr).insert(new_list_addr, new_list) }

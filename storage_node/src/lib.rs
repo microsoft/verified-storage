@@ -644,7 +644,7 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
     let kv_file_name = "test_kv";
 
     let max_keys = 16;
-    let max_list_entries = 16;
+    let max_list_elements = 16;
 
     // delete the test file if it already exists. Ignore the result,
     // since it's ok if the file doesn't exist.
@@ -656,7 +656,7 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
         kvstore_id,
         logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsForbidden,
         max_keys,
-        max_list_entries,
+        max_list_elements,
         max_operations_per_transaction: 4,
     };
    let region_size = match KvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>

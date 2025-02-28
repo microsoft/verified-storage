@@ -31,7 +31,7 @@ exec fn check_setup_parameters(ps: &SetupParameters) -> (result: bool)
         result == ps.valid(),
 {
     if ps.max_keys == 0 { false }
-    else if ps.max_list_entries == 0 { false }
+    else if ps.max_list_elements == 0 { false }
     else if ps.max_operations_per_transaction == 0 { false }
     else { true }
 }
@@ -197,7 +197,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             id: ps.kvstore_id,
             encoded_policies: encode_policies(&ps.logical_range_gaps_policy),
             max_keys: ps.max_keys,
-            max_list_entries: ps.max_list_entries,
+            max_list_elements: ps.max_list_elements,
             max_operations_per_transaction: ps.max_operations_per_transaction,
             keys: key_sm,
             items: item_sm,
