@@ -74,6 +74,9 @@ where
         KvStoreView {
             id: self.id,
             logical_range_gaps_policy: self.lists@.logical_range_gaps_policy,
+            max_keys: self.sm@.max_keys,
+            max_list_entries: self.sm@.max_list_entries,
+            max_operations_per_transaction: self.sm@.max_operations_per_transaction,
             pm_constants: self.journal@.pm_constants,
             durable: combine_component_snapshots(
                 self.id,

@@ -86,6 +86,9 @@ pub struct KvStaticMetadata
 {
     pub id: u128,
     pub encoded_policies: u64,
+    pub max_keys: u64,
+    pub max_list_entries: u64,
+    pub max_operations_per_transaction: u64,
     pub keys: KeyTableStaticMetadata,
     pub items: ItemTableStaticMetadata,
     pub lists: ListTableStaticMetadata,
@@ -105,6 +108,9 @@ impl KvStaticMetadata
         &&& self.keys.num_rows() == self.items.num_rows()
         &&& self.keys.end() <= self.items.start()
         &&& self.items.end() <= self.lists.start()
+        &&& self.keys.num_rows() >= self.max_keys
+        &&& self.items.num_rows() >= self.max_keys
+        &&& self.lists.num_rows() >= self.max_list_entries
         &&& decode_policies(self.encoded_policies) is Some
     }
 }
@@ -148,6 +154,9 @@ pub(super) open spec fn recover_static_metadata<K, I, L>(bytes: Seq<u8>, jc: Jou
 pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
     id: u128,
     logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    max_keys: u64,
+    max_list_entries: u64,
+    max_operations_per_transaction: u64,
     keys: Map<K, KeyTableRowMetadata>,
     items: Map<u64, I>,
     lists: Map<u64, Seq<L>>,
@@ -191,7 +200,8 @@ pub(super) open spec fn recover_kv_from_static_metadata<PM, K, I, L>(bytes: Seq<
                             match decode_policies(sm.encoded_policies) {
                                 None => None,
                                 Some(policy) => recover_kv_from_keys_items_and_lists::<PM, K, I, L>(
-                                    sm.id, policy, keys.key_info, items.m, lists.m
+                                    sm.id, policy, sm.max_keys, sm.max_list_entries,
+                                    sm.max_operations_per_transaction, keys.key_info, items.m, lists.m
                                 ),
                             }
                         },

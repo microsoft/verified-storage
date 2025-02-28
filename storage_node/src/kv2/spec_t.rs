@@ -131,9 +131,13 @@ where
     K: std::fmt::Debug,
     L: LogicalRange,
 {
-    pub open spec fn init(id: u128, logical_range_gaps_policy: LogicalRangeGapsPolicy) -> Self
+    pub open spec fn init(ps: SetupParameters) -> Self
     {
-        Self{ id, logical_range_gaps_policy, m: Map::<K, (I, Seq<L>)>::empty() }
+        Self{
+            id: ps.kvstore_id,
+            logical_range_gaps_policy: ps.logical_range_gaps_policy,
+            m: Map::<K, (I, Seq<L>)>::empty()
+        }
     }
 
     pub open spec fn empty(self) -> bool
@@ -391,6 +395,9 @@ pub struct KvStoreView<K, I, L>
 {
     pub id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    pub max_keys: u64,
+    pub max_list_entries: u64,
+    pub max_operations_per_transaction: u64,
     pub pm_constants: PersistentMemoryConstants,
     pub durable: AtomicKvStore<K, I, L>,
     pub tentative: AtomicKvStore<K, I, L>,

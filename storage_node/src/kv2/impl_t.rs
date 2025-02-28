@@ -154,7 +154,7 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::recover(pm@.durable_state)
-                        == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
+                        == Some(AtomicKvStore::<K, I, L>::init(*ps))
                 }
                 Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,

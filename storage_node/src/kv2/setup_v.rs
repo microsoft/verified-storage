@@ -141,7 +141,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& Self::recover(pm@.durable_state)
-                        == Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy))
+                        == Some(AtomicKvStore::<K, I, L>::init(*ps))
                 },
                 Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
@@ -194,11 +194,14 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let ghost state_after_list_init = pm@.read_state;
     
         let kv_sm = KvStaticMetadata {
+            id: ps.kvstore_id,
             encoded_policies: encode_policies(&ps.logical_range_gaps_policy),
+            max_keys: ps.max_keys,
+            max_list_entries: ps.max_list_entries,
+            max_operations_per_transaction: ps.max_operations_per_transaction,
             keys: key_sm,
             items: item_sm,
             lists: list_sm,
-            id: ps.kvstore_id,
         };
     
         let jc = JournalConstants {
@@ -236,8 +239,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                                                                       empty_keys.list_addrs(), list_sm);
         }
     
-        assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc)
-               =~= Some(AtomicKvStore::<K, I, L>::init(ps.kvstore_id, ps.logical_range_gaps_policy)));
+        assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc) =~= Some(AtomicKvStore::<K, I, L>::init(*ps)));
         Ok(())
     }
 }
