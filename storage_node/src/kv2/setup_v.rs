@@ -30,8 +30,8 @@ exec fn check_setup_parameters(ps: &SetupParameters) -> (result: bool)
     ensures
         result == ps.valid(),
 {
-    if ps.num_keys == 0 { false }
-    else if ps.num_list_entries == 0 { false }
+    if ps.max_keys == 0 { false }
+    else if ps.max_list_entries == 0 { false }
     else if ps.max_operations_per_transaction == 0 { false }
     else { true }
 }

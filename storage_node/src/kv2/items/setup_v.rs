@@ -41,7 +41,7 @@ impl<PM, I> ItemTable<PM, I>
     
         let row_item_end = CheckedU64::new(size_of::<I>() as u64);
         let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
-        let num_rows = CheckedU64::new(ps.num_keys);
+        let num_rows = CheckedU64::new(ps.max_keys);
         let table_size = num_rows.mul_checked(&row_item_crc_end);
         let initial_space = if min_start.is_overflowed() { 0 } else {
             get_space_needed_for_alignment_usize(min_start.unwrap(), size_of::<u64>()) as u64
@@ -92,7 +92,7 @@ impl<PM, I> ItemTable<PM, I>
                     &&& sm.valid::<I>()
                     &&& min_start <= sm.start() <= sm.end() <= max_end
                     &&& sm.end() - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)
-                    &&& sm.num_rows() == ps.num_keys
+                    &&& sm.num_rows() == ps.max_keys
                 },
                 Err(KvError::OutOfSpace) =>
                     max_end - min_start < Self::spec_space_needed_for_setup(*ps, min_start as nat),
@@ -108,14 +108,14 @@ impl<PM, I> ItemTable<PM, I>
     
         let row_item_end = CheckedU64::new(size_of::<I>() as u64);
         let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
-        let num_rows = CheckedU64::new(ps.num_keys);
+        let num_rows = CheckedU64::new(ps.max_keys);
         let start = CheckedU64::new(min_start).align(size_of::<u64>());
         let table_size = num_rows.mul_checked(&row_item_crc_end);
         let end = start.add_checked(&table_size);
     
         assert(end@ - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat));
         assert(table_size@ >= row_item_crc_end@) by {
-            vstd::arithmetic::mul::lemma_mul_ordering(ps.num_keys as int, row_item_crc_end@ as int);
+            vstd::arithmetic::mul::lemma_mul_ordering(ps.max_keys as int, row_item_crc_end@ as int);
         }
     
         if end.is_overflowed() {
@@ -129,7 +129,7 @@ impl<PM, I> ItemTable<PM, I>
         let table = TableMetadata::new(
             start.unwrap(),
             end.unwrap(),
-            ps.num_keys,
+            ps.max_keys,
             row_item_crc_end.unwrap(),
         );
         let sm = ItemTableStaticMetadata {

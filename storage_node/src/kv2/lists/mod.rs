@@ -166,7 +166,7 @@ impl<PM, L> ListTable<PM, L>
         let row_element_start = u64::spec_size_of() + u64::spec_size_of();
         let row_element_crc_start = row_element_start + L::spec_size_of();
         let row_size = row_element_crc_start + u64::spec_size_of();
-        let num_rows = ps.num_list_entries;
+        let num_rows = ps.max_list_entries;
         let table_size = num_rows as int * row_size;
         let initial_space = if min_start > u64::MAX { 0 } else {
             space_needed_for_alignment(min_start as int, u64::spec_size_of() as int)

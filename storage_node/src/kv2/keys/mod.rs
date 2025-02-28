@@ -166,7 +166,7 @@ impl<PM, K> KeyTable<PM, K>
         let row_key_crc_start = row_key_end;
         let row_key_crc_end = row_key_crc_start + u64::spec_size_of();
         let row_size = row_key_crc_end;
-        let num_rows = ps.num_keys;
+        let num_rows = ps.max_keys;
         let table_size = num_rows * row_size;
         let initial_space =
             if min_start > u64::MAX { 0 } else {

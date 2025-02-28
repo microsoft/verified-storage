@@ -42,7 +42,7 @@ impl<PM, K> KeyTable<PM, K>
         let row_metadata_crc_end = row_metadata_end.add(size_of::<u64>() as u64);
         let row_key_end = row_metadata_crc_end.add(size_of::<K>() as u64);
         let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
-        let num_rows = CheckedU64::new(ps.num_keys);
+        let num_rows = CheckedU64::new(ps.max_keys);
         let table_size = num_rows.mul_checked(&row_key_crc_end);
         let initial_space: u64 = if min_start.is_overflowed() {
             0u64
@@ -149,7 +149,7 @@ impl<PM, K> KeyTable<PM, K>
                     &&& sm.valid::<K>()
                     &&& min_start <= sm.start() <= sm.end() <= max_end
                     &&& sm.end() - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)
-                    &&& sm.num_rows() == ps.num_keys
+                    &&& sm.num_rows() == ps.max_keys
                 },
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(KvError::OutOfSpace) =>
@@ -170,7 +170,7 @@ impl<PM, K> KeyTable<PM, K>
         let row_key_end = row_metadata_crc_end.add(key_size as u64);
         let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
         let start = CheckedU64::new(min_start).align(size_of::<u64>());
-        let num_rows = ps.num_keys;
+        let num_rows = ps.max_keys;
         let space_required = CheckedU64::new(num_rows).mul_checked(&row_key_crc_end);
         let end = start.add_checked(&space_required);
     

@@ -68,16 +68,16 @@ pub enum LogicalRangeGapsPolicy {
 pub struct SetupParameters {
     pub kvstore_id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    pub num_keys: u64,
-    pub num_list_entries: u64,
+    pub max_keys: u64,
+    pub max_list_entries: u64,
     pub max_operations_per_transaction: u64,
 }
 
 impl SetupParameters {
     pub open spec fn valid(self) -> bool
     {
-        &&& 0 < self.num_keys
-        &&& 0 < self.num_list_entries
+        &&& 0 < self.max_keys
+        &&& 0 < self.max_list_entries
         &&& 0 < self.max_operations_per_transaction
     }
 }
