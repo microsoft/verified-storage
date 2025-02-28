@@ -86,7 +86,6 @@ where
     pub(super) open spec fn inv(self) -> bool
     {
         &&& self.inv_journal_ok()
-        &&& self.id == self.sm@.id
         &&& self.sm@.valid::<K, I, L>()
         &&& self.inv_static_metadata_matches()
         &&& self.inv_tentative_components_exist()

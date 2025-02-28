@@ -151,7 +151,6 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 
         let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
             status: Ghost(KvStoreStatus::Quiescent),
-            id: sm.id,
             sm: Ghost(sm),
             journal,
             keys,
