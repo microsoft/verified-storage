@@ -36,7 +36,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     pub fn start(
         wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission, PM>,
         kvstore_id: u128,
-        Ghost(state): Ghost<AtomicKvStore<K, I, L>>,
+        Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
         Tracked(perm): Tracked<&TrustedKvPermission>,
     ) -> (result: Result<Self, KvError>)
         requires
@@ -49,16 +49,18 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                 Ok(kv) => {
                     &&& kv.valid()
                     &&& kv@.valid()
-                    &&& kv@.id == state.id == kvstore_id
-                    &&& kv@.logical_range_gaps_policy == state.logical_range_gaps_policy
+                    &&& kv@.ps == state.ps
+                    &&& kv@.used_key_slots == state.kv.num_keys()
+                    &&& kv@.used_list_element_slots == state.kv.num_list_elements()
+                    &&& kv@.used_transaction_operation_slots == 0
                     &&& kv@.pm_constants == wrpm.constants()
-                    &&& kv@.durable == state
-                    &&& kv@.tentative == state
+                    &&& kv@.durable == state.kv
+                    &&& kv@.tentative == state.kv
                 }
                 Err(KvError::CRCMismatch) => !wrpm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
-                   &&& actual_id == state.id
+                   &&& actual_id == state.ps.kvstore_id
                 },
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(_) => false,
@@ -152,6 +154,9 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
             status: Ghost(KvStoreStatus::Quiescent),
             sm: Ghost(sm),
+            used_key_slots: Ghost(state.kv.num_keys()),
+            used_list_element_slots: Ghost(state.kv.num_list_elements()),
+            used_transaction_operation_slots: Ghost(0),
             journal,
             keys,
             items,

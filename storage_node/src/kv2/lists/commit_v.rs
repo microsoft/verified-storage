@@ -186,7 +186,7 @@ impl<PM, L> ListTable<PM, L>
             jv_after_commit.committed_from(jv_before_commit),
         ensures
             self.valid(jv_after_commit),
-            self@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
+            self@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
     {
         let ghost new_iv = self.internal_view().commit();
 
@@ -220,7 +220,8 @@ impl<PM, L> ListTable<PM, L>
             assert(self.valid(jv_committed));
             self.lemma_valid_depends_only_on_my_area(jv_committed, jv_after_commit);
         }
-        assert(self@ =~= (ListTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));
+        assert(self@ =~= (ListTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots,
+                                         ..old(self)@ }));
     }
 }
 

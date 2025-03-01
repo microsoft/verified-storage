@@ -135,6 +135,7 @@ impl<PM, L> ListTable<PM, L>
         ListTableView::<L>{
             sm: self.sm,
             logical_range_gaps_policy: self.logical_range_gaps_policy,
+            used_slots: self.sm.table.num_rows - self.free_list.len(),
             durable: self.durable_mapping@.as_snapshot(),
             tentative: if self.must_abort@ { None } else { Some(self.tentative_mapping@.as_snapshot()) },
         }

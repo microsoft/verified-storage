@@ -1003,6 +1003,7 @@ impl<PM, L> ListTable<PM, L>
             self@ == (ListTableView {
                 tentative: Some(old(self)@.tentative.unwrap().update_element_at_index(list_addr, new_list_addr,
                                                                                   idx, new_element)),
+                used_slots: self@.used_slots,
                 ..old(self)@
             }),
             self.validate_list_addr(new_list_addr),
@@ -1104,6 +1105,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().update_element_at_index(list_addr, new_list_addr,
                                                                                           idx, new_element)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     })
                     &&& self.validate_list_addr(new_list_addr)

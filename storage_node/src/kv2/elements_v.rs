@@ -157,7 +157,8 @@ where
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
             old(self).keys@.tentative is Some,
             old(self).keys@.tentative.unwrap().key_info.contains_key(*key),
             old(self).keys@.tentative.unwrap().key_info[*key] == *former_rm,
@@ -256,12 +257,19 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -312,6 +320,9 @@ where
         }
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_list_element_slots = Ghost(self.used_list_element_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~= old(self)@.tentative.append_to_list(*key, new_list_element).unwrap());
         Ok(())
@@ -326,12 +337,19 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -398,6 +416,9 @@ where
         self.items.delete(former_rm.item_addr, &self.journal);
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_list_element_slots = Ghost(self.used_list_element_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         let ghost old_item_addrs = old(self).keys@.tentative.unwrap().item_addrs();
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
@@ -416,12 +437,19 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -501,6 +529,9 @@ where
         }
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_list_element_slots = Ghost(self.used_list_element_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element).unwrap());
@@ -517,12 +548,19 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat, new_list_element,
                                                                               *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -616,6 +654,9 @@ where
         self.items.delete(former_rm.item_addr, &self.journal);
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_list_element_slots = Ghost(self.used_list_element_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         let ghost old_item_addrs = old(self).keys@.tentative.unwrap().item_addrs();
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
@@ -634,12 +675,18 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -667,6 +714,8 @@ where
         };
 
         if trim_length == 0 {
+            self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+            self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
             assert(self@.tentative.read_item_and_list(*key).unwrap().1.skip(trim_length as int) =~=
                    self@.tentative.read_item_and_list(*key).unwrap().1);
             assert(self@.tentative.trim_list(*key, trim_length as nat).unwrap() =~= self@.tentative);
@@ -720,6 +769,8 @@ where
         }
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~= old(self)@.tentative.trim_list(*key, trim_length as nat).unwrap());
         Ok(())
@@ -734,12 +785,18 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -767,7 +824,6 @@ where
             Some(info) => info,
             None => { return Err(KvError::KeyNotFound); },
         };
-
         if trim_length == 0 {
             assert(self@.tentative.read_item_and_list(*key).unwrap().1.skip(trim_length as int) =~=
                    self@.tentative.read_item_and_list(*key).unwrap().1);
@@ -837,6 +893,8 @@ where
         self.items.delete(former_rm.item_addr, &self.journal);
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         let ghost old_item_addrs = old(self).keys@.tentative.unwrap().item_addrs();
         assert(new_rm.item_addr != former_rm.item_addr);

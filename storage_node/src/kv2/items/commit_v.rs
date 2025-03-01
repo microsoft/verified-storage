@@ -47,7 +47,7 @@ impl<PM, I> ItemTable<PM, I>
             jv_after_commit.committed_from(jv_before_commit),
         ensures
             self.valid(jv_after_commit),
-            self@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
+            self@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
     {
         let ghost new_row_info =
             Map::<u64, ItemRowDisposition<I>>::new(

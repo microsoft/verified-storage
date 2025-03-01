@@ -75,6 +75,7 @@ pub struct ListTableView<L>
 {
     pub sm: ListTableStaticMetadata,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
+    pub used_slots: int,
     pub durable: ListTableSnapshot<L>,
     pub tentative: Option<ListTableSnapshot<L>>,
 }

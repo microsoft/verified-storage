@@ -37,7 +37,8 @@ where
     )
         requires
             self.valid(),
-            forall |s| Self::recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+            forall |s| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+                ==> #[trigger] perm.check_permission(s),
         ensures forall|s: Seq<u8>| Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(
             s, self.journal@.durable_state) ==> #[trigger] perm.check_permission(s)
     {
@@ -57,7 +58,7 @@ where
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, keys.item_addrs(), sm.items);
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, keys.list_addrs(), sm.lists);
-            assert(Self::recover(s) =~= Some(self@.durable));
+            assert(Self::recover(s) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
     }
 
@@ -69,7 +70,8 @@ where
             self.valid(),
             !(self.status@ is MustAbort),
             self.keys@.tentative is Some,
-            forall |s| Self::recover(s) == Some(self@.tentative) ==> #[trigger] perm.check_permission(s),
+            forall |s| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative })
+                ==> #[trigger] perm.check_permission(s),
         ensures forall|s: Seq<u8>| Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(
             s, self.journal@.commit_state) ==> #[trigger] perm.check_permission(s)
     {
@@ -92,7 +94,7 @@ where
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, keys.item_addrs(), sm.items);
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, keys.list_addrs(), sm.lists);
-            assert(Self::recover(s) =~= Some(self@.tentative));
+            assert(Self::recover(s) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative }));
         }
     }
 
@@ -100,19 +102,22 @@ where
         requires
             self.inv(),
         ensures
-            Self::recover(self.journal@.durable_state) == Some(self@.durable),
+            Self::recover(self.journal@.durable_state) ==
+                Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }),
     {
         self.keys.lemma_valid_implications(self.journal@);
         self.items.lemma_valid_implications(self.journal@);
         self.lists.lemma_valid_implications(self.journal@);
-        assert(Self::recover(self.journal@.durable_state) =~= Some(self@.durable));
+        assert(Self::recover(self.journal@.durable_state) =~=
+               Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
     }
 
     pub(super) proof fn lemma_prepare_for_key_table_update(&self, tracked perm: &TrustedKvPermission) -> (result: Self)
         requires
             self.inv(),
             self.status@ is ComponentsDontCorrespond,
-            forall |s| Self::recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+            forall |s| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+                ==> #[trigger] perm.check_permission(s),
         ensures
             result == self,
             forall|s: Seq<u8>| self.keys.state_equivalent_for_me(s, self.journal@) ==> #[trigger] perm.check_permission(s),
@@ -124,7 +129,7 @@ where
         assert(KeyTable::<PM, K>::recover(js, sm.keys) == Some(self.keys@.durable)) by {
             self.keys.lemma_valid_implications(self.journal@);
         }
-        assert(Self::recover(js) == Some(self@.durable)) by {
+        assert(Self::recover(js) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })) by {
             self.lemma_inv_implies_recover_works();
         }
 
@@ -137,7 +142,7 @@ where
             self.lists.lemma_valid_implications(self.journal@);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, self.items@.durable.m.dom(), sm.items);
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, self.lists@.durable.m.dom(), sm.lists);
-            assert(Self::recover(s) =~= Some(self@.durable));
+            assert(Self::recover(s) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
 
         *self
@@ -152,7 +157,11 @@ where
             old_self.journal@.matches_except_in_range(self.journal@, self.keys@.sm.start() as int,
                                                       self.keys@.sm.end() as int),
             self == (Self{ keys: self.keys, journal: self.journal, ..old_self }),
-            self.keys@ == (KeyTableView{ tentative: self.keys@.tentative, ..old_self.keys@ }),
+            self.keys@ == (KeyTableView{
+                tentative: self.keys@.tentative,
+                used_slots: self.keys@.used_slots,
+                ..old_self.keys@
+            }),
         ensures
             ({
                 let new_self: Self = 
@@ -177,7 +186,8 @@ where
         requires
             self.inv(),
             self.status@ is ComponentsDontCorrespond,
-            forall |s| Self::recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+            forall |s| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+                ==> #[trigger] perm.check_permission(s),
         ensures
             result == self,
             forall|s: Seq<u8>| self.items.state_equivalent_for_me(s, self.journal@) ==> #[trigger] perm.check_permission(s),
@@ -190,7 +200,7 @@ where
         {
             self.items.lemma_valid_implications(self.journal@);
         }
-        assert(Self::recover(js) == Some(self@.durable)) by {
+        assert(Self::recover(js) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })) by {
             self.lemma_inv_implies_recover_works();
         }
 
@@ -203,7 +213,7 @@ where
             self.lists.lemma_valid_implications(self.journal@);
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, self.lists@.durable.m.dom(), sm.lists);
-            assert(Self::recover(s) =~= Some(self@.durable));
+            assert(Self::recover(s) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
 
         *self
@@ -218,7 +228,11 @@ where
             old_self.journal@.matches_except_in_range(self.journal@, self.items@.sm.start() as int,
                                                       self.items@.sm.end() as int),
             self == (Self{ items: self.items, journal: self.journal, ..old_self }),
-            self.items@ == (ItemTableView{ tentative: self.items@.tentative, ..old_self.items@ }),
+            self.items@ == (ItemTableView{
+                tentative: self.items@.tentative,
+                used_slots: self.items@.used_slots,
+                ..old_self.items@
+            }),
         ensures
             ({
                 let new_self: Self = 
@@ -243,7 +257,8 @@ where
         requires
             self.inv(),
             self.status@ is ComponentsDontCorrespond,
-            forall |s| Self::recover(s) == Some(self@.durable) ==> #[trigger] perm.check_permission(s),
+            forall |s| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+                ==> #[trigger] perm.check_permission(s),
         ensures
             result == self,
             forall|s: Seq<u8>| self.lists.state_equivalent_for_me(s, self.journal@) ==> #[trigger] perm.check_permission(s),
@@ -256,7 +271,7 @@ where
         {
             self.lists.lemma_valid_implications(self.journal@);
         }
-        assert(Self::recover(js) == Some(self@.durable)) by {
+        assert(Self::recover(js) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })) by {
             self.lemma_inv_implies_recover_works();
         }
 
@@ -269,7 +284,7 @@ where
             self.lists.lemma_valid_implications(self.journal@);
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, self.items@.durable.m.dom(), sm.items);
-            assert(Self::recover(s) =~= Some(self@.durable));
+            assert(Self::recover(s) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
 
         *self
@@ -284,7 +299,11 @@ where
             old_self.journal@.matches_except_in_range(self.journal@, self.lists@.sm.start() as int,
                                                       self.lists@.sm.end() as int),
             self == (Self{ lists: self.lists, journal: self.journal, ..old_self }),
-            self.lists@ == (ListTableView{ tentative: self.lists@.tentative, ..old_self.lists@ }),
+            self.lists@ == (ListTableView{
+                tentative: self.lists@.tentative,
+                used_slots: self.lists@.used_slots,
+                ..old_self.lists@
+            }),
         ensures
             ({
                 let new_self: Self = 

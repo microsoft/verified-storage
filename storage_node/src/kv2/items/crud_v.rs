@@ -162,6 +162,7 @@ impl<PM, I> ItemTable<PM, I>
                 Ok(row_addr) => {
                     &&& self@ == (ItemTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create(row_addr, *item)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     })
                     &&& !old(self)@.tentative.unwrap().m.contains_key(row_addr)

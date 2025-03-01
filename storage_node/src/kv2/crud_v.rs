@@ -76,12 +76,18 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s)
+                <==> Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.create(*key, *item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -139,6 +145,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         }
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
         Ok(())
@@ -151,12 +159,17 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s)
+                <==> Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.delete(*key) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -225,6 +238,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         self.status = Ghost(KvStoreStatus::Quiescent);
 
         assert(self@.tentative =~= old(self)@.tentative.delete(*key).unwrap());
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         // It's a little bit tricky to see that the key table's set of
         // list addresses still matches the list table's domain, due
@@ -245,12 +259,18 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s)
+                <==> Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.update_item(*key, *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 }
@@ -311,6 +331,8 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         self.items.delete(former_rm.item_addr, &self.journal);
 
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self.used_key_slots@ + 1);
+        self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         let ghost old_item_addrs = old(self).keys@.tentative.unwrap().item_addrs();
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=

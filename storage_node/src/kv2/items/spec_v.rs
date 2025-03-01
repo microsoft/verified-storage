@@ -53,6 +53,7 @@ impl<I> ItemTableSnapshot<I>
 pub struct ItemTableView<I>
 {
     pub sm: ItemTableStaticMetadata,
+    pub used_slots: int,
     pub durable: ItemTableSnapshot<I>,
     pub tentative: Option<ItemTableSnapshot<I>>,
 }

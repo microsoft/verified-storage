@@ -49,7 +49,7 @@ impl<PM, I> ItemTable<PM, I>
             jv_before_abort.durable_state == jv_before_abort.read_state,
         ensures
             self.valid(jv_after_abort),
-            self@ == (ItemTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
+            self@ == (ItemTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
     {
         let ghost new_row_info =
             Map::<u64, ItemRowDisposition<I>>::new(

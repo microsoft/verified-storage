@@ -42,7 +42,7 @@ impl<PM, K> KeyTable<PM, K>
             jv_after_commit.committed_from(jv_before_commit),
         ensures
             self.valid(jv_after_commit),
-            self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }),
+            self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
     {
         // Delete all the undo records, and move everything in the pending deallocations
         // list to the free list.
@@ -56,7 +56,8 @@ impl<PM, K> KeyTable<PM, K>
         broadcast use group_validate_row_addr;
 
         assert(self.valid(jv_after_commit));
-        assert(self@ =~= (KeyTableView{ durable: old(self)@.tentative.unwrap(), ..old(self)@ }));
+        assert(self@ =~= (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots,
+                                        ..old(self)@ }));
     }
 }
 

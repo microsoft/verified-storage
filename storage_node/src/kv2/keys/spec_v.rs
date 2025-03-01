@@ -159,6 +159,7 @@ impl<K> KeyTableSnapshot<K>
 pub struct KeyTableView<K>
 {
     pub sm: KeyTableStaticMetadata,
+    pub used_slots: int,
     pub durable: KeyTableSnapshot<K>,
     pub tentative: Option<KeyTableSnapshot<K>>, // None if, due to an error like journal overflow, we must abort
 }

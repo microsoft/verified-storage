@@ -112,6 +112,16 @@ pub open spec fn end_of_range<L>(list_elements: Seq<L>) -> usize
     }
 }
 
+pub open spec fn sum(s: Seq<int>) -> int
+    decreases s.len(),
+{
+    if s.len() == 0 {
+        0
+    } else {
+        sum(s.drop_last()) + s.last()
+    }
+}
+
 /// An `AtomicKvStore` is an abstraction of an atomic key/value
 /// store, i.e., one that doesn't support tentative operations,
 /// aborts, and commits.
@@ -121,7 +131,6 @@ pub open spec fn end_of_range<L>(list_elements: Seq<L>) -> usize
 #[verifier::ext_equal]
 pub struct AtomicKvStore<K, I, L>
 {
-    pub id: u128,
     pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
     pub m: Map<K, (I, Seq<L>)>,
 }
@@ -131,11 +140,10 @@ where
     K: std::fmt::Debug,
     L: LogicalRange,
 {
-    pub open spec fn init(ps: SetupParameters) -> Self
+    pub open spec fn init(logical_range_gaps_policy: LogicalRangeGapsPolicy) -> Self
     {
         Self{
-            id: ps.kvstore_id,
-            logical_range_gaps_policy: ps.logical_range_gaps_policy,
+            logical_range_gaps_policy,
             m: Map::<K, (I, Seq<L>)>::empty()
         }
     }
@@ -148,6 +156,16 @@ where
     pub open spec fn contains_key(&self, key: K) -> bool
     {
         self.m.contains_key(key)
+    }
+
+    pub open spec fn num_keys(&self) -> int
+    {
+        self.m.dom().len() as int
+    }
+
+    pub open spec fn num_list_elements(&self) -> int
+    {
+        sum(self.m.dom().to_seq().map(|_idx: int, k: K| self.m[k].1.len() as int))
     }
 
     pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>
@@ -169,7 +187,6 @@ where
                 ..self
             })
         }
-
     }
 
     pub open spec fn read_item(self, key: K) -> Result<I, KvError>
@@ -391,13 +408,31 @@ where
 }
 
 #[verifier::reject_recursive_types(K)]
+#[verifier::ext_equal]
+pub struct RecoveredKvStore<K, I, L>
+{
+    pub ps: SetupParameters,
+    pub kv: AtomicKvStore<K, I, L>,
+}
+
+impl<K, I, L> RecoveredKvStore<K, I, L>
+where
+    K: std::fmt::Debug,
+    L: LogicalRange,
+{
+    pub open spec fn init(ps: SetupParameters) -> Self
+    {
+        Self{ ps, kv: AtomicKvStore::<K, I, L>::init(ps.logical_range_gaps_policy) }
+    }
+}
+
+#[verifier::reject_recursive_types(K)]
 pub struct KvStoreView<K, I, L>
 {
-    pub id: u128,
-    pub logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    pub max_keys: u64,
-    pub max_list_elements: u64,
-    pub max_operations_per_transaction: u64,
+    pub ps: SetupParameters,
+    pub used_key_slots: int,
+    pub used_list_element_slots: int,
+    pub used_transaction_operation_slots: int,
     pub pm_constants: PersistentMemoryConstants,
     pub durable: AtomicKvStore<K, I, L>,
     pub tentative: AtomicKvStore<K, I, L>,
@@ -405,19 +440,22 @@ pub struct KvStoreView<K, I, L>
 
 impl <K, I, L> KvStoreView<K, I, L>
 where
-    K: Hash + Eq,
+    K: Hash + Eq + std::fmt::Debug,
+    L: LogicalRange,
 {
     pub open spec fn valid(self) -> bool
     {
-        &&& self.id == self.durable.id == self.tentative.id
-        &&& self.logical_range_gaps_policy == self.durable.logical_range_gaps_policy
-        &&& self.logical_range_gaps_policy == self.tentative.logical_range_gaps_policy
+        &&& self.ps.logical_range_gaps_policy == self.durable.logical_range_gaps_policy
+        &&& self.ps.logical_range_gaps_policy == self.tentative.logical_range_gaps_policy
     }
 
     pub open spec fn abort(self) -> Self
     {
         Self{
             tentative: self.durable,
+            used_key_slots: self.durable.num_keys(),
+            used_list_element_slots: self.durable.num_list_elements(),
+            used_transaction_operation_slots: 0,
             ..self
         }
     }
@@ -426,6 +464,9 @@ where
     {
         Self{
             durable: self.tentative,
+            used_key_slots: self.tentative.num_keys(),
+            used_list_element_slots: self.tentative.num_list_elements(),
+            used_transaction_operation_slots: 0,
             ..self
         }
     }

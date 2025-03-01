@@ -113,6 +113,20 @@ impl KvStaticMetadata
         &&& self.lists.num_rows() >= self.max_list_elements
         &&& decode_policies(self.encoded_policies) is Some
     }
+
+    pub open spec fn setup_parameters(self) -> Option<SetupParameters>
+    {
+        match decode_policies(self.encoded_policies) {
+            None => None,
+            Some(policy) => Some(SetupParameters{
+                kvstore_id: self.id,
+                logical_range_gaps_policy: policy,
+                max_keys: self.max_keys,
+                max_list_elements: self.max_list_elements,
+                max_operations_per_transaction: self.max_operations_per_transaction,
+            }),
+        }
+    }
 }
 
 pub(super) open spec fn validate_static_metadata<K, I, L>(sm: KvStaticMetadata, jc: JournalConstants) -> bool
@@ -152,36 +166,37 @@ pub(super) open spec fn recover_static_metadata<K, I, L>(bytes: Seq<u8>, jc: Jou
 }
 
 pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
-    id: u128,
-    logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    max_keys: u64,
-    max_list_elements: u64,
-    max_operations_per_transaction: u64,
+    sm: KvStaticMetadata,
     keys: Map<K, KeyTableRowMetadata>,
     items: Map<u64, I>,
     lists: Map<u64, Seq<L>>,
-) -> Option<AtomicKvStore<K, I, L>>
+) -> Option<RecoveredKvStore<K, I, L>>
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    Some(
-        AtomicKvStore::<K, I, L>{
-            id,
-            logical_range_gaps_policy,
-            m: Map::<K, (I, Seq<L>)>::new(
-                |k: K| keys.dom().contains(k),
-                |k: K| (items[keys[k].item_addr],
-                        if keys[k].list_addr == 0 { Seq::<L>::empty() } else { lists[keys[k].list_addr] }),
-            )
-        }
-    )
+    match sm.setup_parameters() {
+        None => None,
+        Some(ps) => Some(
+            RecoveredKvStore::<K, I, L>{
+                ps,
+                kv: AtomicKvStore::<K, I, L>{
+                    logical_range_gaps_policy: ps.logical_range_gaps_policy,
+                    m: Map::<K, (I, Seq<L>)>::new(
+                        |k: K| keys.dom().contains(k),
+                        |k: K| (items[keys[k].item_addr],
+                                if keys[k].list_addr == 0 { Seq::<L>::empty() } else { lists[keys[k].list_addr] }),
+                    ),
+                }
+            }
+        ),
+    }
 }
 
 pub(super) open spec fn recover_kv_from_static_metadata<PM, K, I, L>(bytes: Seq<u8>, sm: KvStaticMetadata)
-                                                                     -> Option<AtomicKvStore<K, I, L>>
+                                                                     -> Option<RecoveredKvStore<K, I, L>>
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
@@ -193,26 +208,18 @@ pub(super) open spec fn recover_kv_from_static_metadata<PM, K, I, L>(bytes: Seq<
         Some(keys) => {
             match ItemTable::<PM, I>::recover(bytes, keys.item_addrs(), sm.items) {
                 None => None,
-                Some(items) => {
+                Some(items) =>
                     match ListTable::<PM, L>::recover(bytes, keys.list_addrs(), sm.lists) {
                         None => None,
-                        Some(lists) => {
-                            match decode_policies(sm.encoded_policies) {
-                                None => None,
-                                Some(policy) => recover_kv_from_keys_items_and_lists::<PM, K, I, L>(
-                                    sm.id, policy, sm.max_keys, sm.max_list_elements,
-                                    sm.max_operations_per_transaction, keys.key_info, items.m, lists.m
-                                ),
-                            }
-                        },
-                    }
-                },
+                        Some(lists) =>
+                            recover_kv_from_keys_items_and_lists::<PM, K, I, L>(sm, keys.key_info, items.m, lists.m),
+                    },
             }
         },
     }
 }
 
-pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConstants) -> Option<AtomicKvStore<K, I, L>>
+pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConstants) -> Option<RecoveredKvStore<K, I, L>>
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
@@ -233,7 +240,7 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
     }
 }
 
-pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
+pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
@@ -275,7 +282,6 @@ pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I,
 }
 
 pub(super) open spec fn combine_component_snapshots<K, I, L>(
-    id: u128,
     logical_range_gaps_policy: LogicalRangeGapsPolicy,
     keys: KeyTableSnapshot<K>,
     items: ItemTableSnapshot<I>,
@@ -287,7 +293,6 @@ pub(super) open spec fn combine_component_snapshots<K, I, L>(
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     AtomicKvStore::<K, I, L>{
-        id,
         logical_range_gaps_policy,
         m: Map::<K, (I, Seq<L>)>::new(
             |k: K| keys.key_info.dom().contains(k),

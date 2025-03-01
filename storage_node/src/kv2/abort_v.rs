@@ -36,7 +36,8 @@ where
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -56,7 +57,8 @@ where
         requires 
             old(self).inv(),
             old(self).status@ is MustAbort,
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(old(self)@.durable),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             self@ == old(self)@.abort(),
@@ -81,7 +83,11 @@ where
         self.keys.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.items.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.lists.abort(Ghost(jv_before_abort), Ghost(self.journal@));
+
         self.status = Ghost(KvStoreStatus::Quiescent);
+        self.used_key_slots = Ghost(self@.durable.num_keys());
+        self.used_list_element_slots = Ghost(self@.durable.num_list_elements());
+        self.used_transaction_operation_slots = Ghost(0);
     }
 }
 

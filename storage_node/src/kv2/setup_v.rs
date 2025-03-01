@@ -140,8 +140,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
-                    &&& Self::recover(pm@.durable_state)
-                        == Some(AtomicKvStore::<K, I, L>::init(*ps))
+                    &&& Self::recover(pm@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
                 },
                 Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
@@ -239,7 +238,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                                                                       empty_keys.list_addrs(), list_sm);
         }
     
-        assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc) =~= Some(AtomicKvStore::<K, I, L>::init(*ps)));
+        assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc) =~= Some(RecoveredKvStore::<K, I, L>::init(*ps)));
         Ok(())
     }
 }

@@ -38,8 +38,8 @@ where
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| Self::recover(s) == Some(old(self)@.durable)
-                ||| Self::recover(s) == Some(old(self)@.tentative)
+                ||| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
+                ||| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })
             },
         ensures 
             self.valid(),
@@ -67,6 +67,10 @@ where
         self.keys.commit(Ghost(jv_before_commit), Ghost(self.journal@));
         self.items.commit(Ghost(jv_before_commit), Ghost(self.journal@));
         self.lists.commit(Ghost(jv_before_commit), Ghost(self.journal@));
+
+        self.used_key_slots = Ghost(self@.durable.num_keys());
+        self.used_list_element_slots = Ghost(self@.durable.num_list_elements());
+        self.used_transaction_operation_slots = Ghost(0);
 
         Ok(())
     }

@@ -56,7 +56,7 @@ impl TrustedKvPermission
     // It conveys permission to do any update as long as a
     // subsequent crash and recovery can only lead to given
     // abstract state `state`.
-    proof fn new_one_possibility<PM, K, I, L>(state: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
+    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
@@ -64,10 +64,11 @@ impl TrustedKvPermission
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
             forall |s| #[trigger] perm.check_permission(s) <==>
-                UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(state),
+                UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
     {
         Self {
-            is_state_allowable: |s| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(state),
+            is_state_allowable:
+                |s| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
         }
     }
 
@@ -77,8 +78,9 @@ impl TrustedKvPermission
     // lead to one of two given abstract states `state1` and
     // `state2`.
     proof fn new_two_possibilities<PM, K, I, L>(
-        state1: AtomicKvStore<K, I, L>,
-        state2: AtomicKvStore<K, I, L>
+        ps: SetupParameters,
+        kv1: AtomicKvStore<K, I, L>,
+        kv2: AtomicKvStore<K, I, L>
     ) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
@@ -87,14 +89,14 @@ impl TrustedKvPermission
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
             forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(state1)
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(state2)
+                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
+                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
             }
     {
         Self {
             is_state_allowable: |s| {
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(state1)
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(state2)
+                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
+                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
             },
         }
     }
@@ -154,7 +156,7 @@ where
                 Ok(()) => {
                     &&& pm@.flush_predicted()
                     &&& UntrustedKvStoreImpl::<PM, K, I, L>::recover(pm@.durable_state)
-                        == Some(AtomicKvStore::<K, I, L>::init(*ps))
+                        == Some(RecoveredKvStore::<K, I, L>::init(*ps))
                 }
                 Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
@@ -177,16 +179,18 @@ where
                 Ok(kv) => {
                     &&& kv.valid()
                     &&& kv@.valid()
-                    &&& kv@.id == state.id == kvstore_id
-                    &&& kv@.logical_range_gaps_policy == state.logical_range_gaps_policy
+                    &&& kv@.ps == state.ps
+                    &&& kv@.used_key_slots == state.kv.m.dom().len()
+                    &&& kv@.used_list_element_slots == state.kv.num_list_elements()
+                    &&& kv@.used_transaction_operation_slots == 0
                     &&& kv@.pm_constants == pm.constants()
-                    &&& kv@.durable == state
-                    &&& kv@.tentative == state
+                    &&& kv@.durable == state.kv
+                    &&& kv@.tentative == state.kv
                 },
                 Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
-                   &&& actual_id == state.id
+                   &&& actual_id == state.ps.kvstore_id
                 },
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(_) => false,
@@ -196,7 +200,7 @@ where
         let mut wrpm = WriteRestrictedPersistentMemoryRegion::new(pm);
         wrpm.flush(); // ensure there are no outstanding writes
         let ghost state = UntrustedKvStoreImpl::<PM, K, I, L>::recover(wrpm@.durable_state).unwrap();
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state.ps, state.kv);
         let untrusted_kv_impl = UntrustedKvStoreImpl::<PM, K, I, L>::start(
             wrpm, kvstore_id, Ghost(state), Tracked(&perm))?;
 
@@ -236,7 +240,12 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.create(*key, *item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 }
@@ -255,7 +264,7 @@ where
                 },
             }
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_create(key, item, Tracked(&perm))
     }
 
@@ -270,7 +279,12 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.update_item(*key, *item) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 }
@@ -288,7 +302,7 @@ where
                 },
             }
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_update_item(key, item, Tracked(&perm))
     }
 
@@ -302,7 +316,11 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.delete(*key) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -320,7 +338,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_delete(key, Tracked(&perm))
     }
 
@@ -334,7 +352,7 @@ where
                 Err(_) => false,
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.abort(Tracked(&perm))
     }
 
@@ -348,7 +366,8 @@ where
                 Err(_) => false,
             },
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities::<PM, K, I, L>(self@.durable, self@.tentative);
+        let tracked perm = TrustedKvPermission::new_two_possibilities::<PM, K, I, L>(self@.ps, self@.durable,
+                                                                                     self@.tentative);
         self.untrusted_kv_impl.commit(Tracked(&perm))
     }
 
@@ -446,7 +465,13 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -464,7 +489,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_append_to_list(key, new_list_element, Tracked(&perm))
     }
 
@@ -480,7 +505,13 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -500,7 +531,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_append_to_list_and_update_item(key, new_list_element, new_item, Tracked(&perm))
     }
 
@@ -516,7 +547,13 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -536,7 +573,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_update_list_element_at_index(key, idx, new_list_element, Tracked(&perm))
     }
 
@@ -553,7 +590,13 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_list_element_slots: old(self)@.used_list_element_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat, new_list_element,
                                                                              *new_item) matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -573,7 +616,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_update_list_element_at_index_and_item(key, idx, new_list_element, new_item,
                                                                                Tracked(&perm))
     }
@@ -589,7 +632,12 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
                     &&& self@.tentative == new_self
                 },
@@ -607,7 +655,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_trim_list(key, trim_length, Tracked(&perm))
     }
 
@@ -623,7 +671,12 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{ tentative: self@.tentative, ..old(self)@ }
+                    &&& self@ == KvStoreView{
+                        tentative: self@.tentative,
+                        used_key_slots: old(self)@.used_key_slots + 1,
+                        used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
+                        ..old(self)@
+                    }
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Ok(new_self)
                     &&& self@.tentative == new_self
@@ -643,7 +696,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
         self.untrusted_kv_impl.tentatively_trim_list_and_update_item(key, trim_length, new_item, Tracked(&perm))
     }
 

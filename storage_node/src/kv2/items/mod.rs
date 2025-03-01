@@ -124,6 +124,7 @@ impl<PM, I> ItemTable<PM, I>
     {
         ItemTableView::<I>{
             sm: self.sm,
+            used_slots: self.sm.table.num_rows - self.free_list.len(),
             durable: self.internal_view().as_durable_snapshot(),
             tentative: if self.must_abort@ { None } else { Some(self.internal_view().as_tentative_snapshot()) },
         }

@@ -53,6 +53,9 @@ where
 {
     status: Ghost<KvStoreStatus>,
     sm: Ghost<KvStaticMetadata>,
+    used_key_slots: Ghost<int>,
+    used_list_element_slots: Ghost<int>,
+    used_transaction_operation_slots: Ghost<int>,
     journal: Journal<TrustedKvPermission, PM>,
     keys: KeyTable<PM, K>,
     items: ItemTable<PM, I>,
@@ -71,21 +74,18 @@ where
     closed spec fn view(&self) -> KvStoreView<K, I, L>
     {
         KvStoreView {
-            id: self.sm@.id,
-            logical_range_gaps_policy: self.lists@.logical_range_gaps_policy,
-            max_keys: self.sm@.max_keys,
-            max_list_elements: self.sm@.max_list_elements,
-            max_operations_per_transaction: self.sm@.max_operations_per_transaction,
+            ps: self.sm@.setup_parameters().unwrap(),
+            used_key_slots: self.used_key_slots@,
+            used_list_element_slots: self.used_list_element_slots@,
+            used_transaction_operation_slots: self.used_transaction_operation_slots@,
             pm_constants: self.journal@.pm_constants,
             durable: combine_component_snapshots(
-                self.sm@.id,
                 self.lists@.logical_range_gaps_policy,
                 self.keys@.durable,
                 self.items@.durable,
                 self.lists@.durable,
             ),
             tentative: combine_component_snapshots(
-                self.sm@.id,
                 self.lists@.logical_range_gaps_policy,
                 self.keys@.tentative.unwrap(),
                 self.items@.tentative.unwrap(),
@@ -107,7 +107,7 @@ where
         self.journal@.pm_constants
     }
 
-    pub closed spec fn recover(bytes: Seq<u8>) -> Option<AtomicKvStore<K, I, L>>
+    pub closed spec fn recover(bytes: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>
     {
         recover_journal_then_kv::<PM, K, I, L>(bytes)
     }
