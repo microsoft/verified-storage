@@ -318,8 +318,10 @@ impl<PM, K> KeyTable<PM, K>
                 Ok(()) => {
                     &&& self@ == (KeyTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create(*k, item_addr)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     })
+                    &&& self@.used_slots >= old(self)@.used_slots - 1
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -591,8 +593,10 @@ impl<PM, K> KeyTable<PM, K>
                 Ok(()) => {
                     &&& self@ == (KeyTableView {
                         tentative: Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     })
+                    &&& self@.used_slots >= old(self)@.used_slots - 1
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {

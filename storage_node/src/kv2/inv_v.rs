@@ -83,6 +83,11 @@ where
         }
     }
 
+    pub(super) open spec fn inv_used_slots_correspond(self) -> bool
+    {
+        &&& self.used_key_slots@ <= self.keys@.used_slots
+    }
+
     pub(super) open spec fn inv(self) -> bool
     {
         &&& self.inv_journal_ok()
