@@ -210,8 +210,7 @@ impl<I> ItemTableInternalView<I>
     pub(super) proof fn lemma_corresponds_implication_for_free_list_length(self, sm: ItemTableStaticMetadata)
         requires
             sm.valid::<I>(),
-            self.complete(sm),
-            self.consistent(sm),
+            self.valid(sm),
             self.pending_allocations == Seq::<u64>::empty(),
             self.pending_deallocations == Seq::<u64>::empty(),
         ensures
