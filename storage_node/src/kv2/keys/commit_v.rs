@@ -43,6 +43,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(jv_after_commit),
             self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
+            self@.durable.key_info.dom().finite(),
             self@.used_slots == self@.durable.key_info.dom().len(),
     {
         // Delete all the undo records, and move everything in the pending deallocations

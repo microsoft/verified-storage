@@ -173,7 +173,12 @@ where
                     &&& list_addr != 0
                     &&& list_addr == former_rm.list_addr || !old(self).lists@.tentative.unwrap().m.contains_key(list_addr)
                     &&& self.lists.validate_list_addr(list_addr)
-                    &&& self.lists@ == ListTableView { tentative: self.lists@.tentative, ..old(self).lists@ }
+                    &&& self.lists@ == ListTableView {
+                        tentative: self.lists@.tentative,
+                        used_slots: self.lists@.used_slots,
+                        ..old(self).lists@
+                    }
+                    &&& self.lists@.used_slots <= old(self).lists@.used_slots + 1
                     &&& self.lists@.tentative is Some
                     &&& self.lists@.tentative.unwrap() == if former_rm.list_addr == 0 {
                         old(self).lists@.tentative.unwrap().create_singleton(list_addr, new_list_element)

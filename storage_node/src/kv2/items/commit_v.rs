@@ -48,6 +48,7 @@ impl<PM, I> ItemTable<PM, I>
         ensures
             self.valid(jv_after_commit),
             self@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
+            self@.durable.m.dom().finite(),
             self@.used_slots == self@.durable.m.dom().len(),
     {
         let ghost new_row_info =

@@ -116,6 +116,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(jv_after_abort),
             self@ == (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
+            self@.durable.key_info.dom().finite(),
             self@.used_slots == self@.durable.key_info.dom().len(),
     {
         self.status = Ghost(KeyTableStatus::Inconsistent);

@@ -214,6 +214,7 @@ impl<I> ItemTableInternalView<I>
             self.pending_allocations == Seq::<u64>::empty(),
             self.pending_deallocations == Seq::<u64>::empty(),
         ensures
+            self.as_durable_snapshot().m.dom().finite(),
             self.as_durable_snapshot().m.dom().len() == sm.table.num_rows - self.free_list.len(),
     {
         assert forall|pos: int| 0 <= pos < self.free_list.len() implies

@@ -1006,6 +1006,7 @@ impl<PM, L> ListTable<PM, L>
                 used_slots: self@.used_slots,
                 ..old(self)@
             }),
+            self@.used_slots <= old(self)@.used_slots + 1,
             self.validate_list_addr(new_list_addr),
             ({
                 let old_list = old(self)@.tentative.unwrap().m[list_addr];
@@ -1108,6 +1109,7 @@ impl<PM, L> ListTable<PM, L>
                         used_slots: self@.used_slots,
                         ..old(self)@
                     })
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {

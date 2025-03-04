@@ -460,6 +460,7 @@ impl<K> KeyMemoryMapping<K>
             self.consistent_with_free_list_and_pending_deallocations(free_list, Seq::<u64>::empty()),
         ensures
             self.as_recovery_mapping().key_info.dom() == self.key_info.dom(),
+            self.key_info.dom().finite(), 
             self.key_info.dom().len() == sm.table.num_rows - free_list.len(),
     {
         assert forall|pos: int| 0 <= pos < free_list.len() implies self.row_info.contains_key(#[trigger] free_list[pos]) by {
@@ -499,7 +500,7 @@ impl<K> KeyMemoryMapping<K>
             free_list.unique_seq_to_set();
         }
 
-        assert(key_row_addrs.len() == self.key_info.dom().len()) by {
+        assert(self.key_info.dom().finite() && self.key_info.dom().len() == key_row_addrs.len()) by {
             lemma_bijection_makes_sets_have_equal_size::<u64, K>(
                 key_row_addrs, self.key_info.dom(),
                 |row_addr: u64| self.row_info[row_addr]->InHashTable_k,

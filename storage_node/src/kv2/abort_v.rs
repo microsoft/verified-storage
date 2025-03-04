@@ -84,24 +84,15 @@ where
         self.items.abort(Ghost(jv_before_abort), Ghost(self.journal@));
         self.lists.abort(Ghost(jv_before_abort), Ghost(self.journal@));
 
-        self.status = Ghost(KvStoreStatus::Quiescent);
         self.used_key_slots = Ghost(self@.durable.num_keys());
         self.used_list_element_slots = Ghost(self@.durable.num_list_elements());
         self.used_transaction_operation_slots = Ghost(0);
 
-        assert(self@.durable.m.dom() =~= self.keys@.durable.key_info.dom());
-        assert(self.used_key_slots@ == self.keys@.used_slots);
-
-        assert(self.items@.used_slots == self.items@.durable.m.dom().len());
-        assert(self.items@.durable.m.dom() == self.keys@.durable.item_addrs());
-        assert(self.keys@.durable.item_addrs() == self.keys@.durable.item_info.dom());
-        assert(self.keys@.durable.item_info.dom().len() == self.keys@.durable.key_info.dom().len()) by {
-            self.keys.lemma_valid_implications(self.journal@);
-            self.keys@.durable.lemma_valid_implies_num_keys_equals_num_items();
+        self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
+        proof {
+            self.lemma_used_slots_correspond();
         }
-
-        assert(self.used_key_slots@ == self.items@.used_slots);
-        assume(self.used_list_element_slots@ == self.lists@.used_slots);
+        self.status = Ghost(KvStoreStatus::Quiescent);
     }
 }
 

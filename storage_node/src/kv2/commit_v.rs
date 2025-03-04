@@ -72,6 +72,12 @@ where
         self.used_list_element_slots = Ghost(self@.durable.num_list_elements());
         self.used_transaction_operation_slots = Ghost(0);
 
+        self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
+        proof {
+            self.lemma_used_slots_correspond();
+        }
+        self.status = Ghost(KvStoreStatus::Quiescent);
+
         Ok(())
     }
 }

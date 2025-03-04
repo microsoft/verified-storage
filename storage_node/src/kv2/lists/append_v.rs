@@ -498,6 +498,7 @@ impl<PM, L> ListTable<PM, L>
                     }
                     &&& self@ == (ListTableView {
                         tentative: Some(prev_self@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
+                        used_slots: old(self)@.used_slots,
                         ..prev_self@
                     })
                     &&& self.validate_list_addr(new_list_addr)
@@ -658,8 +659,10 @@ impl<PM, L> ListTable<PM, L>
                     }
                     &&& self@ == (ListTableView {
                         tentative: Some(prev_self@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
+                        used_slots: old(self)@.used_slots,
                         ..prev_self@
                     })
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                 },
                 Err(KvError::OutOfSpace) => {
@@ -849,8 +852,10 @@ impl<PM, L> ListTable<PM, L>
                     }
                     &&& self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     })
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                 },
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
@@ -990,8 +995,10 @@ impl<PM, L> ListTable<PM, L>
                     &&& !old(self)@.tentative.unwrap().m.contains_key(new_row_addr)
                     &&& self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create_singleton(new_row_addr, new_element)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     })
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_row_addr)
                 },
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
@@ -1081,6 +1088,7 @@ impl<PM, L> ListTable<PM, L>
 
         assert(self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create_singleton(row_addr, new_element)),
+                        used_slots: self@.used_slots,
                         ..old(self)@
                     }));
         assert(self.valid(journal@));
