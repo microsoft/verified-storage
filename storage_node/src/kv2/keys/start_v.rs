@@ -27,7 +27,6 @@ use vstd::std_specs::hash::*;
 verus! {
 
 broadcast use group_hash_axioms;
-
 impl<PM, K> KeyTable<PM, K>
     where
         PM: PersistentMemoryRegion,
@@ -58,6 +57,7 @@ impl<PM, K> KeyTable<PM, K>
                     &&& keys@.sm == *sm
                     &&& keys@.durable == recovered_state
                     &&& keys@.tentative == Some(recovered_state)
+                    &&& keys@.used_slots == recovered_state.key_info.dom().len()
                     &&& item_addrs@ == recovered_state.item_addrs()
                     &&& list_addrs@.to_set() == recovered_state.list_addrs()
                     &&& !list_addrs@.contains(0)
@@ -231,6 +231,12 @@ impl<PM, K> KeyTable<PM, K>
         assert(keys@.durable =~= recovered_state);
         assert(item_addrs@ =~= recovered_state.item_addrs());
         assert(list_addrs@.to_set() =~= recovered_state.list_addrs());
+
+        proof {
+            memory_mapping.lemma_corresponds_implication_for_free_list_length(
+                journal@.read_state, free_list@, *sm
+            );
+        }
 
         Ok((keys, item_addrs, list_addrs))
     }

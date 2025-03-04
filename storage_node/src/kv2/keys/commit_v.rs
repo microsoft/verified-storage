@@ -43,6 +43,7 @@ impl<PM, K> KeyTable<PM, K>
         ensures
             self.valid(jv_after_commit),
             self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
+            self@.used_slots == self@.durable.key_info.dom().len(),
     {
         // Delete all the undo records, and move everything in the pending deallocations
         // list to the free list.
@@ -56,6 +57,15 @@ impl<PM, K> KeyTable<PM, K>
         broadcast use group_validate_row_addr;
 
         assert(self.valid(jv_after_commit));
+
+        proof {
+            self.memory_mapping@.lemma_corresponds_implication_for_free_list_length(
+                jv_after_commit.durable_state,
+                self.free_list@,
+                self.sm
+            );
+        }
+
         assert(self@ =~= (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots,
                                         ..old(self)@ }));
     }

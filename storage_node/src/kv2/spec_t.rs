@@ -112,16 +112,6 @@ pub open spec fn end_of_range<L>(list_elements: Seq<L>) -> usize
     }
 }
 
-pub open spec fn sum(s: Seq<int>) -> int
-    decreases s.len(),
-{
-    if s.len() == 0 {
-        0
-    } else {
-        sum(s.drop_last()) + s.last()
-    }
-}
-
 /// An `AtomicKvStore` is an abstraction of an atomic key/value
 /// store, i.e., one that doesn't support tentative operations,
 /// aborts, and commits.
@@ -165,7 +155,7 @@ where
 
     pub open spec fn num_list_elements(&self) -> int
     {
-        sum(self.m.dom().to_seq().map(|_idx: int, k: K| self.m[k].1.len() as int))
+        self.m.dom().to_seq().fold_left(0, |total: int, k: K| total + self.m[k].1.len())
     }
 
     pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>

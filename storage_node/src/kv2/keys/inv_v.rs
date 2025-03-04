@@ -350,10 +350,12 @@ impl<K> KeyMemoryMapping<K>
             }
         }
         &&& forall|i: int| 0 <= i < free_list.len() ==> {
+            &&& self.row_info.contains_key(free_list[i])
             &&& #[trigger] self.row_info[free_list[i]] matches KeyRowDisposition::InFreeList{ pos }
             &&& pos == i
         }
         &&& forall|i: int| 0 <= i < pending_deallocations.len() ==> {
+            &&& self.row_info.contains_key(pending_deallocations[i])
             &&& #[trigger] self.row_info[pending_deallocations[i]]
                 matches KeyRowDisposition::InPendingDeallocationList{ pos }
             &&& pos == i
@@ -445,6 +447,72 @@ impl<K> KeyMemoryMapping<K>
         } else {
             None
         }
+    }
+
+    pub(super) proof fn lemma_corresponds_implication_for_free_list_length(
+        self: KeyMemoryMapping<K>,
+        s: Seq<u8>,
+        free_list: Seq<u64>,
+        sm: KeyTableStaticMetadata,
+    )
+        where
+            K: Hash + PmCopy + Sized + std::fmt::Debug,
+        requires
+            sm.valid::<K>(),
+            self.valid(sm),
+            self.consistent_with_state(s, sm),
+            self.consistent_with_free_list_and_pending_deallocations(free_list, Seq::<u64>::empty()),
+        ensures
+            self.as_recovery_mapping().key_info.dom() == self.key_info.dom(),
+            self.key_info.dom().len() == sm.table.num_rows - free_list.len(),
+    {
+        assert forall|pos: int| 0 <= pos < free_list.len() implies self.row_info.contains_key(#[trigger] free_list[pos]) by {
+            assert(self.row_info[free_list[pos]] is InFreeList);
+            assert(self.row_info.contains_key(free_list[pos]));
+        }
+
+        let free_row_addrs = Set::<u64>::new(
+            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr] is InFreeList
+        );
+        let key_row_addrs = Set::<u64>::new(
+            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr] is InHashTable
+        );
+        let valid_row_addrs = Set::<u64>::new(
+            |row_addr: u64| self.row_info.contains_key(row_addr)
+        );
+
+        assert(valid_row_addrs.finite() && valid_row_addrs.len() == sm.table.num_rows) by {
+            assert(valid_row_addrs =~= Set::<u64>::new(|row_addr: u64| sm.table.validate_row_addr(row_addr)));
+            sm.table.lemma_valid_row_set_len();
+        }
+        assert(free_row_addrs.finite()) by {
+            vstd::set_lib::lemma_len_subset(free_row_addrs, valid_row_addrs);
+        }
+        assert(key_row_addrs.finite()) by {
+            vstd::set_lib::lemma_len_subset(key_row_addrs, valid_row_addrs);
+        }
+
+        assert(valid_row_addrs.len() == free_row_addrs.len() + key_row_addrs.len()) by {
+            assert(free_row_addrs.disjoint(key_row_addrs));
+            assert(free_row_addrs + key_row_addrs =~= valid_row_addrs);
+            vstd::set_lib::lemma_set_disjoint_lens(free_row_addrs, key_row_addrs);
+        }
+
+        assert(free_row_addrs.len() == free_list.len()) by {
+            assert(free_list.to_set() =~= free_row_addrs);
+            free_list.unique_seq_to_set();
+        }
+
+        assert(key_row_addrs.len() == self.key_info.dom().len()) by {
+            lemma_bijection_makes_sets_have_equal_size::<u64, K>(
+                key_row_addrs, self.key_info.dom(),
+                |row_addr: u64| self.row_info[row_addr]->InHashTable_k,
+                |k: K| self.key_info[k]
+            );
+        }
+    
+        assert(self.key_info.dom().len() == sm.table.num_rows - free_list.len());
+        assert(self.as_recovery_mapping().key_info.dom() =~= self.key_info.dom());
     }
 }
 

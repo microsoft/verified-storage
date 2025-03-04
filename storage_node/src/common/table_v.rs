@@ -118,7 +118,7 @@ impl TableMetadata
         requires
             self.valid(),
         ensures
-            forall |addr: u64| self.validate_row_addr(addr) ==> {
+            forall |addr: u64| #[trigger] self.validate_row_addr(addr) ==> {
                 let row = self.row_addr_to_index(addr);
                 addr == self.spec_row_index_to_addr(row)
             },
@@ -131,6 +131,43 @@ impl TableMetadata
             let addr = #[trigger] self.spec_row_index_to_addr(i);
             i == self.row_addr_to_index(addr)
         } by { lemma_row_index_to_addr_is_valid(self, i); }
+    }
+
+    pub proof fn lemma_valid_row_set_len(self)
+        requires
+            self.valid(),
+        ensures
+            ({
+                let valid_row_addrs = Set::<u64>::new(|row_addr: u64| self.validate_row_addr(row_addr));
+                &&& valid_row_addrs.len() == self.num_rows
+                &&& valid_row_addrs.finite()
+            }),
+    {
+        let valid_row_addrs = Set::<u64>::new(|row_addr: u64| self.validate_row_addr(row_addr));
+        let rows: Seq<u64> = Seq::new(self.num_rows as nat, |row_index: int| self.spec_row_index_to_addr(row_index));
+
+        assert(rows.no_duplicates()) by {
+            assert forall|i, j| (0 <= i < rows.len() && 0 <= j < rows.len() && i != j) implies rows[i] != rows[j] by {
+                lemma_row_index_to_addr_is_valid(self, i);
+                lemma_row_index_to_addr_is_valid(self, j);
+            }
+        }
+
+        assert(rows.to_set() =~= valid_row_addrs) by {
+            assert forall|row_addr: u64| #[trigger] rows.to_set().contains(row_addr)
+                       implies valid_row_addrs.contains(row_addr) by {
+                let row_index = choose|row_index: int| 0 <= row_index < rows.len() && rows[row_index] == row_addr;
+                lemma_row_index_to_addr_is_valid(self, row_index);
+            }
+            assert forall|row_addr: u64| #[trigger] valid_row_addrs.contains(row_addr)
+                       implies rows.to_set().contains(row_addr) by {
+                let row_index = self.row_addr_to_index(row_addr);
+                assert(0 <= row_index < rows.len());
+                assert(rows[row_index] == row_addr);
+            }
+        }
+
+        rows.unique_seq_to_set();
     }
 }
 

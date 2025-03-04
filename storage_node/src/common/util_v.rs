@@ -168,4 +168,135 @@ pub exec fn extend_vec_u8_from_slice(v: &mut Vec<u8>, s: &[u8])
     assert(v@ =~= old(v)@ + s@);
 }
 
+
+pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
+    requires
+        s.finite(),
+    ensures
+        s.contains(v) <==> s.to_seq().contains(v),
+    decreases
+        s.len(),
+{
+    if s.len() != 0 {
+        let x = s.choose();
+        let s2 = s.remove(x).to_seq();
+        assert(s.to_seq() == Seq::<A>::empty().push(x) + s2);
+        if v == x {
+            assert(s.contains(v));
+            assert(s.to_seq()[0] == v);
+            assert(s.to_seq().contains(v));
+        }
+        else {
+            lemma_set_to_seq_contains_iff_set_contains(s.remove(x), v);
+            if s.contains(v) {
+                assert(s.remove(x).contains(v));
+                assert(s.remove(x).to_seq().contains(v));
+                let i = choose|i: int| 0 <= i < s2.len() && s2[i] == v;
+                assert(s.to_seq()[i + 1] == v);
+                assert(s.to_seq().contains(v));
+            }
+        }
+    }
+}
+
+pub proof fn lemma_set_to_seq_has_same_length_with_no_duplicates<A>(s: Set<A>)
+    requires
+        s.finite(),
+    ensures
+        s.to_seq().len() == s.len(),
+        s.to_seq().no_duplicates(),
+    decreases
+        s.len(),
+{
+    let q = s.to_seq();
+    if s.len() != 0 {
+        let x = s.choose();
+        lemma_set_to_seq_has_same_length_with_no_duplicates(s.remove(x));
+        assert(!s.remove(x).to_seq().contains(x)) by {
+            lemma_set_to_seq_contains_iff_set_contains(s.remove(x), x);
+        }
+    }
+    q.unique_seq_to_set();
+}
+
+pub proof fn lemma_bijection_makes_sets_have_equal_size<A, B>(
+    s1: Set<A>,
+    s2: Set<B>,
+    f: spec_fn(A) -> B,
+    g: spec_fn(B) -> A,
+)
+    requires
+        s1.finite(),
+        forall|x: A| #[trigger] s1.contains(x) ==> s2.contains(f(x)) && x == g(f(x)),
+        forall|y: B| #[trigger] s2.contains(y) ==> s1.contains(g(y)) && y == f(g(y)),
+    ensures
+        s2.finite(),
+        s2.len() == s1.len(),
+{
+    // Convert set `s1` to a sequence and prove key properties of the
+    // resulting `q1`:
+    // * `q1` contains exactly the same values as `s1`.
+    // * `q1` has the same length as `s1`.
+    // * `q1` has no duplicates. 
+
+    let q1 = s1.to_seq();
+    assert forall|x: A| #[trigger] q1.contains(x) <==> s1.contains(x) by {
+        lemma_set_to_seq_contains_iff_set_contains(s1, x);
+    }
+    assert(q1.len() == s1.len() && q1.no_duplicates()) by {
+        lemma_set_to_seq_has_same_length_with_no_duplicates(s1);
+    }
+
+    // Convert sequence `q1` to a new sequence `q2` by applying the
+    // transformation `f`.
+
+    let q2 = Seq::<B>::new(q1.len(), |i: int| f(q1[i]));
+
+    // Prove that `q2.to_set() == s2`. This also establishes that `s2`
+    // is finite, from the ambient broadcast proof
+    // `vstd::seq_lib::seq_to_set_is_finite`.
+
+    assert(q2.to_set() =~= s2) by {
+        assert forall|y: B| #[trigger] q2.to_set().contains(y) implies s2.contains(y) by {
+            assert(q2.contains(y));
+            let i = choose|i: int| 0 <= i < q2.len() && q2[i] == y;
+            assert(y == f(q1[i]));
+            assert(q1.contains(q1[i]));
+            assert(s1.contains(q1[i]));
+            assert(s2.contains(f(q1[i]))); // by bijectivity
+        }
+        assert forall|y: B| #[trigger] s2.contains(y) implies q2.to_set().contains(y) by {
+            assert(s1.contains(g(y))); // by bijectivity
+            let x = g(y);
+            assert(q1.contains(x));
+            let i = choose|i: int| 0 <= i < q1.len() && q1[i] == x;
+            assert(q2[i] == f(x));
+            assert(q2.to_set().contains(f(x)));
+            assert(f(x) == y);
+        }
+    }
+
+    // Now prove that `q2` has no duplicates.
+
+    assert(q2.no_duplicates()) by {
+        assert forall|i: int, j: int| 0 <= i < q2.len() && 0 <= j < q2.len() && i != j implies q2[i] != q2[j] by {
+            assert(q2[i] == f(q1[i]) && q2[j] == f(q1[j]));
+            assert(q1.contains(q1[i]) && q1.contains(q1[j]));
+            assert(s1.contains(q1[i]) && s1.contains(q1[j]));
+            let x1 = g(q2[i]);
+            let x2 = g(q2[j]);
+            assert(x1 == q1[i] && x2 == q1[j]);
+        }
+    }
+
+    // Finally, prove that `q2` has the same length as `s2`. This is
+    // enough because we know by construction of `q2` that it has the
+    // same length as `q1` and we proved earlier that `q1` has the
+    // same length as `s1`.
+
+    assert(q2.len() == s2.len()) by {
+        q2.unique_seq_to_set();
+    }
+}
+
 }

@@ -115,7 +115,8 @@ impl<PM, K> KeyTable<PM, K>
             jv_before_abort.durable_state == jv_before_abort.read_state,
         ensures
             self.valid(jv_after_abort),
-            self@ == (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }),
+            self@ == (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
+            self@.used_slots == self@.durable.key_info.dom().len(),
     {
         self.status = Ghost(KeyTableStatus::Inconsistent);
         self.apply_all_undo_records(Ghost(jv_before_abort));
@@ -126,7 +127,16 @@ impl<PM, K> KeyTable<PM, K>
         // applying the undo records emptied it.
         assert(self.pending_deallocations@ == Seq::<u64>::empty());
 
-        assert(self@ =~= (KeyTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }));
+        proof {
+            self.memory_mapping@.lemma_corresponds_implication_for_free_list_length(
+                jv_after_abort.durable_state,
+                self.free_list@,
+                self.sm
+            );
+        }
+
+        assert(self@ =~= (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots,
+                                        ..old(self)@ }));
     }
 }
 
