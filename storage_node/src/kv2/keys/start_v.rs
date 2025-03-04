@@ -233,9 +233,7 @@ impl<PM, K> KeyTable<PM, K>
         assert(list_addrs@.to_set() =~= recovered_state.list_addrs());
 
         proof {
-            memory_mapping.lemma_corresponds_implication_for_free_list_length(
-                journal@.read_state, free_list@, *sm
-            );
+            memory_mapping.lemma_corresponds_implication_for_free_list_length(free_list@, *sm);
         }
 
         Ok((keys, item_addrs, list_addrs))

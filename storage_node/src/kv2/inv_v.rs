@@ -85,7 +85,8 @@ where
 
     pub(super) open spec fn inv_used_slots_correspond(self) -> bool
     {
-        &&& self.used_key_slots@ <= self.keys@.used_slots
+        &&& self.used_key_slots@ >= self.keys@.used_slots
+        &&& self.used_key_slots@ >= self.items@.used_slots
     }
 
     pub(super) open spec fn inv(self) -> bool

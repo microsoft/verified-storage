@@ -128,11 +128,7 @@ impl<PM, K> KeyTable<PM, K>
         assert(self.pending_deallocations@ == Seq::<u64>::empty());
 
         proof {
-            self.memory_mapping@.lemma_corresponds_implication_for_free_list_length(
-                jv_after_abort.durable_state,
-                self.free_list@,
-                self.sm
-            );
+            self.memory_mapping@.lemma_corresponds_implication_for_free_list_length(self.free_list@, self.sm);
         }
 
         assert(self@ =~= (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots,

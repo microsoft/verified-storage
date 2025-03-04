@@ -450,17 +450,15 @@ impl<K> KeyMemoryMapping<K>
     }
 
     pub(super) proof fn lemma_corresponds_implication_for_free_list_length(
-        self: KeyMemoryMapping<K>,
-        s: Seq<u8>,
+        self,
         free_list: Seq<u64>,
         sm: KeyTableStaticMetadata,
     )
-        where
-            K: Hash + PmCopy + Sized + std::fmt::Debug,
         requires
             sm.valid::<K>(),
             self.valid(sm),
-            self.consistent_with_state(s, sm),
+            self.row_info_consistent(sm),
+            self.key_info_consistent(),
             self.consistent_with_free_list_and_pending_deallocations(free_list, Seq::<u64>::empty()),
         ensures
             self.as_recovery_mapping().key_info.dom() == self.key_info.dom(),

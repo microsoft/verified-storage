@@ -53,6 +53,7 @@ impl<PM, I> ItemTable<PM, I>
                     let recovered_state = Self::recover(journal@.read_state, item_addrs@, *sm).unwrap();
                     &&& items.valid(journal@)
                     &&& items@.sm == *sm
+                    &&& items@.used_slots == recovered_state.m.dom().len()
                     &&& items@.durable == recovered_state
                     &&& items@.tentative == Some(recovered_state)
                     &&& recovered_state.m.dom() == item_addrs@
@@ -155,6 +156,10 @@ impl<PM, I> ItemTable<PM, I>
         assert(items@.durable =~= recovered_state);
         assert(items@.tentative == Some(recovered_state));
         assert(recovered_state.m.dom() =~= item_addrs@);
+
+        proof {
+            items.internal_view().lemma_corresponds_implication_for_free_list_length(*sm);
+        }
 
         Ok(items)
     }

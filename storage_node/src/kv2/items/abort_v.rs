@@ -50,6 +50,7 @@ impl<PM, I> ItemTable<PM, I>
         ensures
             self.valid(jv_after_abort),
             self@ == (ItemTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
+            self@.used_slots == self@.durable.m.dom().len(),
     {
         let ghost new_row_info =
             Map::<u64, ItemRowDisposition<I>>::new(
@@ -73,7 +74,13 @@ impl<PM, I> ItemTable<PM, I>
         broadcast use group_validate_row_addr;
 
         assert(self.valid(jv_after_abort));
-        assert(self@ =~= (ItemTableView{ tentative: Some(old(self)@.durable), ..old(self)@ }));
+
+        proof {
+            self.internal_view().lemma_corresponds_implication_for_free_list_length(self.sm);
+        }
+
+        assert(self@ =~= (ItemTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots,
+                                         ..old(self)@ }));
     }
 }
 

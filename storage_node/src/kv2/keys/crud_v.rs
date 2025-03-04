@@ -321,7 +321,7 @@ impl<PM, K> KeyTable<PM, K>
                         used_slots: self@.used_slots,
                         ..old(self)@
                     })
-                    &&& self@.used_slots >= old(self)@.used_slots - 1
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -596,7 +596,7 @@ impl<PM, K> KeyTable<PM, K>
                         used_slots: self@.used_slots,
                         ..old(self)@
                     })
-                    &&& self@.used_slots >= old(self)@.used_slots - 1
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {

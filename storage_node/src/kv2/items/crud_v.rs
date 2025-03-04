@@ -165,6 +165,7 @@ impl<PM, I> ItemTable<PM, I>
                         used_slots: self@.used_slots,
                         ..old(self)@
                     })
+                    &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& !old(self)@.tentative.unwrap().m.contains_key(row_addr)
                     &&& self.validate_item_addr(row_addr)
                 },
