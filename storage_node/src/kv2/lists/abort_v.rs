@@ -292,6 +292,10 @@ impl<PM, L> ListTable<PM, L>
         ensures
             self.valid(jv_after_abort),
             self@ == (ListTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
+            ({
+                let m = self@.durable.m;
+                self@.used_slots == m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
+            }),
     {
         let ghost new_iv = self.internal_view().abort();
 
@@ -315,6 +319,11 @@ impl<PM, L> ListTable<PM, L>
         assert(self.internal_view() =~= old(self).internal_view().abort());
 
         assert(self.valid(jv_after_abort));
+
+        proof {
+            self.internal_view().lemma_corresponds_implication_for_free_list_length(self.sm);
+        }
+
         assert(self@ =~= (ListTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots,
                                          ..old(self)@ }));
     }

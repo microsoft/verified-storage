@@ -357,9 +357,12 @@ impl<PM, L> ListTable<PM, L>
                 Ok(lists) => {
                     let recovered_state =
                         Self::recover(journal@.read_state, list_addrs@.to_set(), *sm).unwrap();
+                    let m = recovered_state.m;
                     &&& lists.valid(journal@)
                     &&& lists@.sm == *sm
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
+                    &&& lists@.used_slots ==
+                           m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
                     &&& lists@.durable == recovered_state
                     &&& lists@.tentative == Some(recovered_state)
                     &&& recovered_state.m.dom() == list_addrs@.to_set()
@@ -402,6 +405,10 @@ impl<PM, L> ListTable<PM, L>
 
         let ghost recovered_state = Self::recover(journal@.read_state, list_addrs@.to_set(), *sm).unwrap();
         assert(recovered_state.m.dom() =~= list_addrs@.to_set());
+
+        proof {
+            lists.internal_view().lemma_corresponds_implication_for_free_list_length(*sm);
+        }
 
         Ok(lists)
     }

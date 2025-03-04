@@ -152,6 +152,21 @@ impl<K> KeyTableSnapshot<K>
             list_info: new_list_info,
         }
     }
+
+    pub proof fn lemma_valid_implies_num_keys_equals_num_items(self)
+        requires
+            self.valid(),
+            self.key_info.dom().finite(),
+        ensures
+            self.item_info.dom().len() == self.key_info.dom().len(),
+    {
+        lemma_bijection_makes_sets_have_equal_size::<K, u64>(
+            self.key_info.dom(),
+            self.item_info.dom(),
+            |k: K| self.key_info[k].item_addr,
+            |row_addr: u64| self.item_info[row_addr]
+        );
+    }
 }
 
 #[verifier::reject_recursive_types(K)]

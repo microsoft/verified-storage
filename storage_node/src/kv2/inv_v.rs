@@ -87,6 +87,7 @@ where
     {
         &&& self.used_key_slots@ >= self.keys@.used_slots
         &&& self.used_key_slots@ >= self.items@.used_slots
+        &&& self.used_list_element_slots@ >= self.lists@.used_slots
     }
 
     pub(super) open spec fn inv(self) -> bool
@@ -97,6 +98,7 @@ where
         &&& self.inv_tentative_components_exist()
         &&& self.inv_components_valid()
         &&& self.inv_components_correspond()
+        &&& self.inv_used_slots_correspond()
         &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
     }
 
