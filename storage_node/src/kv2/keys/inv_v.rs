@@ -457,8 +457,6 @@ impl<K> KeyMemoryMapping<K>
         requires
             sm.valid::<K>(),
             self.valid(sm),
-            self.row_info_consistent(sm),
-            self.key_info_consistent(),
             self.consistent_with_free_list_and_pending_deallocations(free_list, Seq::<u64>::empty()),
         ensures
             self.as_recovery_mapping().key_info.dom() == self.key_info.dom(),
