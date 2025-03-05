@@ -152,7 +152,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(lists@.durable.m.dom() == list_addrs@.to_set());
 
         let mut kv = UntrustedKvStoreImpl::<PM, K, I, L>{
-            status: Ghost(KvStoreStatus::ComponentsDontCorrespond),
+            status: Ghost(KvStoreStatus::Quiescent),
             sm: Ghost(sm),
             used_key_slots: Ghost(state.kv.num_keys()),
             used_list_element_slots: Ghost(state.kv.num_list_elements()),
@@ -166,8 +166,6 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         proof {
             kv.lemma_used_slots_correspond();
         }
-
-        kv.status = Ghost(KvStoreStatus::Quiescent);
 
         Ok(kv)
     }

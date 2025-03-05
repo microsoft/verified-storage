@@ -92,7 +92,7 @@ where
 
     pub(super) open spec fn inv_used_slots_correspond(self) -> bool
     {
-        !(self.status@ is ComponentsDontCorrespond || self.status@ is MustAbort) ==> {
+        self.status@ is Quiescent ==> {
             &&& self.used_key_slots@ >= self.keys@.used_slots
             &&& self.used_key_slots@ >= self.items@.used_slots
             &&& self.used_list_element_slots@ >= self.lists@.used_slots

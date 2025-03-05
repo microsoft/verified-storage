@@ -34,10 +34,8 @@ where
 {
     pub(super) proof fn lemma_filtering_keys_doesnt_affect_fold(self, pos: int)
         requires
-            self.status@ is ComponentsDontCorrespond,
-            self.inv(),
-            self.keys@.durable.item_addrs() == self.items@.durable.m.dom(),
-            self.keys@.durable.list_addrs() == self.lists@.durable.m.dom(),
+            self.inv_components_finite(),
+            self.inv_components_correspond(),
             self@.durable.m.dom().finite(),
             0 <= pos <= self@.durable.m.dom().to_seq().len(),
         ensures
@@ -90,10 +88,9 @@ where
 
     pub(super) proof fn lemma_used_list_slots_correspond(self)
         requires
-            self.status@ is ComponentsDontCorrespond,
-            self.inv(),
-            self.keys@.durable.item_addrs() == self.items@.durable.m.dom(),
-            self.keys@.durable.list_addrs() == self.lists@.durable.m.dom(),
+            self.inv_components_finite(),
+            self.inv_components_correspond(),
+            self.inv_components_valid(),
         ensures
             self@.durable.num_list_elements() ==
                 self.lists@.durable.m.dom().to_seq().fold_left(
@@ -208,10 +205,9 @@ where
 
     pub(super) proof fn lemma_used_slots_correspond(self)
         requires
-            self.status@ is ComponentsDontCorrespond,
-            self.inv(),
-            self.keys@.durable.item_addrs() == self.items@.durable.m.dom(),
-            self.keys@.durable.list_addrs() == self.lists@.durable.m.dom(),
+            self.inv_components_finite(),
+            self.inv_components_correspond(),
+            self.inv_components_valid(),
         ensures
             self@.durable.num_keys() == self.keys@.durable.key_info.dom().len(),
             self@.durable.num_keys() == self.items@.durable.m.dom().len(),
