@@ -7,6 +7,7 @@ pub mod inv_v;
 pub mod read_v;
 pub mod recover_v;
 pub mod setup_v;
+pub mod slots_v;
 pub mod spec_v;
 pub mod start_v;
 pub mod trim_v;
