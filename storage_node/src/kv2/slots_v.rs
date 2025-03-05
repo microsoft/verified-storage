@@ -34,8 +34,6 @@ where
 {
     pub(super) proof fn lemma_filtering_keys_doesnt_affect_fold(self, pos: int)
         requires
-            self.inv_components_finite(),
-            self.inv_components_correspond(),
             self@.durable.m.dom().finite(),
             0 <= pos <= self@.durable.m.dom().to_seq().len(),
         ensures
@@ -90,7 +88,7 @@ where
         requires
             self.inv_components_finite(),
             self.inv_components_correspond(),
-            self.inv_components_valid(),
+            self.keys@.durable.valid(),
         ensures
             self@.durable.num_list_elements() ==
                 self.lists@.durable.m.dom().to_seq().fold_left(
@@ -106,10 +104,6 @@ where
         let list_used_slots = list_addr_seq.fold_left(0, accumulate_row_addr);
         let accumulate_key = |total: int, k: K| total + m[k].1.len();
         assert(self@.durable.num_list_elements() == m.dom().to_seq().fold_left(0, accumulate_key));
-
-        assert(keys.valid()) by {
-            self.keys.lemma_valid_implications(self.journal@);
-        }
 
         assert(m.dom() =~= keys.key_info.dom());
 
@@ -218,8 +212,9 @@ where
     {
         assert(self@.durable.m.dom() =~= self.keys@.durable.key_info.dom());
 
+        self.keys.lemma_valid_implications(self.journal@);
+
         assert(self.keys@.durable.item_info.dom().len() == self.keys@.durable.key_info.dom().len()) by {
-            self.keys.lemma_valid_implications(self.journal@);
             self.keys@.durable.lemma_valid_implies_num_keys_equals_num_items();
         }
 
