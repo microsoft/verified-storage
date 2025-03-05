@@ -1,6 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::seq_lib::*;
 use vstd::set_lib::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -354,5 +355,62 @@ pub proof fn lemma_filter_preserves_no_duplicates<A>(s: Seq<A>, pred: spec_fn(A)
     }
 }
 
+pub open spec fn commutative_foldl<A, B>(f: spec_fn(B, A) -> B) -> bool {
+    forall|x: A, y: A, v: B| #[trigger] f(f(v, x), y) == f(f(v, y), x)
+}
+
+pub open spec fn convert_foldl_to_foldr<A, B>(f: spec_fn(B, A) -> B) -> (spec_fn(A, B) -> B)
+{
+    |a: A, b: B| f(b, a)
+}
+
+pub proof fn lemma_commutative_foldl_equivalent_to_corresponding_foldr<A, B>(
+    s: Seq<A>,
+    b: B,
+    f: spec_fn(B, A) -> B
+)
+    requires
+        commutative_foldl(f),
+    ensures
+        commutative_foldr(convert_foldl_to_foldr(f)),
+        s.fold_left(b, f) == s.fold_right(convert_foldl_to_foldr(f), b),
+    decreases
+        s.len(),
+{
+    if s.len() > 0 {
+        let fr = convert_foldl_to_foldr(f);
+        lemma_commutative_foldl_equivalent_to_corresponding_foldr(s.drop_last(), b, f);
+        s.drop_last().lemma_fold_right_commute_one(s.last(), convert_foldl_to_foldr(f), b);
+    }
+}
+
+pub proof fn lemma_two_seqs_with_no_duplicates_and_same_to_set_are_permutations<A>(s1: Seq<A>, s2: Seq<A>)
+    requires
+        s1.no_duplicates(),
+        s2.no_duplicates(),
+        s1.to_set() == s2.to_set(),
+    ensures
+        s1.to_multiset() == s2.to_multiset(),
+{
+    s1.lemma_multiset_has_no_duplicates();
+    s2.lemma_multiset_has_no_duplicates();
+    let m1 = s1.to_multiset();
+    let m2 = s2.to_multiset();
+    
+    broadcast use to_multiset_contains;
+    assert forall|x| m1.contains(x) implies m2.contains(x) && m2.count(x) == m1.count(x) by {
+        assert(s1.contains(x));
+        assert(s1.to_set().contains(x));
+        assert(s2.to_set().contains(x));
+        assert(s2.contains(x));
+    }
+    assert forall|x| m2.contains(x) implies m1.contains(x) && m2.count(x) == m1.count(x) by {
+        assert(s2.contains(x));
+        assert(s2.to_set().contains(x));
+        assert(s1.to_set().contains(x));
+        assert(s1.contains(x));
+    }
+    assert(m1 =~= m2);
+}
 
 }

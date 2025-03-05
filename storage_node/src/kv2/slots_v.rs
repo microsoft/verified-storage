@@ -105,62 +105,54 @@ where
         let lists = self.lists@.durable;
         let m = self@.durable.m;
         let list_addr_seq = lists.m.dom().to_seq();
-        let list_used_slots = list_addr_seq.fold_left(
-            0, |total: int, row_addr: u64| total + lists.m[row_addr].len()
-        );
+        let accumulate_row_addr = |total: int, row_addr: u64| total + lists.m[row_addr].len();
+        let list_used_slots = list_addr_seq.fold_left(0, accumulate_row_addr);
+        let accumulate_key = |total: int, k: K| total + m[k].1.len();
+        assert(self@.durable.num_list_elements() == m.dom().to_seq().fold_left(0, accumulate_key));
 
         assert(lists.m.dom() == keys.list_info.dom());
         assert(keys.valid()) by {
             self.keys.lemma_valid_implications(self.journal@);
         }
 
-        assert(m == Map::<K, (I, Seq<L>)>::new(
-            |k: K| keys.key_info.dom().contains(k),
-            |k: K| (items.m[keys.key_info[k].item_addr],
-                    if keys.key_info[k].list_addr == 0 { Seq::<L>::empty() }
-                    else { lists.m[keys.key_info[k].list_addr] }),
-        ));
-
-        assert(self@.durable.num_list_elements() ==
-               m.dom().to_seq().fold_left(0, |total: int, k: K| total + m[k].1.len()));
-
         assert(m.dom() =~= keys.key_info.dom());
 
         let kseq = m.dom().to_seq();
-        let kseq_filtered = kseq.filter(|k: K| keys.key_info[k].list_addr != 0);
-        assert(kseq.fold_left(0, |total: int, k: K| total + m[k].1.len()) ==
-               kseq_filtered.fold_left(0, |total: int, k: K| total + m[k].1.len())) by {
+        let key_has_list = |k: K| keys.key_info[k].list_addr != 0;
+        let keys_with_lists_seq = kseq.filter(key_has_list);
+        assert(kseq.fold_left(0, accumulate_key) == keys_with_lists_seq.fold_left(0, accumulate_key)) by {
             self.lemma_filtering_keys_doesnt_affect_fold(kseq.len() as int);
             assert(kseq =~= kseq.take(kseq.len() as int));
         }
 
-        assert(kseq_filtered.fold_left(0, |total: int, k: K| total + m[k].1.len()) ==
-               kseq_filtered.map_values(|k: K| keys.key_info[k].list_addr).fold_left(
-                   0, |total: int, row_addr: u64| total + lists.m[row_addr].len()
-               )) by {
-            let f = |k: K| keys.key_info[k].list_addr;
-            let g = |total: int, k: K| total + m[k].1.len();
-            let h = |total: int, row_addr: u64| total + lists.m[row_addr].len();
-            assert forall|total: int, k: K| kseq_filtered.contains(k) implies #[trigger] g(total, k) == h(total, f(k)) by {
+        let key_to_list_addr = |k: K| keys.key_info[k].list_addr;
+        let keys_with_lists_seq_mapped = keys_with_lists_seq.map_values(key_to_list_addr);
+
+        assert(keys_with_lists_seq.fold_left(0, accumulate_key) ==
+               keys_with_lists_seq_mapped.fold_left(0, accumulate_row_addr)) by {
+            assert forall|total: int, k: K| keys_with_lists_seq.contains(k) implies
+                #[trigger] accumulate_key(total, k) == accumulate_row_addr(total, key_to_list_addr(k)) by {
                 assert(keys.key_info[k].list_addr != 0);
-                lemma_if_filter_contains_then_original_contains(kseq, |k: K| keys.key_info[k].list_addr != 0, k);
+                lemma_if_filter_contains_then_original_contains(kseq, key_has_list, k);
                 assert(kseq.contains(k));
                 lemma_set_to_seq_contains_iff_set_contains(m.dom(), k);
                 assert(keys.key_info.dom().contains(k));
                 assert(m[k].1 == lists.m[keys.key_info[k].list_addr]);
-                assert(g(total, k) == h(total, f(k)));
+                assert(accumulate_key(total, k) == accumulate_row_addr(total, key_to_list_addr(k)));
             }
-            lemma_fold_equivalent_to_map_fold::<K, u64, int>(0, kseq_filtered, f, g, h);
+            lemma_fold_equivalent_to_map_fold::<K, u64, int>(
+                0, keys_with_lists_seq, key_to_list_addr, accumulate_key, accumulate_row_addr
+            );
         }
 
-        assert(kseq_filtered.map_values(|k: K| keys.key_info[k].list_addr).to_set() =~= list_addr_seq.to_set()) by {
-            let s1 = kseq_filtered.map_values(|k: K| keys.key_info[k].list_addr);
+        assert(keys_with_lists_seq_mapped.to_set() =~= list_addr_seq.to_set()) by {
+            let s1 = keys_with_lists_seq_mapped;
             let s2 = list_addr_seq;
             assert forall|row_addr: u64| s1.contains(row_addr) implies s2.contains(row_addr) by {
                 let i = choose|i: int| 0 <= i < s1.len() && s1[i] == row_addr;
-                let k = kseq_filtered[i];
+                let k = keys_with_lists_seq[i];
                 assert(keys.key_info[k].list_addr == row_addr);
-                lemma_if_filter_contains_then_original_contains(kseq, |k: K| keys.key_info[k].list_addr != 0, k);
+                lemma_if_filter_contains_then_original_contains(kseq, key_has_list, k);
                 lemma_set_to_seq_contains_iff_set_contains(m.dom(), k);
                 lemma_set_to_seq_contains_iff_set_contains(lists.m.dom(), row_addr);
             }
@@ -172,8 +164,8 @@ where
                 assert(m.contains_key(k));
                 lemma_set_to_seq_contains_iff_set_contains(m.dom(), k);
                 assert(kseq.contains(k));
-                assert(kseq_filtered.contains(k));
-                let i = choose|i: int| 0 <= i < kseq_filtered.len() && kseq_filtered[i] == k;
+                assert(keys_with_lists_seq.contains(k));
+                let i = choose|i: int| 0 <= i < keys_with_lists_seq.len() && keys_with_lists_seq[i] == k;
                 assert(s1[i] == row_addr);
             }
         }
@@ -182,49 +174,30 @@ where
             lemma_set_to_seq_has_same_length_with_no_duplicates(lists.m.dom());
         }
 
-        assert(kseq_filtered.no_duplicates()) by {
+        assert(keys_with_lists_seq.no_duplicates()) by {
             lemma_set_to_seq_has_same_length_with_no_duplicates(m.dom());
-            lemma_filter_preserves_no_duplicates(kseq, |k: K| keys.key_info[k].list_addr != 0);
+            lemma_filter_preserves_no_duplicates(kseq, key_has_list);
         }
 
-        assert(kseq_filtered.map_values(|k: K| keys.key_info[k].list_addr).no_duplicates()) by {
-            let s = kseq_filtered.map_values(|k: K| keys.key_info[k].list_addr);
+        assert(keys_with_lists_seq_mapped.no_duplicates()) by {
+            let s = keys_with_lists_seq_mapped;
             assert forall|i: int, j: int| 0 <= i < s.len() && 0 <= j < s.len() && i != j implies s[i] != s[j] by {
                 assume(false);
             }
         }
 
-        /*
-        assert(kseq_filtered.fold_left(0, |total: int, k: K| total + m[k].1.len()) ==
-               kseq_filtered.map_values(|k: K| lists.m[keys.key_info[k].list_addr]).fold_left(
-                   0, |total: int, list: Seq<L>| total + list.len()
-               )) by {
-            let f = |k: K| lists.m[keys.key_info[k].list_addr];
-            let g = |total: int, k: K| total + m[k].1.len();
-            let h = |total: int, list: Seq<L>| total + list.len();
-            assert forall|total: int, k: K| kseq_filtered.contains(k) implies #[trigger] g(total, k) == h(total, f(k)) by {
-                assert(keys.key_info[k].list_addr != 0);
-                lemma_if_filter_contains_then_original_contains(kseq, |k: K| keys.key_info[k].list_addr != 0, k);
-                assert(kseq.contains(k));
-                lemma_set_to_seq_contains_iff_set_contains(m.dom(), k);
-                assert(keys.key_info.dom().contains(k));
-                assert(m[k].1 == lists.m[keys.key_info[k].list_addr]);
-                assert(g(total, k) == h(total, f(k)));
-            }
-            lemma_fold_equivalent_to_map_fold::<K, Seq<L>, int>(0, kseq_filtered, f, g, h);
+        let accumulate_row_addr_converted = convert_foldl_to_foldr(accumulate_row_addr);
+        assert(keys_with_lists_seq_mapped.fold_left(0, accumulate_row_addr) ==
+               list_addr_seq.fold_left(0, accumulate_row_addr)) by {
+            lemma_two_seqs_with_no_duplicates_and_same_to_set_are_permutations::<u64>(keys_with_lists_seq_mapped,
+                                                                                      list_addr_seq);
+            lemma_commutative_foldl_equivalent_to_corresponding_foldr(keys_with_lists_seq_mapped, 0,
+                                                                      accumulate_row_addr);
+            lemma_commutative_foldl_equivalent_to_corresponding_foldr(list_addr_seq, 0, accumulate_row_addr);
+            vstd::seq_lib::lemma_fold_right_permutation::<u64, int>(
+                keys_with_lists_seq_mapped, list_addr_seq, accumulate_row_addr_converted, 0
+            );
         }
-
-        assert(list_addr_seq.fold_left(0, |total: int, row_addr: u64| total + self.lists@.durable.m[row_addr].len()) ==
-               list_addr_seq.map_values(|row_addr: u64| self.lists@.durable.m[row_addr])
-                            .fold_left(0, |total: int, list: Seq<L>| total + list.len())) by {
-            let f = |row_addr: u64| self.lists@.durable.m[row_addr];
-            let g = |total: int, row_addr: u64| total + self.lists@.durable.m[row_addr].len();
-            let h = |total: int, list: Seq<L>| total + list.len();
-            lemma_fold_equivalent_to_map_fold::<u64, Seq<L>, int>(0, list_addr_seq, f, g, h);
-        }
-        */
-
-        assume(kseq.fold_left(0, |total: int, k: K| total + m[k].1.len()) == list_used_slots);
     }
 
     pub(super) proof fn lemma_used_slots_correspond(self)
