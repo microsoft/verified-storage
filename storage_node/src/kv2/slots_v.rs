@@ -110,7 +110,6 @@ where
         let accumulate_key = |total: int, k: K| total + m[k].1.len();
         assert(self@.durable.num_list_elements() == m.dom().to_seq().fold_left(0, accumulate_key));
 
-        assert(lists.m.dom() == keys.list_info.dom());
         assert(keys.valid()) by {
             self.keys.lemma_valid_implications(self.journal@);
         }
@@ -120,6 +119,7 @@ where
         let kseq = m.dom().to_seq();
         let key_has_list = |k: K| keys.key_info[k].list_addr != 0;
         let keys_with_lists_seq = kseq.filter(key_has_list);
+
         assert(kseq.fold_left(0, accumulate_key) == keys_with_lists_seq.fold_left(0, accumulate_key)) by {
             self.lemma_filtering_keys_doesnt_affect_fold(kseq.len() as int);
             assert(kseq =~= kseq.take(kseq.len() as int));
@@ -182,7 +182,13 @@ where
         assert(keys_with_lists_seq_mapped.no_duplicates()) by {
             let s = keys_with_lists_seq_mapped;
             assert forall|i: int, j: int| 0 <= i < s.len() && 0 <= j < s.len() && i != j implies s[i] != s[j] by {
-                assume(false);
+                let k1 = keys_with_lists_seq[i];
+                let k2 = keys_with_lists_seq[j];
+                assert(k1 != k2);
+                lemma_if_filter_contains_then_original_contains(kseq, key_has_list, k1);
+                lemma_if_filter_contains_then_original_contains(kseq, key_has_list, k2);
+                lemma_set_to_seq_contains_iff_set_contains(m.dom(), k1);
+                lemma_set_to_seq_contains_iff_set_contains(m.dom(), k2);
             }
         }
 
