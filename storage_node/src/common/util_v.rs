@@ -299,4 +299,60 @@ pub proof fn lemma_bijection_makes_sets_have_equal_size<A, B>(
     }
 }
 
+pub proof fn lemma_fold_equivalent_to_map_fold<A, B, C>(
+    c: C,
+    s: Seq<A>,
+    f: spec_fn(A) -> B,
+    g: spec_fn(C, A) -> C,
+    h: spec_fn(C, B) -> C,
+)
+    requires
+        forall|c: C, a: A| s.contains(a) ==> #[trigger] g(c, a) == h(c, f(a)),
+    ensures
+        s.fold_left(c, g) == s.map_values(f).fold_left(c, h),
+    decreases
+        s.len(),
+{
+    if s.len() != 0 {
+        lemma_fold_equivalent_to_map_fold(c, s.drop_last(), f, g, h);
+        assert(s.drop_last().map_values(f) =~= s.map_values(f).drop_last());
+    }
+}
+
+pub proof fn lemma_if_filter_contains_then_original_contains<A>(s: Seq<A>, pred: spec_fn(A) -> bool, x: A)
+    ensures
+        s.filter(pred).contains(x) ==> s.contains(x) && pred(x),
+    decreases
+        s.len(),
+{
+    reveal(Seq::filter);
+    if s.len() != 0 {
+        lemma_if_filter_contains_then_original_contains(s.drop_last(), pred, x);
+    }
+}
+
+pub proof fn lemma_filter_preserves_no_duplicates<A>(s: Seq<A>, pred: spec_fn(A) -> bool)
+    requires
+        s.no_duplicates(),
+    ensures
+        s.filter(pred).no_duplicates(),
+    decreases
+        s.len(),
+{
+    reveal(Seq::filter);
+    if s.len() > 0 {
+        lemma_filter_preserves_no_duplicates(s.drop_last(), pred);
+        assert(s.drop_last().filter(pred).no_duplicates());
+        if s.drop_last().filter(pred).contains(s.last()) {
+            lemma_if_filter_contains_then_original_contains(s.drop_last(), pred, s.last());
+            assert(s.drop_last().contains(s.last()));
+            let i = choose|i: int| 0 <= i < s.drop_last().len() && s.drop_last()[i] == s.last();
+            let j = s.len() - 1;
+            assert(0 <= i < s.len() && 0 <= j < s.len() && i != j && s[i] == s[j]);
+            assert(false);
+        }
+    }
+}
+
+
 }

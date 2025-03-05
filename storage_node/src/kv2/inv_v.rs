@@ -87,6 +87,7 @@ where
     {
         &&& self.keys@.durable.key_info.dom().finite()
         &&& self.items@.durable.m.dom().finite()
+        &&& self.lists@.durable.m.dom().finite()
     }
 
     pub(super) open spec fn inv_used_slots_correspond(self) -> bool

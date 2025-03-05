@@ -433,8 +433,9 @@ impl<L> ListTableInternalView<L>
         ensures
             ({
                 let m = self.durable_mapping.as_snapshot().m;
-                m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
-                    == sm.table.num_rows - self.free_list.len()
+                &&& m.dom().finite()
+                &&& m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
+                       == sm.table.num_rows - self.free_list.len()
             }),
     {
         assume(false);

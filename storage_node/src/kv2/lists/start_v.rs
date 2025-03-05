@@ -361,6 +361,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& lists.valid(journal@)
                     &&& lists@.sm == *sm
                     &&& lists@.logical_range_gaps_policy == logical_range_gaps_policy
+                    &&& m.dom().finite()
                     &&& lists@.used_slots ==
                            m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
                     &&& lists@.durable == recovered_state
