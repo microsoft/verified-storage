@@ -206,6 +206,11 @@ where
                 Err(KvError::OutOfSpace) => {
                     &&& self.valid()
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self.valid()
@@ -242,6 +247,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             Err(KvError::ListLengthWouldExceedUsizeMax) => {
@@ -292,6 +300,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -326,6 +339,9 @@ where
                 Err(KvError::OutOfSpace) => {
                     self.status = Ghost(KvStoreStatus::MustAbort);
                     self.internal_abort(Tracked(perm));
+                    proof {
+                        old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                    }
                     return Err(KvError::OutOfSpace);
                 },
                 _ => { assert(false); return Err(KvError::InternalError); },
@@ -378,6 +394,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -411,6 +432,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },
@@ -426,6 +450,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },
@@ -483,6 +510,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -521,6 +553,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -545,6 +580,9 @@ where
                 Err(KvError::OutOfSpace) => {
                     self.status = Ghost(KvStoreStatus::MustAbort);
                     self.internal_abort(Tracked(perm));
+                    proof {
+                        old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                    }
                     return Err(KvError::OutOfSpace);
                 },
                 _ => { assert(false); return Err(KvError::InternalError); },
@@ -599,6 +637,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -637,6 +680,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -659,6 +705,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },
@@ -674,7 +723,10 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
-                 return Err(KvError::OutOfSpace);
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
+                return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
@@ -729,6 +781,10 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -778,6 +834,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -798,6 +857,9 @@ where
                 Err(KvError::OutOfSpace) => {
                     self.status = Ghost(KvStoreStatus::MustAbort);
                     self.internal_abort(Tracked(perm));
+                    proof {
+                        old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                    }
                     return Err(KvError::OutOfSpace);
                 },
                 _ => { assert(false); return Err(KvError::InternalError); },
@@ -848,6 +910,10 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -893,6 +959,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -911,6 +980,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },
@@ -926,6 +998,9 @@ where
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
                 self.internal_abort(Tracked(perm));
+                proof {
+                    old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
+                }
                 return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },

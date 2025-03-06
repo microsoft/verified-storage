@@ -173,7 +173,7 @@ impl<PM, K> KeyTable<PM, K>
                     &&& self@ == (KeyTableView { tentative: None, ..old(self)@ })
                     &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                     &&& {
-                           ||| journal@.remaining_capacity <
+                           ||| old(journal)@.remaining_capacity <
                                   Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
@@ -426,7 +426,7 @@ impl<PM, K> KeyTable<PM, K>
                         tentative: None,
                         ..old(self)@
                     })
-                    &&& journal@.remaining_capacity <
+                    &&& old(journal)@.remaining_capacity <
                            Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
                            u64::spec_size_of()
                 },

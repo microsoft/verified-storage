@@ -260,7 +260,10 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
-                    // TODO - Whenever we return OutOfSpace, we should establish why
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -299,6 +302,10 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -335,6 +342,7 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -486,6 +494,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -527,6 +540,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -569,6 +587,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -612,6 +635,11 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -652,6 +680,10 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@
@@ -692,6 +724,10 @@ where
                 }, 
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@.abort()
+                    &&& {
+                        ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
+                        ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
+                    }
                 },
                 Err(e) => {
                     &&& self@ == old(self)@

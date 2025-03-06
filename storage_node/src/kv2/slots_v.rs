@@ -247,35 +247,25 @@ where
         }
     }
 
-    /*
-    pub(super) proof fn lemma_using_space_for_transaction_operation_maintains_invariant(
-        self,
-        jv: JournalView,
-        old_self: Self,
-        old_jv: JournalView,
-    )
+    pub(super) proof fn lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used(self)
         requires
             self.sm@.valid::<K, I, L>(),
-            old_self.sm == self.sm,
-            self.used_transaction_operation_slots@ == old_self.used_transaction_operation_slots@ + 1,
-            old_jv.remaining_capacity >=
-                (old_self.sm@.max_operations_per_transaction - old_self.used_transaction_operation_slots@) *
-                Self::spec_space_needed_for_transaction_operation(),
-            jv.remaining_capacity >= old_jv.remaining_capacity - Self::spec_space_needed_for_transaction_operation(),
-        ensures
-            jv.remaining_capacity >=
+            self.journal@.remaining_capacity >=
                 (self.sm@.max_operations_per_transaction - self.used_transaction_operation_slots@) *
                 Self::spec_space_needed_for_transaction_operation(),
+        ensures
+            self.journal@.remaining_capacity < Self::spec_space_needed_for_transaction_operation() ==>
+                self.used_transaction_operation_slots@ >= self.sm@.max_operations_per_transaction,
     {
-        let a = old_self.sm@.max_operations_per_transaction;
-        let b = old_self.used_transaction_operation_slots@;
+        let a = self.sm@.max_operations_per_transaction;
+        let b = self.used_transaction_operation_slots@;
         let c = Self::spec_space_needed_for_transaction_operation();
-        assert((a - b) * c - c == (a - (b + 1)) * c) by {
-            vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(c as int, a - b, 1);
+        if b < a {
+            assert((a - b) * c >= c) by {
+                vstd::arithmetic::mul::lemma_mul_inequality(1, a - b, c as int);
+            }
         }
     }
-    */
-
 }
 
 }
