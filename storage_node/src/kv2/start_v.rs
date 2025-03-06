@@ -151,7 +151,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
         assert(lists@.durable.m.dom() == list_addrs@.to_set());
 
-        let mut kv = UntrustedKvStoreImpl::<PM, K, I, L>{
+        let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
             status: Ghost(KvStoreStatus::Quiescent),
             sm: Ghost(sm),
             used_key_slots: Ghost(state.kv.num_keys()),
