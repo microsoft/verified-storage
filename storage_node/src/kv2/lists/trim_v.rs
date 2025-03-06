@@ -977,6 +977,7 @@ impl<PM, L> ListTable<PM, L>
             self.valid(journal@),
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.remaining_capacity == old(journal)@.remaining_capacity,
             match result {
                 Ok(new_list_addr) => {
                     let old_list = old(self)@.tentative.unwrap().m[list_addr];
@@ -997,12 +998,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& self@ == old(self)@
                     &&& trim_length > upper_bound
                     &&& upper_bound == old(self)@.tentative.unwrap().m[list_addr].len()
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& !journal@.pm_constants.impervious_to_corruption()

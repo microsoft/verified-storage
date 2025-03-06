@@ -699,6 +699,7 @@ impl<PM, L> ListTable<PM, L>
         ensures
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
             ({
                 let old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
                 &&& old_iv.corresponds_to_durable_state(journal@.durable_state, self.sm)
@@ -998,6 +999,7 @@ impl<PM, L> ListTable<PM, L>
             self.valid(journal@),
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
             new_list_addr != 0,
             new_list_addr == list_addr || new_list_addr == old(self).free_list@.last(),
             self@ == (ListTableView {
@@ -1111,12 +1113,16 @@ impl<PM, L> ListTable<PM, L>
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() -
+                           u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
                     let old_list = old(self)@.tentative.unwrap().m[list_addr];
                     &&& self@ == old(self)@
                     &&& idx >= old_list.len()
                     &&& upper_bound == old_list.len()
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 },
                 Err(KvError::LogicalRangeUpdateNotAllowed{ old_start, old_end, new_start, new_end }) => {
                     let old_list = old(self)@.tentative.unwrap().m[list_addr];
@@ -1127,12 +1133,19 @@ impl<PM, L> ListTable<PM, L>
                     &&& new_start == new_element.start()
                     &&& new_end == new_element.end()
                     &&& old_start != new_start || old_end != new_end
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ListTableView {
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& {
+                           ||| old(journal)@.remaining_capacity <
+                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  u64::spec_size_of() + u64::spec_size_of()
+                           ||| self@.used_slots == self@.sm.num_rows()
+                    }
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& !journal@.pm_constants.impervious_to_corruption()

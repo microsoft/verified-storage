@@ -363,6 +363,7 @@ impl<PM, L> ListTable<PM, L>
             self.valid(journal@),
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.remaining_capacity == old(journal)@.remaining_capacity,
             match result {
                 Ok(_) => {
                     &&& self@ == (ListTableView {
@@ -377,12 +378,6 @@ impl<PM, L> ListTable<PM, L>
                         ..old(self)@
                     })
                 }, 
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..old(self)@
-                    })
-                },
                 _ => false,
             }
     {

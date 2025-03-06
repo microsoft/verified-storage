@@ -165,10 +165,19 @@ impl<PM, K> KeyTable<PM, K>
                     &&& journal@.journaled_addrs == old(journal)@.journaled_addrs +
                         Set::<int>::new(|i: int| row_addr + self.sm.row_cdb_start <= i
                                       < row_addr + self.sm.row_cdb_start + u64::spec_size_of())
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self.valid(journal@)
                     &&& self@ == (KeyTableView { tentative: None, ..old(self)@ })
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
+                    &&& {
+                           ||| journal@.remaining_capacity <
+                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  u64::spec_size_of()
+                           ||| self@.used_slots == self@.sm.num_rows()
+                    }
                 },
                 _ => false,
             },
@@ -243,6 +252,7 @@ impl<PM, K> KeyTable<PM, K>
             journal.valid(),
             journal@.journaled_addrs == old(journal)@.journaled_addrs,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.remaining_capacity == old(journal)@.remaining_capacity,
             recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
                                 row_addr + self.sm.row_key_crc_start as u64) == Some(*k),
             recover_object::<KeyTableRowMetadata>(
@@ -322,12 +332,20 @@ impl<PM, K> KeyTable<PM, K>
                         ..old(self)@
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& {
+                           ||| old(journal)@.remaining_capacity <
+                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  u64::spec_size_of()
+                           ||| self@.used_slots == self@.sm.num_rows()
+                    }
                 },
                 _ => false,
             },
@@ -502,11 +520,21 @@ impl<PM, K> KeyTable<PM, K>
                         journal@.commit_state, row_addr + self.sm.row_metadata_start,
                         row_addr + self.sm.row_metadata_crc_start
                     ) == Some(new_rm)
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
+                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - KeyTableRowMetadata::spec_size_of()
+                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int)
                     &&& self.valid(journal@)
                     &&& self@ == KeyTableView { tentative: None, ..old(self)@ }
+                    &&& old(journal)@.remaining_capacity <
+                          Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          + KeyTableRowMetadata::spec_size_of()
+                          + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          + u64::spec_size_of()
                 },
                 _ => false,
             },
@@ -597,12 +625,22 @@ impl<PM, K> KeyTable<PM, K>
                         ..old(self)@
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
+                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - KeyTableRowMetadata::spec_size_of()
+                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& old(journal)@.remaining_capacity <
+                          Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          + KeyTableRowMetadata::spec_size_of()
+                          + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          + u64::spec_size_of()
                 },
                 _ => false,
             },

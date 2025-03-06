@@ -36,10 +36,6 @@ pub enum KvError
     TooManyListEntriesPerNode,
     TooManyKeys,
     TooManyListNodes,
-    RegionTooSmall { required: usize, actual: usize },
-    TooFewRegions { required: usize, actual: usize },
-    TooManyRegions { required: usize, actual: usize },
-    LogAreaTooSmall { required: usize, actual: usize },
     OutOfSpace,
     InvalidPersistentMemoryRegionProvided, // TODO: reason
     CRCMismatch,
@@ -58,6 +54,7 @@ pub enum KvError
     PageLeavesLogicalRangeGap{ end_of_valid_range: usize },
     LogicalRangeUpdateNotAllowed{ old_start: usize, old_end: usize, new_start: usize, new_end: usize },
     PmemErr { pmem_err: PmemError },
+    ListLengthWouldExceedUsizeMax,
 }
 
 pub enum LogicalRangeGapsPolicy {
@@ -253,7 +250,10 @@ where
         match self.read_item_and_list(key) {
             Ok((item, list_elements)) => {
                 let end_of_valid_range = end_of_range(list_elements);
-                if new_list_element.start() < end_of_valid_range {
+                if list_elements.len() >= usize::MAX {
+                    Err(KvError::ListLengthWouldExceedUsizeMax)
+                }
+                else if new_list_element.start() < end_of_valid_range {
                     Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
                 }
                 else if {
@@ -279,7 +279,10 @@ where
         match self.read_item_and_list(key) {
             Ok((item, list_elements)) => {
                 let end_of_valid_range = end_of_range(list_elements);
-                if new_list_element.start() < end_of_valid_range {
+                if list_elements.len() >= usize::MAX {
+                    Err(KvError::ListLengthWouldExceedUsizeMax)
+                }
+                else if new_list_element.start() < end_of_valid_range {
                     Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range })
                 }
                 else if {

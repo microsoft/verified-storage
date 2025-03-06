@@ -185,6 +185,7 @@ where
                     } else {
                         old(self).lists@.tentative.unwrap().append(former_rm.list_addr, list_addr, new_list_element)
                     }
+                    &&& old_list.len() < usize::MAX
                     &&& match self.lists@.logical_range_gaps_policy {
                         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
                             new_list_element.start() == end_of_range(old_list),
@@ -240,6 +241,10 @@ where
                 self.internal_abort(Tracked(perm));
                 return Err(KvError::OutOfSpace);
             },
+            Err(KvError::ListLengthWouldExceedUsizeMax) => {
+                self.status = Ghost(KvStoreStatus::Quiescent);
+                return Err(KvError::ListLengthWouldExceedUsizeMax);
+            }
             Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
                 self.status = Ghost(KvStoreStatus::Quiescent);
                 return Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range });

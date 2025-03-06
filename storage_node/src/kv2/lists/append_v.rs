@@ -502,12 +502,7 @@ impl<PM, L> ListTable<PM, L>
                         ..prev_self@
                     })
                     &&& self.validate_list_addr(new_list_addr)
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..prev_self@
-                    })
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& !journal@.pm_constants.impervious_to_corruption()
@@ -664,12 +659,7 @@ impl<PM, L> ListTable<PM, L>
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
-                },
-                Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
-                        tentative: None,
-                        ..prev_self@
-                    })
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& !journal@.pm_constants.impervious_to_corruption()
@@ -842,13 +832,15 @@ impl<PM, L> ListTable<PM, L>
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(new_list_addr) => {
+                    let old_list = old(self)@.tentative.unwrap().m[list_addr];
                     &&& new_list_addr != 0
                     &&& new_list_addr == list_addr || !old(self)@.tentative.unwrap().m.contains_key(new_list_addr)
+                    &&& old_list.len() < usize::MAX
                     &&& match self@.logical_range_gaps_policy {
                         LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
-                            new_element.start() >= end_of_range(old(self)@.tentative.unwrap().m[list_addr]),
+                            new_element.start() >= end_of_range(old_list),
                         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
-                            new_element.start() == end_of_range(old(self)@.tentative.unwrap().m[list_addr]),
+                            new_element.start() == end_of_range(old_list),
                     }
                     &&& self@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().append(list_addr, new_list_addr, new_element)),
@@ -857,23 +849,41 @@ impl<PM, L> ListTable<PM, L>
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() -
+                           u64::spec_size_of() - u64::spec_size_of()
+                },
+                Err(KvError::ListLengthWouldExceedUsizeMax) => {
+                    &&& self@ == old(self)@
+                    &&& old(self)@.tentative.unwrap().m[list_addr].len() >= usize::MAX
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 },
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
                     &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
+                    &&& old(self)@.tentative.unwrap().m[list_addr].len() < usize::MAX
                     &&& new_element.start() > end_of_range(old(self)@.tentative.unwrap().m[list_addr])
                     &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[list_addr])
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 },
                 Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
+                    &&& old(self)@.tentative.unwrap().m[list_addr].len() < usize::MAX
                     &&& new_element.start() < end_of_range(old(self)@.tentative.unwrap().m[list_addr])
                     &&& end_of_valid_range == end_of_range(old(self)@.tentative.unwrap().m[list_addr])
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ListTableView {
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& {
+                           ||| old(journal)@.remaining_capacity <
+                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  u64::spec_size_of() + u64::spec_size_of()
+                           ||| self@.used_slots == self@.sm.num_rows()
+                    }
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& !journal@.pm_constants.impervious_to_corruption()
@@ -933,8 +943,7 @@ impl<PM, L> ListTable<PM, L>
         if length >= usize::MAX {
             self.m.insert(list_addr, entry);
             assert(self.internal_view() =~= old(self).internal_view());
-            self.must_abort = Ghost(true);
-            return Err(KvError::OutOfSpace);
+            return Err(KvError::ListLengthWouldExceedUsizeMax);
         }
 
         if new_element.start() < end_of_valid_range {
@@ -1000,18 +1009,21 @@ impl<PM, L> ListTable<PM, L>
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_row_addr)
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 },
                 Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range }) => {
                     &&& self@ == old(self)@
                     &&& self@.logical_range_gaps_policy is LogicalRangeGapsForbidden
                     &&& new_element.start() != 0
                     &&& end_of_valid_range == 0
+                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (ListTableView {
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& self@.used_slots == self@.sm.num_rows()
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& !journal@.pm_constants.impervious_to_corruption()

@@ -158,6 +158,7 @@ impl<PM, I> ItemTable<PM, I>
             self.valid(journal@),
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            journal@.remaining_capacity == old(journal)@.remaining_capacity,
             match result {
                 Ok(row_addr) => {
                     &&& self@ == (ItemTableView {
@@ -174,6 +175,7 @@ impl<PM, I> ItemTable<PM, I>
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& self@.used_slots == self@.sm.num_rows()
                 },
                 _ => false,
             },
@@ -258,4 +260,3 @@ impl<PM, I> ItemTable<PM, I>
 }
 
 }
-
