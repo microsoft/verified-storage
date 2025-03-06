@@ -119,19 +119,22 @@ where
         &&& self.inv()
     }
 
-    pub closed spec fn spec_space_needed_for_journal_capacity(ps: SetupParameters) -> nat
+    pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        let bytes_per_operation =
-            Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() * 4
-            + u64::spec_size_of() * 8;
-        (ps.max_operations_per_transaction * bytes_per_operation) as nat
+          Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+        + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+        + u64::spec_size_of()
+        + u64::spec_size_of()
+        + u64::spec_size_of()
+        + u64::spec_size_of()
     }
-    
+
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
         recommends
             ps.valid(),
     {
-        let journal_capacity = Self::spec_space_needed_for_journal_capacity(ps);
+        let journal_capacity =
+            (ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation()) as nat;
         let journal_end = Journal::<TrustedKvPermission, PM>::spec_space_needed_for_setup(journal_capacity);
         let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
         let sm_end = sm_start + KvStaticMetadata::spec_size_of();

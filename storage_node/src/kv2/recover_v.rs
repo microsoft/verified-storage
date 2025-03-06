@@ -14,6 +14,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use std::hash::Hash;
+use super::*;
 use super::impl_t::*;
 use super::items::*;
 use super::keys::*;
@@ -235,7 +236,15 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
     else {
         match recover_static_metadata::<K, I, L>(bytes, jc) {
             None => None,
-            Some(sm) => recover_kv_from_static_metadata::<PM, K, I, L>(bytes, sm),
+            Some(sm) =>
+                if jc.journal_capacity <
+                       sm.max_operations_per_transaction *
+                       UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_transaction_operation() {
+                    None
+                }
+                else {
+                    recover_kv_from_static_metadata::<PM, K, I, L>(bytes, sm)
+                },
         }
     }
 }

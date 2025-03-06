@@ -37,6 +37,8 @@ where
         &&& self.journal.recover_idempotent()
         &&& self.journal@.constants.app_program_guid == KVSTORE_PROGRAM_GUID
         &&& self.journal@.constants.app_version_number == KVSTORE_PROGRAM_VERSION_NUMBER
+        &&& self.journal@.constants.journal_capacity >=
+               self.sm@.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation()
         &&& validate_static_metadata::<K, I, L>(self.sm@, self.journal@.constants)
     }
 

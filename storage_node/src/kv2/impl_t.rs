@@ -134,6 +134,11 @@ where
         UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
+    pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
+    {
+        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_transaction_operation()
+    }
+
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
         ensures
             match result {

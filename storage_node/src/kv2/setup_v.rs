@@ -45,12 +45,12 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 {
     pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: CheckedU64)
         ensures
-            result@ == Self::spec_space_needed_for_journal_capacity(*ps),
+            result@ == ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation(),
     {
-        let overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
-        let overhead_times_four = CheckedU64::new(overhead).mul(4);
-        let eight_u64_size = size_of::<u64>() * 8;
-        let bytes_per_operation = overhead_times_four.add(eight_u64_size as u64);
+        let overhead = CheckedU64::new(Journal::<TrustedKvPermission, PM>::journal_entry_overhead());
+        let u64_size = size_of::<u64>() as u64;
+        let bytes_per_operation =
+            overhead.add_checked(&overhead).add(u64_size).add(u64_size).add(u64_size).add(u64_size);
         CheckedU64::new(ps.max_operations_per_transaction).mul_checked(&bytes_per_operation)
     }
     
