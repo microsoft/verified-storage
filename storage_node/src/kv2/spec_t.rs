@@ -311,7 +311,8 @@ where
                 }
                 else {
                     let old_list_element = list_elements[idx as int];
-                    if old_list_element.start() != new_list_element.start() || old_list_element.end() != new_list_element.end() {
+                    if old_list_element.start() != new_list_element.start() ||
+                       old_list_element.end() != new_list_element.end() {
                         Err(KvError::LogicalRangeUpdateNotAllowed{ old_start: old_list_element.start(),
                                                                    old_end: old_list_element.end(),
                                                                    new_start: new_list_element.start(),

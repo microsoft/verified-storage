@@ -350,14 +350,13 @@ impl<K> KeyMemoryMapping<K>
             }
         }
         &&& forall|i: int| 0 <= i < free_list.len() ==> {
-            &&& self.row_info.contains_key(free_list[i])
-            &&& #[trigger] self.row_info[free_list[i]] matches KeyRowDisposition::InFreeList{ pos }
+            &&& self.row_info.contains_key(#[trigger] free_list[i])
+            &&& self.row_info[free_list[i]] matches KeyRowDisposition::InFreeList{ pos }
             &&& pos == i
         }
         &&& forall|i: int| 0 <= i < pending_deallocations.len() ==> {
-            &&& self.row_info.contains_key(pending_deallocations[i])
-            &&& #[trigger] self.row_info[pending_deallocations[i]]
-                matches KeyRowDisposition::InPendingDeallocationList{ pos }
+            &&& self.row_info.contains_key(#[trigger] pending_deallocations[i])
+            &&& self.row_info[pending_deallocations[i]] matches KeyRowDisposition::InPendingDeallocationList{ pos }
             &&& pos == i
         }
     }
