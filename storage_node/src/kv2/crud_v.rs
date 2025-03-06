@@ -149,6 +149,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~= old(self)@.tentative.create(*key, *item).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -246,6 +251,10 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         // invoke extensional equality to establish that equivalence.
         assert(self.keys@.tentative.unwrap().list_addrs() =~= self.lists@.tentative.unwrap().m.dom());
 
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -338,6 +347,11 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         assert(old_item_addrs.insert(new_rm.item_addr).remove(former_rm.item_addr) =~=
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.update_item(*key, *new_item).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 }

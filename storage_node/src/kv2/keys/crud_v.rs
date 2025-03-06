@@ -418,12 +418,17 @@ impl<PM, K> KeyTable<PM, K>
                         tentative: Some(old(self)@.tentative.unwrap().delete(*k)),
                         ..old(self)@
                     })
+                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
                         tentative: None,
                         ..old(self)@
                     })
+                    &&& journal@.remaining_capacity <
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                           u64::spec_size_of()
                 },
                 _ => false,
             },

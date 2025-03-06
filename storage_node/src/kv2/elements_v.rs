@@ -194,6 +194,9 @@ where
                     }
                     &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
                                                             self.lists@.sm.end() as int)
+                    &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
+                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() -
+                           u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self.valid()
@@ -335,6 +338,11 @@ where
         self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~= old(self)@.tentative.append_to_list(*key, new_list_element).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -435,6 +443,11 @@ where
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~=
                old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -545,6 +558,11 @@ where
 
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -674,6 +692,11 @@ where
         assert(self@.tentative =~=
                old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat,
                                                                       new_list_element, *new_item).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -729,6 +752,9 @@ where
             assert(self@.tentative.read_item_and_list(*key).unwrap().1.skip(trim_length as int) =~=
                    self@.tentative.read_item_and_list(*key).unwrap().1);
             assert(self@.tentative.trim_list(*key, trim_length as nat).unwrap() =~= self@.tentative);
+            proof {
+                self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+            }
             return Ok(());
         }
 
@@ -783,6 +809,11 @@ where
         self.used_transaction_operation_slots = Ghost(self.used_transaction_operation_slots@ + 1);
 
         assert(self@.tentative =~= old(self)@.tentative.trim_list(*key, trim_length as nat).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 
@@ -912,6 +943,11 @@ where
                old_item_addrs.remove(former_rm.item_addr).insert(new_rm.item_addr));
         assert(self@.tentative =~= old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat,
                                                                                 *new_item).unwrap());
+
+        proof {
+            self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
+        }
+
         Ok(())
     }
 }

@@ -39,6 +39,9 @@ where
         &&& self.journal@.constants.app_version_number == KVSTORE_PROGRAM_VERSION_NUMBER
         &&& self.journal@.constants.journal_capacity >=
                self.sm@.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation()
+        &&& self.status@ is Quiescent ==> self.journal@.remaining_capacity >=
+               (self.sm@.max_operations_per_transaction - self.used_transaction_operation_slots@) *
+               Self::spec_space_needed_for_transaction_operation()
         &&& validate_static_metadata::<K, I, L>(self.sm@, self.journal@.constants)
     }
 

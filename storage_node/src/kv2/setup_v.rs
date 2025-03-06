@@ -48,9 +48,12 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             result@ == ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation(),
     {
         let overhead = CheckedU64::new(Journal::<TrustedKvPermission, PM>::journal_entry_overhead());
+        let rm_size = size_of::<KeyTableRowMetadata>() as u64;
         let u64_size = size_of::<u64>() as u64;
         let bytes_per_operation =
-            overhead.add_checked(&overhead).add(u64_size).add(u64_size).add(u64_size).add(u64_size);
+            overhead.add_checked(&overhead).add_checked(&overhead)
+                    .add(rm_size)
+                    .add(u64_size).add(u64_size).add(u64_size);
         CheckedU64::new(ps.max_operations_per_transaction).mul_checked(&bytes_per_operation)
     }
     

@@ -123,7 +123,8 @@ where
     {
           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
         + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
-        + u64::spec_size_of()
+        + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+        + KeyTableRowMetadata::spec_size_of()
         + u64::spec_size_of()
         + u64::spec_size_of()
         + u64::spec_size_of()
