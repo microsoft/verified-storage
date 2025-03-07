@@ -93,11 +93,11 @@ where
     }
 
     fn append(&mut self, mem_pool: &mut P, key: &K, list_entry: &[u8; N]) -> Result<(), Error> {
-        // 1. check that the key exists
-        if !self.key_index.contains_key(key) {
-            return Err(Error::KeyNotFound);
-        }
-        let index_metadata = self.key_index.get(key).unwrap();
+        // 1. get key
+        let index_metadata = self.key_index.get(key) {
+            Some(index_metadata) => index_metadata,
+            None => return Err(Error::KeyNotFound);
+        };
         let key_table_index = index_metadata.key_table_index;
 
         // 2. allocate a row in the table
@@ -385,10 +385,11 @@ impl<K: PmCopy + Eq + PartialEq + Hash + Debug, const N: usize> SingletonKV<K, N
         Ok((node.get_val(), next_ptr.next()))
     }
 
-    fn apply_pending_journal_entries<P: MemoryPool>(&self, mem_pool: &mut P) -> Result<(), Error> {
+    fn apply_pending_journal_entries<P: MemoryPool>(&mut self, mem_pool: &mut P) -> Result<(), Error> {
         for (dst, bytes) in &self.pending_journal_entries {
             mem_pool.write(*dst, &bytes)?;
         }
+        self.pending_journal_entries.clear();
 
         Ok(())
     }

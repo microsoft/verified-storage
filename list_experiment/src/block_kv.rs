@@ -103,11 +103,11 @@ where
     }
 
     fn append(&mut self, mem_pool: &mut P, key: &K, list_entry: &[u8; N]) -> Result<(), Error> {
-        // 1. check that the key exists
-        if !self.key_index.contains_key(key) {
-            return Err(Error::KeyNotFound);
-        }
-        let index_metadata = self.key_index.get(key).unwrap();
+        // 1. get key
+        let index_metadata = self.key_index.get(key) {
+            Some(index_metadata) => index_metadata,
+            None => return Err(Error::KeyNotFound);
+        };
         let key_table_index = index_metadata.key_table_index;
 
         let mut new_index_metadata = *index_metadata;
@@ -324,10 +324,11 @@ where
 }
 
 impl<K: PmCopy + PartialEq + Eq + Hash, const N: usize, const M: usize> BlockKV<K, N, M> {
-    fn apply_pending_journal_entries<P: MemoryPool>(&self, mem_pool: &mut P) -> Result<(), Error> {
+    fn apply_pending_journal_entries<P: MemoryPool>(&mut self, mem_pool: &mut P) -> Result<(), Error> {
         for (dst, bytes) in &self.pending_journal_entries {
             mem_pool.write(*dst, &bytes)?;
         }
+        self.pending_journal_entries.clear();
 
         Ok(())
     }

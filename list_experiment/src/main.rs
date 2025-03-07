@@ -39,7 +39,7 @@ const KEY_TABLE_SIZE: u64 = 1024 * 1024 * 8;
 const LIST_TABLE_SIZE: u64 = 1024 * 1024 * 512;
 const JOURNAL_SIZE: u64 = MEM_POOL_SIZE - KEY_TABLE_SIZE - LIST_TABLE_SIZE;
 const CACHE_CAPACITY: u64 = 10;
-const LIST_LEN: u64 = 5000;
+const LIST_LEN: u64 = 50000;
 const NUM_KEYS: u64 = 10;
 const ITERATIONS: u64 = 5;
 
@@ -47,12 +47,12 @@ impl PmCopy for u64 {}
 
 fn main() {
     append_experiments();
-    read_experiments();
-    trim_experiments();
+    // read_experiments();
+    // trim_experiments();
 }
 
 fn append_experiments() {
-    singleton_append_experiments();
+    // singleton_append_experiments();
     block_append_experiments();
 }
 
@@ -119,38 +119,38 @@ fn block_append_experiments() {
     println!("block append,");
     println!("element size,block_size,us elapsed,");
 
-    run_block_append_experiment::<8, 8>();
-    run_block_append_experiment::<16, 8>();
-    run_block_append_experiment::<32, 8>();
+    // run_block_append_experiment::<8, 8>();
+    // run_block_append_experiment::<16, 8>();
+    // run_block_append_experiment::<32, 8>();
     run_block_append_experiment::<64, 8>();
-    run_block_append_experiment::<128, 8>();
-    run_block_append_experiment::<256, 8>();
-    run_block_append_experiment::<512, 8>();
-    run_block_append_experiment::<1024, 8>();
+    // run_block_append_experiment::<128, 8>();
+    // run_block_append_experiment::<256, 8>();
+    // run_block_append_experiment::<512, 8>();
+    // run_block_append_experiment::<1024, 8>();
 
-    println!("");
+    // println!("");
 
-    run_block_append_experiment::<8, 2>();
-    run_block_append_experiment::<16, 2>();
-    run_block_append_experiment::<32, 2>();
-    run_block_append_experiment::<64, 2>();
-    run_block_append_experiment::<128, 2>();
-    run_block_append_experiment::<256, 2>();
-    run_block_append_experiment::<512, 2>();
-    run_block_append_experiment::<1024, 2>();
+    // run_block_append_experiment::<8, 2>();
+    // run_block_append_experiment::<16, 2>();
+    // run_block_append_experiment::<32, 2>();
+    // run_block_append_experiment::<64, 2>();
+    // run_block_append_experiment::<128, 2>();
+    // run_block_append_experiment::<256, 2>();
+    // run_block_append_experiment::<512, 2>();
+    // run_block_append_experiment::<1024, 2>();
 
-    println!("");
+    // println!("");
 
-    run_block_append_experiment::<8, 16>();
-    run_block_append_experiment::<16, 16>();
-    run_block_append_experiment::<32, 16>();
-    run_block_append_experiment::<64, 16>();
-    run_block_append_experiment::<128, 16>();
-    run_block_append_experiment::<256, 16>();
-    run_block_append_experiment::<512, 16>();
-    run_block_append_experiment::<1024, 16>();
+    // run_block_append_experiment::<8, 16>();
+    // run_block_append_experiment::<16, 16>();
+    // run_block_append_experiment::<32, 16>();
+    // run_block_append_experiment::<64, 16>();
+    // run_block_append_experiment::<128, 16>();
+    // run_block_append_experiment::<256, 16>();
+    // run_block_append_experiment::<512, 16>();
+    // run_block_append_experiment::<1024, 16>();
 
-    println!("");
+    // println!("");
 }
 
 fn block_read_experiments() {
