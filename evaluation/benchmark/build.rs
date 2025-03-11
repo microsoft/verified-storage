@@ -13,9 +13,14 @@ fn main() {
             "-I/usr/include/c++/14", 
             "-I/usr/include/x86_64-linux-gnu/c++/14",
             "-I../concurrentqueue",
+            "-I../viper_wrapper",
             "-xc++",
             "-std=c++17",
             "-w"])
+        // .allowlist_file("viper_wrapper.hpp")
+        // .opaque_type("moodycamel.*")
+        // // .opaque_type(".*vector.*")
+        .opaque_type("std::.*")
         .size_t_is_usize(false)
         .header("wrapper.h")
         .generate()

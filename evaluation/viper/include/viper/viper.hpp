@@ -67,6 +67,16 @@ struct ViperConfig {
     bool enable_reclamation = false;
 };
 
+// std::ceil is not constexpr in clang, which is what rust/bindgen use, 
+// so we need to provide an alternative constexpr ceil function to use in 
+// get_num_slots_per_page.
+constexpr int32_t ceil(float num)
+{
+    return (static_cast<float>(static_cast<int32_t>(num)) == num)
+        ? static_cast<int32_t>(num)
+        : static_cast<int32_t>(num) + ((num > 0) ? 1 : 0);
+}
+
 namespace internal {
 
 template <typename K, typename V>
@@ -91,7 +101,7 @@ constexpr data_offset_size_t get_num_slots_per_page() {
     }
     data_offset_size_t num_slots_per_page = num_slots_per_page_large;
     while ((num_slots_per_page * entry_size) + page_overhead +
-                std::ceil((double) num_slots_per_page / 8) > current_page_size) {
+                ceil((double) num_slots_per_page / 8) > current_page_size) {
         num_slots_per_page--;
     }
     assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
@@ -978,7 +988,7 @@ void Viper<K, V>::trigger_reclaim(size_t num_reclaim_ops) {
 
 
 template <typename K, typename V>
-inline typename Viper<K, V>::Client Viper<K, V>::get_client() {
+typename Viper<K, V>::Client Viper<K, V>::get_client() {
     num_active_clients_++;
     Client client{*this};
     if constexpr (std::is_same_v<K, std::string>) {

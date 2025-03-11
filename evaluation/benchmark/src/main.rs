@@ -4,6 +4,14 @@
 #![allow(unused_imports)]
 #![allow(deprecated)]
 
+// these are required to suppress warnings from bindgen-generated code
+#![allow(non_camel_case_types)]
+#![allow(non_upper_case_globals)]
+#![allow(non_snake_case)]
+#![allow(improper_ctypes)]
+
+include!("./bindings.rs");
+
 // use storage_node::kv::kvimpl_t::*;
 // use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
@@ -21,7 +29,7 @@ use redis::{FromRedisValue, RedisResult};
 use std::fs;
 use std::env;
 use std::time::{Instant};
-use std::thread::sleep;
+// use std::thread::sleep;
 use std::io::{BufWriter, Write};
 use std::process::Command;
 
@@ -32,11 +40,14 @@ use crate::kv_interface::*;
 use crate::redis_client::*;
 use crate::rocksdb_client::*;
 use crate::capybarakv_client::*;
+use crate::viper_client::*;
 
 pub mod kv_interface;
 pub mod redis_client;
 pub mod rocksdb_client;
 pub mod capybarakv_client;
+pub mod viper_client;
+// pub mod custom_bindings;
 
 // length of key and value in byte for most tests
 const KEY_LEN: usize = 64;
