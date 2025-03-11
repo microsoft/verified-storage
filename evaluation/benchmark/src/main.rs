@@ -1,6 +1,13 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(dependency_on_unit_never_type_fallback)]
+#![allow(unused_imports)]
+#![allow(deprecated)]
+
 // use storage_node::kv::kvimpl_t::*;
 // use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
+use storage_node::kv2::spec_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmsafe::PmCopy;
 
@@ -13,7 +20,7 @@ use redis::{FromRedisValue, RedisResult};
 
 use std::fs;
 use std::env;
-use std::time::{Instant, Duration};
+use std::time::{Instant};
 use std::thread::sleep;
 use std::io::{BufWriter, Write};
 use std::process::Command;
@@ -158,7 +165,17 @@ impl Value for BigTestValue {
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
 pub struct PlaceholderListElem {
-    _val: u64,
+    val: u64,
+}
+
+impl LogicalRange for PlaceholderListElem {
+    fn start(&self) -> usize {
+        self.val as usize
+    }
+
+    fn end(&self) -> usize {
+        self.val as usize
+    }
 }
 
 impl FromRedisValue for TestValue {
@@ -602,7 +619,7 @@ fn run_empty_start<KV>(output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV
 
     println!("EMPTY SETUP");
     KV::setup(num_keys)?;
-    let (kv, dur) = KV::timed_start()?;
+    let (_kv, dur) = KV::timed_start()?;
     let elapsed = format!("{:?}\n", dur.as_micros());
     out_stream.write(&elapsed.into_bytes()).unwrap();
     out_stream.flush().unwrap();
@@ -647,7 +664,7 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
         let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
         fs::create_dir_all(&exp_output_dir).unwrap();
         let mut out_stream = create_file_and_build_output_stream(&output_file);
-        let (kv, dur) = KV::timed_start()?;
+        let (_kv, dur) = KV::timed_start()?;
         let elapsed = format!("{:?}\n", dur.as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
         out_stream.flush().unwrap();
@@ -665,17 +682,17 @@ pub fn init_and_mount_pm_fs() {
     println!("Unmounted");
 
     // Set up PM with a fresh file system instance
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["mkfs.ext4", PM_DEV, "-F"])
         .status()
         .expect("mkfs.ext4 failed");
 
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
         .status()
         .expect("mount failed");
 
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["chmod", "777", MOUNT_POINT])
         .status()
         .expect("chmod failed");
@@ -689,7 +706,7 @@ pub fn remount_pm_fs() {
 
     println!("Unmounted");
 
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
         .status()
         .expect("mount failed");
