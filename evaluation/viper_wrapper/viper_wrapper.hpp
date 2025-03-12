@@ -10,12 +10,8 @@ static const auto VIPER_VALUE_LEN = 1024;
 
 using K = uint64_t;
 using V = uint64_t;
-using Viper = viper::Viper<K, V>;
+using ViperDB = viper::Viper<K, V>;
 using ViperDBClient = viper::Viper<K, V>::Client;
-
-struct ViperDB {
-    Viper* db;
-};
 
 
 extern "C" ViperDB* viperdb_create(
@@ -23,8 +19,8 @@ extern "C" ViperDB* viperdb_create(
     uint64_t initial_pool_size
 );
 
-extern "C" ViperDBClient* viperdb_get_client(struct ViperDB* vdb);
+extern "C" ViperDBClient* viperdb_get_client(ViperDB* vdb);
 
-extern "C" void viperdb_cleanup(struct ViperDB* vdb);
+extern "C" void viperdb_cleanup(ViperDB* vdb);
 
 #endif

@@ -44,12 +44,7 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
         let init_size = 1073741824;
 
         let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
-        
-
-        // TODO: there's an issue with getting the client right now, I think?
         let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
-        
-        println!("hello");
 
         Ok(Self {
             kv: viper_db,
