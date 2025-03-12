@@ -6,8 +6,65 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=../viper_wrapper/viper_wrapper.hpp");
+    println!("cargo:rerun-if-changed=../viper_wrapper/viper_wrapper.cpp");
+
+    // println!("cargo:rustc-link-lib=static=stdc++");
+    // println!("cargo:rustc-link-lib=dylib=c++");
+    // println!("cargo:rustc-link-lib=dylib=c++abi");
+
+    let viper_wrapper_path = PathBuf::from("../viper_wrapper")
+        .canonicalize()
+        .expect("cannot canonicalize path");
+
+    // let viper_path = PathBuf::from("../viper/include")
+    //     .canonicalize()
+    //     .expect("cannot canonicalize path");
+
+    let headers_path = viper_wrapper_path.join("viper_wrapper.hpp");
+    let headers_path_str = headers_path.to_string_lossy();
+
+    // This is the path to the intermediate object file for our library.
+    let obj_path = viper_wrapper_path.join("viper_wrapper.o");
+    // This is the path to the static library file.
+    let lib_path = viper_wrapper_path.join("libviper_wrapper.a");
+
+    // build object file for the viper wrapper
+    // based on instructions from https://rust-lang.github.io/rust-bindgen/non-system-libraries.html
+    if !std::process::Command::new("clang++")
+        .arg("-c")
+        .arg("-I../viper/include")
+        .arg("-I../viper_deps/concurrentqueue")
+        .arg("-mclwb")
+        .arg("-std=c++17")
+        .arg("-o")
+        .arg(&obj_path)
+        .arg(viper_wrapper_path.join("viper_wrapper.cpp"))
+        .output()
+        .expect("could not spawn `clang`")
+        .status
+        .success()
+    { panic!("could not compile object file") }
+
+    // build the static library file for the viper wrapper
+    if !std::process::Command::new("ar")
+        .arg("rcs")
+        .arg(lib_path)
+        .arg(obj_path)
+        .output()
+        .expect("could not spawn `ar`")
+        .status
+        .success()
+    { panic!("could not emit library file"); }
+
+    println!("cargo:rustc-link-search={}", viper_wrapper_path.to_str().unwrap());
+    // println!("cargo:rustc-link-search={}", viper_path.to_str().unwrap());
+    // println!("cargo:rustc-link-lib=viper");
+    println!("cargo:rustc-link-lib=static=viper_wrapper");
 
     let bindings = bindgen::Builder::default()
+        // .enable_cxx_namespaces()
+        .header(headers_path_str)
         .clang_args(&[
             "-I../viper/include", 
             "-I/usr/include/c++/14", 
@@ -17,10 +74,20 @@ fn main() {
             "-xc++",
             "-std=c++17",
             "-w"])
+        
         // .allowlist_file("viper_wrapper.hpp")
         // .opaque_type("moodycamel.*")
         // // .opaque_type(".*vector.*")
+        .allowlist_type("ViperDB.*")
+        .allowlist_type(".*viperdb.*")
+        .allowlist_function(".*viperdb.*")
+        .allowlist_var(".*viperdb.*")
+
+        .opaque_type(".*ViperDB.*")
         .opaque_type("std::.*")
+
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+
         .size_t_is_usize(false)
         .header("wrapper.h")
         .generate()

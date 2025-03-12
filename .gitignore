@@ -409,3 +409,8 @@ Cargo.lock
 !evaluation/pmem-redis/deps/memkind/jemalloc/bin
 
 evaluation/venv/*
+
+*.o
+*.a 
+*.gch
+*.pch

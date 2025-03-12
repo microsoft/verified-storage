@@ -10,13 +10,16 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::time::Duration;
+use std::ffi::{c_void, CString};
 
 pub struct ViperClient<K, V> 
     where
         K: PmCopy + Key + Debug + Hash,
         V: PmCopy + Value + Debug + Hash,
 {
-    kv: crate::ViperDB,
+    // kv: crate::ViperDB,
+    kv: *mut crate::ViperDB,
+    client: *mut crate::ViperDBClient,
     _key_type: PhantomData<K>,
     _value_type: PhantomData<V>,
 }
@@ -33,8 +36,27 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
     }
 
     fn start() -> Result<Self, Self::E> {
-        // let viper_db = viper_Viper
-        todo!()
+        init_and_mount_pm_fs();
+        
+        let file = crate::MOUNT_POINT.to_owned() + "/viper";
+        let file_cstring = CString::new(file.clone()).unwrap();
+        let file_ptr = file_cstring.as_ptr();
+        let init_size = 1073741824;
+
+        // TODO: I don't think what's going on here is correct -- pool file is being 
+        // closed before we get the client? potential issue with C++ unique ptr lifetimes?
+        let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
+        println!("getting client");
+        let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
+        
+        println!("hello");
+
+        Ok(Self {
+            kv: viper_db,
+            client: viper_client,
+            _key_type: PhantomData,
+            _value_type: PhantomData
+        })
     }
 
     fn timed_start() -> Result<(Self, Duration), Self::E> {
@@ -42,7 +64,7 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
     }
     
     fn db_name() -> String {
-        todo!()
+        "viper".to_string()
     }
 
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E> {

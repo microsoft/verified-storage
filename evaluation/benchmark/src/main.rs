@@ -254,22 +254,36 @@ fn main() {
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
     let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
+    let viper_output_dir = output_dir.clone() + "/" + &ViperClient::<TestKey, TestValue>::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
     fs::create_dir_all(&rocksdb_output_dir).unwrap();
     fs::create_dir_all(&capybara_output_dir).unwrap();
+    fs::create_dir_all(&viper_output_dir).unwrap();
 
 
     for i in 1..ITERATIONS+1 {
-        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        // run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        // run_experiments::<ViperClient<TestKey, TestValue>>(&viper_output_dir, i).unwrap();
+
+        test_setup::<ViperClient<TestKey, TestValue>>(&viper_output_dir).unwrap();
     }
 
-    // full setup works differently so that we don't have to rebuild the full KV every iteration
-    run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+    // // full setup works differently so that we don't have to rebuild the full KV every iteration
+    // run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
+    // run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
+    // run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+}
+
+fn test_setup<KV>(output_dir: &str) -> Result<(), KV::E> 
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    let mut client = KV::start()?;
+
+    Ok(())
 }
 
 fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>

@@ -21,3 +21,6 @@ num_cpus = "1.16.0"
 
 [target.'cfg(target_os = "linux")'.build-dependencies]
 bindgen = "0.69.1"
+
+[build]
+rustflags = "-Clink-arg=-Wl,--undefined-version"
