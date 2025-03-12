@@ -14,7 +14,22 @@ Tested Linux environments:
 
 3. Set up Viper
     - Clone from GitHub: `git clone git@github.com:hpides/viper.git` into a sibling directory of `evaluation/benchmark`
-    - Clone its dependency `concurrentqueue`: `git clone git@github.com:cameron314/concurrentqueue.git`, also into a sibling directory of `evaluation/benchmark`
+    - Viper has two main dependencies, `concurrentqueue` and `benchmark`, which are already in `evaluation/viper_deps`. 
+    - Follow these instructions to build the benchmark dependency and install it globally:
+    ```
+    # Go to the library root directory
+    $ cd benchmark
+    # Make a build directory to place the build output.
+    $ cmake -E make_directory "build"
+    # Generate build system files with cmake, and download any dependencies.
+    $ cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release ../
+    # or, starting with CMake 3.13, use a simpler form:
+    # cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -S . -B "build"
+    # Build the library.
+    $ cmake --build "build" --config Release
+    $ sudo cmake --build "build" --config Release --target install
+    ```
+    - 
     
 
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.

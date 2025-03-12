@@ -34,7 +34,9 @@ fn main() {
     if !std::process::Command::new("clang++")
         .arg("-c")
         .arg("-I../viper/include")
+        .arg("-I../viper/benchmark")
         .arg("-I../viper_deps/concurrentqueue")
+        .arg("-I../viper_deps/benchmark/include")
         .arg("-mclwb")
         .arg("-std=c++17")
         .arg("-o")
@@ -61,6 +63,7 @@ fn main() {
     // println!("cargo:rustc-link-search={}", viper_path.to_str().unwrap());
     // println!("cargo:rustc-link-lib=viper");
     println!("cargo:rustc-link-lib=static=viper_wrapper");
+    println!("cargo:rustc-link-lib=benchmark");
 
     let bindings = bindgen::Builder::default()
         // .enable_cxx_namespaces()
@@ -71,6 +74,8 @@ fn main() {
             "-I/usr/include/x86_64-linux-gnu/c++/14",
             "-I../concurrentqueue",
             "-I../viper_wrapper",
+            "-I../viper/benchmark",
+            // "-I../viper_deps/benchmark/include",
             "-xc++",
             "-std=c++17",
             "-w"])
@@ -82,6 +87,9 @@ fn main() {
         .allowlist_type(".*viperdb.*")
         .allowlist_function(".*viperdb.*")
         .allowlist_var(".*viperdb.*")
+
+        // .opaque_type(".*internal.*")
+        // .blocklist_function(".*internal.*")
 
         .opaque_type(".*ViperDB.*")
         .opaque_type("std::.*")

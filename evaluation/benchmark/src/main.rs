@@ -254,7 +254,7 @@ fn main() {
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
     let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
-    let viper_output_dir = output_dir.clone() + "/" + &ViperClient::<TestKey, TestValue>::db_name();
+    let viper_output_dir = output_dir.clone() + "/" + &ViperClient::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
     fs::create_dir_all(&rocksdb_output_dir).unwrap();
@@ -266,9 +266,7 @@ fn main() {
         // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
         // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
         // run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
-        // run_experiments::<ViperClient<TestKey, TestValue>>(&viper_output_dir, i).unwrap();
-
-        test_setup::<ViperClient<TestKey, TestValue>>(&viper_output_dir).unwrap();
+        run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
     }
 
     // // full setup works differently so that we don't have to rebuild the full KV every iteration
@@ -296,9 +294,9 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         let mut client = KV::start()?;
         run_sequential_put(&mut client, &output_dir, i)?;
         client.flush();
-        run_sequential_get(&mut client, &output_dir, i)?;
-        run_sequential_update(&mut client, &output_dir, i)?;
-        run_sequential_delete(&mut client, &output_dir, i)?;
+        // run_sequential_get(&mut client, &output_dir, i)?;
+        // run_sequential_update(&mut client, &output_dir, i)?;
+        // run_sequential_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
 
@@ -308,25 +306,25 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         let mut client = KV::start()?;
         run_rand_put(&mut client, &output_dir, i)?;
         client.flush();
-        run_rand_get(&mut client, &output_dir, i)?;
-        run_rand_update(&mut client, &output_dir, i)?;
-        run_rand_delete(&mut client, &output_dir, i)?;
+        // run_rand_get(&mut client, &output_dir, i)?;
+        // run_rand_update(&mut client, &output_dir, i)?;
+        // run_rand_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
 
-    // // mimic run d from YCSB
+    // // // mimic run d from YCSB
+    // // {
+    // //     KV::setup(NUM_KEYS)?;
+    // //     let mut client = KV::start()?;
+    // //     run_rand_latest_access_pattern(&mut client, &output_dir, i)?;
+    // // }
+    // // KV::cleanup();
+
+    // // startup measurements
     // {
-    //     KV::setup(NUM_KEYS)?;
-    //     let mut client = KV::start()?;
-    //     run_rand_latest_access_pattern(&mut client, &output_dir, i)?;
+    //     run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
     // }
     // KV::cleanup();
-
-    // startup measurements
-    {
-        run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
-    }
-    KV::cleanup();
 
     Ok(())
 }

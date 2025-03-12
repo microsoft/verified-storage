@@ -86,12 +86,14 @@ using Offset = uint64_t;
 using KeyType8 = BMRecord<uint32_t, 2>;
 using KeyType16 = BMRecord<uint32_t, 4>;
 using KeyType32 = BMRecord<uint32_t, 8>;
+using KeyType64 = BMRecord<uint8_t, 64>;
 using KeyType100 = BMRecord<uint32_t, 25>;
 using ValueType8 = KeyType8;
 using ValueType100 = KeyType100;
 using ValueType200 = BMRecord<uint32_t, 50>;
 using ValueType500 = BMRecord<uint32_t, 125>;
 using ValueType900 = BMRecord<uint32_t, 225>;
+using ValueType1024 = BMRecord<uint8_t, 1024>;
 
 #if defined(NVRAM01)
 static constexpr size_t CPU_AFFINITY_OFFSET = 36;

@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
+use crate::{Key, Value, TestKey, TestValue, KEY_LEN, VALUE_LEN, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use storage_node::kv2::spec_t::*;
@@ -12,22 +12,14 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use std::ffi::{c_void, CString};
 
-pub struct ViperClient<K, V> 
-    where
-        K: PmCopy + Key + Debug + Hash,
-        V: PmCopy + Value + Debug + Hash,
+pub struct ViperClient
 {
     // kv: crate::ViperDB,
     kv: *mut crate::ViperDB,
     client: *mut crate::ViperDBClient,
-    _key_type: PhantomData<K>,
-    _value_type: PhantomData<V>,
 }
 
-impl<K, V> KvInterface<K, V> for ViperClient<K, V> 
-    where
-        K: PmCopy + Key + Debug + Hash,
-        V: PmCopy + Value + Debug + Hash,
+impl KvInterface<TestKey, TestValue> for ViperClient
 {
     type E = bool;
 
@@ -49,8 +41,6 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
         Ok(Self {
             kv: viper_db,
             client: viper_client,
-            _key_type: PhantomData,
-            _value_type: PhantomData
         })
     }
 
@@ -62,19 +52,25 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
         "viper".to_string()
     }
 
-    fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
+    fn put(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
+        let key = &key.key as *const [u8; KEY_LEN];
+        let value = &value.value as *const [u8; VALUE_LEN];
+        let result = unsafe { crate::viperdb_put(self.client, key, value) };
+        match result {
+            true => Ok(()), 
+            false => Err(false)
+        }
+    }
+
+    fn get(&mut self, key: &TestKey) -> Result<TestValue, Self::E> {
         todo!()
     }
 
-    fn get(&mut self, key: &K) -> Result<V, Self::E> {
+    fn update(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
         todo!()
     }
 
-    fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        todo!()
-    }
-
-    fn delete(&mut self, key: &K) -> Result<(), Self::E> {
+    fn delete(&mut self, key: &TestKey) -> Result<(), Self::E> {
         todo!()
     }
 
@@ -87,10 +83,7 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
     }
 }
 
-impl<K, V> Drop for ViperClient<K, V> 
-    where
-        K: PmCopy + Key + Debug + Hash,
-        V: PmCopy + Value + Debug + Hash,
+impl Drop for ViperClient
 {
     fn drop(&mut self) {
         println!("dropping viper db");

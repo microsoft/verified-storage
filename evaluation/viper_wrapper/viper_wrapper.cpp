@@ -17,6 +17,10 @@ extern "C" ViperDBClient* viperdb_get_client(ViperDB* vdb) {
     return &client;
 }
 
+extern "C" bool viperdb_put(ViperDBClient* db, const K* key, const V* value) {
+    return db->put(*key, *value);
+}
+
 extern "C" void viperdb_cleanup(ViperDB* vdb) {
     delete vdb;
 }
