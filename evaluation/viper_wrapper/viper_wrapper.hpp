@@ -14,30 +14,9 @@ using Viper = viper::Viper<K, V>;
 using ViperDBClient = viper::Viper<K, V>::Client;
 
 struct ViperDB {
-    std::unique_ptr<Viper> db;
+    Viper* db;
 };
 
-// struct ViperDBClient {
-//     ViperDBClient::
-// }
-
-// class ViperDB {
-//     public:
-//         // ViperDB(std::unique_ptr<viper::Viper<unsigned char[VIPER_KEY_LEN], unsigned char[VIPER_VALUE_LEN]>>);
-//         ViperDB(std::unique_ptr<Viper>);
-//         ~ViperDB();
-
-//         // ViperDB create(
-//         //     const char* pool_file,
-//         //     uint64_t initial_pool_size
-//         // );
-
-//         ViperDBClient get_client();
-
-//     private:
-//         // std::unique_ptr<viper::Viper<unsigned char[VIPER_KEY_LEN], unsigned char[VIPER_VALUE_LEN]>> db;
-//         std::unique_ptr<Viper> db;
-// };
 
 extern "C" ViperDB* viperdb_create(
     const char* pool_file,
@@ -46,12 +25,6 @@ extern "C" ViperDB* viperdb_create(
 
 extern "C" ViperDBClient* viperdb_get_client(struct ViperDB* vdb);
 
-// ViperDB::ViperDB(std::unique_ptr<Viper> viper_db) {
-//     db = std::move(viper_db);
-// }
-
-// ViperDBClient ViperDB::get_client() {
-//     return this->db->get_client();
-// }
+extern "C" void viperdb_cleanup(struct ViperDB* vdb);
 
 #endif

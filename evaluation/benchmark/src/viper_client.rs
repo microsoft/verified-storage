@@ -43,10 +43,10 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
         let file_ptr = file_cstring.as_ptr();
         let init_size = 1073741824;
 
-        // TODO: I don't think what's going on here is correct -- pool file is being 
-        // closed before we get the client? potential issue with C++ unique ptr lifetimes?
         let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
-        println!("getting client");
+        
+
+        // TODO: there's an issue with getting the client right now, I think?
         let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
         
         println!("hello");
@@ -89,5 +89,16 @@ impl<K, V> KvInterface<K, V> for ViperClient<K, V>
 
     fn flush(&mut self) {
         todo!()
+    }
+}
+
+impl<K, V> Drop for ViperClient<K, V> 
+    where
+        K: PmCopy + Key + Debug + Hash,
+        V: PmCopy + Value + Debug + Hash,
+{
+    fn drop(&mut self) {
+        println!("dropping viper db");
+        unsafe { crate::viperdb_cleanup(self.kv); }
     }
 }

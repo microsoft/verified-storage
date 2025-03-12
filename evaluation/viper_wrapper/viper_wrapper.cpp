@@ -11,7 +11,7 @@ extern "C" ViperDB* viperdb_create(
     
     auto viper_db = Viper::create(pool_file_string, initial_pool_size);
     auto db = ViperDB {
-        std::move(viper_db)
+        viper_db.release()
     };
     return &db;
 }
@@ -19,4 +19,8 @@ extern "C" ViperDB* viperdb_create(
 extern "C" ViperDBClient* viperdb_get_client(struct ViperDB* vdb) {
     auto client = vdb->db->get_client();
     return &client;
+}
+
+extern "C" void viperdb_cleanup(struct ViperDB* vdb) {
+    delete vdb->db;
 }
