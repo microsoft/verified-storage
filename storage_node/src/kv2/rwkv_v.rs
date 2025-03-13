@@ -393,8 +393,8 @@ where
     ) -> (result: Result<I, KvError>)
         requires 
             self.valid(),
-            old(cb).key() == *key,
             old(cb).loc() == self.loc(),
+            old(cb).key() == *key,
             old(cb).result() is None,
         ensures
             self.valid(),
@@ -408,6 +408,35 @@ where
             cb.run(invariant_resource, result);
         }
         read_handle.release_read();
+        result
+    }
+
+    pub exec fn create<CB: CreateCallback<K, I, L>>(
+        &mut self,
+        key: &K,
+        item: &I,
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        requires
+            old(self).valid(),
+            old(cb).loc() == old(self).loc(),
+            old(cb).key() == *key,
+            old(cb).item() == *item,
+            old(cb).result() is None,
+        ensures 
+            self.valid(),
+            cb.result() == Some(result),
+    {
+        let (mut kv_internal, write_handle) = self.lock.acquire_write();
+        let result = match kv_internal.kv.tentatively_create(key, item) {
+            Err(e) => Err(e),
+            Ok(()) => kv_internal.kv.commit(),
+        };
+        let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        proof {
+            cb.run(kv_internal.invariant_resource.borrow_mut(), new_ckv, result);
+        }
+        write_handle.release_write(kv_internal);
         result
     }
 }
