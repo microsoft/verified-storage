@@ -62,7 +62,8 @@ const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
-const NUM_KEYS: u64 = 25000000;
+// const NUM_KEYS: u64 = 25000000;
+const NUM_KEYS: u64 = 100;
 const ITERATIONS: u64 = 1;
 // for use in the full startup experiment
 // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
@@ -300,17 +301,17 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     }
     KV::cleanup();
 
-    // random access operations
-    {
-        KV::setup(NUM_KEYS)?;
-        let mut client = KV::start()?;
-        run_rand_put(&mut client, &output_dir, i)?;
-        client.flush();
-        // run_rand_get(&mut client, &output_dir, i)?;
-        // run_rand_update(&mut client, &output_dir, i)?;
-        // run_rand_delete(&mut client, &output_dir, i)?;
-    }
-    KV::cleanup();
+    // // random access operations
+    // {
+    //     KV::setup(NUM_KEYS)?;
+    //     let mut client = KV::start()?;
+    //     run_rand_put(&mut client, &output_dir, i)?;
+    //     client.flush();
+    //     // run_rand_get(&mut client, &output_dir, i)?;
+    //     // run_rand_update(&mut client, &output_dir, i)?;
+    //     // run_rand_delete(&mut client, &output_dir, i)?;
+    // }
+    // KV::cleanup();
 
     // // // mimic run d from YCSB
     // // {
@@ -377,12 +378,9 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), K
     let value = TestValue { value: [0u8; VALUE_LEN] };
     for i in 0..NUM_KEYS {
         let key = u64_to_test_key(i);
-        println!("key {:?}", i);
 
         let t0 = Instant::now();
-        println!("calling put");
         if let Err(e) = kv.put(&key, &value) {
-            println!("put had an error");
             return Err(e);
         }
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());

@@ -18,23 +18,31 @@ static const auto VIPER_VALUE_LEN = 1024;
 // };
 
 
-using K = uint64_t;
-using V = uint64_t;
-// using K = viper::kv_bm::KeyType64;
-// using V = viper::kv_bm::ValueType1024;
+// using K = uint64_t;
+// using V = uint64_t;
+using K = viper::kv_bm::KeyType64;
+using V = viper::kv_bm::ValueType1024;
 using ViperDB = viper::Viper<K, V>;
 using ViperDBClient = viper::Viper<K, V>::Client;
 
+struct ViperDBFFI {
+    std::unique_ptr<ViperDB> db;
+    std::unique_ptr<ViperDBClient> client;
+};
 
-extern "C" ViperDB* viperdb_create(
-    const char* pool_file,
-    uint64_t initial_pool_size
-);
+extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t initial_pool_size);
 
-extern "C" ViperDBClient* viperdb_get_client(ViperDB* vdb);
+extern "C" bool viperdb_put(struct ViperDBFFI* db, const K* key, const V* value);
 
-extern "C" bool viperdb_put(ViperDBClient* db, const K* key, const V* value);
+// extern "C" ViperDBFFI viperdb_create(
+//     const char* pool_file,
+//     uint64_t initial_pool_size
+// );
 
-extern "C" void viperdb_cleanup(ViperDB* vdb);
+// extern "C" ViperDBClient viperdb_get_client(ViperDB* vdb);
+
+// extern "C" bool viperdb_put(ViperDBClient* db, const K* key, const V* value);
+
+extern "C" void viperdb_cleanup(ViperDBFFI* db);
 
 #endif

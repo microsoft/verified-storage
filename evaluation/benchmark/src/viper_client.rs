@@ -14,9 +14,10 @@ use std::ffi::{c_void, CString};
 
 pub struct ViperClient
 {
+    kv: *mut crate::ViperDBFFI,
     // kv: crate::ViperDB,
-    kv: *mut crate::ViperDB,
-    client: *mut crate::ViperDBClient,
+    // kv: *mut crate::ViperDB,
+    // client: crate::ViperDBClient,
 }
 
 impl KvInterface<TestKey, TestValue> for ViperClient
@@ -35,12 +36,13 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file_ptr = file_cstring.as_ptr();
         let init_size = 1073741824;
 
-        let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
-        let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
+        // let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
+        // let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
+        let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
 
-        Ok(Self {
-            kv: viper_db,
-            client: viper_client,
+        Ok(Self { kv
+            // kv: viper_db,
+            // client: viper_client,
         })
     }
 
@@ -55,9 +57,9 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn put(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
         let value = &value.value as *const [u8; VALUE_LEN];
-        println!("client addr {:p}", self.client);
+        // println!("client addr {:p}", self.client);
         println!("key addr {:p}", key);
-        let result = unsafe { crate::viperdb_put(self.client, key, value) };
+        let result = unsafe { crate::viperdb_put(self.kv, key, value) };
         match result {
             true => Ok(()), 
             false => Err(false)
@@ -76,13 +78,9 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         todo!()
     }
 
-    fn cleanup() {
-        todo!()
-    }
+    fn cleanup() {}
 
-    fn flush(&mut self) {
-        todo!()
-    }
+    fn flush(&mut self) {}
 }
 
 impl Drop for ViperClient
