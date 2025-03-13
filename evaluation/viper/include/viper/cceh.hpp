@@ -277,7 +277,6 @@ struct Directory {
     }
 
     ~Directory(void) {
-        printf("directory destructor\n");
 #ifdef CCEH_PERSISTENT
         pmemobj_free(&pmem_seg_loc_);
 #else
@@ -482,12 +481,10 @@ template <typename KeyType>
 CCEH<KeyType>::CCEH(size_t initCap)
     : dir{new Directory<KeyType>(static_cast<size_t>(log2(initCap)))}
 {
-    printf("new directory %p\n", dir);
     for (unsigned i = 0; i < dir->capacity; ++i) {
         dir->_[i] = new Segment<KeyType>(static_cast<size_t>(log2(initCap)));
         dir->_[i]->pattern = i;
     }
-    printf("map addr %p\n", this);
 }
 
 template <typename KeyType>
@@ -498,26 +495,16 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value) {
 template <typename KeyType>
 template <typename KeyCheckFn>
 IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_check_fn) {
-    printf("inserting key\n");
-    printf("dir addr %p\n", dir);
     size_t key_hash;
     if constexpr (std::is_same_v<KeyType, std::string>) { key_hash = h(key.data(), key.length()); }
     else { key_hash = h(&key, sizeof(key)); }
     auto loc = (key_hash & kMask) * kNumPairPerCacheLine;
-    printf("1\n");
 
     while (true) {
-        printf("loop\n");
-        printf("dir %p\n", dir);
-        printf("dir depth %p\n", dir->depth);
         auto x = (key_hash >> (8 * sizeof(key_hash) - dir->depth));
-        printf("hello...\n");
         auto target = dir->_[x];
         IndexV old_entry{};
-        printf("calling insert\n");
         auto ret = target->Insert(key, value, loc, key_hash, &old_entry, key_check_fn);
-
-        printf("ret: %d", ret);
 
         if (ret == 0) {
             return old_entry;
@@ -586,7 +573,6 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
         }  // End of critical section
 
         delete s;
-        printf("loop done\n");
     }
 }
 
@@ -662,7 +648,6 @@ size_t CCEH<KeyType>::Capacity(void) {
 
 template <typename KeyType>
 CCEH<KeyType>::~CCEH() {
-    printf("map destructor\n");
 #ifndef CCEH_PERSISTENT
     // Only clean up in volatile mode
     std::unordered_map<Segment<KeyType>*, bool> set;
