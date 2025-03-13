@@ -24,12 +24,41 @@ use vstd::pcm::*;
 verus! {
 
 #[verifier::reject_recursive_types(K)]
+pub struct ConcurrentKvStoreView<K, I, L>
+{
+    pub ps: SetupParameters,
+    pub pm_constants: PersistentMemoryConstants,
+    pub kv: AtomicKvStore<K, I, L>,
+}
+
+impl<K, I, L> ConcurrentKvStoreView<K, I, L>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    pub open spec fn valid(self) -> bool
+    {
+        self.ps.logical_range_gaps_policy == self.kv.logical_range_gaps_policy
+    }
+
+    pub open spec fn from_kvstore_view(v: KvStoreView<K, I, L>) -> Self
+    {
+        Self{
+            ps: v.ps,
+            pm_constants: v.pm_constants,
+            kv: v.durable
+        }
+    }
+}
+
+#[verifier::reject_recursive_types(K)]
 pub enum OwnershipSplitter<K, I, L>
 {
     Neither,
-    Application{ kv: KvStoreView<K, I, L> },
-    Invariant{ kv: KvStoreView<K, I, L> },
-    Both{ kv: KvStoreView<K, I, L> },
+    Application{ ckv: ConcurrentKvStoreView<K, I, L> },
+    Invariant{ ckv: ConcurrentKvStoreView<K, I, L> },
+    Both{ ckv: ConcurrentKvStoreView<K, I, L> },
     Invalid,
 }
 
@@ -52,10 +81,10 @@ impl<K, I, L> PCM for OwnershipSplitter<K, I, L>
             (_, Self::Invalid) => Self::Invalid,
             (Self::Neither, _) => other,
             (_, Self::Neither) => self,
-            (Self::Application{ kv: kv1 }, Self::Invariant{ kv: kv2 }) =>
-                if kv1 == kv2 { Self::Both{ kv: kv1 } } else { Self::Invalid },
-            (Self::Invariant{ kv: kv1 }, Self::Application{ kv: kv2 }) =>
-                if kv1 == kv2 { Self::Both{ kv: kv1 } } else { Self::Invalid },
+            (Self::Application{ ckv: ckv1 }, Self::Invariant{ ckv: ckv2 }) =>
+                if ckv1 == ckv2 { Self::Both{ ckv: ckv1 } } else { Self::Invalid },
+            (Self::Invariant{ ckv: ckv1 }, Self::Application{ ckv: ckv2 }) =>
+                if ckv1 == ckv2 { Self::Both{ ckv: ckv1 } } else { Self::Invalid },
             (_, _) => Self::Invalid,
         }
     }
@@ -110,8 +139,14 @@ where
     closed spec fn inv(self, v: ConcurrentKvStoreInternal<PM, K, I, L>) -> bool
     {
         &&& v.kv.valid()
+        &&& v.kv@.used_key_slots == v.kv@.durable.num_keys()
+        &&& v.kv@.used_list_element_slots == v.kv@.durable.num_list_elements()
+        &&& v.kv@.used_transaction_operation_slots == 0
+        &&& v.kv@.durable == v.kv@.tentative
+        &&& v.kv@.ps.logical_range_gaps_policy == v.kv@.durable.logical_range_gaps_policy
         &&& self.loc == v.invariant_resource@.loc()
-        &&& v.invariant_resource@.value() == OwnershipSplitter::Invariant{ kv: v.kv@ }
+        &&& v.invariant_resource@.value() ==
+               OwnershipSplitter::Invariant{ ckv: ConcurrentKvStoreView::from_kvstore_view(v.kv@) }
     }
 }
 
@@ -138,16 +173,16 @@ where
             invariant_resource.value() is Invariant,
             old(self).result() is None,
             ({
-                let kv = invariant_resource.value()->Invariant_kv;
+                let ckv = invariant_resource.value()->Invariant_ckv;
                 let key = old(self).key();
                 match result {
                     Ok(item) => {
-                        &&& kv.tentative.read_item(key) matches Ok(i)
+                        &&& ckv.kv.read_item(key) matches Ok(i)
                         &&& item == i
                     },
-                    Err(KvError::CRCMismatch) => !kv.pm_constants.impervious_to_corruption(),
+                    Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
                     Err(e) => {
-                        &&& kv.tentative.read_item(key) matches Err(e_spec)
+                        &&& ckv.kv.read_item(key) matches Err(e_spec)
                         &&& e == e_spec
                     },
                 }
@@ -249,17 +284,13 @@ where
                     &&& kv.valid()
                     &&& kv.loc() == r@.loc()
                     &&& match r@.value() {
-                        OwnershipSplitter::Application{ kv: v } => {
-                            &&& v.valid()
-                            &&& v.ps == state.ps
-                            &&& v.used_key_slots == state.kv.m.dom().len()
-                            &&& v.used_list_element_slots == state.kv.num_list_elements()
-                            &&& v.used_transaction_operation_slots == 0
-                            &&& v.pm_constants == pm.constants()
-                            &&& v.durable == state.kv
-                            &&& v.tentative == state.kv
-                        },
-                        _ => false
+                           OwnershipSplitter::Application{ ckv } => {
+                               &&& ckv.valid()
+                               &&& ckv.ps == state.ps
+                               &&& ckv.pm_constants == pm.constants()
+                               &&& ckv.kv == state.kv
+                           },
+                           _ => false,
                     }
                 },
                 Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption(),
@@ -276,11 +307,12 @@ where
             Ok(kv) => kv,
             Err(e) => { return Err(e); },
         };
-        let tracked both = Resource::<OwnershipSplitter<K, I, L>>::alloc(OwnershipSplitter::<K, I, L>::Both{ kv: kv@ });
+        let ghost ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv@);
+        let tracked both = Resource::<OwnershipSplitter<K, I, L>>::alloc(OwnershipSplitter::<K, I, L>::Both{ ckv });
         let ghost loc = both.loc();
         let ghost pred = ConcurrentKvStorePredicate{ loc };
-        let ghost application_value = OwnershipSplitter::<K, I, L>::Application{ kv: kv@ };
-        let ghost invariant_value = OwnershipSplitter::<K, I, L>::Invariant{ kv: kv@ };
+        let ghost application_value = OwnershipSplitter::<K, I, L>::Application{ ckv };
+        let ghost invariant_value = OwnershipSplitter::<K, I, L>::Invariant{ ckv };
         let tracked split_resources = both.split(application_value, invariant_value);
         let tracked application_resource = split_resources.0;
         let tracked invariant_resource = split_resources.1;
