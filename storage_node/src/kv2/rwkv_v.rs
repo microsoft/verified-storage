@@ -139,6 +139,7 @@ where
     closed spec fn inv(self, v: ConcurrentKvStoreInternal<PM, K, I, L>) -> bool
     {
         &&& v.kv.valid()
+        &&& v.kv@.ps.valid()
         &&& v.kv@.used_key_slots == v.kv@.durable.num_keys()
         &&& v.kv@.used_list_element_slots == v.kv@.durable.num_list_elements()
         &&& v.kv@.used_transaction_operation_slots == 0
@@ -189,6 +190,63 @@ where
             }),
         ensures
             self.result() == Some(result),
+    ;
+}
+
+pub trait CreateCallback<K, I, L>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+    Self: std::marker::Sized,
+{
+    spec fn loc(self) -> Loc;
+
+    spec fn key(self) -> K;
+
+    spec fn item(self) -> I;
+
+    spec fn result(self) -> Option<Result<(), KvError>>;
+
+    proof fn run(
+        tracked &mut self,
+        tracked invariant_resource: &mut Resource<OwnershipSplitter<K, I, L>>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Result<(), KvError>,
+    )
+        requires
+            old(invariant_resource).loc() == old(self).loc(),
+            old(invariant_resource).value() is Invariant,
+            old(self).result() is None,
+            ({
+                let old_ckv = old(invariant_resource).value()->Invariant_ckv;
+                let key = old(self).key();
+                let item = old(self).item();
+                match result {
+                    Ok(()) => {
+                        &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                        &&& old_ckv.kv.create(key, item) matches Ok(kv)
+                        &&& kv == new_ckv.kv
+                    }
+                    Err(KvError::CRCMismatch) => {
+                        &&& new_ckv == old_ckv
+                        &&& !old_ckv.pm_constants.impervious_to_corruption()
+                    }, 
+                    Err(KvError::OutOfSpace) => {
+                        &&& new_ckv == old_ckv
+                        &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                    },
+                    Err(e) => {
+                        &&& new_ckv == old_ckv
+                        &&& old_ckv.kv.create(key, item) matches Err(e_spec)
+                        &&& e == e_spec
+                    },
+                }
+            }),
+        ensures
+            self.result() == Some(result),
+            invariant_resource.loc() == old(invariant_resource).loc(),
+            invariant_resource.value() == (OwnershipSplitter::<K, I, L>::Invariant{ ckv: new_ckv }),
     ;
 }
 
@@ -320,6 +378,7 @@ where
             invariant_resource: Tracked(invariant_resource),
             kv
         };
+        assert(pred.inv(kv_internal));
         let lock = RwLock::<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>::new(
             kv_internal, Ghost(pred)
         );

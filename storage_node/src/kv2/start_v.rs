@@ -50,6 +50,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
                     &&& kv.valid()
                     &&& kv@.valid()
                     &&& kv@.ps == state.ps
+                    &&& kv@.ps.valid()
                     &&& kv@.used_key_slots == state.kv.num_keys()
                     &&& kv@.used_list_element_slots == state.kv.num_list_elements()
                     &&& kv@.used_transaction_operation_slots == 0

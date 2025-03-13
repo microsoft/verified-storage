@@ -113,6 +113,9 @@ impl KvStaticMetadata
         &&& self.items.num_rows() >= self.max_keys
         &&& self.lists.num_rows() >= self.max_list_elements
         &&& decode_policies(self.encoded_policies) is Some
+        &&& 0 < self.max_keys
+        &&& 0 < self.max_list_elements
+        &&& 0 < self.max_operations_per_transaction
     }
 
     pub open spec fn setup_parameters(self) -> Option<SetupParameters>
@@ -240,6 +243,12 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
                 if jc.journal_capacity <
                        sm.max_operations_per_transaction *
                        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_transaction_operation() {
+                    None
+                }
+                else if sm.setup_parameters() is None {
+                    None
+                }
+                else if !sm.setup_parameters().unwrap().valid() {
                     None
                 }
                 else {

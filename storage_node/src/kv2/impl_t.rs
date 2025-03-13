@@ -165,6 +165,7 @@ where
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
+                    &&& ps.valid()
                     &&& Self::recover(pm@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
                 }
                 Err(KvError::InvalidParameter) => !ps.valid(),
@@ -189,6 +190,7 @@ where
                     &&& kv.valid()
                     &&& kv@.valid()
                     &&& kv@.ps == state.ps
+                    &&& kv@.ps.valid()
                     &&& kv@.used_key_slots == state.kv.m.dom().len()
                     &&& kv@.used_list_element_slots == state.kv.num_list_elements()
                     &&& kv@.used_transaction_operation_slots == 0
