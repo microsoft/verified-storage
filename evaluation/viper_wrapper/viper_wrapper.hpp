@@ -18,10 +18,10 @@ static const auto VIPER_VALUE_LEN = 1024;
 // };
 
 
-// using K = uint64_t;
-// using V = uint64_t;
-using K = viper::kv_bm::KeyType64;
-using V = viper::kv_bm::ValueType1024;
+using K = uint64_t;
+using V = uint64_t;
+// using K = viper::kv_bm::KeyType64;
+// using V = viper::kv_bm::ValueType1024;
 using ViperDB = viper::Viper<K, V>;
 using ViperDBClient = viper::Viper<K, V>::Client;
 

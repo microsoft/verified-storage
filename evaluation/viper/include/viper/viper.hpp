@@ -353,6 +353,8 @@ class Viper {
     Viper(ViperBase v_base, std::filesystem::path pool_dir, bool owns_pool, ViperConfig v_config);
     ~Viper();
 
+    cceh::CCEH<K> map_;
+
     void reclaim();
 
     class ReadOnlyClient {
@@ -361,11 +363,12 @@ class Viper {
         bool get(const K& key, V* value) const;
         size_t get_total_used_pmem() const;
         size_t get_total_allocated_pmem() const;
+        ViperT& viper_;
       protected:
         explicit ReadOnlyClient(ViperT& viper);
         inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> get_const_entry_from_offset(KVOffset offset) const;
         inline bool get_const_value_from_offset(KVOffset offset, V* value) const;
-        ViperT& viper_;
+        // ViperT& viper_;
     };
 
     class Client : public ReadOnlyClient {
@@ -442,7 +445,7 @@ class Viper {
     ViperConfig v_config_;
     std::filesystem::path pool_dir_;
 
-    cceh::CCEH<K> map_;
+    // cceh::CCEH<K> map_;
     static constexpr bool using_fp = requires_fingerprint(K);
 
     std::vector<VPageBlock*> v_blocks_;
@@ -508,10 +511,13 @@ Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const
         recover_database();
     }
     current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks.load(LOAD_ORDER), 0, 0}.offset;
+
+    printf("map addr at constructor %p\n", &map_);
 }
 
 template <typename K, typename V>
 Viper<K, V>::~Viper() {
+    printf("viper destructor\n");
     if (owns_pool_) {
         DEBUG_LOG("Closing pool file.");
         munmap(v_base_.v_metadata, v_base_.v_metadata->block_offset);
@@ -520,6 +526,7 @@ Viper<K, V>::~Viper() {
         }
         close(v_base_.file_descriptor);
     }
+    printf("viper destructor done\n");
 }
 
 ViperInitData init_dram_pool(uint64_t pool_size, ViperConfig v_config, const size_t block_size) {
@@ -1036,6 +1043,8 @@ template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_old) {
     v_page_->lock();
 
+    printf("viper put\n");
+
     // We now have the lock on this page
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
     const data_offset_size_t free_slot_idx = free_slots->_Find_first();
@@ -1046,6 +1055,8 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
         update_access_information();
         return put(key, value, delete_old);
     }
+
+    printf("1\n");
 
     // We have found a free slot on this page. Persist data.
     v_page_->data[free_slot_idx] = {key, value};
@@ -1059,12 +1070,19 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
     const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
     KVOffset old_offset;
 
+    printf("2\n");
+
     if constexpr (using_fp) {
+        printf("setting up key check fn\n");
         auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
+        printf("key check fn ptr %p\n", key_check_fn);
         old_offset = this->viper_.map_.Insert(key, kv_offset, key_check_fn);
+        printf("old offset %d\n", old_offset);
     } else {
         old_offset = this->viper_.map_.Insert(key, kv_offset);
     }
+
+    printf("3\n");
 
     const bool is_new_item = old_offset.is_tombstone();
     if (!is_new_item && delete_old) {
@@ -1509,10 +1527,12 @@ Viper<K, V>::Client::Client(ViperT& viper) : ReadOnlyClient{viper} {
 
 template <typename K, typename V>
 Viper<K, V>::Client::~Client() {
+    printf("client destructor\n");
     this->viper_.remove_client(this);
     if (v_block_ != nullptr) {
         v_block_->v_pages[0].version_lock &= NO_CLIENT_BIT;
     }
+    printf("client destructor done\n");
 }
 
 template <typename K, typename V>

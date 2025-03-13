@@ -277,6 +277,7 @@ struct Directory {
     }
 
     ~Directory(void) {
+        printf("directory destructor\n");
 #ifdef CCEH_PERSISTENT
         pmemobj_free(&pmem_seg_loc_);
 #else
@@ -481,6 +482,8 @@ template <typename KeyType>
 CCEH<KeyType>::CCEH(size_t initCap)
     : dir{new Directory<KeyType>(static_cast<size_t>(log2(initCap)))}
 {
+    printf("dir addr at constructor: %p\n", dir);
+    printf("map addr at cceh constructor %p\n", this);
     for (unsigned i = 0; i < dir->capacity; ++i) {
         dir->_[i] = new Segment<KeyType>(static_cast<size_t>(log2(initCap)));
         dir->_[i]->pattern = i;
@@ -501,6 +504,7 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
     auto loc = (key_hash & kMask) * kNumPairPerCacheLine;
 
     while (true) {
+        printf("dir %p\n", dir);
         auto x = (key_hash >> (8 * sizeof(key_hash) - dir->depth));
         auto target = dir->_[x];
         IndexV old_entry{};

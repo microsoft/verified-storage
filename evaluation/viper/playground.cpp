@@ -4,7 +4,7 @@
 
 int main(int argc, char** argv) {
     const size_t initial_size = 1073741824;  // 1 GiB
-    auto viper_db = viper::Viper<uint64_t, uint64_t>::create("/mnt/pmem2/viper", initial_size);
+    auto viper_db = viper::Viper<uint64_t, uint64_t>::create("/mnt/pmem/viper", initial_size);
 
     // To modify records in Viper, you need to use a Viper Client.
     auto v_client = viper_db->get_client();
