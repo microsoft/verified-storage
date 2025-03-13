@@ -377,9 +377,12 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str, i: u64) -> Result<(), K
     let value = TestValue { value: [0u8; VALUE_LEN] };
     for i in 0..NUM_KEYS {
         let key = u64_to_test_key(i);
+        println!("key {:?}", i);
 
         let t0 = Instant::now();
+        println!("calling put");
         if let Err(e) = kv.put(&key, &value) {
+            println!("put had an error");
             return Err(e);
         }
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());

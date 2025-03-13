@@ -29,6 +29,10 @@ fn main() {
         .arg("-I../viper/benchmark")
         .arg("-I../viper_deps/concurrentqueue")
         .arg("-I../viper_deps/benchmark/include")
+        .arg("-I../viper_deps/libpmemobj-cpp/include")
+        .arg("-DVIPER_BUILD_BENCHMARKS=ON")
+        // .arg("-DVIPER_PMDK_PATH=/usr/share/pmdk")
+        // .arg("-DLIBPMEMOBJ++_PATH=/usr/lib/x86_64-linux-gnu")
         .arg("-mclwb")
         .arg("-std=c++17")
         .arg("-o")
@@ -54,6 +58,9 @@ fn main() {
     println!("cargo:rustc-link-search={}", viper_wrapper_path.to_str().unwrap());
     println!("cargo:rustc-link-lib=static=viper_wrapper");
     println!("cargo:rustc-link-lib=benchmark");
+    println!("cargo:rustc-link-lib=pmem");
+    println!("cargo:rustc-link-lib=pmempool");
+    println!("cargo:rustc-link-lib=pmemobj");
 
     let bindings = bindgen::Builder::default()
         .header(headers_path_str)
@@ -64,6 +71,7 @@ fn main() {
             "-I../concurrentqueue",
             "-I../viper_wrapper",
             "-I../viper/benchmark",
+            "-I../viper_deps/libpmemobj-cpp/include",
             "-xc++",
             "-std=c++17",
             "-w"])

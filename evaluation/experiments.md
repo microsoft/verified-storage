@@ -7,7 +7,7 @@ Tested Linux environments:
 - Debian Trixie
 
 ### Setup
-1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev daxctl libzstd-dev cmake build-essential liblz4-dev; pip3 install toml`
+1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind; pip3 install toml`
 2. Install Maven:
     - Download and untar a binary from https://maven.apache.org/download.cgi
     - Add the `bin` folder in the extracted directory to your `PATH`.
@@ -18,7 +18,7 @@ Tested Linux environments:
     - Follow these instructions to build the benchmark dependency and install it globally:
     ```
     # Go to the library root directory
-    $ cd benchmark
+    $ cd viper_deps/benchmark
     # Make a build directory to place the build output.
     $ cmake -E make_directory "build"
     # Generate build system files with cmake, and download any dependencies.
@@ -29,7 +29,14 @@ Tested Linux environments:
     $ cmake --build "build" --config Release
     $ sudo cmake --build "build" --config Release --target install
     ```
-    - 
+    - Follow these instructions to build the `libpmemobj++` dependency:
+    ```
+    cd viper_deps/libpmemobj-cpp
+    mkdir build
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./build
+    make
+    make install
+    ```
     
 
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.

@@ -55,6 +55,8 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn put(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
         let value = &value.value as *const [u8; VALUE_LEN];
+        println!("client addr {:p}", self.client);
+        println!("key addr {:p}", key);
         let result = unsafe { crate::viperdb_put(self.client, key, value) };
         match result {
             true => Ok(()), 

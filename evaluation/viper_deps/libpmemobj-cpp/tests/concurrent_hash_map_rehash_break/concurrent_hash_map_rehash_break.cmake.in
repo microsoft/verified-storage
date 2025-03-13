@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2019, Intel Corporation
+
+include(${SRC_DIR}/../helpers.cmake)
+
+setup()
+
+execute(${TEST_EXECUTABLE} c ${DIR}/testfile)
+crash_with_gdb(${SRC_DIR}/break_in_rehash_@TESTCASE@.gdb ${TEST_EXECUTABLE} b ${DIR}/testfile)
+execute(${TEST_EXECUTABLE} o ${DIR}/testfile)
+
+finish()

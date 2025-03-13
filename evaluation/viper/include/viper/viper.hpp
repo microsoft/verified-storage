@@ -471,8 +471,12 @@ class Viper {
 template <typename K, typename V>
 std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string& pool_file, uint64_t initial_pool_size,
                                                  ViperConfig v_config) {
-    return std::make_unique<Viper<K, V>>(
-            init_pool(pool_file, initial_pool_size, true, v_config), pool_file, true, v_config);
+    printf("viper create\n");
+    auto pool = init_pool(pool_file, initial_pool_size, true, v_config);
+    printf("initialized pool");
+    auto result = std::make_unique<Viper<K, V>>(pool, pool_file, true, v_config);
+    printf("init pool finished\n");
+    return result;
 }
 
 template <typename K, typename V>
@@ -491,7 +495,6 @@ Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const
     is_resizing_ = false;
     is_reclaiming_ = false;
     num_active_clients_ = 0;
-    deadlock_offset_lock_ = false;
 
     std::srand(std::time(nullptr));
 
@@ -721,6 +724,8 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
     constexpr size_t block_size = sizeof(VPageBlock);
     ViperInitData init_data;
 
+    printf("init pool\n");
+
     const auto start = std::chrono::steady_clock::now();
 
 #ifdef VIPER_DRAM
@@ -730,7 +735,9 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
     DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " pool file " << pool_file);
     const bool is_file_based = pool_file.find("/dev/dax") == std::string::npos;
     if (is_file_based) {
+        printf("is file based\n");
         init_data = init_file_pool(pool_file, pool_size, is_new_pool, v_config, block_size);
+        printf("done init file pool\n");
     } else {
         init_data = init_devdax_pool(pool_file, pool_size, is_new_pool, v_config, block_size);
     }
@@ -738,9 +745,12 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
 
     const auto end = std::chrono::steady_clock::now();
     DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " took " << ((end - start).count() / 1e6) << " ms");
-    return ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
-                      .is_file_based = is_file_based, .v_metadata = init_data.meta,
-                      .v_mappings = std::move(init_data.mappings) };
+    printf("hello...\n");
+    auto ret = ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
+        .is_file_based = is_file_based, .v_metadata = init_data.meta,
+        .v_mappings = std::move(init_data.mappings) };
+    printf("set up viper base\n");
+    return ret;
 }
 
 template <typename K, typename V>
@@ -1012,6 +1022,8 @@ void Viper<K, V>::remove_client(Viper::Client* client) {
 
 template <typename K, typename V>
 inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_to_compare) {
+    printf("checking key equality %p %x\n", &key, offset_to_compare);
+
     if constexpr (!using_fp) {
         throw std::runtime_error("Should not use key checker without fingerprints!");
     }
@@ -1057,11 +1069,22 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
     KVOffset old_offset;
 
     if constexpr (using_fp) {
+        printf("using fp\n");
         auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
+        // printf("1\n");
+        // printf("viper addr %p\n", &this->viper_);
+        // printf("this addr %p\n", this);
+        // printf("key check function %p\n", key_check_fn);
+        // printf("%d\n", key_check_fn(key, kv_offset));
+        // printf("checked key equality\n");
+        printf("map addr %p\n", &this->viper_.map_);
         old_offset = this->viper_.map_.Insert(key, kv_offset, key_check_fn);
     } else {
+        printf("not using fp");
         old_offset = this->viper_.map_.Insert(key, kv_offset);
     }
+
+    printf("viper db put 6\n");
 
     const bool is_new_item = old_offset.is_tombstone();
     if (!is_new_item && delete_old) {
@@ -1069,11 +1092,15 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
         free_occupied_slot(old_offset, key);
     }
 
+    printf("viper db put 7\n");
+
     v_page_->unlock();
 
     // We have added one value, so +1
     size_delta_++;
     info_sync();
+
+    printf("viper db put 8\n");
 
     return is_new_item;
 }

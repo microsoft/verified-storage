@@ -1,0 +1,286 @@
+Tue Jul 27 2021 Igor Chorążewicz <igor.chorazewicz@intel.com>
+
+	* Version 1.13.0
+
+	This release introduces new concurrent data structure - MPSC queue and
+	implements limited concurrency support for radix tree.
+
+	New features:
+	- Introduce experimental MPSC queue (pmem::obj::experimental::mpsc_queue)
+	- Implement support for multi-reader single-writer concurrency in
+		pmem::obj::experimental::radix_tree
+	- Introduce basic_dram_inline_string which can be kept both on pmem and
+		dram
+
+	Bug fixes:
+	- Fix radix_tree leaf layout to ensure proper key/value alignment
+
+	Other changes:
+	- Switch default CMake's build type from "Debug" to "RelWithDebInfo"
+		it's relevant for a GitHub users (who may e.g. run some benchmarks)
+	- Add std::initializer_list constructor to pmem::obj::array to mimic
+		aggregate initialization post C++20
+
+Tue Jul 06 2021 Łukasz Stolarczuk <lukasz.stolarczuk@intel.com>
+
+	* Version 1.6.1
+
+	This release fixes minor bugs.
+
+	This is the last patch release for libpmemobj-cpp 1.6 version.
+	Maintenance of this version is no longer supported.
+
+	Notable changes:
+	- string: fix max_size() return value
+	- allocation_flag: mark constructor as explicit
+	- peristent_ptr: change ptr_offset_magic to be properly aligned
+	- fix few headers' includes
+
+Mon Jun 28 2021 Łukasz Stolarczuk <lukasz.stolarczuk@intel.com>
+
+	* Version 1.5.2
+
+	This release fixes minor bugs.
+
+	This is the last patch release for libpmemobj-cpp 1.5 version.
+	Maintenance of this version is no longer supported.
+
+	Notable changes:
+	- operator[] for contiguous_iterator takes signed integral instead of
+		unsigned
+	- throw an exception when pmemobj_mutex_unlock fail
+	- fix crash when a previous transaction failed to start because of
+		already taken lock.
+
+Mon Feb 15 2021 Igor Chorążewicz <igor.chorazewicz@intel.com>
+
+	* Version 1.12
+
+	This release introduces new transaction handler type (flat_transaction)
+	which solves https://github.com/pmem/libpmemobj-cpp/issues/516 (more
+	information can be found in README).
+
+	It also introduces several improvements and bugfixes for radix_tree as
+	well as additional methods for pmem::obj::string_view.
+
+	New features:
+	- pmem::obj::flat_transaction
+	- extend API for pmem::obj::string_view (relational operators, find,
+		substr, copy, compare)
+
+	Bug fixes:
+	- make default bytes_view implementation in radix_tree work for
+		wide characters
+	- fix assign_val function in radix tree which incorrectly handled
+		inline_string<CharT> for CharT != char
+	- fix use after free in radix_tree::erase method
+
+	Other changes:
+	- allow using any iterator which supports operator[], operator-() and
+		operator--() in pmem::obj::slice
+
+Wed Sep 30 2020 Szymon Romik <szymon.romik@intel.com>
+
+	* Version 1.11
+
+	This release introduces a new experimental container - persistent
+	radix_tree along with inline_string and string_view classes.
+
+	It also introduces a new pointer type: self_relative_ptr with
+	std::atomic specialization.
+
+	New features:
+	- experimental radix_tree container (single-threaded sorted map)
+	- experimental inline_string class (class serves similar purpose to
+		pmem::obj::string, but keeps the data within the same allocation
+		as inline_string itself)
+	- string_view class (support for compilers older than C++17)
+	- experimental self_relative_ptr and std::atomic<self_relative_ptr>
+		specialization (persistent smart ptr which encapsulates the self
+		offsetted pointer and provides member access, dereference and
+		array access operators - for some workloads it could be faster
+		alternative for persistent_ptr)
+
+	Optimizations:
+	- optimizations for concurrent_map with self_relative_ptr
+
+	Other changes:
+	- missing constructors for basic_string class
+	- conversion operator for basic_string class
+	- ported libcxx's sorted map tests
+	- lower and lower_eq methods for concurrent_map
+	- missing constructor for concurrent_map (comparator as an argument)
+
+Thu May 28 2020 Szymon Romik <szymon.romik@intel.com>
+
+	* Version 1.10
+
+	This release introduces a new experimental container - persistent
+	concurrent map (based on concurrent skiplist implementation).
+
+	It also introduces some optimizations for existing containers and minor
+	bug fixes.
+
+	New features:
+	- concurrent_map container
+	- swap() method for basic_string
+
+	Optimizations:
+	- optimized clear() and erase() for trivial types in segment_vector
+	- optimized move constructor and assignment for basic_string
+
+	Bug Fixes:
+	- fixed free_data() in concurrent_hash_map
+
+Fri Jan 31 2020 Szymon Romik <szymon.romik@intel.com>
+
+	* Version 1.9
+
+	This release moves segment_vector out of experimental namespace and
+	directory. It means that abovementioned container is guaranteed to have
+	stable API and on-media layout.
+
+	It also introduces defragmentation functionality with new defrag class
+	in pmem::detail namespace and helper classes (which currently reside in
+	"detail" directory): enumerable_thread_specific and volatile_state.
+
+	With this release, we also decreased restart time of concurrent_hash_map
+	(with a usage of the enumerable_thread_specific feature).
+
+	New features:
+	- new methods for pmem::obj::string (find() and its overloads)
+	- defragmentation feature as a separate class in pmem::obj namespace and
+	  support for the defragmentation in containers: concurrent_hash_map,
+	  vector, string
+	- removed template parameters from persistent_ptr_base class (make it
+	  type agnostic) and moved to the public API
+	- new methods for pmem::obj::concurrent_hash_map (insert_or_assign and
+	  its overloads)
+
+	Optimizations:
+	- bucket rehashing in concurrent_hash_map moved to transaction
+	- faster concurrent_hash_map restart (with "persistent TLS")
+
+	Other changes:
+	- added GitHub Actions as an additional CI
+	- added documentation and doc snippets with some usage examples
+	- added compatibility tests for different libpmemobj-cpp versions
+
+Fri Jan 24 2020 Szymon Romik <szymon.romik@intel.com>
+
+	* Version 1.8.1
+
+	This release fixes minor bugs.
+
+	Notable changes:
+	- fix compilation error in concurrent_hash_map
+	- fix possible deadlock in erase method in concurrent_hash_map
+
+Thu Oct 03 2019 Szymon Romik <szymon.romik@intel.com>
+
+	* Version 1.8
+
+	This release moves persistent array/vector/string/concurrent_hash_map
+	out from experimental namespace and directory. It means that
+	abovementioned containers are guaranteed to have stable API and on-media
+	layout. They are placed now in include/libpmemobj++/container/ directory
+	and pmem::obj namespace.
+
+	This release introduces also a new experimental container - persistent
+	segment vector with templated segment policies.
+
+	New features:
+	- experimental persistent segment vector container
+
+	Bug fixes:
+	- fixed insert method in persistent vector
+	- fixed move assignment operator in persistent array
+
+	Other changes:
+	- extended error messages in exceptions
+	- added examples with simplekv using persistent containers
+	- added modifiers methods for persistent string
+	- added template locks for concurrent_hash_map
+	- added layout versioning for concurrent_hash_map
+
+	Optimizations:
+	- concurrent_hash_map insert method implemented with tx
+	- optimized snapshotting in persistent vector/string
+
+Wed Jun 26 2019 Szymon Romik <szymon.romik@intel.com>
+
+	* Version 1.7
+
+	This release introduces new experimental container - persistent
+	concurrent hashmap and persistent string with limited functionality.
+
+	Experimental features:
+	- persistent concurrent hashmap
+	- persistent string (constructors and modifiers)
+
+	Bug fixes:
+	- add option to force define IS_TRIVIALLY_COPYABLE
+	- mark allocation_flag constructor as explicit
+	- add missing include to v.hpp
+
+Fri Mar 15 2019 Igor Chorążewicz <igor.chorazewicz@intel.com>
+
+	* Version 1.6
+
+	This release introduces ctl support, allocation flags, snapshot
+	method and new experimental persistent container - vector.
+
+	New features:
+	- add support for pmemobj_ctl_set/get/exec
+	- expose allocation flags in make_persistent(_atomic)
+	- transaction: add snapshot method
+
+	Experimental features:
+	- persistent vector container
+
+	Other changes:
+	- automatically start transaction inside pmem::obj::experimental::array
+	  modifier methods (assignment operators, swap and fill)
+	- add const methods for pmem::obj::experimental::array
+	- add Valgrind instrumentation support
+	- remove experimental const_contiguous_iterator
+	- add get with arguments method overload for v
+
+	Bug fixes:
+	- throw an exception when dropping pmem lock failed
+	- fix crash when previous transaction failed to start
+	- fix forwarding parameters to constructor in make_persistent_atomic
+
+	Optimizations:
+	- decrease number of persistent_ptr dereferences in
+	  make_persistent_array
+
+Tue Feb 19 2019 Marcin Ślusarz <marcin.slusarz@intel.com>
+
+	* Version 1.5.1
+
+	This release fixes minor bugs and improves documentation.
+
+	Notable changes:
+	- fix v swap, assignment operators and constructors
+	- change conversion operator from T() to T&() in v<>
+	- fix range_snapshotting initialization in array.hpp.
+	- fix range_snapshotting_iterator behaviour for snapshot_size == 0.
+
+Fri Oct 26 2018 Marcin Ślusarz <marcin.slusarz@intel.com>
+
+	* Version 1.5
+
+	This is the first release of libpmemobj-cpp as a separate project.
+
+	It introduces one persistent container - array, which has std::array
+	like interface. Currently it is considered experimental and lives
+	in experimental namespace.
+
+	We have also cleaned up some function names that, in retrospect, were
+	chosen poorly. Functions with old names are still there but are
+	deprecated.
+
+	Experimental features:
+	- volatile resides on pmem class
+	- persistent array container
