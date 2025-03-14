@@ -414,3 +414,4 @@ evaluation/venv/*
 *.a 
 *.gch
 *.pch
+a.out

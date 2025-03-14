@@ -473,10 +473,8 @@ class Viper {
 
 template <typename K, typename V>
 std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string& pool_file, uint64_t initial_pool_size,
-                                                 ViperConfig v_config) {
-    auto pool = init_pool(pool_file, initial_pool_size, true, v_config);
-    auto result = std::make_unique<Viper<K, V>>(pool, pool_file, true, v_config);
-    return result;
+                                                 ViperConfig v_config) {                                            
+    return std::make_unique<Viper<K, V>>(init_pool(pool_file, initial_pool_size, true, v_config), pool_file, true, v_config);
 }
 
 template <typename K, typename V>
@@ -489,6 +487,7 @@ Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const
     v_base_{v_base}, map_{131072}, owns_pool_{owns_pool}, v_config_{v_config}, pool_dir_{pool_dir},
     resize_threshold_{v_config.resize_threshold}, reclaim_threshold_{v_config.reclaim_threshold},
     num_recovery_threads_{v_config.num_recovery_threads} {
+
     current_block_page_ = 0;
     current_size_ = 0;
     reclaimable_ops_ = 0;
@@ -511,22 +510,17 @@ Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const
         recover_database();
     }
     current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks.load(LOAD_ORDER), 0, 0}.offset;
-
-    printf("map addr at constructor %p\n", &map_);
 }
 
 template <typename K, typename V>
 Viper<K, V>::~Viper() {
-    printf("viper destructor\n");
     if (owns_pool_) {
-        DEBUG_LOG("Closing pool file.");
-        munmap(v_base_.v_metadata, v_base_.v_metadata->block_offset);
+        auto ret = munmap(v_base_.v_metadata, v_base_.v_metadata->alloc_size);
         for (const ViperFileMapping& mapping : v_base_.v_mappings) {
             munmap(mapping.start_addr, mapping.mapped_size);
         }
         close(v_base_.file_descriptor);
     }
-    printf("viper destructor done\n");
 }
 
 ViperInitData init_dram_pool(uint64_t pool_size, ViperConfig v_config, const size_t block_size) {
@@ -645,11 +639,12 @@ ViperInitData init_devdax_pool(const std::string& pool_file, uint64_t pool_size,
 
 ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
                              bool is_new_pool, ViperConfig v_config, const size_t block_size) {
-    if (is_new_pool && std::filesystem::exists(pool_dir) && !std::filesystem::is_empty(pool_dir)) {
-        throw std::runtime_error("Cannot create new database in non-empty directory");
-    }
-
-    std::filesystem::create_directory(pool_dir);
+    // // NOTE: moved creation of pool dir to viper_wrapper.cpp so that we can set up new 
+    // // instances in the benchmarks
+    // if (is_new_pool && std::filesystem::exists(pool_dir) && !std::filesystem::is_empty(pool_dir)) {
+    //     throw std::runtime_error("Cannot create new database in non-empty directory");
+    // }
+    // std::filesystem::create_directory(pool_dir);
     const std::filesystem::path meta_file = pool_dir + "/meta";
     ViperFileMetadata* metadata;
     const int meta_fd = ::open(meta_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
@@ -1020,8 +1015,6 @@ void Viper<K, V>::remove_client(Viper::Client* client) {
 
 template <typename K, typename V>
 inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_to_compare) {
-    printf("checking key equality %p %x\n", &key, offset_to_compare);
-
     if constexpr (!using_fp) {
         throw std::runtime_error("Should not use key checker without fingerprints!");
     }
@@ -1043,8 +1036,6 @@ template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_old) {
     v_page_->lock();
 
-    printf("viper put\n");
-
     // We now have the lock on this page
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
     const data_offset_size_t free_slot_idx = free_slots->_Find_first();
@@ -1055,8 +1046,6 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
         update_access_information();
         return put(key, value, delete_old);
     }
-
-    printf("1\n");
 
     // We have found a free slot on this page. Persist data.
     v_page_->data[free_slot_idx] = {key, value};
@@ -1070,19 +1059,12 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
     const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
     KVOffset old_offset;
 
-    printf("2\n");
-
     if constexpr (using_fp) {
-        printf("setting up key check fn\n");
         auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
-        printf("key check fn ptr %p\n", key_check_fn);
         old_offset = this->viper_.map_.Insert(key, kv_offset, key_check_fn);
-        printf("old offset %d\n", old_offset);
     } else {
         old_offset = this->viper_.map_.Insert(key, kv_offset);
     }
-
-    printf("3\n");
 
     const bool is_new_item = old_offset.is_tombstone();
     if (!is_new_item && delete_old) {
@@ -1527,12 +1509,10 @@ Viper<K, V>::Client::Client(ViperT& viper) : ReadOnlyClient{viper} {
 
 template <typename K, typename V>
 Viper<K, V>::Client::~Client() {
-    printf("client destructor\n");
     this->viper_.remove_client(this);
     if (v_block_ != nullptr) {
         v_block_->v_pages[0].version_lock &= NO_CLIENT_BIT;
     }
-    printf("client destructor done\n");
 }
 
 template <typename K, typename V>

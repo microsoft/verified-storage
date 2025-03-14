@@ -11,6 +11,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::time::Duration;
 use std::ffi::{c_void, CString};
+use std::thread::sleep;
 
 pub struct ViperClient
 {
@@ -36,9 +37,13 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file_ptr = file_cstring.as_ptr();
         let init_size = 1073741824;
 
+        println!("creating viper client");
+
         // let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
         // let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
+
+        println!("done creating\n");
 
         Ok(Self { kv
             // kv: viper_db,
@@ -78,7 +83,10 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         todo!()
     }
 
-    fn cleanup() {}
+    fn cleanup() {
+        sleep(Duration::from_secs(1));
+        unmount_pm_fs();
+    }
 
     fn flush(&mut self) {}
 }

@@ -38,6 +38,7 @@ Tested Linux environments:
     make install
     ```
     
+**To compile Viper wrapper on its own:** `clang++ viper_wrapper.cpp -I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmark -I../viper_deps/benchmark/include -std=c++17 -lpmem -lpmemobj -lpmempool -I../viper_deps/libpmemobj-cpp/include -mclwb -DVIPER_BUILD_BENCHMARKS=ON -lbenchmark -DCXX_COMPILATION`
 
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.
 3. Run `export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release`

@@ -63,7 +63,7 @@ const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
 // const NUM_KEYS: u64 = 25000000;
-const NUM_KEYS: u64 = 100;
+const NUM_KEYS: u64 = 1;
 const ITERATIONS: u64 = 1;
 // for use in the full startup experiment
 // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
@@ -301,17 +301,17 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     }
     KV::cleanup();
 
-    // // random access operations
-    // {
-    //     KV::setup(NUM_KEYS)?;
-    //     let mut client = KV::start()?;
-    //     run_rand_put(&mut client, &output_dir, i)?;
-    //     client.flush();
-    //     // run_rand_get(&mut client, &output_dir, i)?;
-    //     // run_rand_update(&mut client, &output_dir, i)?;
-    //     // run_rand_delete(&mut client, &output_dir, i)?;
-    // }
-    // KV::cleanup();
+    // random access operations
+    {
+        KV::setup(NUM_KEYS)?;
+        let mut client = KV::start()?;
+        run_rand_put(&mut client, &output_dir, i)?;
+        client.flush();
+        // run_rand_get(&mut client, &output_dir, i)?;
+        // run_rand_update(&mut client, &output_dir, i)?;
+        // run_rand_delete(&mut client, &output_dir, i)?;
+    }
+    KV::cleanup();
 
     // // // mimic run d from YCSB
     // // {
