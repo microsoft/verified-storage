@@ -12,6 +12,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
+use std::io::Read;
 use super::*;
 use super::impl_t::*;
 use super::recover_v::*;
@@ -151,48 +152,169 @@ where
     }
 }
 
-pub trait ReadItemCallback<K, I, L>
+pub trait ReadOnlyOperation<K, I, L>: Sized
+{
+    type ExecResult;
+
+    spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool;
+}
+
+pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
+{
+    type ApplyResult;
+
+    spec fn loc(self) -> Loc;
+
+    spec fn namespaces(self) -> Set<int>;
+
+    spec fn pre(self, op: Op) -> bool;
+
+    spec fn post(self, op: Op, result: Op::ExecResult, ar: Self::ApplyResult) -> bool;
+
+    proof fn apply(
+        tracked self,
+        op: Op,
+        result: Op::ExecResult,
+        tracked r: &Resource<OwnershipSplitter<K, I, L>>
+    ) -> (tracked out: Self::ApplyResult)
+        requires
+            self.pre(op),
+            r.loc() == self.loc(),
+            r.value() is Invariant,
+            op.result_valid(r.value()->Invariant_ckv, result),
+        ensures
+            self.post(op, result, out),
+    ;
+}
+
+pub struct ReadItemOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+}
+
+impl<K, I, L> ReadOnlyOperation<K, I, L> for ReadItemOp<K>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-    Self: std::marker::Sized,
 {
-    spec fn loc(self) -> Loc;
+    type ExecResult = Result<I, KvError>;
 
-    spec fn key(self) -> K;
-
-    spec fn result(self) -> Option<Result<I, KvError>>;
-
-    proof fn run(
-        tracked &mut self,
-        tracked invariant_resource: &Resource<OwnershipSplitter<K, I, L>>,
-        result: Result<I, KvError>,
-    )
-        requires
-            invariant_resource.loc() == old(self).loc(),
-            invariant_resource.value() is Invariant,
-            old(self).result() is None,
-            ({
-                let ckv = invariant_resource.value()->Invariant_ckv;
-                let key = old(self).key();
-                match result {
-                    Ok(item) => {
-                        &&& ckv.kv.read_item(key) matches Ok(i)
-                        &&& item == i
-                    },
-                    Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
-                    Err(e) => {
-                        &&& ckv.kv.read_item(key) matches Err(e_spec)
-                        &&& e == e_spec
-                    },
-                }
-            }),
-        ensures
-            self.result() == Some(result),
-    ;
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    {
+        match result {
+            Ok(item) => {
+                &&& ckv.kv.read_item(self.key) matches Ok(i)
+                &&& item == i
+            },
+            Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
+            Err(e) => {
+                &&& ckv.kv.read_item(self.key) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
 }
 
+pub trait MutatingOperation<K, I, L>: Sized
+{
+    type ExecResult;
+
+    spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool;
+}
+
+pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
+{
+    type ApplyResult;
+
+    spec fn loc(self) -> Loc;
+
+    spec fn namespaces(self) -> Set<int>;
+
+    spec fn pre(self, op: Op) -> bool;
+
+    spec fn post(
+        self,
+        op: Op,
+        exec_result: Op::ExecResult,
+        apply_result: Self::ApplyResult
+    ) -> bool;
+
+    proof fn apply(
+        tracked self,
+        op: Op,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        exec_result: Op::ExecResult,
+        tracked r: &mut Resource<OwnershipSplitter<K, I, L>>
+    ) -> (tracked apply_result: Self::ApplyResult)
+        requires
+            self.pre(op),
+            old(r).loc() == self.loc(),
+            old(r).value() is Invariant,
+            op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
+        ensures
+            r.loc() == old(r).loc(),
+            r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
+            self.post(op, exec_result, apply_result),
+    ;
+
+}
+
+pub struct CreateOp<K, I>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+    pub item: I,
+}
+
+impl<K, I, L> MutatingOperation<K, I, L> for CreateOp<K, I>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(), KvError>;
+
+    open spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool
+    {
+        match result {
+            Ok(()) => {
+                &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                &&& old_ckv.kv.create(self.key, self.item) matches Ok(kv)
+                &&& kv == new_ckv.kv
+            }
+            Err(KvError::CRCMismatch) => {
+                &&& new_ckv == old_ckv
+                &&& !old_ckv.pm_constants.impervious_to_corruption()
+            }, 
+            Err(KvError::OutOfSpace) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+            },
+            Err(e) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.create(self.key, self.item) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
+/*
 pub trait CreateCallback<K, I, L>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -249,6 +371,7 @@ where
             invariant_resource.value() == (OwnershipSplitter::<K, I, L>::Invariant{ ckv: new_ckv }),
     ;
 }
+    */
 
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
@@ -386,58 +509,61 @@ where
         Ok((selfish, Tracked(application_resource)))
     }
 
-    pub exec fn read_item<CB: ReadItemCallback<K, I, L>>(
+    pub exec fn read_item<CB: ReadLinearizer<K, I, L, ReadItemOp<K>>>(
         &self,
         key: &K,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<I, KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<I, KvError>, Tracked<CB::ApplyResult>))
         requires 
             self.valid(),
-            old(cb).loc() == self.loc(),
-            old(cb).key() == *key,
-            old(cb).result() is None,
+            cb.loc() == self.loc(),
+            cb.pre(ReadItemOp{ key: *key }),
         ensures
             self.valid(),
-            cb.result() == Some(result),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = ReadItemOp{ key: *key };
+                cb.post(op, exec_result, apply_result@)
+            })
     {
         let read_handle = self.lock.acquire_read();
+        let ghost op: ReadItemOp<K> = ReadItemOp{ key: *key };
         let kv_internal = read_handle.borrow();
-        let result = kv_internal.kv.read_item(key);
+        let exec_result = kv_internal.kv.read_item(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        proof {
-            cb.run(invariant_resource, result);
-        }
+        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
         read_handle.release_read();
-        result
+        (exec_result, Tracked(apply_result))
     }
 
-    pub exec fn create<CB: CreateCallback<K, I, L>>(
+    pub exec fn create<CB: MutatingLinearizer<K, I, L, CreateOp<K, I>>>(
         &mut self,
         key: &K,
         item: &I,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
         requires
             old(self).valid(),
-            old(cb).loc() == old(self).loc(),
-            old(cb).key() == *key,
-            old(cb).item() == *item,
-            old(cb).result() is None,
+            cb.loc() == old(self).loc(),
+            cb.pre(CreateOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
-            cb.result() == Some(result),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = CreateOp{ key: *key, item: *item };
+                cb.post(op, exec_result, apply_result@)
+            }),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let result = match kv_internal.kv.tentatively_create(key, item) {
+        let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
+        let exec_result = match kv_internal.kv.tentatively_create(key, item) {
             Err(e) => Err(e),
             Ok(()) => kv_internal.kv.commit(),
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        proof {
-            cb.run(kv_internal.invariant_resource.borrow_mut(), new_ckv, result);
-        }
+        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
         write_handle.release_write(kv_internal);
-        result
+        (exec_result, Tracked(apply_result))
     }
 }
 
