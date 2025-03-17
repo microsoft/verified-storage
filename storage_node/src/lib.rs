@@ -716,6 +716,82 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
     return Ok(());
 }
 
+/*
+fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
+{
+    let kv_file_name = "test_kv";
+
+    let max_keys = 16;
+    let max_list_elements = 16;
+
+    // delete the test file if it already exists. Ignore the result,
+    // since it's ok if the file doesn't exist.
+    remove_file(kv_file_name);
+
+    let kvstore_id = generate_fresh_id();
+
+    let ps = SetupParameters{
+        kvstore_id,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsForbidden,
+        max_keys,
+        max_list_elements,
+        max_operations_per_transaction: 4,
+    };
+   let region_size = match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
+        ::space_needed_for_setup(&ps) {
+        Ok(s) => s,
+        Err(e) => { print_message("Failed to compute space needed for setup"); return Err(()); },
+   };
+
+    let mut pm = match create_pm_region(&kv_file_name, region_size) {
+        Ok(p) => p,
+        Err(e) => { print_message("Failed to create file for kv store"); return Err(()); },
+    };
+
+    assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(&mut pm, &ps) {
+        Ok(()) => {},
+        Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
+    }
+
+    let mut kv = match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
+        ::start(pm, kvstore_id) {
+        Ok(kv) => kv,
+        Err(e) => { print_message("Failed to start KV store"); return Err(()); },
+    };
+
+    let key1 = TestKey { val: 0x33333333 };
+    let key2 = TestKey { val: 0x44444444 };
+
+    let item1 = TestItem { val: 0x55555555 };
+    let item2 = TestItem { val: 0x66666666 };
+
+    // create a record
+    let lin = 
+    match kv.create(&key1, &item1, lin) {
+        Ok(()) => {},
+        Err(e) => { print_message("Error when creating key 1"); return Err(()); }
+    }
+
+    // read the item of the record we just created
+    let read_item1 = match kv.read_item(&key1) {
+        Ok(i) => i,
+        Err(e) => { print_message("Error when reading key"); return Err(()); },
+    };
+
+    runtime_assert(read_item1.val == item1.val);
+
+    match kv.read_item(&key2) {
+        Ok(i) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
+        Err(KvError::KeyNotFound) => {},
+        Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
+    }
+
+    print_message("All kv operations gave expected results");
+    return Ok(());
+}
+    */
+
 #[allow(dead_code)]
 fn main()
 {

@@ -314,65 +314,6 @@ where
     }
 }
 
-/*
-pub trait CreateCallback<K, I, L>
-where
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-    Self: std::marker::Sized,
-{
-    spec fn loc(self) -> Loc;
-
-    spec fn key(self) -> K;
-
-    spec fn item(self) -> I;
-
-    spec fn result(self) -> Option<Result<(), KvError>>;
-
-    proof fn run(
-        tracked &mut self,
-        tracked invariant_resource: &mut Resource<OwnershipSplitter<K, I, L>>,
-        new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Result<(), KvError>,
-    )
-        requires
-            old(invariant_resource).loc() == old(self).loc(),
-            old(invariant_resource).value() is Invariant,
-            old(self).result() is None,
-            ({
-                let old_ckv = old(invariant_resource).value()->Invariant_ckv;
-                let key = old(self).key();
-                let item = old(self).item();
-                match result {
-                    Ok(()) => {
-                        &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
-                        &&& old_ckv.kv.create(key, item) matches Ok(kv)
-                        &&& kv == new_ckv.kv
-                    }
-                    Err(KvError::CRCMismatch) => {
-                        &&& new_ckv == old_ckv
-                        &&& !old_ckv.pm_constants.impervious_to_corruption()
-                    }, 
-                    Err(KvError::OutOfSpace) => {
-                        &&& new_ckv == old_ckv
-                        &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
-                    },
-                    Err(e) => {
-                        &&& new_ckv == old_ckv
-                        &&& old_ckv.kv.create(key, item) matches Err(e_spec)
-                        &&& e == e_spec
-                    },
-                }
-            }),
-        ensures
-            self.result() == Some(result),
-            invariant_resource.loc() == old(invariant_resource).loc(),
-            invariant_resource.value() == (OwnershipSplitter::<K, I, L>::Invariant{ ckv: new_ckv }),
-    ;
-}
-    */
-
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]

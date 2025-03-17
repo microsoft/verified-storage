@@ -250,7 +250,7 @@ impl MemoryMappedFileSection {
 // The `MemoryMappedFileMediaType` enum represents a type of media
 // from which a file can be memory-mapped.
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum MemoryMappedFileMediaType {
     HDD,
     SSD,
