@@ -316,7 +316,6 @@ where
         proof {
             cb.run(invariant_resource, result);
         }
-        read_handle.release_read();
         result
     }
 }
