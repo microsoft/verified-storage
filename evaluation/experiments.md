@@ -37,6 +37,11 @@ Tested Linux environments:
     make
     make install
     ```
+    - Build required Viper wrapper libraries:
+    ```
+    cd viper_wrapper
+    make all
+    ```
     
 **To compile Viper wrapper on its own:** `clang++ viper_wrapper.cpp -I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmark -I../viper_deps/benchmark/include -std=c++17 -lpmem -lpmemobj -lpmempool -I../viper_deps/libpmemobj-cpp/include -mclwb -DVIPER_BUILD_BENCHMARKS=ON -lbenchmark -DCXX_COMPILATION`
 

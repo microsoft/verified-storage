@@ -8,7 +8,7 @@ import time
 import sys
 from pathlib import Path
 
-DBS = ["capybarakv", "pmemrocksdb", "redis"]
+DBS = ["capybarakv", "pmemrocksdb", "redis", "viper"]
 
 def is_windows():
     return sys.platform.startswith("win")
@@ -323,7 +323,7 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
         # options += ["-p", "rocksdb.allow_mmap_reads=true"]
         # options += ["-p", "rocksdb.allow_mmap_writes=true"]
         # options += ["-p", "max_background_compaction=4"]
-    else:
+    elif db != "viper": # viper currently has no specific arguments
         assert False, "Not implemented"
     
     return options

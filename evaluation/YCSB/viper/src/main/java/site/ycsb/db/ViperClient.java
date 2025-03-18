@@ -8,6 +8,9 @@ import site.ycsb.DB;
 import site.ycsb.DBException;
 import site.ycsb.Status;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -28,6 +31,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  */
 public class ViperClient extends DB {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(ViperClient.class);
+
   // TODO: get these from a config file
   static final String POOL_FILE = "/mnt/pmem/viper";
   static final long INITIAL_SIZE = 1073741824;
@@ -36,7 +41,7 @@ public class ViperClient extends DB {
 
   @Override
   public void init() throws DBException {
-    // db = Viper(POOL_FILE, INITIAL_SIZE);
+    db = new Viper(POOL_FILE, INITIAL_SIZE);
   }
 
   // TODO: implement
@@ -47,19 +52,30 @@ public class ViperClient extends DB {
 
   @Override
   public Status insert(String table, String key, Map<String, ByteIterator> values) {
-    // byte[] serializedValues = serializeValues(values);
-    // db.insert(key, serializedValues);
-    // return Status.OK;
-    return Status.ERROR;
+    try {
+      byte[] serializedValues = serializeValues(values);
+      db.insert(key, serializedValues);
+      return Status.OK;
+    } catch (IOException e) {
+      LOGGER.error(e.getMessage(), e);
+      System.out.println("error on insert key " + key);
+      return Status.ERROR;
+    }
+    
   }
 
   // TODO: this might need some work -- it did in Capybara
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
-    // byte[] serializedValues = serializeValues(values);
-    // db.update(key, serializedValues);
-    // return Status.OK;
-    return Status.ERROR;
+    try {
+      byte[] serializedValues = serializeValues(values);
+      db.update(key, serializedValues);
+      return Status.OK;
+    } catch (IOException e) {
+      LOGGER.error(e.getMessage(), e);
+      System.out.println("error on update key " + key);
+      return Status.ERROR;
+    }
   }
 
   @Override
@@ -72,19 +88,24 @@ public class ViperClient extends DB {
   // TODO: this might need some work
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
-    // // this is kind of annoying/inefficient, but Viper requires us to pass in the destination for 
-    // // the read. The easiest place to allocate that is here and the easiest way to do that is 
-    // // to serialize `result`, which should already have the correct size.
-    // byte[] values = serializeValues(result);
-    // db.read(key, values);
-    // deserializeValues(values, fields, result);
-    // return Status.OK;
-    return Status.ERROR;
+    try {
+      // this is kind of annoying/inefficient, but Viper requires us to pass in the destination for 
+      // the read. The easiest place to allocate that is here and the easiest way to do that is 
+      // to serialize `result`, which should already have the correct size.
+      byte[] values = serializeValues(result);
+      db.read(key, values);
+      deserializeValues(values, fields, result);
+      return Status.OK;
+    } catch (IOException e) {
+      LOGGER.error(e.getMessage(), e);
+      System.out.println("error on read key " + key);
+      return Status.ERROR;
+    }
   }
 
   @Override
   public void cleanup() {
-    // db.cleanup();
+    db.cleanup();
   }
 
   // These functions are borrowed from RocksDBClient.java

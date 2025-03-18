@@ -23,27 +23,28 @@ public class Viper {
     System.loadLibrary("viper_wrapper");
   }
 
-  // public Viper(String poolFile, long initSize) {
-  //   byte[] viperPoolFile = poolFile.getBytes(UTF_8);
-  //   kvPtr = Viper.viperdb_create(viperPoolFile, initSize);
-  // }
+  public Viper(String poolFile, long initSize) {
+    byte[] viperPoolFile = poolFile.getBytes(UTF_8);
+    kvPtr = Viper.ViperCreate(viperPoolFile, initSize);
+  }
 
-  // public boolean insert(String key, byte[] values) {
-  //   byte[] keyArray = key.getBytes(UTF_8);
-  //   return Viper.viperdb_put(kvPtr, keyArray, values);
-  // }
+  public boolean insert(String key, byte[] values) {
+    byte[] keyArray = key.getBytes(UTF_8);
+    return Viper.ViperPut(kvPtr, keyArray, values);
+  }
 
-  // public boolean update(String key, byte[] values) {
-  //   byte[] keyArray = key.getBytes(UTF_8);
-  //   return Viper.viperdb_put(kvPtr, keyArray, values);
-  // }
+  public boolean update(String key, byte[] values) {
+    byte[] keyArray = key.getBytes(UTF_8);
+    return Viper.ViperUpdate(kvPtr, keyArray, values);
+  }
 
-  // public byte[] read(String key, byte[] values) {
-  //   byte[] keyArray = key.getBytes(UTF_8);
-  //   return Viper.viperdb_get(kvPtr, keyArray, values);
-  // }
+  public byte[] read(String key, byte[] values) {
+    byte[] keyArray = key.getBytes(UTF_8);
+    Viper.ViperRead(kvPtr, keyArray, values);
+    return values;
+  }
 
-  // public void cleanup() {
-  //   Viper.viperdb_cleanup(kvPtr);
-  // }
+  public void cleanup() {
+    Viper.ViperCleanup(kvPtr);
+  }
 }
