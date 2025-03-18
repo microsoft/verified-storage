@@ -19,8 +19,8 @@ use super::recover_v::*;
 use super::spec_t::*;
 use vstd::atomic::*;
 use vstd::invariant::*;
-use vstd::rwlock::*;
 use vstd::pcm::*;
+use vstd::rwlock::{RwLock, RwLockPredicate};
 
 verus! {
 
@@ -489,6 +489,7 @@ where
             cb.pre(CreateOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
+            self.loc() == old(self).loc(),
             ({
                 let (exec_result, apply_result) = results;
                 let op = CreateOp{ key: *key, item: *item };

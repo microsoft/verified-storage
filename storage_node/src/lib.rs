@@ -719,6 +719,48 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
     return Ok(());
 }
 
+impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
+        for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+{
+    type ApplyResult = Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>;
+
+    open spec fn id(self) -> Loc
+    {
+        self.loc()
+    }
+
+    open spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    open spec fn pre(self, op: ReadItemOp<TestKey>) -> bool
+    {
+        self.value() is Application
+    }
+
+    open spec fn post(
+        self,
+        op: ReadItemOp<TestKey>,
+        exec_result: Result<TestItem, KvError>,
+        apply_result: Self::ApplyResult
+    ) -> bool
+    {
+        &&& apply_result.loc() == ReadLinearizer::<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>::id(self)
+        &&& apply_result.value() is Application
+    }
+
+    proof fn apply(
+        tracked self,
+        op: ReadItemOp<TestKey>,
+        exec_result: Result<TestItem, KvError>,
+        tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+    ) -> (tracked apply_result: Self::ApplyResult)
+    {
+        self
+    }
+}
+
 impl MutatingLinearizer<TestKey, TestItem, TestListElement, CreateOp<TestKey, TestItem>>
         for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
 {
@@ -746,7 +788,9 @@ impl MutatingLinearizer<TestKey, TestItem, TestListElement, CreateOp<TestKey, Te
         apply_result: Self::ApplyResult
     ) -> bool
     {
-        true
+        &&& apply_result.loc() ==
+            MutatingLinearizer::<TestKey, TestItem, TestListElement, CreateOp<TestKey, TestItem>>::id(self)
+        &&& apply_result.value() is Application
     }
 
     proof fn apply(
@@ -825,21 +869,26 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         (Err(e), _) => { print_message("Error when creating key 1"); return Err(()); }
     };
 
-    /*
     // read the item of the record we just created
-    let read_item1 = match kv.read_item(&key1) {
-        Ok(i) => i,
-        Err(e) => { print_message("Error when reading key"); return Err(()); },
+    let (read_item1, mut app_resource) = match ckv.read_item(&key1, app_resource) {
+        (Ok(i), app_resource) => (i, app_resource),
+        (Err(e), _) => { print_message("Error when reading key"); return Err(()); },
     };
 
-    runtime_assert(read_item1.val == item1.val);
-
-    match kv.read_item(&key2) {
-        Ok(i) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
-        Err(KvError::KeyNotFound) => {},
-        Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
+    if read_item1.val != item1.val {
+        print_message("ERROR: Read incorrect value");
+        return Err(());
     }
-    */
+
+    print_message("SUCCESS: Read correct value");
+
+    let mut app_resource = match ckv.read_item(&key2, app_resource) {
+        (Ok(i), _) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
+        (Err(KvError::KeyNotFound), app_resource) => app_resource,
+        (Err(e), _) => {
+            print_message("Error: got an unexpected error when reading non-inserted key"); return Err(());
+        },
+    };
 
     print_message("All kv operations gave expected results");
     return Ok(());
