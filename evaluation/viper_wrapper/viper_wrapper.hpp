@@ -1,5 +1,7 @@
-#ifndef VIPER_WRAPPER_HPP
-#define VIPER_WRAPPER_HPP
+#pragma once
+
+#ifndef __VIPER_WRAPPER_HPP__
+#define __VIPER_WRAPPER_HPP__
 
 #include <iostream>
 #include "viper/viper.hpp"

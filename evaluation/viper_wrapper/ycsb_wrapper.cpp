@@ -1,5 +1,5 @@
-#include "viper_wrapper.hpp"
 #include "../YCSB/viper/target/headers/site_ycsb_db_Viper.h"
+#include "viper_wrapper.hpp"
 
 std::string jbytearray_to_string(JNIEnv* env, jbyteArray array) {
     // determine the needed length and allocate a buffer for it

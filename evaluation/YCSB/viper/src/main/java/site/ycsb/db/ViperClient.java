@@ -41,6 +41,7 @@ public class ViperClient extends DB {
 
   @Override
   public void init() throws DBException {
+    System.out.println("viper init");
     db = new Viper(POOL_FILE, INITIAL_SIZE);
   }
 

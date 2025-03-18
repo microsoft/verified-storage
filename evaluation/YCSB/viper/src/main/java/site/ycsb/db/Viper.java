@@ -20,10 +20,16 @@ public class Viper {
   private long kvPtr;
 
   static {
+    System.loadLibrary("benchmark");
     System.loadLibrary("viper_wrapper");
+    
+    // System.loadLibrary("pmemobj-cpp");
+    // System.loadLibrary("pmem");
+    // System.loadLibrary("pmempool");
   }
 
   public Viper(String poolFile, long initSize) {
+    System.out.println("creating viper");
     byte[] viperPoolFile = poolFile.getBytes(UTF_8);
     kvPtr = Viper.ViperCreate(viperPoolFile, initSize);
   }

@@ -22,9 +22,7 @@ Tested Linux environments:
     # Make a build directory to place the build output.
     $ cmake -E make_directory "build"
     # Generate build system files with cmake, and download any dependencies.
-    $ cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release ../
-    # or, starting with CMake 3.13, use a simpler form:
-    # cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -S . -B "build"
+    $ cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -S . -B "build" -DBUILD_SHARED_LIBS=ON
     # Build the library.
     $ cmake --build "build" --config Release
     $ sudo cmake --build "build" --config Release --target install
@@ -46,7 +44,7 @@ Tested Linux environments:
 **To compile Viper wrapper on its own:** `clang++ viper_wrapper.cpp -I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmark -I../viper_deps/benchmark/include -std=c++17 -lpmem -lpmemobj -lpmempool -I../viper_deps/libpmemobj-cpp/include -mclwb -DVIPER_BUILD_BENCHMARKS=ON -lbenchmark -DCXX_COMPILATION`
 
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.
-3. Run `export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release`
+3. Run `export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/verified-storage/evaluation/ycsb_ffi/target/release:~/verified_storage/evaluation/viper_wrapper:~/verified-storage/evaluation/viper_deps/benchmark/build/src`
 4. Run `export JAVA_HOME=/usr/lib/jvm/java-X-openjdk-amd64/` where `X` is the Java version to use.
 5. Build pmem-RocksDB: `cd` to `pmem-rocksdb` and build with `make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j 8`
 6. Build redis: `cd` to `pmem-redis` and run `make USE_NVM=yes` 

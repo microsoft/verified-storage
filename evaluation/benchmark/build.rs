@@ -1,3 +1,5 @@
+use std::env;
+
 #[cfg(target_os = "linux")]
 extern crate bindgen;
 
@@ -21,6 +23,8 @@ fn main() {
     // This is the path to the static library file.
     let lib_path = viper_wrapper_path.join("libviper_wrapper.a");
 
+    let java_home = env::var("JAVA_HOME").unwrap();
+
     // build object file for the viper wrapper
     // based on instructions from https://rust-lang.github.io/rust-bindgen/non-system-libraries.html
     if !std::process::Command::new("clang++")
@@ -30,7 +34,9 @@ fn main() {
         .arg("-I../viper_deps/concurrentqueue")
         .arg("-I../viper_deps/benchmark/include")
         .arg("-I../viper_deps/libpmemobj-cpp/include")
-        .arg("-DVIPER_BUILD_BENCHMARKS=ON")
+        .arg(format!("-I{java_home}/include"))
+        .arg(format!("-I{java_home}/include/linux"))
+        // .arg("-DVIPER_BUILD_BENCHMARKS=ON")
         // .arg("-DVIPER_PMDK_PATH=/usr/share/pmdk")
         // .arg("-DLIBPMEMOBJ++_PATH=/usr/lib/x86_64-linux-gnu")
         .arg("-mclwb")
