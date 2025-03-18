@@ -129,11 +129,6 @@ where
         &&& self.untrusted_kv_impl.valid()
     }
 
-    pub closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore::<K, I, L>>
-    {
-        UntrustedKvStoreImpl::<PM, K, I, L>::recover(s)
-    }
-
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
         UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
@@ -165,7 +160,8 @@ where
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
-                    &&& Self::recover(pm@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
+                    &&& UntrustedKvStoreImpl::<PM, K, I, L>::recover(pm@.durable_state)
+                        == Some(RecoveredKvStore::<K, I, L>::init(*ps))
                 }
                 Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
@@ -179,11 +175,11 @@ where
     pub exec fn start(pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError>)
         requires 
             pm.inv(),
-            Self::recover(pm@.read_state) is Some,
+            UntrustedKvStoreImpl::<PM, K, I, L>::recover(pm@.read_state) is Some,
             vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures
         ({
-            let state = Self::recover(pm@.read_state).unwrap();
+            let state = UntrustedKvStoreImpl::<PM, K, I, L>::recover(pm@.read_state).unwrap();
             match result {
                 Ok(kv) => {
                     &&& kv.valid()
