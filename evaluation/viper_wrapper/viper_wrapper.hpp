@@ -9,17 +9,6 @@
 static const auto VIPER_KEY_LEN = 64;
 static const auto VIPER_VALUE_LEN = 1024;
 
-// struct ViperTestKey {
-//     viper::kv_bm::KeyType64 key;
-// };
-
-// struct ViperTestValue {
-//     viper::kv_bm::ValueType1024 value;
-// };
-
-
-// using K = uint64_t;
-// using V = uint64_t;
 using K = viper::kv_bm::KeyType64;
 using V = viper::kv_bm::ValueType1024;
 using ViperDB = viper::Viper<K, V>;
@@ -34,14 +23,11 @@ extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t ini
 
 extern "C" bool viperdb_put(struct ViperDBFFI* db, const K* key, const V* value);
 
-// extern "C" ViperDBFFI viperdb_create(
-//     const char* pool_file,
-//     uint64_t initial_pool_size
-// );
+extern "C" bool viperdb_get(struct ViperDBFFI* db, const K* key, V* value);
 
-// extern "C" ViperDBClient viperdb_get_client(ViperDB* vdb);
+extern "C" bool viperdb_update(struct ViperDBFFI* db, const K* key, const V* value);
 
-// extern "C" bool viperdb_put(ViperDBClient* db, const K* key, const V* value);
+extern "C" bool viperdb_delete(struct ViperDBFFI* db, const K* key);
 
 extern "C" void viperdb_cleanup(ViperDBFFI* db);
 

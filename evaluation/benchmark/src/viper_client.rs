@@ -16,9 +16,6 @@ use std::thread::sleep;
 pub struct ViperClient
 {
     kv: *mut crate::ViperDBFFI,
-    // kv: crate::ViperDB,
-    // kv: *mut crate::ViperDB,
-    // client: crate::ViperDBClient,
 }
 
 impl KvInterface<TestKey, TestValue> for ViperClient
@@ -35,20 +32,15 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file = crate::MOUNT_POINT.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
-        let init_size = 1073741824;
+        let init_size = 53687091200;
 
         println!("creating viper client");
 
-        // let mut viper_db = unsafe { crate::viperdb_create(file_ptr, init_size) };
-        // let viper_client = unsafe { crate::viperdb_get_client(viper_db) };
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
 
         println!("done creating\n");
 
-        Ok(Self { kv
-            // kv: viper_db,
-            // client: viper_client,
-        })
+        Ok(Self { kv })
     }
 
     fn timed_start() -> Result<(Self, Duration), Self::E> {
@@ -62,8 +54,6 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn put(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
         let value = &value.value as *const [u8; VALUE_LEN];
-        // println!("client addr {:p}", self.client);
-        println!("key addr {:p}", key);
         let result = unsafe { crate::viperdb_put(self.kv, key, value) };
         match result {
             true => Ok(()), 
@@ -72,15 +62,30 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     }
 
     fn get(&mut self, key: &TestKey) -> Result<TestValue, Self::E> {
-        todo!()
+        let key = &key.key as *const [u8; KEY_LEN];
+        let mut value = TestValue::default();
+        let result = unsafe { crate::viperdb_get(self.kv, key, &mut value.value) };
+        match result {
+            true => Ok(value),
+            false => Err(false)
+        }
     }
 
     fn update(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
-        todo!()
+        let key = &key.key as *const [u8; KEY_LEN];
+        let value = &value.value as *const [u8; VALUE_LEN];
+        let result = unsafe { crate::viperdb_update(self.kv, key, value) };
+        // result is false if the value already exists, so ignore it
+        Ok(())
     }
 
     fn delete(&mut self, key: &TestKey) -> Result<(), Self::E> {
-        todo!()
+        let key = &key.key as *const [u8; KEY_LEN];
+        let result = unsafe { crate::viperdb_delete(self.kv, key) };
+        match result {
+            true => Ok(()),
+            false => Err(false)
+        }
     }
 
     fn cleanup() {

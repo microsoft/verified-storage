@@ -32,6 +32,21 @@ extern "C" bool viperdb_put(struct ViperDBFFI* db, const K* key, const V* value)
     return result;
 }
 
+extern "C" bool viperdb_get(struct ViperDBFFI* db, const K* key, V* value) {
+    return db->client->get(*key, value);
+}
+
+// NOTE: viper db puts are not atomic when updating an existing value
+// TODO: figure out how to use their support for atomic updates
+extern "C" bool viperdb_update(struct ViperDBFFI* db, const K* key, const V* value) {
+    bool result = db->client->put(*key, *value);
+    return result;
+}
+
+extern "C" bool viperdb_delete(struct ViperDBFFI* db, const K* key) {
+    return db->client->remove(*key);
+}
+
 extern "C" void viperdb_cleanup(ViperDBFFI* db) {    
     delete db;
     viper::PMemAllocator::get().destroy();

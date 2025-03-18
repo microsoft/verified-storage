@@ -62,8 +62,7 @@ const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
 // TODO: read these from a config file?
-// const NUM_KEYS: u64 = 25000000;
-const NUM_KEYS: u64 = 1;
+const NUM_KEYS: u64 = 25000000;
 const ITERATIONS: u64 = 1;
 // for use in the full startup experiment
 // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
@@ -113,6 +112,15 @@ impl AsRef<[u8]> for BigTestKey {
 struct TestValue {
     value: [u8; VALUE_LEN]
 }
+
+impl Default for TestValue {
+    fn default() -> Self {
+        Self {
+            value: [0; VALUE_LEN]
+        }
+    }
+}
+
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
@@ -264,9 +272,9 @@ fn main() {
 
 
     for i in 1..ITERATIONS+1 {
-        // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        // run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
         run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
     }
 
@@ -295,11 +303,13 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         let mut client = KV::start()?;
         run_sequential_put(&mut client, &output_dir, i)?;
         client.flush();
-        // run_sequential_get(&mut client, &output_dir, i)?;
-        // run_sequential_update(&mut client, &output_dir, i)?;
-        // run_sequential_delete(&mut client, &output_dir, i)?;
+        run_sequential_get(&mut client, &output_dir, i)?;
+        run_sequential_update(&mut client, &output_dir, i)?;
+        run_sequential_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
+
+    println!("sequential done");
 
     // random access operations
     {
@@ -307,9 +317,9 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         let mut client = KV::start()?;
         run_rand_put(&mut client, &output_dir, i)?;
         client.flush();
-        // run_rand_get(&mut client, &output_dir, i)?;
-        // run_rand_update(&mut client, &output_dir, i)?;
-        // run_rand_delete(&mut client, &output_dir, i)?;
+        run_rand_get(&mut client, &output_dir, i)?;
+        run_rand_update(&mut client, &output_dir, i)?;
+        run_rand_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
 
