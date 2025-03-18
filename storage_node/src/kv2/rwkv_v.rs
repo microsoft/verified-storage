@@ -17,8 +17,8 @@ use super::impl_t::*;
 use super::recover_v::*;
 use super::spec_t::*;
 use vstd::atomic::*;
-use vstd::invariant::*;
 use vstd::rwlock::*;
+use vstd::invariant::*;
 use vstd::pcm::*;
 
 verus! {
@@ -113,48 +113,6 @@ where
         &&& self.loc == v.invariant_resource@.loc()
         &&& v.invariant_resource@.value() == OwnershipSplitter::Invariant{ kv: v.kv@ }
     }
-}
-
-pub trait ReadItemCallback<K, I, L>
-where
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-    Self: std::marker::Sized,
-{
-    spec fn loc(self) -> Loc;
-
-    spec fn key(self) -> K;
-
-    spec fn result(self) -> Option<Result<I, KvError>>;
-
-    proof fn run(
-        tracked &mut self,
-        tracked invariant_resource: &Resource<OwnershipSplitter<K, I, L>>,
-        result: Result<I, KvError>,
-    )
-        requires
-            invariant_resource.loc() == old(self).loc(),
-            invariant_resource.value() is Invariant,
-            old(self).result() is None,
-            ({
-                let kv = invariant_resource.value()->Invariant_kv;
-                let key = old(self).key();
-                match result {
-                    Ok(item) => {
-                        &&& kv.tentative.read_item(key) matches Ok(i)
-                        &&& item == i
-                    },
-                    Err(KvError::CRCMismatch) => !kv.pm_constants.impervious_to_corruption(),
-                    Err(e) => {
-                        &&& kv.tentative.read_item(key) matches Err(e_spec)
-                        &&& e == e_spec
-                    },
-                }
-            }),
-        ensures
-            self.result() == Some(result),
-    ;
 }
 
 #[verifier::reject_recursive_types(K)]
@@ -293,30 +251,6 @@ where
         );
         let selfish = Self{ loc: Ghost(loc), lock };
         Ok((selfish, Tracked(application_resource)))
-    }
-
-    pub exec fn read_item<CB: ReadItemCallback<K, I, L>>(
-        &self,
-        key: &K,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<I, KvError>)
-        requires 
-            self.valid(),
-            old(cb).key() == *key,
-            old(cb).loc() == self.loc(),
-            old(cb).result() is None,
-        ensures
-            self.valid(),
-            cb.result() == Some(result),
-    {
-        let read_handle = self.lock.acquire_read();
-        let kv_internal = read_handle.borrow();
-        let result = kv_internal.kv.read_item(key);
-        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        proof {
-            cb.run(invariant_resource, result);
-        }
-        result
     }
 }
 
