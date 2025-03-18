@@ -74,7 +74,7 @@ verus! {
         buffer
     }
 
-    #[derive(Debug, Eq, PartialEq, Clone)]
+    #[derive(Debug, Eq, PartialEq, Clone, Copy)]
     pub enum PmemError {
         InvalidFileName,
         CannotOpenPmFile,
