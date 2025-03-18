@@ -15,6 +15,7 @@ use builtin_macros::*;
 //use kv::durable::itemtable_v::*;
 //use kv::durable::maintable_v::*;
 use pmem::wrpm_t::*;
+use vstd::pcm::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
@@ -28,6 +29,7 @@ pub mod common;
 //pub mod log2;
 
 use crate::kv2::impl_t::KvStore;
+use crate::kv2::rwkv_v::*;
 use crate::kv2::spec_t::{KvError, LogicalRange, LogicalRangeGapsPolicy, SetupParameters};
 use crate::common::util_v::*;
 // use crate::log::logimpl_t::*;
@@ -39,13 +41,14 @@ use crate::common::util_v::*;
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
+use crate::pmem::traits_t::*;
 
 mod tests {
 
@@ -421,19 +424,19 @@ pub enum BlockOffsetType {
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug, Hash)]
-struct TestKey {
-    val: u64,
+pub struct TestKey {
+    pub val: u64,
 }
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
-struct TestItem {
-    val: u64,
+pub struct TestItem {
+    pub val: u64,
 }
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
-struct TestListElement {
+pub struct TestListElement {
     pub val: u64,
     pub start: usize,
     pub end: usize
@@ -716,7 +719,52 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
     return Ok(());
 }
 
-/*
+impl MutatingLinearizer<TestKey, TestItem, TestListElement, CreateOp<TestKey, TestItem>>
+        for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+{
+    type ApplyResult = Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>;
+
+    open spec fn id(self) -> Loc
+    {
+        self.loc()
+    }
+
+    open spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    open spec fn pre(self, op: CreateOp<TestKey, TestItem>) -> bool
+    {
+        self.value() is Application
+    }
+
+    open spec fn post(
+        self,
+        op: CreateOp<TestKey, TestItem>,
+        exec_result: Result<(), KvError>,
+        apply_result: Self::ApplyResult
+    ) -> bool
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: CreateOp<TestKey, TestItem>,
+        new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
+        exec_result: Result<(), KvError>,
+        tracked r: &mut Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+    ) -> (tracked apply_result: Self::ApplyResult)
+    {
+        let tracked mut selfish = self;
+        vstd::pcm_lib::update_and_redistribute(&mut selfish, r,
+                                               OwnershipSplitter::Application{ckv: new_ckv},
+                                               OwnershipSplitter::Invariant{ckv: new_ckv});
+        selfish
+    }
+}
+
 fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
 {
     let kv_file_name = "test_kv";
@@ -749,16 +797,22 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
-    match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(&mut pm, &ps) {
+    match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(
+        &mut pm, &ps
+    ) {
         Ok(()) => {},
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
     }
 
-    let mut kv = match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
-        ::start(pm, kvstore_id) {
-        Ok(kv) => kv,
-        Err(e) => { print_message("Failed to start KV store"); return Err(()); },
-    };
+    let mut result =
+        match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::start(
+            pm, kvstore_id
+        ) {
+            Ok(tup) => tup,
+            Err(e) => { print_message("Failed to start KV store"); return Err(()); },
+        };
+    let mut ckv = result.0;
+    let mut app_resource = result.1;
 
     let key1 = TestKey { val: 0x33333333 };
     let key2 = TestKey { val: 0x44444444 };
@@ -766,13 +820,12 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item1 = TestItem { val: 0x55555555 };
     let item2 = TestItem { val: 0x66666666 };
 
-    // create a record
-    let lin = 
-    match kv.create(&key1, &item1, lin) {
-        Ok(()) => {},
-        Err(e) => { print_message("Error when creating key 1"); return Err(()); }
-    }
+    let mut app_resource = match ckv.create(&key1, &item1, app_resource) {
+        (Ok(()), app_resource) => app_resource,
+        (Err(e), _) => { print_message("Error when creating key 1"); return Err(()); }
+    };
 
+    /*
     // read the item of the record we just created
     let read_item1 = match kv.read_item(&key1) {
         Ok(i) => i,
@@ -786,11 +839,11 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(KvError::KeyNotFound) => {},
         Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
     }
+    */
 
     print_message("All kv operations gave expected results");
     return Ok(());
 }
-    */
 
 #[allow(dead_code)]
 fn main()
@@ -800,6 +853,7 @@ fn main()
     // test_log_on_memory_mapped_file();
     // test_durable_on_memory_mapped_file();
     let _ = test_kv_on_memory_mapped_file();
+    let _ = test_concurrent_kv_on_memory_mapped_file();
 }
 
 }

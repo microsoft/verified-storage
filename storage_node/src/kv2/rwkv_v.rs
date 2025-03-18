@@ -163,7 +163,7 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 {
     type ApplyResult;
 
-    spec fn loc(self) -> Loc;
+    spec fn id(self) -> Loc;
 
     spec fn namespaces(self) -> Set<int>;
 
@@ -179,7 +179,7 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
     ) -> (tracked out: Self::ApplyResult)
         requires
             self.pre(op),
-            r.loc() == self.loc(),
+            r.loc() == self.id(),
             r.value() is Invariant,
             op.result_valid(r.value()->Invariant_ckv, result),
         ensures
@@ -234,7 +234,7 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
 {
     type ApplyResult;
 
-    spec fn loc(self) -> Loc;
+    spec fn id(self) -> Loc;
 
     spec fn namespaces(self) -> Set<int>;
 
@@ -256,7 +256,7 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
     ) -> (tracked apply_result: Self::ApplyResult)
         requires
             self.pre(op),
-            old(r).loc() == self.loc(),
+            old(r).loc() == self.id(),
             old(r).value() is Invariant,
             op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
         ensures
@@ -457,7 +457,7 @@ where
     ) -> (results: (Result<I, KvError>, Tracked<CB::ApplyResult>))
         requires 
             self.valid(),
-            cb.loc() == self.loc(),
+            cb.id() == self.loc(),
             cb.pre(ReadItemOp{ key: *key }),
         ensures
             self.valid(),
@@ -485,7 +485,7 @@ where
     ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
         requires
             old(self).valid(),
-            cb.loc() == old(self).loc(),
+            cb.id() == old(self).loc(),
             cb.pre(CreateOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
