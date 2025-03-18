@@ -5,10 +5,6 @@
 #include "viper/viper.hpp"
 #include "benchmark.hpp"
 
-// NOTE: if these are changed in the benchmark crate, they must also be changed here!
-static const auto VIPER_KEY_LEN = 64;
-static const auto VIPER_VALUE_LEN = 1024;
-
 using K = viper::kv_bm::KeyType64;
 using V = viper::kv_bm::ValueType1024;
 using ViperDB = viper::Viper<K, V>;

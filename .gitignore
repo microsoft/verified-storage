@@ -415,3 +415,4 @@ evaluation/venv/*
 *.gch
 *.pch
 a.out
+*.so
