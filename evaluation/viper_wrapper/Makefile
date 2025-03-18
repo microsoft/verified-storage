@@ -9,7 +9,7 @@ STATIC_LIB:=libviper_wrapper.a
 SHARED_LIB:=viper_wrapper.so
 CXX:=clang++
 
-all:
+bin:
 	$(CXX) $(CPP_FILE) $(CXXFLAGS) $(LDFLAGS) 
 
 obj: $(CPP_FILE)
