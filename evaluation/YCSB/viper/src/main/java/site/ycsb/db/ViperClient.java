@@ -36,6 +36,7 @@ public class ViperClient extends DB {
   // TODO: get these from a config file
   static final String POOL_FILE = "/mnt/pmem/viper";
   static final long INITIAL_SIZE = 1073741824;
+  static final int VALUE_SIZE = 1140; // TODO: don't hardcode this especially
 
   Viper db;
 
@@ -69,8 +70,18 @@ public class ViperClient extends DB {
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
     try {
-      byte[] serializedValues = serializeValues(values);
+      System.out.println("calling update");
+      // read the current value, update it, and write it back
+      byte[] readValues = new byte[VALUE_SIZE]; 
+      db.read(key, readValues);
+      final Map<String, ByteIterator> result = new HashMap<>();
+      deserializeValues(readValues, null, result);
+      result.putAll(values);
+
+      byte[] serializedValues = serializeValues(result);
       db.update(key, serializedValues);
+
+      System.out.println("update done");
       return Status.OK;
     } catch (IOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -89,24 +100,29 @@ public class ViperClient extends DB {
   // TODO: this might need some work
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
-    try {
+    // try {
       // this is kind of annoying/inefficient, but Viper requires us to pass in the destination for 
       // the read. The easiest place to allocate that is here and the easiest way to do that is 
       // to serialize `result`, which should already have the correct size.
-      byte[] values = serializeValues(result);
+      // byte[] values = serializeValues(result);
+      byte[] values = new byte[VALUE_SIZE]; 
+      System.out.println("reading byte array " + values.length);
       db.read(key, values);
       deserializeValues(values, fields, result);
+      System.out.println("finished reading");
       return Status.OK;
-    } catch (IOException e) {
-      LOGGER.error(e.getMessage(), e);
-      System.out.println("error on read key " + key);
-      return Status.ERROR;
-    }
+    // } catch (IOException e) {
+    //   LOGGER.error(e.getMessage(), e);
+    //   System.out.println("error on read key " + key);
+    //   return Status.ERROR;
+    // }
   }
 
   @Override
   public void cleanup() {
+    System.out.println("cleaning up");
     db.cleanup();
+    System.out.println("done cleaning up");
   }
 
   // These functions are borrowed from RocksDBClient.java

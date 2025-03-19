@@ -6,6 +6,7 @@ CXXFLAGS:=-I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmar
 	-I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux \
 	-std=c++17 -mclwb -DCXX_COMPILATION -fPIC #-flto
 LDFLAGS=-lpmem -lpmempool -lpmemobj -lbenchmark 
+SHARED_FLAGS=-L../viper_deps/benchmark/build/src
 CPP_FILE=viper_wrapper.cpp
 # CPP_YCSB_WRAPPER=ycsb_wrapper.cpp
 OBJ_FILE=viper_wrapper.o
@@ -33,7 +34,7 @@ static: $(OBJ_FILE)
 
 # shared: $(CPP_FILE) $(CPP_YCSB_WRAPPER) 
 shared: $(OBJ_FILE) 
-	$(CXX) -shared -o $(SHARED_LIB) $(CXXFLAGS) $(LDFLAGS) $^  
+	$(CXX) -shared -o $(SHARED_LIB) $(CXXFLAGS) $(SHARED_FLAGS) $(LDFLAGS) $^  
 
 clean:
 	@rm -rf *.o *.so *a a.out

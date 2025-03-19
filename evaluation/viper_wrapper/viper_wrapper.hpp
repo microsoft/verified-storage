@@ -7,14 +7,23 @@
 #include "viper/viper.hpp"
 #include "benchmark.hpp"
 
+using KeyType23 = viper::kv_bm::BMRecord<uint8_t, 23>;
+using ValueType1140 = viper::kv_bm::BMRecord<uint8_t, 1140>;
+
+// TODO: better way to select what key type to use
+#ifdef CXX_COMPILATION
+using K = KeyType23;
+using V = ValueType1140;
+#else
 using K = viper::kv_bm::KeyType64;
 using V = viper::kv_bm::ValueType1024;
+#endif
+
 using ViperDB = viper::Viper<K, V>;
 using ViperDBClient = viper::Viper<K, V>::Client;
 
 struct ViperDBFFI {
-    std::unique_ptr<ViperDB> db;
-    std::unique_ptr<ViperDBClient> client;
+    ViperDB* db;
 };
 
 extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t initial_pool_size);
