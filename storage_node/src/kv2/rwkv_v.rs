@@ -187,37 +187,6 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
     ;
 }
 
-pub struct ReadItemOp<K>
-where
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-{
-    pub key: K,
-}
-
-impl<K, I, L> ReadOnlyOperation<K, I, L> for ReadItemOp<K>
-where
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-{
-    type ExecResult = Result<I, KvError>;
-
-    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
-    {
-        match result {
-            Ok(item) => {
-                &&& ckv.kv.read_item(self.key) matches Ok(i)
-                &&& item == i
-            },
-            Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
-            Err(e) => {
-                &&& ckv.kv.read_item(self.key) matches Err(e_spec)
-                &&& e == e_spec
-            },
-        }
-    }
-}
-
 pub trait MutatingOperation<K, I, L>: Sized
 {
     type ExecResult;
@@ -265,6 +234,37 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
             self.post(op, exec_result, apply_result),
     ;
 
+}
+
+pub struct ReadItemOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+}
+
+impl<K, I, L> ReadOnlyOperation<K, I, L> for ReadItemOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<I, KvError>;
+
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    {
+        match result {
+            Ok(item) => {
+                &&& ckv.kv.read_item(self.key) matches Ok(i)
+                &&& item == i
+            },
+            Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
+            Err(e) => {
+                &&& ckv.kv.read_item(self.key) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
 }
 
 pub struct CreateOp<K, I>
@@ -355,6 +355,47 @@ where
             Err(e) => {
                 &&& new_ckv == old_ckv
                 &&& old_ckv.kv.update_item(self.key, self.item) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
+pub struct DeleteOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+}
+
+impl<K, I, L> MutatingOperation<K, I, L> for DeleteOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(), KvError>;
+
+    open spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool
+    {
+        match result {
+            Ok(()) => {
+                &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                &&& old_ckv.kv.delete(self.key) matches Ok(kv)
+                &&& kv == new_ckv.kv
+            }
+            Err(KvError::CRCMismatch) => {
+                &&& new_ckv == old_ckv
+                &&& !old_ckv.pm_constants.impervious_to_corruption()
+            }, 
+            Err(e) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.delete(self.key) matches Err(e_spec)
                 &&& e == e_spec
             },
         }
@@ -577,6 +618,36 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
         let exec_result = match kv_internal.kv.tentatively_update_item(key, item) {
+            Err(e) => Err(e),
+            Ok(()) => kv_internal.kv.commit(),
+        };
+        let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        write_handle.release_write(kv_internal);
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn delete<CB: MutatingLinearizer<K, I, L, DeleteOp<K>>>(
+        &mut self,
+        key: &K,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        requires
+            old(self).valid(),
+            cb.id() == old(self).loc(),
+            cb.pre(DeleteOp{ key: *key }),
+        ensures 
+            self.valid(),
+            self.loc() == old(self).loc(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = DeleteOp{ key: *key };
+                cb.post(op, exec_result, apply_result@)
+            }),
+    {
+        let (mut kv_internal, write_handle) = self.lock.acquire_write();
+        let ghost op = DeleteOp::<K>{ key: *key };
+        let exec_result = match kv_internal.kv.tentatively_delete(key) {
             Err(e) => Err(e),
             Ok(()) => kv_internal.kv.commit(),
         };
