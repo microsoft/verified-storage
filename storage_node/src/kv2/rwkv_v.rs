@@ -490,6 +490,37 @@ where
     }
 }
 
+pub struct GetListLengthOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+}
+
+impl<K, I, L> ReadOnlyOperation<K, I, L> for GetListLengthOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<usize, KvError>;
+
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    {
+        match result {
+            Ok(num_elements) => {
+                &&& ckv.kv.get_list_length(self.key) matches Ok(n)
+                &&& num_elements == n
+            },
+            Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
+            Err(e) => {
+                &&& ckv.kv.get_list_length(self.key) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -819,6 +850,33 @@ where
         let ghost op = ReadListOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let exec_result = kv_internal.kv.read_list(key);
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
+        read_handle.release_read();
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn get_list_length<CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>>(
+        &self,
+        key: &K,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<usize, KvError>, Tracked<CB::ApplyResult>))
+        requires 
+            self.valid(),
+            cb.id() == self.loc(),
+            cb.pre(GetListLengthOp{ key: *key }),
+        ensures
+            self.valid(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = GetListLengthOp{ key: *key };
+                cb.post(op, exec_result, apply_result@)
+            })
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = GetListLengthOp{ key: *key };
+        let kv_internal = read_handle.borrow();
+        let exec_result = kv_internal.kv.get_list_length(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
         let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
         read_handle.release_read();

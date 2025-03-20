@@ -275,18 +275,16 @@ impl<PM, L> ListTable<PM, L>
     }
 
     pub exec fn get_list_length(
-        &mut self,
+        &self,
         list_addr: u64,
         journal: &Journal<TrustedKvPermission, PM>
     ) -> (result: Result<usize, KvError>)
         requires
-            old(self).valid(journal@),
-            journal.valid(),
-            old(self)@.tentative is Some,
-            old(self)@.tentative.unwrap().m.contains_key(list_addr),
-        ensures
             self.valid(journal@),
-            self@ == old(self)@,
+            journal.valid(),
+            self@.tentative is Some,
+            self@.tentative.unwrap().m.contains_key(list_addr),
+        ensures
             match result {
                 Ok(num_elements) => self@.tentative.unwrap().m[list_addr].len() == num_elements,
                 Err(KvError::CRCMismatch) => !journal@.pm_constants.impervious_to_corruption(),
