@@ -625,6 +625,113 @@ where
     }
 }
 
+pub struct UpdateListElementAtIndexOp<K, L>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    pub key: K,
+    pub idx: usize,
+    pub new_list_element: L,
+}
+
+impl<K, I, L> MutatingOperation<K, I, L> for UpdateListElementAtIndexOp<K, L>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(), KvError>;
+
+    open spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool
+    {
+        match result {
+            Ok(()) => {
+                &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                &&& old_ckv.kv.update_list_element_at_index(self.key, self.idx as nat, self.new_list_element)
+                    matches Ok(kv)
+                &&& kv == new_ckv.kv
+            }
+            Err(KvError::CRCMismatch) => {
+                &&& new_ckv == old_ckv
+                &&& !old_ckv.pm_constants.impervious_to_corruption()
+            }, 
+            Err(KvError::OutOfSpace) => {
+                &&& new_ckv == old_ckv
+                &&& {
+                       ||| old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                       ||| old_ckv.kv.num_list_elements() >= old_ckv.ps.max_list_elements
+                   }
+            },
+            Err(e) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.update_list_element_at_index(self.key, self.idx as nat, self.new_list_element)
+                    matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
+pub struct UpdateListElementAtIndexAndItemOp<K, I, L>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    pub key: K,
+    pub idx: usize,
+    pub new_list_element: L,
+    pub new_item: I,
+}
+
+impl<K, I, L> MutatingOperation<K, I, L> for UpdateListElementAtIndexAndItemOp<K, I, L>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(), KvError>;
+
+    open spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool
+    {
+        match result {
+            Ok(()) => {
+                &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                &&& old_ckv.kv.update_list_element_at_index_and_item(self.key, self.idx as nat, self.new_list_element,
+                                                                    self.new_item) matches Ok(kv)
+                &&& kv == new_ckv.kv
+            }
+            Err(KvError::CRCMismatch) => {
+                &&& new_ckv == old_ckv
+                &&& !old_ckv.pm_constants.impervious_to_corruption()
+            }, 
+            Err(KvError::OutOfSpace) => {
+                &&& new_ckv == old_ckv
+                &&& {
+                       ||| old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                       ||| old_ckv.kv.num_list_elements() >= old_ckv.ps.max_list_elements
+                   }
+            },
+            Err(e) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.update_list_element_at_index_and_item(self.key, self.idx as nat, self.new_list_element,
+                                                                   self.new_item) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -1042,6 +1149,75 @@ where
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
         let exec_result =
             match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item) {
+            Err(e) => Err(e),
+            Ok(()) => kv_internal.kv.commit(),
+        };
+        let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        write_handle.release_write(kv_internal);
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn update_list_element_at_index<CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>>>(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_list_element: L,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        requires
+            old(self).valid(),
+            cb.id() == old(self).loc(),
+            cb.pre(UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
+        ensures 
+            self.valid(),
+            self.loc() == old(self).loc(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = UpdateListElementAtIndexOp{ key: *key, idx, new_list_element };
+                cb.post(op, exec_result, apply_result@)
+            }),
+    {
+        let (mut kv_internal, write_handle) = self.lock.acquire_write();
+        let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
+        let exec_result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element) {
+            Err(e) => Err(e),
+            Ok(()) => kv_internal.kv.commit(),
+        };
+        let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        write_handle.release_write(kv_internal);
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn update_list_element_at_index_and_item
+        <CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>>>(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_list_element: L,
+        new_item: &I,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        requires
+            old(self).valid(),
+            cb.id() == old(self).loc(),
+            cb.pre(UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
+        ensures 
+            self.valid(),
+            self.loc() == old(self).loc(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item };
+                cb.post(op, exec_result, apply_result@)
+            }),
+    {
+        let (mut kv_internal, write_handle) = self.lock.acquire_write();
+        let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L>{ key: *key, idx, new_list_element,
+                                                                     new_item: *new_item };
+        let exec_result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
+            key, idx, new_list_element, new_item
+        ) {
             Err(e) => Err(e),
             Ok(()) => kv_internal.kv.commit(),
         };
