@@ -175,7 +175,7 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
         tracked self,
         op: Op,
         result: Op::ExecResult,
-        tracked r: &Resource<OwnershipSplitter<K, I, L>>
+        tracked r: &Resource<OwnershipSplitter<K, I, L>>,
     ) -> (tracked out: Self::ApplyResult)
         requires
             self.pre(op),
@@ -184,6 +184,7 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
             op.result_valid(r.value()->Invariant_ckv, result),
         ensures
             self.post(op, result, out),
+        opens_invariants self.namespaces()
     ;
 }
 
@@ -232,6 +233,7 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
             r.loc() == old(r).loc(),
             r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
             self.post(op, exec_result, apply_result),
+        opens_invariants self.namespaces()
     ;
 
 }
