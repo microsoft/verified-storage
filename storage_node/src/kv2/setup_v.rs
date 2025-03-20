@@ -143,6 +143,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             match result {
                 Ok(()) => {
                     &&& pm@.flush_predicted()
+                    &&& ps.valid()
                     &&& Self::recover(pm@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
                 },
                 Err(KvError::InvalidParameter) => !ps.valid(),

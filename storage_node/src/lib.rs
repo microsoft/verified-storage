@@ -15,6 +15,7 @@ use builtin_macros::*;
 //use kv::durable::itemtable_v::*;
 //use kv::durable::maintable_v::*;
 use pmem::wrpm_t::*;
+use vstd::pcm::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
@@ -28,6 +29,7 @@ pub mod common;
 //pub mod log2;
 
 use crate::kv2::impl_t::KvStore;
+use crate::kv2::rwkv_v::*;
 use crate::kv2::spec_t::{KvError, LogicalRange, LogicalRangeGapsPolicy, SetupParameters};
 use crate::common::util_v::*;
 // use crate::log::logimpl_t::*;
@@ -39,13 +41,14 @@ use crate::common::util_v::*;
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
+use crate::pmem::traits_t::*;
 
 mod tests {
 
@@ -65,6 +68,12 @@ use super::*;
 fn check_kv_on_memory_mapped_file () -> Result<(), ()>
 {
     test_kv_on_memory_mapped_file()
+}
+
+#[test]
+fn check_kv_on_concurrent_memory_mapped_file () -> Result<(), ()>
+{
+    test_concurrent_kv_on_memory_mapped_file()
 }
     
 }
@@ -421,19 +430,19 @@ pub enum BlockOffsetType {
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug, Hash)]
-struct TestKey {
-    val: u64,
+pub struct TestKey {
+    pub val: u64,
 }
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
-struct TestItem {
-    val: u64,
+pub struct TestItem {
+    pub val: u64,
 }
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
-struct TestListElement {
+pub struct TestListElement {
     pub val: u64,
     pub start: usize,
     pub end: usize
@@ -716,6 +725,181 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
     return Ok(());
 }
 
+impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
+        for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+{
+    type ApplyResult = Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>;
+
+    open spec fn id(self) -> Loc
+    {
+        self.loc()
+    }
+
+    open spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    open spec fn pre(self, op: ReadItemOp<TestKey>) -> bool
+    {
+        self.value() is Application
+    }
+
+    open spec fn post(
+        self,
+        op: ReadItemOp<TestKey>,
+        exec_result: Result<TestItem, KvError>,
+        apply_result: Self::ApplyResult
+    ) -> bool
+    {
+        &&& apply_result.loc() == ReadLinearizer::<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>::id(self)
+        &&& apply_result.value() is Application
+    }
+
+    proof fn apply(
+        tracked self,
+        op: ReadItemOp<TestKey>,
+        exec_result: Result<TestItem, KvError>,
+        tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+    ) -> (tracked apply_result: Self::ApplyResult)
+    {
+        self
+    }
+}
+
+impl MutatingLinearizer<TestKey, TestItem, TestListElement, CreateOp<TestKey, TestItem>>
+        for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+{
+    type ApplyResult = Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>;
+
+    open spec fn id(self) -> Loc
+    {
+        self.loc()
+    }
+
+    open spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    open spec fn pre(self, op: CreateOp<TestKey, TestItem>) -> bool
+    {
+        self.value() is Application
+    }
+
+    open spec fn post(
+        self,
+        op: CreateOp<TestKey, TestItem>,
+        exec_result: Result<(), KvError>,
+        apply_result: Self::ApplyResult
+    ) -> bool
+    {
+        &&& apply_result.loc() ==
+            MutatingLinearizer::<TestKey, TestItem, TestListElement, CreateOp<TestKey, TestItem>>::id(self)
+        &&& apply_result.value() is Application
+    }
+
+    proof fn apply(
+        tracked self,
+        op: CreateOp<TestKey, TestItem>,
+        new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
+        exec_result: Result<(), KvError>,
+        tracked r: &mut Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+    ) -> (tracked apply_result: Self::ApplyResult)
+    {
+        let tracked mut selfish = self;
+        vstd::pcm_lib::update_and_redistribute(&mut selfish, r,
+                                               OwnershipSplitter::Application{ckv: new_ckv},
+                                               OwnershipSplitter::Invariant{ckv: new_ckv});
+        selfish
+    }
+}
+
+fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
+{
+    let kv_file_name = "test_concurrent_kv";
+
+    let max_keys = 16;
+    let max_list_elements = 16;
+
+    // delete the test file if it already exists. Ignore the result,
+    // since it's ok if the file doesn't exist.
+    remove_file(kv_file_name);
+
+    let kvstore_id = generate_fresh_id();
+
+    let ps = SetupParameters{
+        kvstore_id,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsForbidden,
+        max_keys,
+        max_list_elements,
+        max_operations_per_transaction: 4,
+    };
+   let region_size = match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
+        ::space_needed_for_setup(&ps) {
+        Ok(s) => s,
+        Err(e) => { print_message("Failed to compute space needed for setup"); return Err(()); },
+   };
+
+    let mut pm = match create_pm_region(&kv_file_name, region_size) {
+        Ok(p) => p,
+        Err(e) => { print_message("Failed to create file for kv store"); return Err(()); },
+    };
+
+    assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(
+        &mut pm, &ps
+    ) {
+        Ok(()) => {},
+        Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
+    }
+
+    let mut result =
+        match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::start(
+            pm, kvstore_id
+        ) {
+            Ok(tup) => tup,
+            Err(e) => { print_message("Failed to start KV store"); return Err(()); },
+        };
+    let mut ckv = result.0;
+    let mut app_resource = result.1;
+
+    let key1 = TestKey { val: 0x33333333 };
+    let key2 = TestKey { val: 0x44444444 };
+
+    let item1 = TestItem { val: 0x55555555 };
+    let item2 = TestItem { val: 0x66666666 };
+
+    let mut app_resource = match ckv.create(&key1, &item1, app_resource) {
+        (Ok(()), app_resource) => app_resource,
+        (Err(e), _) => { print_message("Error when creating key 1"); return Err(()); }
+    };
+
+    // read the item of the record we just created
+    let (read_item1, mut app_resource) = match ckv.read_item(&key1, app_resource) {
+        (Ok(i), app_resource) => (i, app_resource),
+        (Err(e), _) => { print_message("Error when reading key"); return Err(()); },
+    };
+
+    if read_item1.val != item1.val {
+        print_message("ERROR: Read incorrect value");
+        return Err(());
+    }
+
+    print_message("SUCCESS: Read correct value");
+
+    let mut app_resource = match ckv.read_item(&key2, app_resource) {
+        (Ok(i), _) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
+        (Err(KvError::KeyNotFound), app_resource) => app_resource,
+        (Err(e), _) => {
+            print_message("Error: got an unexpected error when reading non-inserted key"); return Err(());
+        },
+    };
+
+    print_message("All kv operations gave expected results");
+    return Ok(());
+}
+
 #[allow(dead_code)]
 fn main()
 {
@@ -724,6 +908,7 @@ fn main()
     // test_log_on_memory_mapped_file();
     // test_durable_on_memory_mapped_file();
     let _ = test_kv_on_memory_mapped_file();
+    let _ = test_concurrent_kv_on_memory_mapped_file();
 }
 
 }
