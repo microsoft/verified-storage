@@ -732,6 +732,101 @@ where
     }
 }
 
+pub struct TrimListOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+    pub trim_length: usize,
+}
+
+impl<K, I, L> MutatingOperation<K, I, L> for TrimListOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(), KvError>;
+
+    open spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool
+    {
+        match result {
+            Ok(()) => {
+                &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                &&& old_ckv.kv.trim_list(self.key, self.trim_length as nat) matches Ok(kv)
+                &&& kv == new_ckv.kv
+            }
+            Err(KvError::CRCMismatch) => {
+                &&& new_ckv == old_ckv
+                &&& !old_ckv.pm_constants.impervious_to_corruption()
+            }, 
+            Err(KvError::OutOfSpace) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+            },
+            Err(e) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.trim_list(self.key, self.trim_length as nat) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
+pub struct TrimListAndUpdateItemOp<K, I>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+    pub trim_length: usize,
+    pub new_item: I,
+}
+
+impl<K, I, L> MutatingOperation<K, I, L> for TrimListAndUpdateItemOp<K, I>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(), KvError>;
+
+    open spec fn result_valid(
+        self,
+        old_ckv: ConcurrentKvStoreView<K, I, L>,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        result: Self::ExecResult
+    ) -> bool
+    {
+        match result {
+            Ok(()) => {
+                &&& new_ckv == ConcurrentKvStoreView{ kv: new_ckv.kv, ..old_ckv }
+                &&& old_ckv.kv.trim_list_and_update_item(self.key, self.trim_length as nat, self.new_item) matches Ok(kv)
+                &&& kv == new_ckv.kv
+            }
+            Err(KvError::CRCMismatch) => {
+                &&& new_ckv == old_ckv
+                &&& !old_ckv.pm_constants.impervious_to_corruption()
+            }, 
+            Err(KvError::OutOfSpace) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+            },
+            Err(e) => {
+                &&& new_ckv == old_ckv
+                &&& old_ckv.kv.trim_list_and_update_item(self.key, self.trim_length as nat, self.new_item)
+                    matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -1218,6 +1313,69 @@ where
         let exec_result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
             key, idx, new_list_element, new_item
         ) {
+            Err(e) => Err(e),
+            Ok(()) => kv_internal.kv.commit(),
+        };
+        let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        write_handle.release_write(kv_internal);
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn trim_list<CB: MutatingLinearizer<K, I, L, TrimListOp<K>>>(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        requires
+            old(self).valid(),
+            cb.id() == old(self).loc(),
+            cb.pre(TrimListOp{ key : *key, trim_length }),
+        ensures 
+            self.valid(),
+            self.loc() == old(self).loc(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = TrimListOp{ key: *key, trim_length };
+                cb.post(op, exec_result, apply_result@)
+            }),
+    {
+        let (mut kv_internal, write_handle) = self.lock.acquire_write();
+        let ghost op = TrimListOp::<K>{ key: *key, trim_length };
+        let exec_result = match kv_internal.kv.tentatively_trim_list(key, trim_length) {
+            Err(e) => Err(e),
+            Ok(()) => kv_internal.kv.commit(),
+        };
+        let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        write_handle.release_write(kv_internal);
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn trim_list_and_update_item<CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>>>(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        new_item: &I,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        requires
+            old(self).valid(),
+            cb.id() == old(self).loc(),
+            cb.pre(TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
+        ensures 
+            self.valid(),
+            self.loc() == old(self).loc(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item };
+                cb.post(op, exec_result, apply_result@)
+            }),
+    {
+        let (mut kv_internal, write_handle) = self.lock.acquire_write();
+        let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
+        let exec_result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item) {
             Err(e) => Err(e),
             Ok(()) => kv_internal.kv.commit(),
         };
