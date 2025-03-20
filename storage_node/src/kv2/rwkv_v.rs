@@ -427,6 +427,69 @@ where
     }
 }
 
+pub struct ReadItemAndListOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+}
+
+impl<K, I, L> ReadOnlyOperation<K, I, L> for ReadItemAndListOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<(I, Vec<L>), KvError>;
+
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    {
+        match result {
+            Ok((item, lst)) => {
+                &&& ckv.kv.read_item_and_list(self.key) matches Ok((i, l))
+                &&& item == i
+                &&& lst@ == l
+            },
+            Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
+            Err(e) => {
+                &&& ckv.kv.read_item_and_list(self.key) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
+pub struct ReadListOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    pub key: K,
+}
+
+impl<K, I, L> ReadOnlyOperation<K, I, L> for ReadListOp<K>
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type ExecResult = Result<Vec<L>, KvError>;
+
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    {
+        match result {
+            Ok(lst) => {
+                &&& ckv.kv.read_item_and_list(self.key) matches Ok((i, l))
+                &&& lst@ == l
+            },
+            Err(KvError::CRCMismatch) => !ckv.pm_constants.impervious_to_corruption(),
+            Err(e) => {
+                &&& ckv.kv.read_item_and_list(self.key) matches Err(e_spec)
+                &&& e == e_spec
+            },
+        }
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -702,6 +765,60 @@ where
         let ghost op = GetKeysOp{ };
         let kv_internal = read_handle.borrow();
         let exec_result = kv_internal.kv.get_keys();
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
+        read_handle.release_read();
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn read_item_and_list<CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>>(
+        &self,
+        key: &K,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<(I, Vec<L>), KvError>, Tracked<CB::ApplyResult>))
+        requires 
+            self.valid(),
+            cb.id() == self.loc(),
+            cb.pre(ReadItemAndListOp{ key: *key }),
+        ensures
+            self.valid(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = ReadItemAndListOp{ key: *key };
+                cb.post(op, exec_result, apply_result@)
+            })
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = ReadItemAndListOp{ key: *key };
+        let kv_internal = read_handle.borrow();
+        let exec_result = kv_internal.kv.read_item_and_list(key);
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
+        read_handle.release_read();
+        (exec_result, Tracked(apply_result))
+    }
+
+    pub exec fn read_list<CB: ReadLinearizer<K, I, L, ReadListOp<K>>>(
+        &self,
+        key: &K,
+        Tracked(cb): Tracked<CB>,
+    ) -> (results: (Result<Vec<L>, KvError>, Tracked<CB::ApplyResult>))
+        requires 
+            self.valid(),
+            cb.id() == self.loc(),
+            cb.pre(ReadListOp{ key: *key }),
+        ensures
+            self.valid(),
+            ({
+                let (exec_result, apply_result) = results;
+                let op = ReadListOp{ key: *key };
+                cb.post(op, exec_result, apply_result@)
+            })
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = ReadListOp{ key: *key };
+        let kv_internal = read_handle.borrow();
+        let exec_result = kv_internal.kv.read_list(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
         let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
         read_handle.release_read();
