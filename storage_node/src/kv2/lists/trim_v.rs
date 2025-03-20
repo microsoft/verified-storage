@@ -430,17 +430,18 @@ impl TrimAction
     }
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn get_addresses_to_trim_case_durable(
         &self,
         list_addr: u64,
         trim_length: usize,
         summary: &ListSummary,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
@@ -514,7 +515,7 @@ impl<PM, L> ListTable<PM, L>
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         addrs: &Vec<u64>,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
@@ -592,7 +593,7 @@ impl<PM, L> ListTable<PM, L>
         &self,
         list_addr: u64,
         num_durable_addrs: usize,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -676,7 +677,7 @@ impl<PM, L> ListTable<PM, L>
         &self,
         list_addr: u64,
         trim_length: usize,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<TrimAction, KvError>)
         requires
             self.valid(journal@),
@@ -756,7 +757,7 @@ impl<PM, L> ListTable<PM, L>
         trim_length: usize,
         pending_deallocations: Vec<u64>,
         new_head: u64,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -822,7 +823,7 @@ impl<PM, L> ListTable<PM, L>
         trim_length: usize,
         pending_deallocations: Vec<u64>,
         new_head: u64,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -888,7 +889,7 @@ impl<PM, L> ListTable<PM, L>
         list_addr: u64,
         trim_length: usize,
         pending_deallocations: Vec<u64>,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -963,8 +964,8 @@ impl<PM, L> ListTable<PM, L>
         &mut self,
         list_addr: u64,
         trim_length: usize,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),

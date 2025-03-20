@@ -24,19 +24,6 @@ use super::spec_t::*;
 
 verus! {
 
-#[verifier::reject_recursive_types(K)]
-#[verifier::reject_recursive_types(I)]
-#[verifier::reject_recursive_types(L)]
-pub struct KvStore<PM, K, I, L>
-where
-    PM: PersistentMemoryRegion,
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-{
-    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L>,
-}
-
 pub struct TrustedKvPermission
 {
     ghost is_state_allowable: spec_fn(Seq<u8>) -> bool,
@@ -48,6 +35,19 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
     {
         (self.is_state_allowable)(state)
     }
+}
+
+#[verifier::reject_recursive_types(K)]
+#[verifier::reject_recursive_types(I)]
+#[verifier::reject_recursive_types(L)]
+pub struct KvStore<PM, K, I, L>
+where
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    untrusted_kv_impl: UntrustedKvStoreImpl<TrustedKvPermission, PM, K, I, L>,
 }
 
 impl TrustedKvPermission
@@ -64,11 +64,13 @@ impl TrustedKvPermission
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
             forall |s| #[trigger] perm.check_permission(s) <==>
-                UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
+                UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
+                Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
     {
         Self {
             is_state_allowable:
-                |s| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
+                |s| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
+                    Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
         }
     }
 
@@ -89,14 +91,18 @@ impl TrustedKvPermission
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
             forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
+                ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
+                ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
             }
     {
         Self {
             is_state_allowable: |s| {
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
-                ||| UntrustedKvStoreImpl::<PM, K, I, L>::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
+                ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
+                ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
             },
         }
     }
@@ -131,17 +137,17 @@ where
 
     pub closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore::<K, I, L>>
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::recover(s)
+        UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s)
     }
 
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
     pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_transaction_operation()
+        UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::spec_space_needed_for_transaction_operation()
     }
 
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
@@ -153,7 +159,7 @@ where
                 Err(_) => false,
             },
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::space_needed_for_setup(ps)
     }
 
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
@@ -174,7 +180,7 @@ where
                 Err(_) => false,
             }
     {
-        UntrustedKvStoreImpl::<PM, K, I, L>::setup(pm, ps)
+        UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::setup(pm, ps)
     }
 
     pub exec fn start(pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError>)
@@ -210,9 +216,9 @@ where
     {
         let mut wrpm = WriteRestrictedPersistentMemoryRegion::new(pm);
         wrpm.flush(); // ensure there are no outstanding writes
-        let ghost state = UntrustedKvStoreImpl::<PM, K, I, L>::recover(wrpm@.durable_state).unwrap();
+        let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(wrpm@.durable_state).unwrap();
         let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state.ps, state.kv);
-        let untrusted_kv_impl = UntrustedKvStoreImpl::<PM, K, I, L>::start(
+        let untrusted_kv_impl = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::start(
             wrpm, kvstore_id, Ghost(state), Tracked(&perm))?;
 
         Ok(Self { untrusted_kv_impl })

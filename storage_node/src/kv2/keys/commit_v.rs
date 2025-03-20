@@ -24,10 +24,11 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<PM, K> KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, K> KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn commit(
         &mut self,

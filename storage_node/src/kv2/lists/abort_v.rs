@@ -96,10 +96,11 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn update_m_to_reflect_abort_of_modifications(&mut self)
         requires

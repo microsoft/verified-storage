@@ -1,6 +1,4 @@
 //! This file contains the unverified specification for the high-level KV store.
-//! We also define the crash-consistency-related TrustedKvPermission structure
-//! here.
 //!
 //! This file should be audited for correctness.
 

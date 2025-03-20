@@ -25,10 +25,11 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<PM, I> ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, I> ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &CheckedU64)
                                              -> (result: CheckedU64)

@@ -27,13 +27,14 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn read_list(
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         sm: &ListTableStaticMetadata,
         Ghost(list_addrs): Ghost<Set<u64>>,
         Ghost(mapping): Ghost<ListRecoveryMapping<L>>,
@@ -144,7 +145,7 @@ impl<PM, L> ListTable<PM, L>
     }
 
     exec fn read_all_lists(
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         sm: &ListTableStaticMetadata,
         list_addrs: &Vec<u64>,
         Ghost(mapping): Ghost<ListRecoveryMapping<L>>,
@@ -334,7 +335,7 @@ impl<PM, L> ListTable<PM, L>
     }
 
     pub exec fn start(
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
         list_addrs: &Vec<u64>,
         sm: &ListTableStaticMetadata,
@@ -381,7 +382,7 @@ impl<PM, L> ListTable<PM, L>
         };
         let (free_list, Ghost(row_info)) = Self::build_free_list(&row_addrs_used, sm);
 
-        let journal_entry_overhead = Journal::<TrustedKvPermission, PM>::journal_entry_overhead();
+        let journal_entry_overhead = Journal::<Perm, PM>::journal_entry_overhead();
         let sizeof_u64 = size_of::<u64>() as u64;
         let space_needed_to_journal_next = journal_entry_overhead + sizeof_u64 + sizeof_u64;
 
@@ -401,7 +402,8 @@ impl<PM, L> ListTable<PM, L>
             free_list,
             pending_allocations: Vec::<u64>::new(),
             pending_deallocations: Vec::<u64>::new(),
-            phantom: Ghost(core::marker::PhantomData),
+            phantom_perm: Ghost(core::marker::PhantomData),
+            phantom_pm: Ghost(core::marker::PhantomData),
         };
 
         let ghost recovered_state = Self::recover(journal@.read_state, list_addrs@.to_set(), *sm).unwrap();

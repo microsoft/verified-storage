@@ -25,8 +25,9 @@ use super::spec_t::*;
 
 verus! {
 
-impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
+impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,

@@ -169,14 +169,13 @@ pub(super) open spec fn recover_static_metadata<K, I, L>(bytes: Seq<u8>, jc: Jou
     }
 }
 
-pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
+pub(super) open spec fn recover_kv_from_keys_items_and_lists<K, I, L>(
     sm: KvStaticMetadata,
     keys: Map<K, KeyTableRowMetadata>,
     items: Map<u64, I>,
     lists: Map<u64, Seq<L>>,
 ) -> Option<RecoveredKvStore<K, I, L>>
     where
-        PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
@@ -199,36 +198,39 @@ pub(super) open spec fn recover_kv_from_keys_items_and_lists<PM, K, I, L>(
     }
 }
 
-pub(super) open spec fn recover_kv_from_static_metadata<PM, K, I, L>(bytes: Seq<u8>, sm: KvStaticMetadata)
-                                                                     -> Option<RecoveredKvStore<K, I, L>>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+pub(super) open spec fn recover_kv_from_static_metadata<Perm, PM, K, I, L>(bytes: Seq<u8>, sm: KvStaticMetadata)
+                                                                          -> Option<RecoveredKvStore<K, I, L>>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    match KeyTable::<PM, K>::recover(bytes, sm.keys) {
+    match KeyTable::<Perm, PM, K>::recover(bytes, sm.keys) {
         None => None,
         Some(keys) => {
-            match ItemTable::<PM, I>::recover(bytes, keys.item_addrs(), sm.items) {
+            match ItemTable::<Perm, PM, I>::recover(bytes, keys.item_addrs(), sm.items) {
                 None => None,
                 Some(items) =>
-                    match ListTable::<PM, L>::recover(bytes, keys.list_addrs(), sm.lists) {
+                    match ListTable::<Perm, PM, L>::recover(bytes, keys.list_addrs(), sm.lists) {
                         None => None,
                         Some(lists) =>
-                            recover_kv_from_keys_items_and_lists::<PM, K, I, L>(sm, keys.key_info, items.m, lists.m),
+                            recover_kv_from_keys_items_and_lists::<K, I, L>(sm, keys.key_info, items.m, lists.m),
                     },
             }
         },
     }
 }
 
-pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConstants) -> Option<RecoveredKvStore<K, I, L>>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+pub(super) open spec fn recover_kv<Perm, PM, K, I, L>(bytes: Seq<u8>, jc: JournalConstants)
+                                                      -> Option<RecoveredKvStore<K, I, L>>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     if jc.app_program_guid != KVSTORE_PROGRAM_GUID {
         None
@@ -242,7 +244,7 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
             Some(sm) =>
                 if jc.journal_capacity <
                        sm.max_operations_per_transaction *
-                       UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_transaction_operation() {
+                       UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_transaction_operation() {
                     None
                 }
                 else if sm.setup_parameters() is None {
@@ -252,22 +254,23 @@ pub(super) open spec fn recover_kv<PM, K, I, L>(bytes: Seq<u8>, jc: JournalConst
                     None
                 }
                 else {
-                    recover_kv_from_static_metadata::<PM, K, I, L>(bytes, sm)
+                    recover_kv_from_static_metadata::<Perm, PM, K, I, L>(bytes, sm)
                 },
         }
     }
 }
 
-pub(super) open spec fn recover_journal_then_kv<PM, K, I, L>(bytes: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+pub(super) open spec fn recover_journal_then_kv<Perm, PM, K, I, L>(bytes: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    match Journal::<TrustedKvPermission, PM>::recover(bytes) {
+    match Journal::<Perm, PM>::recover(bytes) {
         None => None,
-        Some(RecoveredJournal{ constants, state }) => recover_kv::<PM, K, I, L>(state, constants),
+        Some(RecoveredJournal{ constants, state }) => recover_kv::<Perm, PM, K, I, L>(state, constants),
     }
 }
 

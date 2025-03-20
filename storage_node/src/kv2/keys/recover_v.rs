@@ -169,10 +169,11 @@ impl<K> KeyRecoveryMapping<K>
     }
 }
 
-impl<PM, K> KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, K> KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub proof fn lemma_recover_depends_only_on_my_area(
         s1: Seq<u8>,

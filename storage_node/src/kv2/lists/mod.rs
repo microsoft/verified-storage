@@ -103,10 +103,11 @@ impl ListTableStaticMetadata
 
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(L)]
-pub struct ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+pub struct ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     status: Ghost<ListTableStatus>,
     sm: ListTableStaticMetadata,
@@ -123,13 +124,15 @@ pub struct ListTable<PM, L>
     free_list: Vec<u64>,
     pending_allocations: Vec<u64>,
     pending_deallocations: Vec<u64>,
-    phantom: Ghost<core::marker::PhantomData<PM>>,
+    phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
+    phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     pub closed spec fn view(&self) -> ListTableView<L>
     {
@@ -190,7 +193,7 @@ impl<PM, L> ListTable<PM, L>
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, list_addrs, sm) == Self::recover(durable_state, list_addrs, sm)
     }
 

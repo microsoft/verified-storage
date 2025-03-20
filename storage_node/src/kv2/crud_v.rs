@@ -26,12 +26,13 @@ use super::spec_t::*;
 
 verus! {
 
-impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub exec fn read_item(
         &self,
@@ -72,7 +73,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         &mut self,
         key: &K,
         item: &I,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
@@ -167,7 +168,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     pub exec fn tentatively_delete(
         &mut self,
         key: &K,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
@@ -280,7 +281,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         &mut self,
         key: &K,
         new_item: &I,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),

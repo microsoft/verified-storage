@@ -246,10 +246,11 @@ impl<L> ListRecoveryMapping<L>
     }
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     pub proof fn lemma_recover_depends_only_on_my_area(
         s1: Seq<u8>,

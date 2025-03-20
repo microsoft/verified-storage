@@ -145,16 +145,17 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn get_row_addrs_case_durable(
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -228,7 +229,7 @@ impl<PM, L> ListTable<PM, L>
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         addrs: &Vec<u64>,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -317,7 +318,7 @@ impl<PM, L> ListTable<PM, L>
     exec fn get_row_addrs(
         &self,
         list_addr: u64,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -350,8 +351,8 @@ impl<PM, L> ListTable<PM, L>
     pub exec fn delete(
         &mut self,
         list_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),

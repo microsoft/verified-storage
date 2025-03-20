@@ -27,10 +27,11 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<PM, K> KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, K> KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     exec fn apply_last_undo_record(
         &mut self,

@@ -26,18 +26,19 @@ use std::hash::Hash;
 
 verus! {
 
-impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub fn start(
-        wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission, PM>,
+        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<Self, KvError>)
         requires
             wrpm.inv(),
@@ -69,27 +70,31 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
     {
         reveal(recover_static_metadata);
         let ghost old_state = wrpm@.durable_state;
-        let ghost journal_recovered = Journal::<TrustedKvPermission, PM>::recover(old_state).unwrap();
+        let ghost journal_recovered = Journal::<Perm, PM>::recover(old_state).unwrap();
         let ghost jc = journal_recovered.constants;
         let ghost js = journal_recovered.state;
         let ghost sm = recover_static_metadata::<K, I, L>(js, jc).unwrap();
-        let ghost recovered_keys = KeyTable::<PM, K>::recover(js, sm.keys).unwrap();
-        let ghost recovered_items = ItemTable::<PM, I>::recover(js, recovered_keys.item_addrs(), sm.items).unwrap();
-        let ghost recovered_lists = ListTable::<PM, L>::recover(js, recovered_keys.list_addrs(), sm.lists).unwrap();
+        let ghost recovered_keys = KeyTable::<Perm, PM, K>::recover(js, sm.keys).unwrap();
+        let ghost recovered_items = ItemTable::<Perm, PM, I>::recover(js, recovered_keys.item_addrs(),
+                                                                      sm.items).unwrap();
+        let ghost recovered_lists = ListTable::<Perm, PM, L>::recover(js, recovered_keys.list_addrs(),
+                                                                      sm.lists).unwrap();
 
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
 
-        assert forall|s: Seq<u8>| Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(s, old_state)
+        assert forall|s: Seq<u8>| Journal::<Perm, PM>::recovery_equivalent_for_app(s, old_state)
                    implies #[trigger] perm.check_permission(s) by {
-            let js2 = Journal::<TrustedKvPermission, PM>::recover(s).unwrap().state;
-            KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
-            ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, js2, recovered_keys.item_addrs(), sm.items);
-            ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, js2, recovered_keys.list_addrs(), sm.lists);
+            let js2 = Journal::<Perm, PM>::recover(s).unwrap().state;
+            KeyTable::<Perm, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
+            ItemTable::<Perm, PM, I>::lemma_recover_depends_only_on_my_area(js, js2, recovered_keys.item_addrs(),
+                                                                            sm.items);
+            ListTable::<Perm, PM, L>::lemma_recover_depends_only_on_my_area(js, js2, recovered_keys.list_addrs(),
+                                                                            sm.lists);
         }
 
-        let journal = match Journal::<TrustedKvPermission, PM>::start(wrpm, Tracked(perm)) {
+        let journal = match Journal::<Perm, PM>::start(wrpm, Tracked(perm)) {
             Ok(j) => j,
             Err(JournalError::CRCError) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
@@ -107,7 +112,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         }
 
         assert(journal.recover_idempotent());
-        assert(Journal::<TrustedKvPermission, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));
+        assert(Journal::<Perm, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));
         assert(seqs_match_in_range(journal@.read_state, js, jc.app_area_start as int, jc.app_area_end as int));
 
         let sm = match exec_recover_object::<PM, KvStaticMetadata>(
@@ -126,33 +131,33 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         };
 
         proof {
-            KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, journal@.read_state, sm.keys);
-            ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
-                                                                      recovered_keys.item_addrs(), sm.items);
-            ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
-                                                                      recovered_keys.list_addrs(), sm.lists);
+            KeyTable::<Perm, PM, K>::lemma_recover_depends_only_on_my_area(js, journal@.read_state, sm.keys);
+            ItemTable::<Perm, PM, I>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
+                                                                            recovered_keys.item_addrs(), sm.items);
+            ListTable::<Perm, PM, L>::lemma_recover_depends_only_on_my_area(js, journal@.read_state,
+                                                                            recovered_keys.list_addrs(), sm.lists);
         }
 
-        let (keys, item_addrs, list_addrs) = match KeyTable::<PM, K>::start(&journal, &sm.keys) {
+        let (keys, item_addrs, list_addrs) = match KeyTable::<Perm, PM, K>::start(&journal, &sm.keys) {
             Ok((k, i, l)) => (k, i, l),
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let items = match ItemTable::<PM, I>::start(&journal, &item_addrs, &sm.items) {
+        let items = match ItemTable::<Perm, PM, I>::start(&journal, &item_addrs, &sm.items) {
             Ok(i) => i,
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let lists = match ListTable::<PM, L>::start(&journal, logical_range_gaps_policy, &list_addrs, &sm.lists) {
+        let lists = match ListTable::<Perm, PM, L>::start(&journal, logical_range_gaps_policy, &list_addrs, &sm.lists) {
             Ok(i) => i,
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
         assert(lists@.durable.m.dom() == list_addrs@.to_set());
 
-        let kv = UntrustedKvStoreImpl::<PM, K, I, L>{
+        let kv = UntrustedKvStoreImpl::<Perm, PM, K, I, L>{
             status: Ghost(KvStoreStatus::Quiescent),
             sm: Ghost(sm),
             used_key_slots: Ghost(state.kv.num_keys()),

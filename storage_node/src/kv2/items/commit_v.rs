@@ -29,10 +29,11 @@ pub(super) enum ItemTableStatus {
     Quiescent,
 }
 
-impl<PM, I> ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, I> ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn commit(
         &mut self,

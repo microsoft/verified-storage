@@ -73,10 +73,11 @@ pub(super) open spec fn recover_items<I>(
     )
 }
 
-impl<PM, I> ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, I> ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
     pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)
         requires

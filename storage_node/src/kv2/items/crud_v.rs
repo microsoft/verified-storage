@@ -26,12 +26,13 @@ use vstd::slice::slice_to_vec;
 
 verus! {
 
-impl<PM, I> ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, I> ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read(&self, row_addr: u64, journal: &Journal<TrustedKvPermission, PM>) -> (result: Result<I, KvError>)
+    pub exec fn read(&self, row_addr: u64, journal: &Journal<Perm, PM>) -> (result: Result<I, KvError>)
         requires
             journal.valid(),
             self.valid(journal@),
@@ -94,13 +95,13 @@ impl<PM, I> ItemTable<PM, I>
         constants: JournalConstants,
         free_list_pos: int,
         row_addr: u64,
-        tracked perm: &TrustedKvPermission,
+        tracked perm: &Perm,
     )
         requires
             sm.valid::<I>(),
             iv.valid(sm),
             iv.consistent_with_durable_state(initial_durable_state, sm),
-            Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            Journal::<Perm, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -115,7 +116,7 @@ impl<PM, I> ItemTable<PM, I>
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
                                                          initial_durable_state, constants, sm)
@@ -130,7 +131,7 @@ impl<PM, I> ItemTable<PM, I>
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me_specific(s, item_addrs, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
@@ -146,8 +147,8 @@ impl<PM, I> ItemTable<PM, I>
     pub exec fn create(
         &mut self,
         item: &I,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -229,7 +230,7 @@ impl<PM, I> ItemTable<PM, I>
     pub exec fn delete(
         &mut self,
         row_addr: u64,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     )
         requires
             old(self).valid(journal@),

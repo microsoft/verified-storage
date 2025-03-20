@@ -27,16 +27,17 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn get_elements_case_durable(
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -122,7 +123,7 @@ impl<PM, L> ListTable<PM, L>
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         elements: &Vec<L>,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -244,7 +245,7 @@ impl<PM, L> ListTable<PM, L>
     pub exec fn read(
         &self,
         list_addr: u64,
-        journal: &Journal<TrustedKvPermission, PM>
+        journal: &Journal<Perm, PM>
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -277,7 +278,7 @@ impl<PM, L> ListTable<PM, L>
     pub exec fn get_list_length(
         &self,
         list_addr: u64,
-        journal: &Journal<TrustedKvPermission, PM>
+        journal: &Journal<Perm, PM>
     ) -> (result: Result<usize, KvError>)
         requires
             self.valid(journal@),

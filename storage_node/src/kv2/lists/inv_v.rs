@@ -423,10 +423,11 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
@@ -434,7 +435,7 @@ impl<PM, L> ListTable<PM, L>
         &&& 0 < self.sm.start()
         &&& self.sm.corresponds_to_journal(jv)
         &&& self.space_needed_to_journal_next ==
-            Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+            Journal::<Perm, PM>::spec_journal_entry_overhead() +
             u64::spec_size_of() + u64::spec_size_of()
         &&& self.status@ is Quiescent ==> self.internal_view().corresponds_to_journal(jv, self.sm)
     }

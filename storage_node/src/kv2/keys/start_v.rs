@@ -27,13 +27,14 @@ use vstd::std_specs::hash::*;
 verus! {
 
 broadcast use group_hash_axioms;
-impl<PM, K> KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, K> KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn start(
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         sm: &KeyTableStaticMetadata,
     ) -> (result: Result<(Self, HashSet<u64>, Vec<u64>), KvError>)
         requires
@@ -225,7 +226,8 @@ impl<PM, K> KeyTable<PM, K>
             pending_deallocations: Vec::<u64>::new(),
             memory_mapping: Ghost(memory_mapping),
             undo_records: Vec::<KeyUndoRecord<K>>::new(),
-            phantom: Ghost(core::marker::PhantomData),
+            phantom_perm: Ghost(core::marker::PhantomData),
+            phantom_pm: Ghost(core::marker::PhantomData),
         };
 
         let ghost recovered_state = Self::recover(journal@.read_state, *sm).unwrap();

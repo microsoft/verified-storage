@@ -26,13 +26,13 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &CheckedU64)
-                                             -> (result: CheckedU64)
+    pub exec fn space_needed_for_setup(ps: &SetupParameters, min_start: &CheckedU64) -> (result: CheckedU64)
         requires
             ps.valid(),
         ensures

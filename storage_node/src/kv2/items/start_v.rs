@@ -26,13 +26,14 @@ use super::inv_v::*;
 
 verus! {
 
-impl<PM, I> ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, I> ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn start(
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         item_addrs: &HashSet<u64>,
         sm: &ItemTableStaticMetadata,
     ) -> (result: Result<Self, KvError>)
@@ -150,6 +151,7 @@ impl<PM, I> ItemTable<PM, I>
             free_list,
             pending_allocations: Vec::new(),
             pending_deallocations: Vec::new(),
+            phantom_perm: Ghost(core::marker::PhantomData),
             phantom_pm: Ghost(core::marker::PhantomData),
         };
         

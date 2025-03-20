@@ -36,18 +36,19 @@ exec fn check_setup_parameters(ps: &SetupParameters) -> (result: bool)
     else { true }
 }
 
-impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + std::fmt::Debug,
-        I: PmCopy + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: CheckedU64)
         ensures
             result@ == ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation(),
     {
-        let overhead = CheckedU64::new(Journal::<TrustedKvPermission, PM>::journal_entry_overhead());
+        let overhead = CheckedU64::new(Journal::<Perm, PM>::journal_entry_overhead());
         let rm_size = size_of::<KeyTableRowMetadata>() as u64;
         let u64_size = size_of::<u64>() as u64;
         let bytes_per_operation =
@@ -76,15 +77,15 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         }
     
         let journal_capacity = Self::space_needed_for_journal_capacity(ps);
-        let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
+        let journal_end = Journal::<Perm, PM>::space_needed_for_setup(&journal_capacity);
         let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
         let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
         let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
-        let key_table_size = KeyTable::<PM, K>::space_needed_for_setup(ps, &sm_crc_end);
+        let key_table_size = KeyTable::<Perm, PM, K>::space_needed_for_setup(ps, &sm_crc_end);
         let key_table_end = sm_crc_end.add_checked(&key_table_size);
-        let item_table_size = ItemTable::<PM, I>::space_needed_for_setup(ps, &key_table_end);
+        let item_table_size = ItemTable::<Perm, PM, I>::space_needed_for_setup(ps, &key_table_end);
         let item_table_end = key_table_end.add_checked(&item_table_size);
-        let list_table_size = ListTable::<PM, L>::space_needed_for_setup(ps, &item_table_end);
+        let list_table_size = ListTable::<Perm, PM, L>::space_needed_for_setup(ps, &item_table_end);
         let list_table_end = item_table_end.add_checked(&list_table_size);
         assert(list_table_end@ == Self::spec_space_needed_for_setup(*ps));
         if list_table_end.is_overflowed() {
@@ -163,7 +164,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         let pm_size = pm.get_region_size();
     
         let journal_capacity = Self::space_needed_for_journal_capacity(ps);
-        let journal_end = Journal::<TrustedKvPermission, PM>::space_needed_for_setup(&journal_capacity);
+        let journal_end = Journal::<Perm, PM>::space_needed_for_setup(&journal_capacity);
         let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
         let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
         let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
@@ -178,19 +179,19 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
     
-        let key_sm = match KeyTable::<PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
+        let key_sm = match KeyTable::<Perm, PM, K>::setup(pm, ps, sm_crc_end.unwrap(), pm_size) {
             Ok(key_sm) => key_sm,
             Err(e) => { return Err(e); },
         };
         let ghost state_after_key_init = pm@.read_state;
     
-        let item_sm = match ItemTable::<PM, I>::setup(pm, ps, key_sm.end(), pm_size) {
+        let item_sm = match ItemTable::<Perm, PM, I>::setup(pm, ps, key_sm.end(), pm_size) {
             Ok(item_sm) => item_sm,
             Err(e) => { return Err(e); },
         };
         let ghost state_after_item_init = pm@.read_state;
     
-        let list_sm = match ListTable::<PM, L>::setup(pm, ps, item_sm.end(), pm_size) {
+        let list_sm = match ListTable::<Perm, PM, L>::setup(pm, ps, item_sm.end(), pm_size) {
             Ok(list_sm) => list_sm,
             Err(e) => { return Err(e); },
         };
@@ -218,7 +219,7 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
         Self::write_static_metadata(pm, &kv_sm, &jc);
         let ghost state_after_sm_init = pm@.read_state;
         
-        match Journal::<TrustedKvPermission, PM>::setup(pm, &jc) {
+        match Journal::<Perm, PM>::setup(pm, &jc) {
             Ok(jc) => {},
             Err(_) => { assert(false); return Err(KvError::InternalError); },
         };
@@ -228,21 +229,22 @@ impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(state_after_sm_init, pm@.read_state,
                                                                               kv_sm, jc);
         }
-        assert(KeyTable::<PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
-            KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state, key_sm);
+        assert(KeyTable::<Perm, PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
+            KeyTable::<Perm, PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state,
+                                                                           key_sm);
         }
-        assert(ItemTable::<PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
+        assert(ItemTable::<Perm, PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
                == Some(ItemTableSnapshot::<I>::init())) by {
-            ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
-                                                                      empty_keys.item_addrs(), item_sm);
+            ItemTable::<Perm, PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
+                                                                            empty_keys.item_addrs(), item_sm);
         }
-        assert(ListTable::<PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
+        assert(ListTable::<Perm, PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
                == Some(ListTableSnapshot::<L>::init())) by {
-            ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,
-                                                                      empty_keys.list_addrs(), list_sm);
+            ListTable::<Perm, PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,
+                                                                            empty_keys.list_addrs(), list_sm);
         }
     
-        assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc) =~= Some(RecoveredKvStore::<K, I, L>::init(*ps)));
+        assert(recover_kv::<Perm, PM, K, I, L>(pm@.read_state, jc) =~= Some(RecoveredKvStore::<K, I, L>::init(*ps)));
         Ok(())
     }
 }

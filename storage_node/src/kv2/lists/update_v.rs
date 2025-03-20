@@ -284,16 +284,17 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PM, L> ListTable<PM, L>
-    where
-        PM: PersistentMemoryRegion,
-        L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
+impl<Perm, PM, L> ListTable<Perm, PM, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn get_addresses_and_elements_case_durable(
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: Result<(Vec<u64>, Vec<L>), KvError>)
         requires
@@ -392,7 +393,7 @@ impl<PM, L> ListTable<PM, L>
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         num_addrs: usize,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: Result<(Vec<u64>, Vec<L>), KvError>)
@@ -524,7 +525,7 @@ impl<PM, L> ListTable<PM, L>
         &mut self,
         list_addr: u64,
         entry: ListTableEntry<L>,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: (bool, ListTableEntry<L>))
         requires
@@ -671,8 +672,8 @@ impl<PM, L> ListTable<PM, L>
         new_element: L,
         entry: &ListTableEntry<L>,
         new_row_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     )
         requires
             self.inv(old(journal)@),
@@ -971,8 +972,8 @@ impl<PM, L> ListTable<PM, L>
         idx: usize,
         new_element: L,
         entry: ListTableEntry<L>,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (new_list_addr: u64)
         requires
             old(self).inv(old(journal)@),
@@ -1084,8 +1085,8 @@ impl<PM, L> ListTable<PM, L>
         list_addr: u64,
         idx: usize,
         new_element: L,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -1114,7 +1115,7 @@ impl<PM, L> ListTable<PM, L>
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() -
+                           Journal::<Perm, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -1142,7 +1143,7 @@ impl<PM, L> ListTable<PM, L>
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  Journal::<Perm, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -1182,6 +1183,7 @@ impl<PM, L> ListTable<PM, L>
         if !success {
             self.m.insert(list_addr, new_entry);
             self.must_abort = Ghost(true);
+            assert(self.m@ =~= old(self).m@);
             return Err(KvError::CRCMismatch);
         }
 

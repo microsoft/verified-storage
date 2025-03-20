@@ -30,10 +30,11 @@ verus! {
 
 broadcast use vstd::std_specs::hash::group_hash_axioms;
 
-impl<PM, K> KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, K> KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn read(&self, k: &K, jv: Ghost<JournalView>) -> (result: Option<(u64, KeyTableRowMetadata)>)
         requires
@@ -91,12 +92,12 @@ impl<PM, K> KeyTable<PM, K>
         constants: JournalConstants,
         free_list_pos: int,
         row_addr: u64,
-        tracked perm: &TrustedKvPermission,
+        tracked perm: &Perm,
     )
         requires
             sm.valid::<K>(),
             iv.consistent_with_state(initial_durable_state, sm),
-            Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            Journal::<Perm, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -110,7 +111,7 @@ impl<PM, K> KeyTable<PM, K>
                                                          constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
@@ -123,7 +124,7 @@ impl<PM, K> KeyTable<PM, K>
                                                          constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
@@ -141,7 +142,7 @@ impl<PM, K> KeyTable<PM, K>
         &mut self,
         k: &K,
         item_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
+        journal: &mut Journal<Perm, PM>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -166,7 +167,7 @@ impl<PM, K> KeyTable<PM, K>
                         Set::<int>::new(|i: int| row_addr + self.sm.row_cdb_start <= i
                                       < row_addr + self.sm.row_cdb_start + u64::spec_size_of())
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           Journal::<Perm, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self.valid(journal@)
@@ -174,7 +175,7 @@ impl<PM, K> KeyTable<PM, K>
                     &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  Journal::<Perm, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -229,9 +230,9 @@ impl<PM, K> KeyTable<PM, K>
         &self,
         k: &K,
         item_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
+        journal: &mut Journal<Perm, PM>,
         row_addr: u64,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        Tracked(perm): Tracked<&Perm>,
     )
         requires
             self.inv(old(journal)@),
@@ -309,8 +310,8 @@ impl<PM, K> KeyTable<PM, K>
         &mut self,
         k: &K,
         item_addr: u64,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -333,7 +334,7 @@ impl<PM, K> KeyTable<PM, K>
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           Journal::<Perm, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -342,7 +343,7 @@ impl<PM, K> KeyTable<PM, K>
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                                  Journal::<Perm, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -396,8 +397,8 @@ impl<PM, K> KeyTable<PM, K>
         k: &K,
         row_addr: u64,
         rm: KeyTableRowMetadata,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -419,7 +420,7 @@ impl<PM, K> KeyTable<PM, K>
                         ..old(self)@
                     })
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           Journal::<Perm, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -427,7 +428,7 @@ impl<PM, K> KeyTable<PM, K>
                         ..old(self)@
                     })
                     &&& old(journal)@.remaining_capacity <
-                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() +
+                           Journal::<Perm, PM>::spec_journal_entry_overhead() +
                            u64::spec_size_of()
                 },
                 _ => false,
@@ -494,7 +495,7 @@ impl<PM, K> KeyTable<PM, K>
         row_addr: u64,
         new_rm: KeyTableRowMetadata,
         former_rm: KeyTableRowMetadata,
-        journal: &mut Journal<TrustedKvPermission, PM>,
+        journal: &mut Journal<Perm, PM>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -526,9 +527,9 @@ impl<PM, K> KeyTable<PM, K>
                         row_addr + self.sm.row_metadata_crc_start
                     ) == Some(new_rm)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
-                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - Journal::<Perm, PM>::spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
-                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - Journal::<Perm, PM>::spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
@@ -536,9 +537,9 @@ impl<PM, K> KeyTable<PM, K>
                     &&& self.valid(journal@)
                     &&& self@ == KeyTableView { tentative: None, ..old(self)@ }
                     &&& old(journal)@.remaining_capacity <
-                          Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          Journal::<Perm, PM>::spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
-                          + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          + Journal::<Perm, PM>::spec_journal_entry_overhead()
                           + u64::spec_size_of()
                 },
                 _ => false,
@@ -598,8 +599,8 @@ impl<PM, K> KeyTable<PM, K>
         row_addr: u64,
         new_rm: KeyTableRowMetadata,
         former_rm: KeyTableRowMetadata,
-        journal: &mut Journal<TrustedKvPermission, PM>,
-        Tracked(perm): Tracked<&TrustedKvPermission>,
+        journal: &mut Journal<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -631,9 +632,9 @@ impl<PM, K> KeyTable<PM, K>
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
-                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - Journal::<Perm, PM>::spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
-                          - Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          - Journal::<Perm, PM>::spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
@@ -642,9 +643,9 @@ impl<PM, K> KeyTable<PM, K>
                         ..old(self)@
                     })
                     &&& old(journal)@.remaining_capacity <
-                          Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          Journal::<Perm, PM>::spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
-                          + Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead()
+                          + Journal::<Perm, PM>::spec_journal_entry_overhead()
                           + u64::spec_size_of()
                 },
                 _ => false,
@@ -686,7 +687,7 @@ impl<PM, K> KeyTable<PM, K>
 
     pub exec fn get_keys(
         &self,
-        journal: &Journal<TrustedKvPermission, PM>,
+        journal: &Journal<Perm, PM>,
     ) -> (result: Vec<K>)
         requires
             self.valid(journal@),

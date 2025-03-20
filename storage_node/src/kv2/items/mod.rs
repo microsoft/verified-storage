@@ -100,10 +100,11 @@ impl ItemTableStaticMetadata
 
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(I)]
-pub struct ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+pub struct ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
     status: Ghost<ItemTableStatus>,
     sm: ItemTableStaticMetadata,
@@ -112,13 +113,15 @@ pub struct ItemTable<PM, I>
     free_list: Vec<u64>,
     pending_allocations: Vec<u64>,
     pending_deallocations: Vec<u64>,
+    phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
     phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<PM, I> ItemTable<PM, I>
-    where
-        PM: PersistentMemoryRegion,
-        I: PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, I> ItemTable<Perm, PM, I>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    I: PmCopy + Sized + std::fmt::Debug,
 {
     pub closed spec fn view(&self) -> ItemTableView<I>
     {
@@ -178,7 +181,7 @@ impl<PM, I> ItemTable<PM, I>
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, item_addrs, sm) == Self::recover(durable_state, item_addrs, sm)
     }
 

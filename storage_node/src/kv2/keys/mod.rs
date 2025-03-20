@@ -107,10 +107,11 @@ impl KeyTableStaticMetadata
     
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
-pub struct KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+pub struct KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     status: Ghost<KeyTableStatus>,
     must_abort: Ghost<bool>,
@@ -120,13 +121,15 @@ pub struct KeyTable<PM, K>
     pending_deallocations: Vec<u64>,
     memory_mapping: Ghost<KeyMemoryMapping<K>>,
     undo_records: Vec<KeyUndoRecord<K>>,
-    phantom: Ghost<core::marker::PhantomData<PM>>,
+    phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
+    phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<PM, K> KeyTable<PM, K>
-    where
-        PM: PersistentMemoryRegion,
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
+impl<Perm, PM, K> KeyTable<Perm, PM, K>
+where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub closed spec fn view(&self) -> KeyTableView<K>
     {
@@ -194,7 +197,7 @@ impl<PM, K> KeyTable<PM, K>
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<TrustedKvPermission, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, sm) == Self::recover(durable_state, sm)
     }
 

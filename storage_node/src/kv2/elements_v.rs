@@ -23,8 +23,9 @@ use super::spec_t::*;
 
 verus! {
 
-impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
+impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -151,7 +152,7 @@ where
         key_addr: u64,
         former_rm: &KeyTableRowMetadata,
         new_list_element: L,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(),
@@ -193,7 +194,7 @@ where
                     &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
                                                             self.lists@.sm.end() as int)
                     &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
-                           Journal::<TrustedKvPermission, PM>::spec_journal_entry_overhead() -
+                           Journal::<Perm, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::CRCMismatch) => {
@@ -272,7 +273,7 @@ where
         &mut self,
         key: &K,
         new_list_element: L,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -365,7 +366,7 @@ where
         key: &K,
         new_list_element: L,
         new_item: &I,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -481,7 +482,7 @@ where
         key: &K,
         idx: usize,
         new_list_element: L,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -608,7 +609,7 @@ where
         idx: usize,
         new_list_element: L,
         new_item: &I,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -754,7 +755,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
@@ -882,7 +883,7 @@ where
         key: &K,
         trim_length: usize,
         new_item: &I,
-        Tracked(perm): Tracked<&TrustedKvPermission>
+        Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
