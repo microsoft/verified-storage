@@ -817,7 +817,7 @@ impl MutatingLinearizer<TestKey, TestItem, TestListElement, CreateOp<TestKey, Te
 
 fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
 {
-    let kv_file_name = "test_kv";
+    let kv_file_name = "test_concurrent_kv";
 
     let max_keys = 16;
     let max_list_elements = 16;
