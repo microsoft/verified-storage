@@ -28,6 +28,7 @@ pub mod pmem;
 pub mod common;
 //pub mod log2;
 
+use crate::kv2::concurrentspec_t::*;
 use crate::kv2::impl_t::KvStore;
 use crate::kv2::rwkv_v::*;
 use crate::kv2::spec_t::{KvError, LogicalRange, LogicalRangeGapsPolicy, SetupParameters};
