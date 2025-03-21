@@ -44,7 +44,7 @@ where
             wrpm.inv(),
             Self::recover(wrpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s) == Some(state),
+            forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
             match result {
                 Ok(kv) => {

@@ -63,7 +63,7 @@ impl TrustedKvPermission
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
-            forall |s| #[trigger] perm.check_permission(s) <==>
+            forall |s| #[trigger] perm.check_permission(s) <==
                 UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
                 Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
     {
@@ -90,7 +90,7 @@ impl TrustedKvPermission
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
-            forall |s| #[trigger] perm.check_permission(s) <==> {
+            forall |s| #[trigger] perm.check_permission(s) <== {
                 ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
                    Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
                 ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==

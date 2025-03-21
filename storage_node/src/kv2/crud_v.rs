@@ -78,7 +78,7 @@ where
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s)
-                <==> Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
+                <== Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -173,7 +173,7 @@ where
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s)
-                <==> Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
+                <== Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -286,7 +286,7 @@ where
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s)
-                <==> Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
+                <== Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {

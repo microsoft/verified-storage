@@ -37,7 +37,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==>
+            forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
@@ -58,7 +58,7 @@ where
         requires 
             old(self).inv(),
             old(self).status@ is MustAbort,
-            forall |s| #[trigger] perm.check_permission(s) <==>
+            forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
