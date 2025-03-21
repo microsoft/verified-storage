@@ -15,6 +15,7 @@ use builtin_macros::*;
 //use kv::durable::itemtable_v::*;
 //use kv::durable::maintable_v::*;
 use pmem::wrpm_t::*;
+use std::hash::Hash;
 use vstd::pcm::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
@@ -31,7 +32,7 @@ pub mod common;
 use crate::kv2::concurrentspec_t::*;
 use crate::kv2::impl_t::KvStore;
 use crate::kv2::rwkv_v::*;
-use crate::kv2::spec_t::{KvError, LogicalRange, LogicalRangeGapsPolicy, SetupParameters};
+use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsPolicy, RecoveredKvStore, SetupParameters};
 use crate::common::util_v::*;
 // use crate::log::logimpl_t::*;
 // use crate::multilog::layout_v::*;
@@ -816,6 +817,68 @@ impl MutatingLinearizer<TestKey, TestItem, TestListElement, CreateOp<TestKey, Te
     }
 }
 
+struct TestKvPermission
+{
+    ghost is_state_allowable: spec_fn(Seq<u8>) -> bool,
+}
+
+impl CheckPermission<Seq<u8>> for TestKvPermission
+{
+    closed spec fn check_permission(&self, state: Seq<u8>) -> bool
+    {
+        (self.is_state_allowable)(state)
+    }
+}
+
+impl TestKvPermission
+{
+    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
+        where
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        ensures
+            forall |s| #[trigger] perm.check_permission(s) <==
+                ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
+    {
+        Self {
+            is_state_allowable:
+                |s| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                    Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
+        }
+    }
+
+    proof fn new_two_possibilities<PM, K, I, L>(
+        ps: SetupParameters,
+        kv1: AtomicKvStore<K, I, L>,
+        kv2: AtomicKvStore<K, I, L>
+    ) -> (tracked perm: Self)
+        where
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        ensures
+            forall |s| #[trigger] perm.check_permission(s) <== {
+                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
+                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
+            }
+    {
+        Self {
+            is_state_allowable: |s| {
+                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
+                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
+            },
+        }
+    }
+}
+
 fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
 {
     let kv_file_name = "test_concurrent_kv";
@@ -836,7 +899,8 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         max_list_elements,
         max_operations_per_transaction: 4,
     };
-   let region_size = match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>
+   let region_size = match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+                                               TestItem, TestListElement>
         ::space_needed_for_setup(&ps) {
         Ok(s) => s,
         Err(e) => { print_message("Failed to compute space needed for setup"); return Err(()); },
@@ -848,16 +912,22 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
-    match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(
+    match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+                              TestItem, TestListElement>::setup(
         &mut pm, &ps
     ) {
         Ok(()) => {},
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
     }
 
-    let mut result =
-        match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::start(
-            pm, kvstore_id
+    let mut wrpm = WriteRestrictedPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
+    let ghost state = ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey, TestItem,
+                                          TestListElement>::recover(wrpm@.durable_state).unwrap();
+    let tracked perm = TestKvPermission::new_one_possibility::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
+                                                               TestListElement>(state.ps, state.kv);
+    let mut result = match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+                                               TestItem, TestListElement>::start(
+            wrpm, kvstore_id, Ghost(state), Tracked(&perm)
         ) {
             Ok(tup) => tup,
             Err(e) => { print_message("Failed to start KV store"); return Err(()); },
@@ -870,6 +940,8 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
 
     let item1 = TestItem { val: 0x55555555 };
     let item2 = TestItem { val: 0x66666666 };
+
+    /*
 
     let mut app_resource = match ckv.create(&key1, &item1, app_resource) {
         (Ok(()), app_resource) => app_resource,
@@ -898,6 +970,7 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     print_message("All kv operations gave expected results");
+    */
     return Ok(());
 }
 

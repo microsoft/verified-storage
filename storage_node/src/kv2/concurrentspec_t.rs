@@ -8,7 +8,6 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use super::*;
-use super::impl_t::*;
 use super::spec_t::*;
 use vstd::atomic::*;
 use vstd::invariant::*;
@@ -186,7 +185,47 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
             self.post(op, exec_result, apply_result),
         opens_invariants self.namespaces()
     ;
+}
 
+pub trait CanRecover<K, I, L>
+{
+    spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>;
+}
+
+pub trait PermissionGranter<Perm, K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRecover<K, I, L>> : Sized
+where
+    Perm: CheckPermission<Seq<u8>>,
+{
+    spec fn id(self) -> Loc;
+
+    spec fn namespaces(self) -> Set<int>;
+
+    spec fn pre(self, op: Op) -> bool;
+
+    proof fn grant(
+        tracked self,
+        op: Op,
+        tracked r: &Resource<OwnershipSplitter<K, I, L>>
+    ) -> (tracked perm: Perm)
+        requires
+            self.pre(op),
+            r.loc() == self.id(),
+            r.value() is Invariant,
+        ensures
+            forall|s: Seq<u8>| #[trigger] perm.check_permission(s) <== {
+                &&& Kv::recover(s) matches Some(new_rkv)
+                &&& {
+                       let old_ckv = r.value()->Invariant_ckv;
+                       ||| old_ckv.kv == new_rkv.kv && new_rkv.ps == old_ckv.ps
+                       ||| exists|new_ckv, result| {
+                           &&& op.result_valid(old_ckv, new_ckv, result)
+                           &&& new_ckv.kv == new_rkv.kv
+                           &&& new_ckv.ps == new_rkv.ps
+                       }
+                  }
+            },
+        opens_invariants self.namespaces()
+    ;
 }
 
 pub struct ReadItemOp<K>

@@ -15,7 +15,7 @@ use std::hash::Hash;
 use std::io::Read;
 use super::*;
 use super::concurrentspec_t::*;
-use super::impl_t::*;
+use super::impl_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
 use vstd::atomic::*;
@@ -28,15 +28,16 @@ verus! {
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ConcurrentKvStoreInternal<PM, K, I, L>
+struct ConcurrentKvStoreInternal<Perm, PM, K, I, L>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     invariant_resource: Tracked<Resource<OwnershipSplitter<K, I, L>>>,
-    kv: KvStore<PM, K, I, L>,
+    kv: UntrustedKvStoreImpl<Perm, PM, K, I, L>,
 }
 
 struct ConcurrentKvStorePredicate
@@ -44,14 +45,15 @@ struct ConcurrentKvStorePredicate
     loc: Loc,
 }
 
-impl<PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<PM, K, I, L>> for ConcurrentKvStorePredicate
+impl<Perm, PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<Perm, PM, K, I, L>> for ConcurrentKvStorePredicate
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    closed spec fn inv(self, v: ConcurrentKvStoreInternal<PM, K, I, L>) -> bool
+    closed spec fn inv(self, v: ConcurrentKvStoreInternal<Perm, PM, K, I, L>) -> bool
     {
         &&& v.kv.valid()
         &&& v.kv@.ps.valid()
@@ -69,19 +71,34 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-pub struct ConcurrentKvStore<PM, K, I, L>
+pub struct ConcurrentKvStore<Perm, PM, K, I, L>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     loc: Ghost<Loc>,
-    lock: RwLock<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>,
+    lock: RwLock<ConcurrentKvStoreInternal<Perm, PM, K, I, L>, ConcurrentKvStorePredicate>,
 }
 
-impl<PM, K, I, L> ConcurrentKvStore<PM, K, I, L>
+impl<Perm, PM, K, I, L> CanRecover<K, I, L> for ConcurrentKvStore<Perm, PM, K, I, L>
 where
+    Perm: CheckPermission<Seq<u8>>,
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>> {
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::recover(s)
+    }
+}
+
+impl<Perm, PM, K, I, L> ConcurrentKvStore<Perm, PM, K, I, L>
+where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -97,19 +114,14 @@ where
         self.loc@
     }
 
-    pub closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>
-    {
-        KvStore::<PM, K, I, L>::recover(s)
-    }
-
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
-        KvStore::<PM, K, I, L>::spec_space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
     pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        KvStore::<PM, K, I, L>::spec_space_needed_for_transaction_operation()
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_transaction_operation()
     }
 
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
@@ -121,7 +133,7 @@ where
                 Err(_) => false,
             },
     {
-        KvStore::<PM, K, I, L>::space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::space_needed_for_setup(ps)
     }
 
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
@@ -141,18 +153,22 @@ where
                 Err(_) => false,
             }
     {
-        KvStore::<PM, K, I, L>::setup(pm, ps)
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::setup(pm, ps)
     }
 
-    pub exec fn start(pm: PM, kvstore_id: u128) ->
-        (result: Result<(Self, Tracked<Resource<OwnershipSplitter::<K, I, L>>>), KvError>)
+    pub exec fn start(
+        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        kvstore_id: u128,
+        Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
+        Tracked(perm): Tracked<&Perm>
+    ) -> (result: Result<(Self, Tracked<Resource<OwnershipSplitter::<K, I, L>>>), KvError>)
         requires 
-            pm.inv(),
-            Self::recover(pm@.read_state) is Some,
+            wrpm.inv(),
+            Self::recover(wrpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
         ({
-            let state = Self::recover(pm@.read_state).unwrap();
             match result {
                 Ok((kv, r)) => {
                     &&& kv.valid()
@@ -161,13 +177,13 @@ where
                            OwnershipSplitter::Application{ ckv } => {
                                &&& ckv.valid()
                                &&& ckv.ps == state.ps
-                               &&& ckv.pm_constants == pm.constants()
+                               &&& ckv.pm_constants == wrpm.constants()
                                &&& ckv.kv == state.kv
                            },
                            _ => false,
                     }
                 },
-                Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !wrpm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
                    &&& actual_id == state.ps.kvstore_id
@@ -177,7 +193,7 @@ where
             }
         }),
     {
-        let kv = match KvStore::<PM, K, I, L>::start(pm, kvstore_id) {
+        let kv = match UntrustedKvStoreImpl::<Perm, PM, K, I, L>::start(wrpm, kvstore_id, Ghost(state), Tracked(perm)) {
             Ok(kv) => kv,
             Err(e) => { return Err(e); },
         };
@@ -190,12 +206,12 @@ where
         let tracked split_resources = both.split(application_value, invariant_value);
         let tracked application_resource = split_resources.0;
         let tracked invariant_resource = split_resources.1;
-        let kv_internal = ConcurrentKvStoreInternal::<PM, K, I, L>{
+        let kv_internal = ConcurrentKvStoreInternal::<Perm, PM, K, I, L>{
             invariant_resource: Tracked(invariant_resource),
             kv
         };
         assert(pred.inv(kv_internal));
-        let lock = RwLock::<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>::new(
+        let lock = RwLock::<ConcurrentKvStoreInternal<Perm, PM, K, I, L>, ConcurrentKvStorePredicate>::new(
             kv_internal, Ghost(pred)
         );
         let selfish = Self{ loc: Ghost(loc), lock };
@@ -229,16 +245,22 @@ where
         (exec_result, Tracked(apply_result))
     }
 
-    pub exec fn create<CB: MutatingLinearizer<K, I, L, CreateOp<K, I>>>(
+    pub exec fn create<CB, PG>(
         &mut self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<CB>,
+        Tracked(permission_granter): Tracked<PG>,
     ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        where
+            CB: MutatingLinearizer<K, I, L, CreateOp<K, I>>,
+            PG: PermissionGranter<Perm, K, I, L, CreateOp<K, I>, Self>,
         requires
             old(self).valid(),
             cb.id() == old(self).loc(),
             cb.pre(CreateOp{ key: *key, item: *item }),
+            permission_granter.id() == old(self).loc(),
+            permission_granter.pre(CreateOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
@@ -250,9 +272,15 @@ where
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
-        let exec_result = match kv_internal.kv.tentatively_create(key, item) {
+        let tracked perm = permission_granter.grant(op, kv_internal.invariant_resource.borrow());
+        let exec_result = match kv_internal.kv.tentatively_create(key, item, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
         let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
@@ -260,16 +288,22 @@ where
         (exec_result, Tracked(apply_result))
     }
 
-    pub exec fn update_item<CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>>>(
+    pub exec fn update_item<CB, PG>(
         &mut self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<CB>,
+        Tracked(permission_granter): Tracked<PG>,
     ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        where
+            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>>,
+            PG: PermissionGranter<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
             cb.id() == old(self).loc(),
             cb.pre(UpdateItemOp{ key: *key, item: *item }),
+            permission_granter.id() == old(self).loc(),
+            permission_granter.pre(UpdateItemOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
@@ -281,15 +315,23 @@ where
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
-        let exec_result = match kv_internal.kv.tentatively_update_item(key, item) {
+        let tracked perm = permission_granter.grant(op, kv_internal.invariant_resource.borrow());
+        let exec_result = match kv_internal.kv.tentatively_update_item(key, item, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
         let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
         write_handle.release_write(kv_internal);
         (exec_result, Tracked(apply_result))
     }
+
+    /*
 
     pub exec fn delete<CB: MutatingLinearizer<K, I, L, DeleteOp<K>>>(
         &mut self,
@@ -623,6 +665,8 @@ where
         write_handle.release_write(kv_internal);
         (exec_result, Tracked(apply_result))
     }
+
+    */
 }
 
 }
