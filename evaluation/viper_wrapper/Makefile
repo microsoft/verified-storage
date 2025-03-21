@@ -5,36 +5,37 @@ CXXFLAGS:=-I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmar
 	-I../viper_deps/benchmark/include -I../viper_deps/libpmemobj-cpp/include \
 	-I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux \
 	-std=c++17 -mclwb -DCXX_COMPILATION -fPIC #-flto
-LDFLAGS=-lpmem -lpmempool -lpmemobj -lbenchmark 
-SHARED_FLAGS=-L../viper_deps/benchmark/build/src
+LDFLAGS=-lpmem -lpmempool -lpmemobj -lbenchmark -pthread
+SHARED_FLAGS=-L../viper_deps/benchmark/build/src -L/mnt/local_ssd/usr/lib/x86_64-linux-gnu/
+WORKLOADX_FLAG=-DWORKLOADX
 CPP_FILE=viper_wrapper.cpp
-# CPP_YCSB_WRAPPER=ycsb_wrapper.cpp
 OBJ_FILE=viper_wrapper.o
-# YCSB_OBJ_FILE:=ycsb_wrapper.o
+OBJX_FILE=viper_wrapper_x.o
 STATIC_LIB=libviper_wrapper.a
 SHARED_LIB=libviper_wrapper.so
 CXX=clang++
+DEBUG=-g -O0 
 
 all: bin static shared
 
 bin: $(CPP_FILE)
 	$(CXX) $^ $(CXXFLAGS) $(LDFLAGS) 
 
-obj: $(CPP_FILE)
-	$(CXX) -c $^ -o $(OBJ_FILE) $(CXXFLAGS) $(LDFLAGS)
+obj_x: $(CPP_FILE)
+	$(CXX) -c $^ -o $(OBJX_FILE) $(CXXFLAGS) $(WORKLOADX_FLAG) $(LDFLAGS)
 
-# ycsb_obj: $(CPP_YCSB_WRAPPER)
-# 	$(CXX) -c $^ -o $(YCSB_OBJ_FILE) $(CXXFLAGS) $(LDFLAGS)
+# obj: $(CPP_FILE)
+# 	$(CXX) -c $^ -o $(OBJ_FILE) $(CXXFLAGS) $(LDFLAGS)
 
 static: $(OBJ_FILE)
 	ar rcs $(STATIC_LIB) $(OBJ_FILE)
 
-# shared: $(OBJ_FILE)
-# 	$(CXX) -shared -o $(SHARED_LIB) $(OBJ_FILE)
+# shared_x: $(OBJX_FILE) 
+shared_x: $(CPP_FILE)
+	$(CXX) -shared -o $(SHARED_LIB) $(CXXFLAGS) $(SHARED_FLAGS) $(WORKLOADX_FLAG) $(LDFLAGS) $^  
 
-# shared: $(CPP_FILE) $(CPP_YCSB_WRAPPER) 
-shared: $(OBJ_FILE) 
-	$(CXX) -shared -o $(SHARED_LIB) $(CXXFLAGS) $(SHARED_FLAGS) $(LDFLAGS) $^  
+shared: $(CPP_FILE)
+	$(CXX) -shared -o $(SHARED_LIB) $(DEBUG) $(CXXFLAGS) $(SHARED_FLAGS) $(LDFLAGS) $^  
 
 clean:
 	@rm -rf *.o *.so *a a.out

@@ -8,8 +8,8 @@ import sys
 
 ycsb_run_names = ["LoadA", "RunA", "RunB", "RunC", "RunD", "LoadE", "RunF", "LoadX", "RunX"]
 ycsb_runs = {"Loada": [], "Runa": [], "Runb": [], "Runc": [], "Rund": [], "Loade": [], "Runf": [], "Loadx": [], "Runx": []}
-kv_stores = ["redis", "RocksDB", "CapybaraKV"]
-legend_names = ["pmem-Redis", "pmem-RocksDB", "CapybaraKV"]
+kv_stores = ["redis", "RocksDB", "Viper", "CapybaraKV"]
+legend_names = ["pmem-Redis", "pmem-RocksDB", "Viper", "CapybaraKV"]
 
 def plot_ycsb(ax, ycsb_results_file):
     with open(ycsb_results_file, "r") as f:
@@ -33,7 +33,8 @@ def plot_ycsb(ax, ycsb_results_file):
 
         filesys_grouped_data["redis"].append(data[0] / 1000)
         filesys_grouped_data["RocksDB"].append(data[1] / 1000)
-        filesys_grouped_data["CapybaraKV"].append(data[2] / 1000)
+        filesys_grouped_data["Viper"].append(data[2] / 1000)
+        filesys_grouped_data["CapybaraKV"].append(data[3] / 1000)
 
 #         ext4_baseline = data[0]
 #         # calculate throughput wrt ext4 baseline so that everything
@@ -64,7 +65,8 @@ def plot_ycsb(ax, ycsb_results_file):
     normalized_data_redis = [ 1 for i in range(0, len(filesys_grouped_data["redis"]))]
     normalized_data_rocksdb = [ filesys_grouped_data["RocksDB"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["RocksDB"]))]
     normalized_data_capybarakv = [ filesys_grouped_data["CapybaraKV"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["CapybaraKV"]))]
-    
+    normalized_data_viper = [ filesys_grouped_data["Viper"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["Viper"]))]
+
 
     x = np.arange(len(ycsb_run_names))
 
@@ -72,11 +74,13 @@ def plot_ycsb(ax, ycsb_results_file):
 
     # fig, ax = plt.subplots()
 
-    r1 = ax.bar(x-width*1, normalized_data_redis, width, hatch="//", color="cornflowerblue")
+    r1 = ax.bar(x-width*1.5, normalized_data_redis, width, hatch="//", color="cornflowerblue")
     autolabel(ax, r1, filesys_grouped_data["redis"])
-    r2 = ax.bar(x-width*0, normalized_data_rocksdb, width, hatch="..", color="orange")
+    r2 = ax.bar(x-width*0.5, normalized_data_rocksdb, width, hatch="..", color="orange")
+
+    r3 = ax.bar(x+width*0.5, normalized_data_viper, width, hatch="xx", color="purple")
     # autolabel(ax, r2, filesys_grouped_data["RocksDB"])
-    r3 = ax.bar(x+width*1, normalized_data_capybarakv, width, color="black")
+    r4 = ax.bar(x+width*1.5, normalized_data_capybarakv, width, color="black")
     # autolabel(ax, r3, filesys_grouped_data["CapybaraKV"])
     # ax.grid(True, zorder=0)
     # fig.set_figwidth(6.9)
@@ -107,7 +111,7 @@ def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_
     fig, axs = plt.subplots(1, 2)
 
     plot_ycsb(axs[0], ycsb_results_file_1thread)
-    plot_ycsb(axs[1], ycsb_results_file_16thread)
+    # plot_ycsb(axs[1], ycsb_results_file_16thread)
 
     axs[0].set_ylim(0,22)
     axs[0].set_xlabel("(a) 1 thread")

@@ -4,4 +4,4 @@
 # feature in 1.82.0.)
 
 [toolchain]
-channel = "1.82.0"
+channel = "nightly-2024-10-15"

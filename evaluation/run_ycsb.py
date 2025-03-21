@@ -276,6 +276,12 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
                 cleanup(configs, db, redis_process=p)
                 setup_pm(configs)
                 p = setup_redis(configs)
+            elif db == "viper":
+                # we need to rebuild the viper wrapper to use the correct 
+                # key size for workload x
+                rebuild_viper_wrapper(True)
+                options += ["-p", "viper.value_size=1024"]
+                setup_pm(configs)
             else:
                 setup_pm(configs)
 
@@ -294,6 +300,16 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
                 
         if db == "redis":
             cleanup(configs, db, redis_process=p)
+        if db == "viper":
+            # rebuild so that it works for other workloads in the future
+            rebuild_viper_wrapper(False)
+
+def rebuild_viper_wrapper(x):
+    subprocess.check_call(["make", "clean"], cwd="viper_wrapper/")
+    if x:
+        subprocess.check_call(["make", "shared_x"], cwd="viper_wrapper/")
+    else:
+        subprocess.check_call(["make", "shared"], cwd="viper_wrapper/")
 
 def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     iterations = configs["iterations"]

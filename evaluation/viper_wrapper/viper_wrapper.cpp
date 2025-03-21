@@ -7,7 +7,7 @@ using namespace std;
 
 extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t initial_pool_size) {
     std::string pool_file_string = pool_file; // convert Rust-compatible string to a C++ string   
-
+    std::cout << initial_pool_size << " pool size" << std::endl;
     std::unique_ptr<ViperDB> viper_db;
 
     if (std::filesystem::exists(pool_file_string) && !std::filesystem::is_empty(pool_file_string)) {
@@ -122,9 +122,7 @@ JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperRead
         key_string.append(viper_key.total_size - key_string.size(), ' ');
     }
     bool result = viperdb_get(db, &viper_key.from_str(key_string), &viper_value);
-
     env->SetByteArrayRegion(value, 0, viper_value.data.size(), (jbyte*)viper_value.data.data());
-
     return result;
 }
 

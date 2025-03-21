@@ -20,6 +20,8 @@ public class Viper {
   private long kvPtr;
 
   static {
+    // System.loadLibrary("pthread");
+    System.load("/mnt/local_ssd/usr/lib/x86_64-linux-gnu/libpthread.so");
     System.loadLibrary("viper_wrapper");
     System.loadLibrary("benchmark");
   }

@@ -8,6 +8,8 @@ import site.ycsb.DB;
 import site.ycsb.DBException;
 import site.ycsb.Status;
 
+import net.jcip.annotations.GuardedBy;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,14 +38,29 @@ public class ViperClient extends DB {
   // TODO: get these from a config file
   static final String POOL_FILE = "/mnt/pmem/viper";
   static final long INITIAL_SIZE = 1073741824;
-  static final int VALUE_SIZE = 1140; // TODO: don't hardcode this especially
+  // static final int VALUE_SIZE = 1140; // TODO: don't hardcode this especially
+  static final String PROPERTY_VIPER_VALUE_SIZE = "viper.valuesize";
 
-  Viper db;
+  @GuardedBy("ViperClient.class") private static int references = 0;
+  @GuardedBy("ViperClient.class") private static Viper db = null;
+
+  private static int value_size = 0;
 
   @Override
   public void init() throws DBException {
-    System.out.println("viper init");
-    db = new Viper(POOL_FILE, INITIAL_SIZE);
+    synchronized(ViperClient.class) {
+      if (db == null) {
+        System.out.println("viper init");
+        String value_size_str = getProperties().getProperty(PROPERTY_VIPER_VALUE_SIZE);
+        if (value_size_str == null) {
+          value_size = 1140; // size used by default YCSB workloads
+        } else {
+          value_size = Integer.parseInt(value_size_str);
+        }
+        db = new Viper(POOL_FILE, INITIAL_SIZE);
+      }
+      references++;
+    }
   }
 
   // TODO: implement
@@ -70,9 +87,8 @@ public class ViperClient extends DB {
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
     try {
-      System.out.println("calling update");
       // read the current value, update it, and write it back
-      byte[] readValues = new byte[VALUE_SIZE]; 
+      byte[] readValues = new byte[value_size]; 
       db.read(key, readValues);
       final Map<String, ByteIterator> result = new HashMap<>();
       deserializeValues(readValues, null, result);
@@ -81,7 +97,6 @@ public class ViperClient extends DB {
       byte[] serializedValues = serializeValues(result);
       db.update(key, serializedValues);
 
-      System.out.println("update done");
       return Status.OK;
     } catch (IOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -100,29 +115,26 @@ public class ViperClient extends DB {
   // TODO: this might need some work
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
-    // try {
-      // this is kind of annoying/inefficient, but Viper requires us to pass in the destination for 
-      // the read. The easiest place to allocate that is here and the easiest way to do that is 
-      // to serialize `result`, which should already have the correct size.
-      // byte[] values = serializeValues(result);
-      byte[] values = new byte[VALUE_SIZE]; 
-      System.out.println("reading byte array " + values.length);
-      db.read(key, values);
-      deserializeValues(values, fields, result);
-      System.out.println("finished reading");
-      return Status.OK;
-    // } catch (IOException e) {
-    //   LOGGER.error(e.getMessage(), e);
-    //   System.out.println("error on read key " + key);
-    //   return Status.ERROR;
-    // }
+    // this is kind of annoying/inefficient, but Viper requires us to pass in the destination for 
+    // the read. The easiest place to allocate that is here and the easiest way to do that is 
+    // to serialize `result`, which should already have the correct size.
+    // byte[] values = serializeValues(result);
+    byte[] values = new byte[value_size]; 
+    db.read(key, values);
+    deserializeValues(values, fields, result);
+    return Status.OK;
   }
 
   @Override
   public void cleanup() {
-    System.out.println("cleaning up");
-    db.cleanup();
-    System.out.println("done cleaning up");
+    synchronized (ViperClient.class) {
+      if (references == 1) {
+        System.out.println("cleaning up");
+        db.cleanup();
+        System.out.println("done cleaning up");
+      } 
+      references--;
+    }
   }
 
   // These functions are borrowed from RocksDBClient.java

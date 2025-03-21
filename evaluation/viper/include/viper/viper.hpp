@@ -13,6 +13,8 @@
 #include <assert.h>
 #include <filesystem>
 #include <immintrin.h>
+#include <mutex>
+#include <thread>
 
 #include "cceh.hpp"
 #include "concurrentqueue.h"
@@ -335,6 +337,8 @@ struct ValueAccessor<std::string> {
     static ptr_type to_ptr_type(type& x) { return &x; }
     static const_ptr_type to_ptr_type(const type& x) { return &x; }
 };
+
+std::mutex v_blocks_lock;
 
 template <typename K, typename V>
 class Viper {
@@ -964,7 +968,9 @@ void Viper<K, V>::trigger_resize() {
     resize_thread_ = std::make_unique<std::thread>([this] {
         DEBUG_LOG("Start resizing.");
         ViperFileMapping mapping = allocate_v_page_blocks();
+        v_blocks_lock.lock();
         add_v_page_blocks(mapping);
+        v_blocks_lock.unlock();
         is_resizing_.store(false, STORE_ORDER);
         DEBUG_LOG("End resizing.");
     });
@@ -1518,6 +1524,7 @@ Viper<K, V>::Client::~Client() {
 template <typename K, typename V>
 inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type>
 Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
+    v_blocks_lock.lock();
     if constexpr (std::is_same_v<K, std::string>) {
         const auto[block, page, data_offset] = offset.get_offsets();
         const VPageBlock* v_block = this->viper_.v_blocks_[block];
@@ -1529,10 +1536,12 @@ Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset)
             const char* raw_value_data = &v_block->v_pages[page + 1].data[0];
             var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
         }
+        v_blocks_lock.unlock();
         return {var_entry.key(), var_entry.value()};
     } else {
         const auto[block, page, slot] = offset.get_offsets();
         const auto& entry = this->viper_.v_blocks_[block]->v_pages[page].data[slot];
+        v_blocks_lock.unlock();
         return {&entry.first, &entry.second};
     }
 }
@@ -1571,15 +1580,29 @@ size_t Viper<K, V>::ReadOnlyClient::get_total_allocated_pmem() const {
 
 template <typename K, typename V>
 inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V* value) {
+    v_blocks_lock.lock();
     const auto [block, page, slot] = offset.get_offsets();
+    // std::cout << std::this_thread::get_id();
+    // printf("%p\n", this->viper_.v_blocks_[block]);
+    // printf("%p\n", &this->viper_.v_blocks_[block]->v_pages);
+    // printf("%p\n", &this->viper_.v_blocks_[block]->v_pages[page]);
+
+    auto temp0 = &this->viper_;
+    auto temp1 = this->viper_.v_blocks_[block];
+    auto temp2 = &this->viper_.v_blocks_[block]->v_pages;
+    auto temp3 = &this->viper_.v_blocks_[block]->v_pages[page];
+
     const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
     const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
     version_lock_t lock_val = page_lock.load(LOAD_ORDER);
     if (IS_LOCKED(lock_val)) {
+        v_blocks_lock.unlock();
         return false;
     }
     *value = v_page.data[slot].second;
-    return lock_val == page_lock.load(LOAD_ORDER);
+    auto result = lock_val == page_lock.load(LOAD_ORDER);
+    v_blocks_lock.unlock();
+    return result;
 }
 
 template <>
