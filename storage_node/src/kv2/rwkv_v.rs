@@ -237,7 +237,104 @@ where
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_item(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        let tracked apply_result = cb.apply(op, result, invariant_resource);
+        proof {
+            cb.apply(op, result, invariant_resource);
+        }
+        read_handle.release_read();
+        result
+    }
+
+    pub exec fn get_keys<CB: ReadLinearizer<K, I, L, GetKeysOp>>(
+        &self,
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<Vec<K>, KvError>)
+        requires 
+            self.valid(),
+            old(cb).pre(self.loc(), GetKeysOp{ }),
+        ensures
+            self.valid(),
+            cb.post(*old(cb), self.loc(), GetKeysOp{ }, result),
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = GetKeysOp{ };
+        let kv_internal = read_handle.borrow();
+        let result = kv_internal.kv.get_keys();
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        proof {
+            cb.apply(op, result, invariant_resource);
+        }
+        read_handle.release_read();
+        result
+    }
+
+    pub exec fn read_item_and_list<CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>>(
+        &self,
+        key: &K,
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(I, Vec<L>), KvError>)
+        requires 
+            self.valid(),
+            old(cb).pre(self.loc(), ReadItemAndListOp{ key: *key }),
+        ensures
+            self.valid(),
+            cb.post(*old(cb), self.loc(), ReadItemAndListOp{ key: *key }, result),
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = ReadItemAndListOp{ key: *key };
+        let kv_internal = read_handle.borrow();
+        let result = kv_internal.kv.read_item_and_list(key);
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        proof {
+            cb.apply(op, result, invariant_resource);
+        }
+        read_handle.release_read();
+        result
+    }
+
+    pub exec fn read_list<CB: ReadLinearizer<K, I, L, ReadListOp<K>>>(
+        &self,
+        key: &K,
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<Vec<L>, KvError>)
+        requires 
+            self.valid(),
+            old(cb).pre(self.loc(), ReadListOp{ key: *key }),
+        ensures
+            self.valid(),
+            cb.post(*old(cb), self.loc(), ReadListOp{ key: *key }, result),
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = ReadListOp{ key: *key };
+        let kv_internal = read_handle.borrow();
+        let result = kv_internal.kv.read_list(key);
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        proof {
+            cb.apply(op, result, invariant_resource);
+        }
+        read_handle.release_read();
+        result
+    }
+
+    pub exec fn get_list_length<CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>>(
+        &self,
+        key: &K,
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<usize, KvError>)
+        requires 
+            self.valid(),
+            old(cb).pre(self.loc(), GetListLengthOp{ key: *key }),
+        ensures
+            self.valid(),
+            cb.post(*old(cb), self.loc(), GetListLengthOp{ key: *key }, result),
+    {
+        let read_handle = self.lock.acquire_read();
+        let ghost op = GetListLengthOp{ key: *key };
+        let kv_internal = read_handle.borrow();
+        let result = kv_internal.kv.get_list_length(key);
+        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        proof {
+            cb.apply(op, result, invariant_resource);
+        }
         read_handle.release_read();
         result
     }
@@ -314,341 +411,265 @@ where
         result
     }
 
-    /*
-    pub exec fn delete<CB: MutatingLinearizer<K, I, L, DeleteOp<K>>>(
+    pub exec fn delete<CB>(
         &mut self,
         key: &K,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, DeleteOp<K>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(DeleteOp{ key: *key }),
+            old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = DeleteOp{ key: *key };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), DeleteOp{ key: *key }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = DeleteOp::<K>{ key: *key };
-        let exec_result = match kv_internal.kv.tentatively_delete(key) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_delete(key, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
-    pub exec fn get_keys<CB: ReadLinearizer<K, I, L, GetKeysOp>>(
-        &self,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<Vec<K>, KvError>, Tracked<CB::ApplyResult>))
-        requires 
-            self.valid(),
-            cb.id() == self.loc(),
-            cb.pre(GetKeysOp{ }),
-        ensures
-            self.valid(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = GetKeysOp{ };
-                cb.post(op, exec_result, apply_result@)
-            })
-    {
-        let read_handle = self.lock.acquire_read();
-        let ghost op = GetKeysOp{ };
-        let kv_internal = read_handle.borrow();
-        let exec_result = kv_internal.kv.get_keys();
-        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
-        read_handle.release_read();
-        (exec_result, Tracked(apply_result))
-    }
-
-    pub exec fn read_item_and_list<CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>>(
-        &self,
-        key: &K,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(I, Vec<L>), KvError>, Tracked<CB::ApplyResult>))
-        requires 
-            self.valid(),
-            cb.id() == self.loc(),
-            cb.pre(ReadItemAndListOp{ key: *key }),
-        ensures
-            self.valid(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = ReadItemAndListOp{ key: *key };
-                cb.post(op, exec_result, apply_result@)
-            })
-    {
-        let read_handle = self.lock.acquire_read();
-        let ghost op = ReadItemAndListOp{ key: *key };
-        let kv_internal = read_handle.borrow();
-        let exec_result = kv_internal.kv.read_item_and_list(key);
-        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
-        read_handle.release_read();
-        (exec_result, Tracked(apply_result))
-    }
-
-    pub exec fn read_list<CB: ReadLinearizer<K, I, L, ReadListOp<K>>>(
-        &self,
-        key: &K,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<Vec<L>, KvError>, Tracked<CB::ApplyResult>))
-        requires 
-            self.valid(),
-            cb.id() == self.loc(),
-            cb.pre(ReadListOp{ key: *key }),
-        ensures
-            self.valid(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = ReadListOp{ key: *key };
-                cb.post(op, exec_result, apply_result@)
-            })
-    {
-        let read_handle = self.lock.acquire_read();
-        let ghost op = ReadListOp{ key: *key };
-        let kv_internal = read_handle.borrow();
-        let exec_result = kv_internal.kv.read_list(key);
-        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
-        read_handle.release_read();
-        (exec_result, Tracked(apply_result))
-    }
-
-    pub exec fn get_list_length<CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>>(
-        &self,
-        key: &K,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<usize, KvError>, Tracked<CB::ApplyResult>))
-        requires 
-            self.valid(),
-            cb.id() == self.loc(),
-            cb.pre(GetListLengthOp{ key: *key }),
-        ensures
-            self.valid(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = GetListLengthOp{ key: *key };
-                cb.post(op, exec_result, apply_result@)
-            })
-    {
-        let read_handle = self.lock.acquire_read();
-        let ghost op = GetListLengthOp{ key: *key };
-        let kv_internal = read_handle.borrow();
-        let exec_result = kv_internal.kv.get_list_length(key);
-        let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
-        read_handle.release_read();
-        (exec_result, Tracked(apply_result))
-    }
-
-    pub exec fn append_to_list<CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>>>(
+    pub exec fn append_to_list<CB>(
         &mut self,
         key: &K,
         new_list_element: L,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, AppendToListOp<K, L>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(AppendToListOp{ key: *key, new_list_element }),
+            old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = AppendToListOp{ key: *key, new_list_element };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), AppendToListOp{ key: *key, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListOp::<K, L>{ key: *key, new_list_element };
-        let exec_result = match kv_internal.kv.tentatively_append_to_list(key, new_list_element) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_append_to_list(key, new_list_element, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
-    pub exec fn append_to_list_and_update_item<CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>>>(
+    pub exec fn append_to_list_and_update_item<CB>(
         &mut self,
         key: &K,
         new_list_element: L,
         new_item: &I,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
+            old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
-        let exec_result =
-            match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
-    pub exec fn update_list_element_at_index<CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>>>(
+    pub exec fn update_list_element_at_index<CB>(
         &mut self,
         key: &K,
         idx: usize,
         new_list_element: L,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
+            old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = UpdateListElementAtIndexOp{ key: *key, idx, new_list_element };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
-        let exec_result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
     pub exec fn update_list_element_at_index_and_item
-        <CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>>>(
+        <CB>(
         &mut self,
         key: &K,
         idx: usize,
         new_list_element: L,
         new_item: &I,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
+            old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L>{ key: *key, idx, new_list_element,
                                                                      new_item: *new_item };
-        let exec_result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
-            key, idx, new_list_element, new_item
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
+            key, idx, new_list_element, new_item, Tracked(&perm)
         ) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
-    pub exec fn trim_list<CB: MutatingLinearizer<K, I, L, TrimListOp<K>>>(
+    pub exec fn trim_list<CB>(
         &mut self,
         key: &K,
         trim_length: usize,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, TrimListOp<K>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(TrimListOp{ key : *key, trim_length }),
+            old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = TrimListOp{ key: *key, trim_length };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), TrimListOp{ key: *key, trim_length }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListOp::<K>{ key: *key, trim_length };
-        let exec_result = match kv_internal.kv.tentatively_trim_list(key, trim_length) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_trim_list(key, trim_length, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
-    pub exec fn trim_list_and_update_item<CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>>>(
+    pub exec fn trim_list_and_update_item<CB>(
         &mut self,
         key: &K,
         trim_length: usize,
         new_item: &I,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
+            old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.post(*old(cb), self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
-        let exec_result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item, Tracked(&perm)) {
             Err(e) => Err(e),
-            Ok(()) => kv_internal.kv.commit(),
+            Ok(()) => {
+                let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
+                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
+                assert(op.result_valid(old_ckv, new_ckv, Ok(())));
+                kv_internal.kv.commit(Tracked(&perm))
+            },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
-
-    */
 }
 
 }
