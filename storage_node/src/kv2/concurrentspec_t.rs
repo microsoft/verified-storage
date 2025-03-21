@@ -150,49 +150,12 @@ pub trait MutatingOperation<K, I, L>: Sized
     ) -> bool;
 }
 
-pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
-{
-    type ApplyResult;
-
-    spec fn id(self) -> Loc;
-
-    spec fn namespaces(self) -> Set<int>;
-
-    spec fn pre(self, op: Op) -> bool;
-
-    spec fn post(
-        self,
-        op: Op,
-        exec_result: Op::ExecResult,
-        apply_result: Self::ApplyResult
-    ) -> bool;
-
-    proof fn apply(
-        tracked self,
-        op: Op,
-        new_ckv: ConcurrentKvStoreView<K, I, L>,
-        exec_result: Op::ExecResult,
-        tracked r: &mut Resource<OwnershipSplitter<K, I, L>>
-    ) -> (tracked apply_result: Self::ApplyResult)
-        requires
-            self.pre(op),
-            old(r).loc() == self.id(),
-            old(r).value() is Invariant,
-            op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
-        ensures
-            r.loc() == old(r).loc(),
-            r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
-            self.post(op, exec_result, apply_result),
-        opens_invariants self.namespaces()
-    ;
-}
-
 pub trait CanRecover<K, I, L>
 {
     spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>;
 }
 
-pub trait PermissionGranter<Perm, K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRecover<K, I, L>> : Sized
+pub trait MutatingLinearizer<Perm, K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRecover<K, I, L>> : Sized
 where
     Perm: CheckPermission<Seq<u8>>,
 {
@@ -202,29 +165,60 @@ where
 
     spec fn pre(self, op: Op) -> bool;
 
-    proof fn grant(
-        tracked self,
+    spec fn ready(self, old_ckv: ConcurrentKvStoreView<K, I, L>, op: Op) -> bool;
+
+    spec fn post(
+        self,
+        op: Op,
+        exec_result: Op::ExecResult,
+    ) -> bool;
+
+    proof fn grant_permission(
+        tracked &mut self,
         op: Op,
         tracked r: &Resource<OwnershipSplitter<K, I, L>>
     ) -> (tracked perm: Perm)
-        requires
-            self.pre(op),
-            r.loc() == self.id(),
+       requires
+            old(self).pre(op),
+            r.loc() == old(self).id(),
             r.value() is Invariant,
         ensures
-            forall|s: Seq<u8>| #[trigger] perm.check_permission(s) <== {
+            self.ready(r.value()->Invariant_ckv, op),
+            self.id() == old(self).id(),
+            self.namespaces() == old(self).namespaces(),
+            forall|s: Seq<u8>| {
                 &&& Kv::recover(s) matches Some(new_rkv)
                 &&& {
                        let old_ckv = r.value()->Invariant_ckv;
                        ||| old_ckv.kv == new_rkv.kv && new_rkv.ps == old_ckv.ps
                        ||| exists|new_ckv, result| {
-                           &&& op.result_valid(old_ckv, new_ckv, result)
+                           &&& #[trigger] op.result_valid(old_ckv, new_ckv, result)
                            &&& new_ckv.kv == new_rkv.kv
                            &&& new_ckv.ps == new_rkv.ps
                        }
                   }
-            },
-        opens_invariants self.namespaces()
+            } ==> #[trigger] perm.check_permission(s),
+        opens_invariants old(self).namespaces()
+    ;
+
+    proof fn apply(
+        tracked &mut self,
+        op: Op,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        exec_result: Op::ExecResult,
+        tracked r: &mut Resource<OwnershipSplitter<K, I, L>>
+    )
+        requires
+            old(r).loc() == old(self).id(),
+            old(r).value() is Invariant,
+            old(self).ready(old(r).value()->Invariant_ckv, op),
+            op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
+        ensures
+            r.loc() == old(r).loc(),
+            r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
+            self.id() == old(self).id(),
+            self.post(op, exec_result),
+        opens_invariants old(self).namespaces()
     ;
 }
 
