@@ -159,19 +159,13 @@ pub trait MutatingLinearizer<Perm, K, I, L, Op: MutatingOperation<K, I, L>, Kv: 
 where
     Perm: CheckPermission<Seq<u8>>,
 {
-    spec fn id(self) -> Loc;
-
     spec fn namespaces(self) -> Set<int>;
 
-    spec fn pre(self, op: Op) -> bool;
+    spec fn pre(self, loc: Loc, op: Op) -> bool;
 
-    spec fn ready(self, old_ckv: ConcurrentKvStoreView<K, I, L>, op: Op) -> bool;
+    spec fn ready(self, orig_self: Self, old_ckv: ConcurrentKvStoreView<K, I, L>, loc: Loc, op: Op) -> bool;
 
-    spec fn post(
-        self,
-        op: Op,
-        exec_result: Op::ExecResult,
-    ) -> bool;
+    spec fn post(self, orig_self: Self, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
 
     proof fn grant_permission(
         tracked &mut self,
@@ -179,12 +173,10 @@ where
         tracked r: &Resource<OwnershipSplitter<K, I, L>>
     ) -> (tracked perm: Perm)
        requires
-            old(self).pre(op),
-            r.loc() == old(self).id(),
+            old(self).pre(r.loc(), op),
             r.value() is Invariant,
         ensures
-            self.ready(r.value()->Invariant_ckv, op),
-            self.id() == old(self).id(),
+            self.ready(*old(self), r.value()->Invariant_ckv, r.loc(), op),
             self.namespaces() == old(self).namespaces(),
             forall|s: Seq<u8>| {
                 &&& Kv::recover(s) matches Some(new_rkv)
@@ -203,21 +195,20 @@ where
 
     proof fn apply(
         tracked &mut self,
+        orig_self: Self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
         exec_result: Op::ExecResult,
         tracked r: &mut Resource<OwnershipSplitter<K, I, L>>
     )
         requires
-            old(r).loc() == old(self).id(),
             old(r).value() is Invariant,
-            old(self).ready(old(r).value()->Invariant_ckv, op),
+            old(self).ready(orig_self, old(r).value()->Invariant_ckv, old(r).loc(), op),
             op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
         ensures
             r.loc() == old(r).loc(),
             r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
-            self.id() == old(self).id(),
-            self.post(op, exec_result),
+            self.post(orig_self, r.loc(), op, exec_result),
         opens_invariants old(self).namespaces()
     ;
 }

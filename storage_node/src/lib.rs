@@ -801,34 +801,6 @@ impl TestKvPermission
                     Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
         }
     }
-
-    proof fn new_two_possibilities<PM, K, I, L>(
-        ps: SetupParameters,
-        kv1: AtomicKvStore<K, I, L>,
-        kv2: AtomicKvStore<K, I, L>
-    ) -> (tracked perm: Self)
-        where
-            PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-            I: PmCopy + std::fmt::Debug,
-            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-        ensures
-            forall |s| #[trigger] perm.check_permission(s) <== {
-                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
-                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
-                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
-                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
-            }
-    {
-        Self {
-            is_state_allowable: |s| {
-                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
-                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
-                ||| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
-                   Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
-            },
-        }
-    }
 }
 
 struct TestMutatingLinearizer<Op>
@@ -848,18 +820,14 @@ impl<Op> MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement
 where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
-    closed spec fn id(self) -> Loc
-    {
-        self.r.loc()
-    }
-
     closed spec fn namespaces(self) -> Set<int>
     {
         Set::empty()
     }
 
-    closed spec fn pre(self, op: Op) -> bool
+    closed spec fn pre(self, loc: Loc, op: Op) -> bool
     {
+        &&& self.r.loc() == loc
         &&& self.r.value() is Application
         &&& self.op == op
         &&& self.old_ckv is None
@@ -868,11 +836,16 @@ where
 
     closed spec fn ready(
         self,
+        orig_self: Self,
         old_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
+        loc: Loc,
         op: Op
     ) -> bool
     {
+        &&& self.r == orig_self.r
+        &&& self.r.loc() == loc
         &&& self.r.value() is Application
+        &&& self.op == orig_self.op
         &&& self.op == op
         &&& self.old_ckv == Some(old_ckv)
         &&& self.new_ckv is None
@@ -899,17 +872,21 @@ where
                    }
               }
         };
-        let tracked perm = TestKvPermission{ is_state_allowable };
-        perm
+        TestKvPermission{ is_state_allowable }
     }
 
     closed spec fn post(
         self,
+        orig_self: Self,
+        loc: Loc,
         op: Op,
         exec_result: Op::ExecResult,
     ) -> bool
     {
         &&& self.r.value() is Application
+        &&& self.r.loc() == orig_self.r.loc()
+        &&& self.r.loc() == loc
+        &&& self.op == orig_self.op
         &&& self.op == op
         &&& self.old_ckv matches Some(old_ckv)
         &&& self.new_ckv matches Some(new_ckv)
@@ -918,6 +895,7 @@ where
 
     proof fn apply(
         tracked &mut self,
+        orig_self: Self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
         exec_result: Op::ExecResult,

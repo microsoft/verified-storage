@@ -257,13 +257,11 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, CreateOp<K, I>, Self>,
         requires
             old(self).valid(),
-            old(cb).id() == old(self).loc(),
-            old(cb).pre(CreateOp{ key: *key, item: *item }),
+            old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            cb.id() == old(cb).id(),
-            cb.post(CreateOp{ key: *key, item: *item }, result),
+            cb.post(*old(cb), self.loc(), CreateOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
@@ -279,7 +277,7 @@ where
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
         proof {
-            cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+            cb.apply(*old(cb), op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
         exec_result
@@ -295,13 +293,11 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
-            old(cb).id() == old(self).loc(),
-            old(cb).pre(UpdateItemOp{ key: *key, item: *item }),
+            old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            cb.id() == old(cb).id(),
-            cb.post(UpdateItemOp{ key: *key, item: *item }, result),
+            cb.post(*old(cb), self.loc(), UpdateItemOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
@@ -317,7 +313,7 @@ where
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
         proof {
-            cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
         result
