@@ -221,30 +221,25 @@ where
     pub exec fn read_item<CB>(
         &self,
         key: &K,
-        Tracked(cb): Tracked<CB>,
-    ) -> (results: (Result<I, KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<I, KvError>)
         where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
         requires 
             self.valid(),
-            cb.id() == self.loc(),
-            cb.pre(ReadItemOp{ key: *key }),
+            old(cb).pre(self.loc(), ReadItemOp{ key: *key }),
         ensures
             self.valid(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = ReadItemOp{ key: *key };
-                cb.post(op, exec_result, apply_result@)
-            })
+            cb.post(*old(cb), self.loc(), ReadItemOp{ key: *key }, result),
     {
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadItemOp{ key: *key };
         let kv_internal = read_handle.borrow();
-        let exec_result = kv_internal.kv.read_item(key);
+        let result = kv_internal.kv.read_item(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
-        let tracked apply_result = cb.apply(op, exec_result, invariant_resource);
+        let tracked apply_result = cb.apply(op, result, invariant_resource);
         read_handle.release_read();
-        (exec_result, Tracked(apply_result))
+        result
     }
 
     pub exec fn create<CB>(
@@ -266,7 +261,7 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let exec_result = match kv_internal.kv.tentatively_create(key, item, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_create(key, item, Tracked(&perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
@@ -277,10 +272,10 @@ where
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
         proof {
-            cb.apply(*old(cb), op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        exec_result
+        result
     }
 
     pub exec fn update_item<CB>(

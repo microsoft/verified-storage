@@ -111,30 +111,25 @@ pub trait ReadOnlyOperation<K, I, L>: Sized
 
 pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 {
-    type ApplyResult;
-
-    spec fn id(self) -> Loc;
-
     spec fn namespaces(self) -> Set<int>;
 
-    spec fn pre(self, op: Op) -> bool;
+    spec fn pre(self, loc: Loc, op: Op) -> bool;
 
-    spec fn post(self, op: Op, result: Op::ExecResult, ar: Self::ApplyResult) -> bool;
+    spec fn post(self, orig_self: Self, loc: Loc, op: Op, result: Op::ExecResult) -> bool;
 
     proof fn apply(
-        tracked self,
+        tracked &mut self,
         op: Op,
         result: Op::ExecResult,
         tracked r: &Resource<OwnershipSplitter<K, I, L>>,
-    ) -> (tracked out: Self::ApplyResult)
+    )
         requires
-            self.pre(op),
-            r.loc() == self.id(),
+            old(self).pre(r.loc(), op),
             r.value() is Invariant,
             op.result_valid(r.value()->Invariant_ckv, result),
         ensures
-            self.post(op, result, out),
-        opens_invariants self.namespaces()
+            self.post(*old(self), r.loc(), op, result),
+        opens_invariants old(self).namespaces()
     ;
 }
 

@@ -728,44 +728,38 @@ fn test_kv_on_memory_mapped_file() -> Result<(), ()>
 }
 
 impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
-        for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+    for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
 {
-    type ApplyResult = Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>;
-
-    open spec fn id(self) -> Loc
-    {
-        self.loc()
-    }
-
     open spec fn namespaces(self) -> Set<int>
     {
         Set::empty()
     }
 
-    open spec fn pre(self, op: ReadItemOp<TestKey>) -> bool
+    open spec fn pre(self, loc: Loc, op: ReadItemOp<TestKey>) -> bool
     {
-        self.value() is Application
+        &&& self.loc() == loc
+        &&& self.value() is Application
     }
 
     open spec fn post(
         self,
+        orig_self: Self,
+        loc: Loc,
         op: ReadItemOp<TestKey>,
         exec_result: Result<TestItem, KvError>,
-        apply_result: Self::ApplyResult
     ) -> bool
     {
-        &&& apply_result.loc() == ReadLinearizer::<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>::id(self)
-        &&& apply_result.value() is Application
+        &&& self.loc() == orig_self.loc()
+        &&& self.value() is Application
     }
 
     proof fn apply(
-        tracked self,
+        tracked &mut self,
         op: ReadItemOp<TestKey>,
-        exec_result: Result<TestItem, KvError>,
+        result: Result<TestItem, KvError>,
         tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
-    ) -> (tracked apply_result: Self::ApplyResult)
+    )
     {
-        self
     }
 }
 
@@ -988,9 +982,11 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let tracked app_resource: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>> = create_linearizer.r;
 
     // read the item of the record we just created
-    let (read_item1, mut app_resource) = match ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(&key1, Tracked(app_resource)) {
-        (Ok(i), app_resource) => (i, app_resource),
-        (Err(e), _) => { print_message("Error when reading key"); return Err(()); },
+    let read_item1 = match ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(
+        &key1, Tracked(&mut app_resource)
+    ) {
+        Ok(i) => i,
+        Err(e) => { print_message("Error when reading key"); return Err(()); },
     };
 
     if read_item1.val != item1.val {
@@ -1000,12 +996,12 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
 
     print_message("SUCCESS: Read correct value");
 
-    let mut app_resource = match ckv.read_item(&key2, app_resource) {
-        (Ok(i), _) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
-        (Err(KvError::KeyNotFound), app_resource) => app_resource,
-        (Err(e), _) => {
-            print_message("Error: got an unexpected error when reading non-inserted key"); return Err(());
-        },
+    match ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(
+        &key2, Tracked(&mut app_resource)
+    ) {
+        Ok(i) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
+        Err(KvError::KeyNotFound) => {},
+        Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
     };
 
     print_message("All kv operations gave expected results");
