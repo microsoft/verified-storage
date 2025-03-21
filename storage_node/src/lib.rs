@@ -746,11 +746,12 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
         orig_self: Self,
         loc: Loc,
         op: ReadItemOp<TestKey>,
-        exec_result: Result<TestItem, KvError>,
+        result: Result<TestItem, KvError>,
     ) -> bool
     {
         &&& self.loc() == orig_self.loc()
         &&& self.value() is Application
+        &&& op.result_valid(self.value()->Application_ckv, result)
     }
 
     proof fn apply(
@@ -760,6 +761,7 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
         tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
     )
     {
+        self.validate_2(r)
     }
 }
 
@@ -949,15 +951,14 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
                                           TestListElement>::recover(wrpm@.durable_state).unwrap();
     let tracked perm = TestKvPermission::new_one_possibility::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                                                TestListElement>(state.ps, state.kv);
-    let mut result = match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
-                                               TestItem, TestListElement>::start(
+    let (mut ckv, Tracked(app_resource)) =
+        match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+                                  TestItem, TestListElement>::start(
             wrpm, kvstore_id, Ghost(state), Tracked(&perm)
         ) {
             Ok(tup) => tup,
             Err(e) => { print_message("Failed to start KV store"); return Err(()); },
         };
-    let mut ckv = result.0;
-    let Tracked(app_resource) = result.1;
 
     let key1 = TestKey { val: 0x33333333 };
     let key2 = TestKey { val: 0x44444444 };
