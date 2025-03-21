@@ -831,18 +831,22 @@ impl TestKvPermission
     }
 }
 
-struct CreateLinearizer
+struct TestMutatingLinearizer<Op>
+where
+    Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
     r: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>,
+    ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
 }
 
-impl MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement,
-                        CreateOp<TestKey, TestItem>,
-                        ConcurrentKvStore<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
-                                          TestItem, TestListElement>>
-    for CreateLinearizer
+impl<Op> MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement, Op,
+                            ConcurrentKvStore<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+                                              TestItem, TestListElement>>
+    for TestMutatingLinearizer<Op>
+where
+    Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
     closed spec fn id(self) -> Loc
     {
@@ -854,9 +858,10 @@ impl MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement,
         Set::empty()
     }
 
-    closed spec fn pre(self, op: CreateOp<TestKey, TestItem>) -> bool
+    closed spec fn pre(self, op: Op) -> bool
     {
         &&& self.r.value() is Application
+        &&& self.op == op
         &&& self.old_ckv is None
         &&& self.new_ckv is None
     }
@@ -864,17 +869,18 @@ impl MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement,
     closed spec fn ready(
         self,
         old_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
-        op: CreateOp<TestKey, TestItem>
+        op: Op
     ) -> bool
     {
         &&& self.r.value() is Application
+        &&& self.op == op
         &&& self.old_ckv == Some(old_ckv)
         &&& self.new_ckv is None
     }
 
     proof fn grant_permission(
         tracked &mut self,
-        op: CreateOp<TestKey, TestItem>,
+        op: Op,
         tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
     ) -> (tracked perm: TestKvPermission)
     {
@@ -899,11 +905,12 @@ impl MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement,
 
     closed spec fn post(
         self,
-        op: CreateOp<TestKey, TestItem>,
-        exec_result: Result<(), KvError>,
+        op: Op,
+        exec_result: Op::ExecResult,
     ) -> bool
     {
         &&& self.r.value() is Application
+        &&& self.op == op
         &&& self.old_ckv matches Some(old_ckv)
         &&& self.new_ckv matches Some(new_ckv)
         &&& op.result_valid(old_ckv, new_ckv, exec_result)
@@ -911,9 +918,9 @@ impl MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement,
 
     proof fn apply(
         tracked &mut self,
-        op: CreateOp<TestKey, TestItem>,
+        op: Op,
         new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
-        exec_result: Result<(), KvError>,
+        exec_result: Op::ExecResult,
         tracked r: &mut Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
     )
     {
@@ -986,19 +993,24 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item1 = TestItem { val: 0x55555555 };
     let item2 = TestItem { val: 0x66666666 };
 
-    let tracked mut create_linearizer = CreateLinearizer{ r: app_resource, old_ckv: None, new_ckv: None };
+    let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem>>{
+        r: app_resource,
+        op: CreateOp::<TestKey, TestItem>{ key: key1, item: item1 },
+        old_ckv: None,
+        new_ckv: None,
+    };
 
-    match ckv.create::<CreateLinearizer>(&key1, &item1, Tracked(&mut create_linearizer)) {
+    match ckv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
+        &key1, &item1, Tracked(&mut create_linearizer)
+    ) {
         Ok(()) => {},
         Err(e) => { print_message("Error when creating key 1"); return Err(()); },
     };
 
-    let tracked app_resource = create_linearizer.r;
-
-    /*
+    let tracked app_resource: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>> = create_linearizer.r;
 
     // read the item of the record we just created
-    let (read_item1, mut app_resource) = match ckv.read_item(&key1, app_resource) {
+    let (read_item1, mut app_resource) = match ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(&key1, Tracked(app_resource)) {
         (Ok(i), app_resource) => (i, app_resource),
         (Err(e), _) => { print_message("Error when reading key"); return Err(()); },
     };
@@ -1019,7 +1031,6 @@ fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     print_message("All kv operations gave expected results");
-    */
     return Ok(());
 }
 

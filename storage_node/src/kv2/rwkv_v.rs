@@ -262,6 +262,7 @@ where
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            cb.id() == old(cb).id(),
             cb.post(CreateOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -284,36 +285,28 @@ where
         exec_result
     }
 
-    /*
-    pub exec fn update_item<CB, PG>(
+    pub exec fn update_item<CB>(
         &mut self,
         key: &K,
         item: &I,
-        Tracked(cb): Tracked<CB>,
-        Tracked(permission_granter): Tracked<PG>,
-    ) -> (results: (Result<(), KvError>, Tracked<CB::ApplyResult>))
+        Tracked(cb): Tracked<&mut CB>,
+    ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>>,
-            PG: PermissionGranter<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
+            CB: MutatingLinearizer<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
-            cb.id() == old(self).loc(),
-            cb.pre(UpdateItemOp{ key: *key, item: *item }),
-            permission_granter.id() == old(self).loc(),
-            permission_granter.pre(UpdateItemOp{ key: *key, item: *item }),
+            old(cb).id() == old(self).loc(),
+            old(cb).pre(UpdateItemOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
-            ({
-                let (exec_result, apply_result) = results;
-                let op = UpdateItemOp{ key: *key, item: *item };
-                cb.post(op, exec_result, apply_result@)
-            }),
+            cb.id() == old(cb).id(),
+            cb.post(UpdateItemOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
-        let tracked perm = permission_granter.grant(op, kv_internal.invariant_resource.borrow());
-        let exec_result = match kv_internal.kv.tentatively_update_item(key, item, Tracked(&perm)) {
+        let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
+        let result = match kv_internal.kv.tentatively_update_item(key, item, Tracked(&perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
@@ -323,11 +316,14 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-        let tracked apply_result = cb.apply(op, new_ckv, exec_result, kv_internal.invariant_resource.borrow_mut());
+        proof {
+            cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+        }
         write_handle.release_write(kv_internal);
-        (exec_result, Tracked(apply_result))
+        result
     }
 
+    /*
     pub exec fn delete<CB: MutatingLinearizer<K, I, L, DeleteOp<K>>>(
         &mut self,
         key: &K,
