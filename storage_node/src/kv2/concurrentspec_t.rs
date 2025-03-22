@@ -162,11 +162,11 @@ where
 
     spec fn post(self, orig_self: Self, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
 
-    proof fn grant_permission(
-        tracked &mut self,
+    proof fn grant_permission<'a>(
+        tracked &'a mut self,
         op: Op,
         tracked r: &Resource<OwnershipSplitter<K, I, L>>
-    ) -> (tracked perm: Perm)
+    ) -> (tracked perm: &'a Perm)
        requires
             old(self).pre(r.loc(), op),
             r.value() is Invariant,

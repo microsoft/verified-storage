@@ -729,6 +729,16 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
 
 impl TestKvPermission
 {
+    proof fn new<PM, K, I, L>() -> (tracked perm: Self)
+        where
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+    {
+        Self { is_state_allowable: |s: Seq<u8>| false }
+    }
+
     proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
@@ -753,6 +763,7 @@ where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
     r: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>,
+    perm: TestKvPermission,
     ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
@@ -796,11 +807,11 @@ where
         &&& self.new_ckv is None
     }
 
-    proof fn grant_permission(
-        tracked &mut self,
+    proof fn grant_permission<'a>(
+        tracked &'a mut self,
         op: Op,
         tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
-    ) -> (tracked perm: TestKvPermission)
+    ) -> (tracked perm: &'a TestKvPermission)
     {
         let old_ckv = r.value()->Invariant_ckv;
         self.old_ckv = Some(old_ckv);
@@ -817,7 +828,9 @@ where
                    }
               }
         };
-        TestKvPermission{ is_state_allowable }
+        let tracked perm = TestKvPermission{ is_state_allowable };
+        self.perm = perm;
+        &self.perm
     }
 
     closed spec fn post(
@@ -915,8 +928,12 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item1 = TestItem { val: 0x55555555 };
     let item2 = TestItem { val: 0x66666666 };
 
+    let tracked empty_perm =
+        TestKvPermission::new::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>();
+
     let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem>>{
         r: app_resource,
+        perm: empty_perm,
         op: CreateOp::<TestKey, TestItem>{ key: key1, item: item1 },
         old_ckv: None,
         new_ckv: None,

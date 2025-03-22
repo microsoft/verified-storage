@@ -358,13 +358,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_create(key, item, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_create(key, item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -394,13 +394,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_update_item(key, item, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_update_item(key, item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -429,13 +429,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = DeleteOp::<K>{ key: *key };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_delete(key, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_delete(key, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -465,13 +465,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListOp::<K, L>{ key: *key, new_list_element };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_append_to_list(key, new_list_element, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_append_to_list(key, new_list_element, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -502,13 +502,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -539,13 +539,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -580,14 +580,14 @@ where
                                                                      new_item: *new_item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
         let result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
-            key, idx, new_list_element, new_item, Tracked(&perm)
+            key, idx, new_list_element, new_item, Tracked(perm)
         ) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -617,13 +617,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListOp::<K>{ key: *key, trim_length };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_trim_list(key, trim_length, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_trim_list(key, trim_length, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -654,13 +654,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item, Tracked(&perm)) {
+        let result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(&perm))
+                kv_internal.kv.commit(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
