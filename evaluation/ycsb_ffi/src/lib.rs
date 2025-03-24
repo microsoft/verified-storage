@@ -21,7 +21,7 @@ use std::fs;
 use std::env;
 use chrono;
 
-const MAX_KEY_LEN: usize = 64;
+const MAX_KEY_LEN: usize = 24; // TODO: check that this is ok
 const MAX_ITEM_LEN: usize = 1140; 
 const MAX_CONFIG_FILE_NAME_LEN: usize = 1024;
 

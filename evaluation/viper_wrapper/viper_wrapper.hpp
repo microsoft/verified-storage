@@ -29,6 +29,7 @@ using ViperDBClient = viper::Viper<K, V>::Client;
 
 struct ViperDBFFI {
     ViperDB* db;
+    ViperDBClient* client;
 };
 
 extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t initial_pool_size);

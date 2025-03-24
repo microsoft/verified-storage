@@ -36,6 +36,8 @@ fn main() {
         .arg("-I../viper_deps/libpmemobj-cpp/include")
         .arg(format!("-I{java_home}/include"))
         .arg(format!("-I{java_home}/include/linux"))
+        .arg("-O3")
+        .arg("-DNDEBUG")
         // .arg("-DVIPER_BUILD_BENCHMARKS=ON")
         // .arg("-DVIPER_PMDK_PATH=/usr/share/pmdk")
         // .arg("-DLIBPMEMOBJ++_PATH=/usr/lib/x86_64-linux-gnu")

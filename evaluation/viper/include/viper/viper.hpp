@@ -35,7 +35,8 @@ namespace viper {
 using version_lock_t = uint8_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
-static constexpr uint8_t NUM_DIMMS = 6;
+// static constexpr uint8_t NUM_DIMMS = 6;
+static constexpr uint8_t NUM_DIMMS = 1;
 static constexpr size_t BLOCK_SIZE = NUM_DIMMS * PAGE_SIZE;
 static constexpr size_t ONE_GB = 1024l * 1024 * 1024;
 
@@ -364,6 +365,7 @@ class Viper {
     class ReadOnlyClient {
         friend class Viper<K, V>;
       public:
+        ReadOnlyClient(const ReadOnlyClient&) = default;
         bool get(const K& key, V* value) const;
         size_t get_total_used_pmem() const;
         size_t get_total_allocated_pmem() const;
@@ -378,6 +380,7 @@ class Viper {
     class Client : public ReadOnlyClient {
         friend class Viper<K, V>;
       public:
+
         bool put(const K& key, const V& value);
 
         bool get(const K& key, V* value);
@@ -388,10 +391,11 @@ class Viper {
 
         bool remove(const K& key);
 
+        Client(ViperT& viper);
         ~Client();
 
       protected:
-        Client(ViperT& viper);
+        
 
         bool put(const K& key, const V& value, bool delete_old);
         inline void update_access_information();
@@ -423,6 +427,7 @@ class Viper {
     };
 
     Client get_client();
+    std::unique_ptr<Client> get_client_unique_ptr();
     ReadOnlyClient get_read_only_client();
 
   protected:
@@ -993,6 +998,19 @@ void Viper<K, V>::trigger_reclaim(size_t num_reclaim_ops) {
         DEBUG_LOG("END RECLAIMING");
     });
     reclaim_thread_->detach();
+}
+
+template <typename K, typename V>
+std::unique_ptr<typename Viper<K, V>::Client> Viper<K, V>::get_client_unique_ptr() {
+    num_active_clients_++;
+    // Client client{*this};
+    auto client = std::make_unique<Client>(*this);
+    if constexpr (std::is_same_v<K, std::string>) {
+        get_new_var_size_access_information(client);
+    } else {
+        get_new_access_information(client.get());
+    }
+    return client;
 }
 
 
@@ -1582,10 +1600,6 @@ template <typename K, typename V>
 inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V* value) {
     v_blocks_lock.lock();
     const auto [block, page, slot] = offset.get_offsets();
-    // std::cout << std::this_thread::get_id();
-    // printf("%p\n", this->viper_.v_blocks_[block]);
-    // printf("%p\n", &this->viper_.v_blocks_[block]->v_pages);
-    // printf("%p\n", &this->viper_.v_blocks_[block]->v_pages[page]);
 
     auto temp0 = &this->viper_;
     auto temp1 = this->viper_.v_blocks_[block];

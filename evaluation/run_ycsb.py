@@ -165,12 +165,15 @@ def run_load_x_check(workloads):
         return True 
     return False
 
-def subprocess_under_dir(dir, cmd, stdout, check=True):
+def subprocess_under_dir(dir, cmd, stdout, stderr=None, check=True):
     original_cwd = os.getcwd()
     try:
         os.chdir(dir)
         print(f"Running command: {' '.join(cmd)} in {dir}")
-        return subprocess.run(cmd, stdout=stdout, check=check)
+        if stderr != None:
+            return subprocess.run(cmd, stdout=stdout, stderr=stderr, check=check)
+        else:
+            return subprocess.run(cmd, stdout=stdout, check=check)
     finally:
         os.chdir(original_cwd)
 
@@ -196,6 +199,11 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         runf_output_path = os.path.join(output_dir_paths[6], "Run" + str(i))
         loadx_output_path = os.path.join(output_dir_paths[7], "Run" + str(i))
         runx_output_path = os.path.join(output_dir_paths[8], "Run" + str(i))
+
+        # make sure viper is built correctly for non-x workloads. 
+        # if we're only running workload x this will do some unnecessary work
+        # but it's quick so it doesn't really matter
+        rebuild_viper_wrapper(False)
 
         if run_load_a_check(workloads):
             setup_pm(configs)

@@ -36,6 +36,8 @@ def plot_ycsb(ax, ycsb_results_file):
         filesys_grouped_data["Viper"].append(data[2] / 1000)
         filesys_grouped_data["CapybaraKV"].append(data[3] / 1000)
 
+        print(filesys_grouped_data["Viper"])
+
 #         ext4_baseline = data[0]
 #         # calculate throughput wrt ext4 baseline so that everything
 #         # will fit on the same graph
@@ -60,7 +62,9 @@ def plot_ycsb(ax, ycsb_results_file):
     #     'ytick.labelsize':'large'}
     # pylab.rcParams.update(params)
 
-    print(filesys_grouped_data["redis"])
+    # print(filesys_grouped_data["redis"])
+    print(ycsb_results_file)
+    print(filesys_grouped_data)
 
     normalized_data_redis = [ 1 for i in range(0, len(filesys_grouped_data["redis"]))]
     normalized_data_rocksdb = [ filesys_grouped_data["RocksDB"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["RocksDB"]))]
@@ -111,7 +115,7 @@ def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_
     fig, axs = plt.subplots(1, 2)
 
     plot_ycsb(axs[0], ycsb_results_file_1thread)
-    # plot_ycsb(axs[1], ycsb_results_file_16thread)
+    plot_ycsb(axs[1], ycsb_results_file_16thread)
 
     axs[0].set_ylim(0,22)
     axs[0].set_xlabel("(a) 1 thread")

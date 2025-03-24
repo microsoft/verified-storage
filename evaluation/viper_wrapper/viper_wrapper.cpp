@@ -26,34 +26,33 @@ extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t ini
 
     ViperDBFFI* db = new ViperDBFFI;
 
+    auto client = viper_db->get_client_unique_ptr();
+
     db->db = viper_db.release();
+    db->client = client.release();
 
     return db;
     
 }
 
 extern "C" bool viperdb_put(struct ViperDBFFI* db, const K* key, const V* value) {
-    auto client = db->db->get_client();
-    bool result = client.put(*key, *value);
+    bool result = db->client->put(*key, *value);
     return result;
 }
 
 extern "C" bool viperdb_get(struct ViperDBFFI* db, const K* key, V* value) {
-    auto client = db->db->get_client();
-    return client.get(*key, value);
+    return db->client->get(*key, value);
 }
 
 // NOTE: viper db puts are not atomic when updating an existing value
 // TODO: figure out how to use their support for atomic updates
 extern "C" bool viperdb_update(struct ViperDBFFI* db, const K* key, const V* value) {
-    auto client = db->db->get_client();
-    bool result = client.put(*key, *value);
+    bool result = db->client->put(*key, *value);
     return result;
 }
 
 extern "C" bool viperdb_delete(struct ViperDBFFI* db, const K* key) {
-    auto client = db->db->get_client();
-    return client.remove(*key);
+    return db->client->remove(*key);
 }
 
 extern "C" void viperdb_cleanup(ViperDBFFI* db) { 
@@ -91,7 +90,9 @@ JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperPut
 {
     struct ViperDBFFI* db = (struct ViperDBFFI*)kv_ptr;
     std::string key_string = jbytearray_to_string(env, key);
+    // std::cout << "key string: " << key_string << std::endl;
     std::string value_string = jbytearray_to_string(env, value);
+    // std::cout << "value string: " << value_string << " " << value_string.size() << std::endl;
     K viper_key = K();
     V viper_value = V();
 

@@ -32,7 +32,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file = crate::MOUNT_POINT.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
-        let init_size = 53687091200;
+        let init_size = 1073741824;
 
         println!("creating viper client");
 
