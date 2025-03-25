@@ -4,7 +4,18 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::recover_v::*;
-use super::*;
+use crate::common::subrange_v::*;
+use crate::common::table_v::*;
+use crate::common::util_v::*;
+use crate::journal::JournalView;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::traits_t::*;
+use crate::pmem::wrpm_t::*;
+use std::hash::Hash;
+use super::{KeyTable, KeyTableStaticMetadata};
+use super::recover_v::*;
+use super::spec_v::*;
 
 verus! {
 

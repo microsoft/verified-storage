@@ -16,10 +16,10 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
-use recover_v::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use super::*;
+use super::{ListRowDisposition, ListSummary, ListTable, ListTableEntry, ListTableStaticMetadata, ListTableStatus};
+use super::recover_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 #[cfg(verus_keep_ghost)]

@@ -3,7 +3,12 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::traits_t::*;
+use crate::pmem::wrpm_t::*;
+use std::hash::Hash;
+use super::spec_t::*;
 use vstd::pcm::*;
 
 verus! {

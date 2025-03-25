@@ -2,9 +2,9 @@
 use builtin::*;
 use builtin_macros::*;
 #[cfg(verus_keep_ghost)]
-use util_v::lemma_writing_element_and_next_effect_on_recovery;
+use super::util_v::lemma_writing_element_and_next_effect_on_recovery;
 #[cfg(verus_keep_ghost)]
-use util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
+use super::util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
@@ -22,7 +22,8 @@ use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::*;
+use super::{ListRowDisposition, ListSummary, ListTable, ListTableEntry, ListTableEntryView, ListTableInternalView,
+            ListTableStaticMetadata, ListTableStatus, ListTableView};
 use super::recover_v::*;
 use super::util_v::*;
 use super::super::impl_t::*;

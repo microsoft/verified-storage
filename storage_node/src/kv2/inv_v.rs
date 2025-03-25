@@ -3,7 +3,15 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::*;
+use crate::journal::JournalView;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::traits_t::*;
+use crate::pmem::wrpm_t::*;
+use std::hash::Hash;
+use super::recover_v::*;
+use super::spec_t::*;
+use super::UntrustedKvStoreImpl;
 
 verus! {
 

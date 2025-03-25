@@ -13,12 +13,12 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use deps_hack::PmCopy;
-use inv_v::*;
-use start_v::*;
 use std::hash::Hash;
-use super::*;
+use super::ListTableStaticMetadata;
+use super::inv_v::*;
 use super::recover_v::*;
-use super::spec_t::*;
+use super::start_v::*;
+use super::super::spec_t::*;
 
 verus! {
 
