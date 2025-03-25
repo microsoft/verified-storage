@@ -1,3 +1,6 @@
+// This file provides functions for recovering objects, corruption-detecting Booleans (CDB), and byte sequences from persistent memory regions.
+// It includes both specification and executable functions for recovery operations with CRC validation.
+
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -11,6 +14,8 @@ use super::subrange_v::*;
 
 verus! {
 
+/// Recovers an object of type T from a sequence of bytes, verifying its CRC.
+/// Returns Some(T) if recovery is successful, otherwise None.
 pub open spec fn recover_object<T>(s: Seq<u8>, start: int, crc_addr: int) -> Option<T>
     where
         T: PmCopy
@@ -39,6 +44,8 @@ pub open spec fn recover_object<T>(s: Seq<u8>, start: int, crc_addr: int) -> Opt
     }
 }
 
+/// Recovers a corruption-detecting Boolean (CDB) from a sequence of bytes.
+/// Returns Some(true) or Some(false) if recovery is successful, otherwise None.
 pub open spec fn recover_cdb(s: Seq<u8>, addr: int) -> Option<bool>
 {
     if 0 <= addr && addr + u64::spec_size_of() <= s.len() {
@@ -62,6 +69,8 @@ pub open spec fn recover_cdb(s: Seq<u8>, addr: int) -> Option<bool>
     }
 }
 
+/// Recovers a sequence of bytes from a given start position and length, verifying its CRC.
+/// Returns Some(Seq<u8>) if recovery is successful, otherwise None.
 pub open spec fn recover_bytes(s: Seq<u8>, start: int, num_bytes: nat, crc_addr: int) -> Option<Seq<u8>>
 {
     if {
@@ -87,6 +96,9 @@ pub open spec fn recover_bytes(s: Seq<u8>, start: int, num_bytes: nat, crc_addr:
     }
 }
 
+/// Executes the recovery of an object of type T from persistent memory, verifying its CRC.
+/// Returns Some(T) if recovery is successful, otherwise None.
+/// If it returns None, it guarantees that the underlying persistent memory was corrupted.
 pub exec fn exec_recover_object<PM, T>(pm: &PM, start: u64, crc_addr: u64) -> (result: Option<T>)
     where
         PM: PersistentMemoryRegion,
@@ -121,6 +133,9 @@ pub exec fn exec_recover_object<PM, T>(pm: &PM, start: u64, crc_addr: u64) -> (r
     }
 }
 
+/// Executes the recovery of a corruption-detecting Boolean (CDB) from persistent memory.
+/// Returns Some(true) or Some(false) if recovery is successful, otherwise None.
+/// If it returns None, it guarantees that the underlying persistent memory was corrupted.
 pub exec fn exec_recover_cdb<PM>(pm: &PM, addr: u64) -> (result: Option<bool>)
     where
         PM: PersistentMemoryRegion,
@@ -142,6 +157,9 @@ pub exec fn exec_recover_cdb<PM>(pm: &PM, addr: u64) -> (result: Option<bool>)
     check_cdb(maybe_corrupted_bytes, Ghost(true_bytes), Ghost(pm.constants()), Ghost(addr as int))
 }
 
+/// Executes the recovery of a sequence of bytes from persistent memory, verifying its CRC.
+/// Returns Some(Vec<u8>) if recovery is successful, otherwise None.
+/// If it returns None, it guarantees that the underlying persistent memory was corrupted.
 pub exec fn exec_recover_bytes<PM>(pm: &PM, start: u64, num_bytes: u64, crc_addr: u64) -> (result: Option<Vec<u8>>)
     where
         PM: PersistentMemoryRegion,
