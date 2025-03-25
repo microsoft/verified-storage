@@ -24,7 +24,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::overflow_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -42,6 +41,7 @@ use rwkv_v::*;
 use setup_v::*;
 use spec_t::*;
 use std::hash::Hash;
+use vstd::arithmetic::overflow::CheckedU64;
 use vstd::seq::*;
 
 verus! {

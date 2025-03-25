@@ -5,7 +5,7 @@ use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
 use crate::pmem::traits_t::{align_of, size_of};
-use super::overflow_v::CheckedU64;
+use vstd::arithmetic::overflow::CheckedU64;
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish};
@@ -146,53 +146,51 @@ pub open spec fn spec_reserve_specified_space(offset: int, size: int, alignment:
     (start, end)
 }
 
-impl CheckedU64 {
-    // Aligns a CheckedU64 value to the nearest specified alignment (u64).
-    // Returns the aligned CheckedU64 value.
-    #[inline]
-    pub exec fn align_u64(&self, alignment: u64) -> (result: Self)
-        requires
-            0 < alignment,
-        ensures
-            self@ <= result@,
-            result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@ as int, alignment as int),
-            is_aligned(result@ as int, alignment as int),
-    {
-        proof {
-            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
-        }
-
-        if self.is_overflowed() {
-            Self::new_overflowed(Ghost(round_up_to_alignment(self@ as int, alignment as int)))
-        }
-        else {
-            self.add(get_space_needed_for_alignment(self.unwrap(), alignment))
-        }
+// Aligns a CheckedU64 value to the nearest specified alignment (u64).
+// Returns the aligned CheckedU64 value.
+#[inline]
+pub exec fn align_checked_u64(v: &CheckedU64, alignment: u64) -> (result: CheckedU64)
+    requires
+        0 < alignment,
+    ensures
+        v@ <= result@,
+        result@ < v@ + alignment,
+        result@ == round_up_to_alignment(v@ as int, alignment as int),
+        is_aligned(result@ as int, alignment as int),
+{
+    proof {
+        lemma_space_needed_for_alignment_works(v@ as int, alignment as int);
     }
 
-    // Aligns a CheckedU64 value to the nearest specified alignment (usize).
-    // Returns the aligned CheckedU64 value.
-    #[inline]
-    pub exec fn align(&self, alignment: usize) -> (result: Self)
-        requires
-            0 < alignment,
-        ensures
-            self@ <= result@,
-            result@ < self@ + alignment,
-            result@ == round_up_to_alignment(self@ as int, alignment as int),
-            is_aligned(result@ as int, alignment as int),
-    {
-        proof {
-            lemma_space_needed_for_alignment_works(self@ as int, alignment as int);
-        }
+    if v.is_overflowed() {
+        CheckedU64::new_overflowed(Ghost(round_up_to_alignment(v@ as int, alignment as int)))
+    }
+    else {
+        v.add_value(get_space_needed_for_alignment(v.unwrap(), alignment))
+    }
+}
 
-        if self.is_overflowed() {
-            Self::new_overflowed(Ghost(round_up_to_alignment(self@ as int, alignment as int)))
-        }
-        else {
-            self.add(get_space_needed_for_alignment_usize(self.unwrap(), alignment) as u64)
-        }
+// Aligns a CheckedU64 value to the nearest specified alignment (usize).
+// Returns the aligned CheckedU64 value.
+#[inline]
+pub exec fn align_checked_u64_to_usize(v: &CheckedU64, alignment: usize) -> (result: CheckedU64)
+    requires
+        0 < alignment,
+    ensures
+        v@ <= result@,
+        result@ < v@ + alignment,
+        result@ == round_up_to_alignment(v@ as int, alignment as int),
+        is_aligned(result@ as int, alignment as int),
+{
+    proof {
+        lemma_space_needed_for_alignment_works(v@ as int, alignment as int);
+    }
+
+    if v.is_overflowed() {
+        CheckedU64::new_overflowed(Ghost(round_up_to_alignment(v@ as int, alignment as int)))
+    }
+    else {
+        v.add_value(get_space_needed_for_alignment_usize(v.unwrap(), alignment) as u64)
     }
 }
 
@@ -214,8 +212,8 @@ pub exec fn reserve_space<T>(offset: &CheckedU64) -> (bounds: (CheckedU64, Check
             &&& end@ - start@ == T::spec_size_of()
         })
 {
-    let start = offset.align(align_of::<T>());
-    let end = start.add(size_of::<T>() as u64);
+    let start = align_checked_u64_to_usize(&offset, align_of::<T>());
+    let end = start.add_value(size_of::<T>() as u64);
     (start, end)
 }
 
@@ -235,8 +233,8 @@ pub exec fn reserve_specified_space(offset: &CheckedU64, size: u64, alignment: u
             &&& end@ - start@ == size
         })
 {
-    let start = offset.align_u64(alignment);
-    let end = start.add(size);
+    let start = align_checked_u64(&offset, alignment);
+    let end = start.add_value(size);
     (start, end)
 }
 
@@ -257,7 +255,7 @@ pub exec fn reserve_specified_space_checked_u64(offset: &CheckedU64, size: &Chec
             &&& end@ - start@ == size@
         })
 {
-    let start = offset.align_u64(alignment);
+    let start = align_checked_u64(&offset, alignment);
     let end = start.add_checked(size);
     (start, end)
 }

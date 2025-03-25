@@ -4,7 +4,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::overflow_v::CheckedU64;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
@@ -17,6 +16,7 @@ use super::{KeyTable, KeyTableRowMetadata, KeyTableStaticMetadata};
 use super::recover_v::*;
 use super::spec_v::*;
 use super::super::spec_t::*;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
@@ -34,10 +34,10 @@ where
         broadcast use pmcopy_axioms;
     
         let row_metadata_start = CheckedU64::new(size_of::<u64>() as u64);
-        let row_metadata_end = row_metadata_start.add(size_of::<KeyTableRowMetadata>() as u64);
-        let row_metadata_crc_end = row_metadata_end.add(size_of::<u64>() as u64);
-        let row_key_end = row_metadata_crc_end.add(size_of::<K>() as u64);
-        let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
+        let row_metadata_end = row_metadata_start.add_value(size_of::<KeyTableRowMetadata>() as u64);
+        let row_metadata_crc_end = row_metadata_end.add_value(size_of::<u64>() as u64);
+        let row_key_end = row_metadata_crc_end.add_value(size_of::<K>() as u64);
+        let row_key_crc_end = row_key_end.add_value(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.max_keys);
         let table_size = num_rows.mul_checked(&row_key_crc_end);
         let initial_space: u64 = if min_start.is_overflowed() {
@@ -160,12 +160,12 @@ where
         }
     
         let row_cdb_start = CheckedU64::new(0);
-        let row_metadata_start = row_cdb_start.add(size_of::<u64>() as u64);
-        let row_metadata_end = row_metadata_start.add(size_of::<KeyTableRowMetadata>() as u64);
-        let row_metadata_crc_end = row_metadata_end.add(size_of::<u64>() as u64);
-        let row_key_end = row_metadata_crc_end.add(key_size as u64);
-        let row_key_crc_end = row_key_end.add(size_of::<u64>() as u64);
-        let start = CheckedU64::new(min_start).align(size_of::<u64>());
+        let row_metadata_start = row_cdb_start.add_value(size_of::<u64>() as u64);
+        let row_metadata_end = row_metadata_start.add_value(size_of::<KeyTableRowMetadata>() as u64);
+        let row_metadata_crc_end = row_metadata_end.add_value(size_of::<u64>() as u64);
+        let row_key_end = row_metadata_crc_end.add_value(key_size as u64);
+        let row_key_crc_end = row_key_end.add_value(size_of::<u64>() as u64);
+        let start = align_checked_u64_to_usize(&CheckedU64::new(min_start), size_of::<u64>());
         let num_rows = ps.max_keys;
         let space_required = CheckedU64::new(num_rows).mul_checked(&row_key_crc_end);
         let end = start.add_checked(&space_required);

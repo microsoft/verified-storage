@@ -3,7 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::overflow_v::CheckedU64;
+use crate::common::align_v::*;
 use crate::common::subrange_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
@@ -18,6 +18,7 @@ use super::lists::*;
 use super::recover_v::*;
 use super::spec_t::*;
 use super::UntrustedKvStoreImpl;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
@@ -48,8 +49,8 @@ where
         let u64_size = size_of::<u64>() as u64;
         let bytes_per_operation =
             overhead.add_checked(&overhead).add_checked(&overhead)
-                    .add(rm_size)
-                    .add(u64_size).add(u64_size).add(u64_size);
+                    .add_value(rm_size)
+                    .add_value(u64_size).add_value(u64_size).add_value(u64_size);
         CheckedU64::new(ps.max_operations_per_transaction).mul_checked(&bytes_per_operation)
     }
     
@@ -73,9 +74,9 @@ where
     
         let journal_capacity = Self::space_needed_for_journal_capacity(ps);
         let journal_end = Journal::<Perm, PM>::space_needed_for_setup(&journal_capacity);
-        let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
-        let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
-        let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
+        let sm_start = align_checked_u64_to_usize(&journal_end, align_of::<KvStaticMetadata>());
+        let sm_end = sm_start.add_value(size_of::<KvStaticMetadata>() as u64);
+        let sm_crc_end = sm_end.add_value(size_of::<u64>() as u64);
         let key_table_size = KeyTable::<Perm, PM, K>::space_needed_for_setup(ps, &sm_crc_end);
         let key_table_end = sm_crc_end.add_checked(&key_table_size);
         let item_table_size = ItemTable::<Perm, PM, I>::space_needed_for_setup(ps, &key_table_end);
@@ -160,9 +161,9 @@ where
     
         let journal_capacity = Self::space_needed_for_journal_capacity(ps);
         let journal_end = Journal::<Perm, PM>::space_needed_for_setup(&journal_capacity);
-        let sm_start = journal_end.align(align_of::<KvStaticMetadata>());
-        let sm_end = sm_start.add(size_of::<KvStaticMetadata>() as u64);
-        let sm_crc_end = sm_end.add(size_of::<u64>() as u64);
+        let sm_start = align_checked_u64_to_usize(&journal_end, align_of::<KvStaticMetadata>());
+        let sm_end = sm_start.add_value(size_of::<KvStaticMetadata>() as u64);
+        let sm_crc_end = sm_end.add_value(size_of::<u64>() as u64);
         if sm_crc_end.is_overflowed() {
             return Err(KvError::OutOfSpace);
         }

@@ -4,7 +4,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::overflow_v::CheckedU64;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::pmem::pmemspec_t::*;
@@ -14,6 +13,7 @@ use crate::pmem::wrpm_t::*;
 use super::{ListTable, ListTableSnapshot, ListTableStaticMetadata};
 use super::recover_v::*;
 use super::super::spec_t::*;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
@@ -32,9 +32,9 @@ where
         broadcast use pmcopy_axioms;
     
         let row_next_crc_start = CheckedU64::new(size_of::<u64>() as u64);
-        let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
-        let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
-        let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
+        let row_element_start = row_next_crc_start.add_value(size_of::<u64>() as u64);
+        let row_element_crc_start = row_element_start.add_value(size_of::<L>() as u64);
+        let row_size = row_element_crc_start.add_value(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.max_list_elements);
         let table_size = num_rows.mul_checked(&row_size);
         let initial_space = if min_start.is_overflowed() { 0 } else {
@@ -109,11 +109,11 @@ where
             broadcast use pmcopy_axioms;
         }
     
-        let start = CheckedU64::new(min_start).align(size_of::<u64>());
+        let start = align_checked_u64_to_usize(&CheckedU64::new(min_start), size_of::<u64>());
         let row_next_crc_start = CheckedU64::new(size_of::<u64>() as u64);
-        let row_element_start = row_next_crc_start.add(size_of::<u64>() as u64);
-        let row_element_crc_start = row_element_start.add(size_of::<L>() as u64);
-        let row_size = row_element_crc_start.add(size_of::<u64>() as u64);
+        let row_element_start = row_next_crc_start.add_value(size_of::<u64>() as u64);
+        let row_element_crc_start = row_element_start.add_value(size_of::<L>() as u64);
+        let row_size = row_element_crc_start.add_value(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.max_list_elements);
         let table_size = num_rows.mul_checked(&row_size);
         let end = start.add_checked(&table_size);

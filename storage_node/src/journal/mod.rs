@@ -11,7 +11,6 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::common::align_v::*;
-use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmcopy_t::*;

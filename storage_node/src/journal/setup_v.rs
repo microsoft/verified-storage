@@ -7,11 +7,11 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::pmem::wrpm_t::*;
 use crate::common::align_v::*;
-use crate::common::overflow_v::CheckedU64;
 use crate::common::subrange_v::*;
 use super::*;
 use super::recover_v::*;
 use super::spec_v::*;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 

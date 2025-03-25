@@ -2,7 +2,6 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::common::align_v::*;
-use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -17,6 +16,7 @@ use super::recover_v::*;
 use super::setup_v::*;
 use super::spec_v::*;
 use super::start_v::*;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 

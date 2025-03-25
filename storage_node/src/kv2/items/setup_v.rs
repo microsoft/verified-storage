@@ -4,7 +4,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::align_v::*;
-use crate::common::overflow_v::CheckedU64;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::pmem::pmemspec_t::*;
@@ -14,6 +13,7 @@ use crate::pmem::wrpm_t::*;
 use super::{ItemTable, ItemTableStaticMetadata};
 use super::spec_v::*;
 use super::super::spec_t::*;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
@@ -33,7 +33,7 @@ where
         broadcast use pmcopy_axioms;
     
         let row_item_end = CheckedU64::new(size_of::<I>() as u64);
-        let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
+        let row_item_crc_end = row_item_end.add_value(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.max_keys);
         let table_size = num_rows.mul_checked(&row_item_crc_end);
         let initial_space = if min_start.is_overflowed() { 0 } else {
@@ -100,9 +100,9 @@ where
         }
     
         let row_item_end = CheckedU64::new(size_of::<I>() as u64);
-        let row_item_crc_end = row_item_end.add(size_of::<u64>() as u64);
+        let row_item_crc_end = row_item_end.add_value(size_of::<u64>() as u64);
         let num_rows = CheckedU64::new(ps.max_keys);
-        let start = CheckedU64::new(min_start).align(size_of::<u64>());
+        let start = align_checked_u64_to_usize(&CheckedU64::new(min_start), size_of::<u64>());
         let table_size = num_rows.mul_checked(&row_item_crc_end);
         let end = start.add_checked(&table_size);
     

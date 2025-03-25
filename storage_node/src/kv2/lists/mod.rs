@@ -20,7 +20,6 @@ use vstd::prelude::*;
 
 use append_v::*;
 use crate::common::align_v::*;
-use crate::common::overflow_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
@@ -38,6 +37,7 @@ use std::collections::hash_map::HashMap;
 use std::hash::Hash;
 use super::recover_v::*;
 use super::spec_t::*;
+use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
