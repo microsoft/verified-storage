@@ -67,7 +67,7 @@ impl<K> KeyRowDisposition<K>
 
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
-pub(super) struct KeyMemoryMapping<K> {
+pub struct KeyMemoryMapping<K> {
     pub row_info: Map<u64, KeyRowDisposition<K>>,
     pub key_info: Map<K, u64>,
     pub item_info: Map<u64, u64>,
