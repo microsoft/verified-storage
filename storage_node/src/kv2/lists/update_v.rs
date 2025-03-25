@@ -2,13 +2,9 @@
 use builtin::*;
 use builtin_macros::*;
 #[cfg(verus_keep_ghost)]
-use super::util_v::lemma_writing_element_and_next_effect_on_recovery;
 #[cfg(verus_keep_ghost)]
-use super::util_v::lemma_writing_next_and_crc_together_effect_on_recovery;
 use vstd::prelude::*;
 
-use crate::common::align_v::*;
-use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
@@ -16,17 +12,12 @@ use crate::common::util_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
-use deps_hack::PmCopy;
-use std::collections::HashMap;
-use std::hash::Hash;
 use super::{ListRowDisposition, ListSummary, ListTable, ListTableEntry, ListTableEntryView, ListTableInternalView,
             ListTableStaticMetadata, ListTableStatus, ListTableView};
 use super::recover_v::*;
 use super::util_v::*;
-use super::super::impl_t::*;
 use super::super::spec_t::*;
 #[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
