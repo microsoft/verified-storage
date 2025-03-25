@@ -32,7 +32,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file = crate::MOUNT_POINT.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
-        let init_size = 1073741824;
+        let init_size = 53687091200;
 
         println!("creating viper client");
 
@@ -101,5 +101,6 @@ impl Drop for ViperClient
     fn drop(&mut self) {
         println!("dropping viper db");
         unsafe { crate::viperdb_cleanup(self.kv); }
+        println!("done dropping viperdb");
     }
 }

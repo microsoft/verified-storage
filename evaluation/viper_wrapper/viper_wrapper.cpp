@@ -1,4 +1,6 @@
 #include <fcntl.h>
+#include <chrono>
+#include <thread>
 #include <sys/stat.h>
 #include "viper_wrapper.hpp"
 #include "../YCSB/viper/target/headers/site_ycsb_db_Viper.h"
@@ -56,6 +58,11 @@ extern "C" bool viperdb_delete(struct ViperDBFFI* db, const K* key) {
 }
 
 extern "C" void viperdb_cleanup(ViperDBFFI* db) { 
+    delete db->client;
+    delete db->db;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     delete db;
     viper::PMemAllocator::get().destroy();
 }
@@ -147,7 +154,7 @@ int main(void) {
         auto key = new K(val);
         auto value = new V(val);
         viperdb_put(db, key, value);
-        delete db;
+        viperdb_cleanup(db);
     }
 
     std::filesystem::remove_all(file);
@@ -157,7 +164,7 @@ int main(void) {
         auto key = new K(val);
         auto value = new V(val);
         viperdb_put(db, key, value);
-        delete db;
+        viperdb_cleanup(db);
     }
 }
 #endif
