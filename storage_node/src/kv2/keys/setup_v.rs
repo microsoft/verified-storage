@@ -17,7 +17,7 @@ use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::*;
+use super::{KeyTable, KeyTableRowMetadata, KeyTableStaticMetadata};
 use super::recover_v::*;
 use super::spec_v::*;
 use super::super::impl_t::*;

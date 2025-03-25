@@ -15,12 +15,12 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use deps_hack::PmCopy;
-use inv_v::*;
-use recover_v::*;
-use setup_v::*;
 use std::collections::HashMap;
 use std::hash::Hash;
-use super::*;
+use super::KeyTableStaticMetadata;
+use super::inv_v::*;
+use super::recover_v::*;
+use super::setup_v::*;
 use super::super::impl_t::*;
 use super::super::spec_t::*;
 
