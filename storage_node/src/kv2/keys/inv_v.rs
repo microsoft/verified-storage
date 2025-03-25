@@ -3,26 +3,8 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::align_v::*;
-use crate::common::overflow_v::*;
 use crate::common::recover_v::*;
-use crate::common::subrange_v::*;
-use crate::common::table_v::*;
-use crate::common::util_v::*;
-use crate::journal::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t::*;
-use crate::pmem::wrpm_t::*;
-use crate::pmem::pmemutil_v::*;
-use deps_hack::PmCopy;
-use std::collections::HashMap;
-use std::hash::Hash;
 use super::*;
-use super::recover_v::*;
-use super::spec_v::*;
-use super::super::impl_t::*;
-use super::super::spec_t::*;
 
 verus! {
 
@@ -250,7 +232,8 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn complete(self, sm: KeyTableStaticMetadata) -> bool
     {
-        &&& forall|row_addr: u64| #[trigger] sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
+        &&& forall|row_addr: u64| 
+#[trigger] sm.table.validate_row_addr(row_addr) ==> self.row_info.contains_key(row_addr)
     }
 
     pub(super) open spec fn row_info_consistent(self, sm: KeyTableStaticMetadata) -> bool
@@ -356,7 +339,8 @@ impl<K> KeyMemoryMapping<K>
         }
         &&& forall|i: int| 0 <= i < pending_deallocations.len() ==> {
             &&& self.row_info.contains_key(#[trigger] pending_deallocations[i])
-            &&& self.row_info[pending_deallocations[i]] matches KeyRowDisposition::InPendingDeallocationList{ pos }
+            &&& self.row_info[pending_deallocations[i]]
+ matches KeyRowDisposition::InPendingDeallocationList{ pos }
             &&& pos == i
         }
     }
@@ -435,7 +419,8 @@ impl<K> KeyMemoryMapping<K>
 
     pub(super) open spec fn undo_delete(self, row_addr: u64, k: K, rm: KeyTableRowMetadata) -> Option<Self>
     {
-        if self.row_info[row_addr] matches KeyRowDisposition::InPendingDeallocationList{ pos } {
+        if self.row_info[row_addr] matches KeyRowDisposition::InPendingDeallocationList{ pos }
+ {
             Some(Self{
                 row_info: self.row_info.insert(row_addr, KeyRowDisposition::InHashTable{ k, rm }),
                 key_info: self.key_info.insert(k, row_addr),
