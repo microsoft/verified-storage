@@ -2,24 +2,14 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::seq::*;
 
-use crate::common::align_v::*;
-use crate::common::overflow_v::*;
-use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
-use crate::pmem::pmemutil_v::*;
 use std::hash::Hash;
-use std::io::Read;
-use super::*;
 use super::concurrentspec_t::*;
-use super::impl_v::*;
-use super::recover_v::*;
 use super::spec_t::*;
-use vstd::atomic::*;
-use vstd::invariant::*;
+use super::UntrustedKvStoreImpl;
 use vstd::pcm::*;
 use vstd::rwlock::{RwLock, RwLockPredicate};
 

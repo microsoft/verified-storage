@@ -3,26 +3,21 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::align_v::*;
 use crate::common::overflow_v::CheckedU64;
-use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
-use crate::common::table_v::*;
-use crate::common::util_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
-use deps_hack::PmCopy;
+use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
-use super::*;
 use super::keys::*;
-use super::impl_t::*;
 use super::items::*;
 use super::lists::*;
 use super::recover_v::*;
 use super::spec_t::*;
+use super::UntrustedKvStoreImpl;
 
 verus! {
 

@@ -18,10 +18,10 @@ pub mod slots_v;
 pub mod spec_t;
 pub mod start_v;
 pub mod util_v;
+
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::seq::*;
 
 use crate::common::align_v::*;
 use crate::common::overflow_v::*;
@@ -42,6 +42,7 @@ use rwkv_v::*;
 use setup_v::*;
 use spec_t::*;
 use std::hash::Hash;
+use vstd::seq::*;
 
 verus! {
 

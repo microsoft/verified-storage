@@ -2,15 +2,8 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::seq::*;
 
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
 use super::*;
-use super::spec_t::*;
-use vstd::atomic::*;
-use vstd::invariant::*;
 use vstd::pcm::*;
 
 verus! {

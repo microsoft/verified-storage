@@ -3,26 +3,20 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::impl_t::*;
+use crate::common::recover_v::*;
+use crate::common::subrange_v::*;
+use crate::journal::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::traits_t::*;
+use crate::pmem::wrpm_t::*;
+use std::hash::Hash;
 use super::items::*;
 use super::keys::*;
 use super::lists::*;
 use super::recover_v::*;
 use super::spec_t::*;
-use super::*;
-use crate::common::align_v::*;
-use crate::common::overflow_v::*;
-use crate::common::recover_v::*;
-use crate::common::subrange_v::*;
-use crate::common::table_v::*;
-use crate::common::util_v::*;
-use crate::journal::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmemutil_v::*;
-use crate::pmem::traits_t::*;
-use deps_hack::PmCopy;
-use std::hash::Hash;
+use super::{KvStoreStatus, UntrustedKvStoreImpl};
 
 verus! {
 
