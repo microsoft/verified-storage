@@ -3,25 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::common::align_v::*;
-use crate::common::overflow_v::*;
-use crate::common::subrange_v::*;
-use crate::common::table_v::*;
-use crate::common::util_v::*;
-use crate::journal::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t::*;
-use crate::pmem::wrpm_t::*;
-use crate::pmem::pmemutil_v::*;
-use deps_hack::PmCopy;
-use std::collections::HashMap;
-use std::hash::Hash;
-use super::*;
-use super::inv_v::*;
-use super::recover_v::*;
-use super::setup_v::*;
-use super::start_v::*;
+use super::ItemTableStaticMetadata;
 
 verus! {
 
