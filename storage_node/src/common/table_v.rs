@@ -1,3 +1,11 @@
+// This file defines the `TableMetadata` struct and its associated methods and proofs.
+// It provides functionality for operating on tables in persistent memory where
+// rows are consecutive and identically-sized. It hides all the nonlinear arithmetic
+// (multiplication, division, and modulo by the row size) internally, providing an
+// abstraction that doesn't require reasoning about such arithmetic. For instance,
+// it provides a broadcast lemma saying that if two valid row addresses are unequal,
+// then their rows don't overlap.
+
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
@@ -18,6 +26,8 @@ use vstd::arithmetic::mul::{
 
 verus! {
 
+// This struct represents metadata for a table in persistent memory, including the start and end
+// addresses, number of rows, and size of each row.
 #[repr(C)]
 #[derive(PmCopy, Copy)]
 #[verifier::ext_equal]
@@ -31,17 +41,23 @@ pub struct TableMetadata
 
 impl TableMetadata
 {
+    // Indicates whether the table metadata is valid. Note that it allows for
+    // some unused space at the end of the table, perhaps for use in padding.
     pub closed spec fn valid(self) -> bool
     {
         &&& 0 < self.row_size
         &&& self.num_rows as int * self.row_size <= self.end - self.start
     }
 
+    // Computes the address of a row given its index, based on the table metadata.
     pub closed spec fn spec_row_index_to_addr(self, row_index: int) -> u64
     {
         (self.start + row_index * self.row_size) as u64
     }
 
+    // Computes the address of a row at runtime, given its index.
+    // Hides the nonlinear arithmetic, providing a postcondition merely
+    // stating that it's equivalent to the corresponding spec function.
     pub exec fn row_index_to_addr(self, row_index: u64) -> (out: u64)
         requires
             self.valid(),
@@ -53,11 +69,13 @@ impl TableMetadata
         self.start + row_index * self.row_size
     }
 
+    // Computes the index of a row given its address, based on the table metadata.
     pub closed spec fn row_addr_to_index(self, addr: u64) -> int
     {
         (addr - self.start) / (self.row_size as int)
     }
 
+    // Indicates whether a given address corresponds to a valid row in the table.
     pub closed spec fn validate_row_addr(self, addr: u64) -> bool
     {
         let row_index = self.row_addr_to_index(addr);
@@ -65,6 +83,7 @@ impl TableMetadata
         &&& addr == self.start + row_index * self.row_size
     }
 
+    // Creates a new `TableMetadata` instance with the specified parameters.
     pub exec fn new(start: u64, end: u64, num_rows: u64, row_size: u64) -> (result: Self)
         requires
             0 < row_size,
@@ -76,6 +95,7 @@ impl TableMetadata
         Self{ start, end, num_rows, row_size }
     }
 
+    // Proves that the start address corresponds to a valid row in the table.
     pub proof fn lemma_start_is_valid_row(self)
         requires
             self.valid(),
@@ -87,6 +107,8 @@ impl TableMetadata
         assert(0int / self.row_size as int == 0);
     }
 
+    // Proves that the successor of a valid row address is also valid, as long as it's
+    // not past the end of the table.
     pub proof fn lemma_row_addr_successor_is_valid(self, addr: u64)
         requires
             self.valid(),
@@ -114,6 +136,8 @@ impl TableMetadata
         }
     }
 
+    // Proves that `row_addr_to_index` and `row_index_to_addr` are inverses
+    // of each other, when applied in either order.
     pub proof fn lemma_index_addr_inverse(self)
         requires
             self.valid(),
@@ -133,6 +157,9 @@ impl TableMetadata
         } by { lemma_row_index_to_addr_is_valid(self, i); }
     }
 
+    // Proves that the set of valid row addresses has length equal to the number
+    // of rows in the table. Also proves that that set is finite, so the length
+    // is a meaningful quantity.
     pub proof fn lemma_valid_row_set_len(self)
         requires
             self.valid(),
@@ -143,9 +170,12 @@ impl TableMetadata
                 &&& valid_row_addrs.finite()
             }),
     {
+        // The proof is in three parts.
+
         let valid_row_addrs = Set::<u64>::new(|row_addr: u64| self.validate_row_addr(row_addr));
         let rows: Seq<u64> = Seq::new(self.num_rows as nat, |row_index: int| self.spec_row_index_to_addr(row_index));
 
+        // First, we prove that the sequence containing all row addresses in order has no duplicates.
         assert(rows.no_duplicates()) by {
             assert forall|i, j| (0 <= i < rows.len() && 0 <= j < rows.len() && i != j) implies rows[i] != rows[j] by {
                 lemma_row_index_to_addr_is_valid(self, i);
@@ -153,6 +183,7 @@ impl TableMetadata
             }
         }
 
+        // Second, we prove that if you convert that sequence to a set, you get the set of valid row addresses.
         assert(rows.to_set() =~= valid_row_addrs) by {
             assert forall|row_addr: u64| #[trigger] rows.to_set().contains(row_addr)
                        implies valid_row_addrs.contains(row_addr) by {
@@ -167,10 +198,16 @@ impl TableMetadata
             }
         }
 
+        // Finally, we use `unique_seq_to_set`, a library function that proves that the length
+        // of a set derived from a sequence with no duplicates is equal to the length of that sequence.
         rows.unique_seq_to_set();
     }
 }
 
+// Proves, in a way that can be used by broadcast, various facts about a given valid
+// row address. Specifically, that it's within the bounds of the table, and that
+// converting to a row index gives a number in [0, num_rows). The trigger for
+// this broadcast is `tm.validate_row_addr(addr)`.
 pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, addr: u64)
     requires
         tm.valid(),
@@ -188,6 +225,9 @@ pub broadcast proof fn broadcast_validate_row_addr_effects(tm: TableMetadata, ad
     }
 }
 
+// Proves, in a way that can be used by broadcast, that two valid but unequal row
+// addresses don't overlap in memory, and have different row indices. The trigger
+// is two parts: `tm.validate_row_addr(addr1)` and `tm.validate_row_addr(addr2)`.
 pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetadata, addr1: u64, addr2: u64)
     requires
         tm.valid(),
@@ -213,6 +253,9 @@ pub broadcast proof fn broadcast_validate_row_addr_nonoverlapping(tm: TableMetad
     lemma_mul_is_distributive_add_other_way(tm.row_size as int, row_index2 as int, 1);
 }
 
+// Proves, in a way that can be used by broadcast, that converting a row index to an address
+// produces a valid address, and that converting that address back to a row index gives the original
+// row index. The trigger is `tm.spec_row_index_to_addr(row_index)`.
 pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_index: int)
     requires
         tm.valid(),
@@ -230,8 +273,7 @@ pub broadcast proof fn lemma_row_index_to_addr_is_valid(tm: TableMetadata, row_i
     }
 }
 
-
-
+// Provides a useful collection of broadcast lemmas for reasoning about valid rows.
 pub broadcast group group_validate_row_addr {
     broadcast_validate_row_addr_effects,
     broadcast_validate_row_addr_nonoverlapping,
