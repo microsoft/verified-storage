@@ -10,7 +10,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
 use crate::pmem::wrpm_t::*;
 use super::entry_v::*;
-use super::*;
+use super::impl_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::setup_v::*;

@@ -4,8 +4,8 @@ use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::common::subrange_v::*;
 use crate::pmem::wrpm_t::*;
-use super::*;
 use super::entry_v::*;
+use super::impl_v::*;
 use super::recover_v::*;
 
 verus! {

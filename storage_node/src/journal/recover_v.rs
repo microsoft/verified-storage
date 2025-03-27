@@ -1,16 +1,17 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::traits_t::*;
 use crate::common::align_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::util_v::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::wrpm_t::*;
+use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
-use super::*;
 use super::entry_v::*;
+use super::impl_v::*;
 use super::spec_v::*;
 
 verus! {

@@ -4,7 +4,6 @@ use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::common::subrange_v::*;
-use super::*;
 
 verus! {
 
