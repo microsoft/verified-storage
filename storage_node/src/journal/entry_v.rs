@@ -5,10 +5,7 @@ use crate::common::subrange_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::traits_t::size_of;
 use super::recover_v::*;
-use super::spec_v::*;
-use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 

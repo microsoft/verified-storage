@@ -9,7 +9,6 @@ use crate::pmem::wrpm_t::*;
 use crate::common::align_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
-use deps_hack::PmCopy;
 use super::entry_v::*;
 use super::impl_v::*;
 use super::inv_v::*;
