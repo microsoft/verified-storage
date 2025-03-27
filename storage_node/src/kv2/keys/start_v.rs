@@ -12,8 +12,10 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use super::{ConcreteKeyInfo, KeyMemoryMapping, KeyRecoveryMapping, KeyTable, KeyTableRowMetadata,
-            KeyTableStaticMetadata, KeyTableStatus, KeyUndoRecord};
+use super::impl_v::*;
+use super::inv_v::*;
+use super::recover_v::*;
+use super::spec_v::*;
 use super::super::spec_t::*;
 #[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;

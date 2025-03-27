@@ -10,7 +10,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
-use super::{ConcreteKeyInfo, KeyTable, KeyTableStatus, KeyUndoRecord};
+use super::impl_v::*;
 use super::spec_v::*;
 
 verus! {

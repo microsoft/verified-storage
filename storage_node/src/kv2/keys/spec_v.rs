@@ -7,7 +7,7 @@ use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
-use super::KeyTableStaticMetadata;
+use super::impl_v::*;
 
 verus! {
 

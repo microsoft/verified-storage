@@ -12,7 +12,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
-use super::{KeyTable, KeyTableRowMetadata, KeyTableStaticMetadata};
+use super::impl_v::*;
 use super::recover_v::*;
 use super::spec_v::*;
 use super::super::spec_t::*;
