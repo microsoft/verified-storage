@@ -1,3 +1,4 @@
+// This file contains miscellaneous utility functions.
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -10,7 +11,7 @@ use crate::pmem::pmemutil_v::*;
 
 verus! {
 
-// vstd does not implement max for Seq<nat>
+// Computes the maximum value in a sequence of natural numbers.
 pub open spec fn nat_seq_max(seq: Seq<nat>) -> nat 
     recommends 
         0 < seq.len(),
@@ -80,6 +81,8 @@ pub proof fn lemma_seqs_flatten_equal_suffix(s: Seq<Seq<u8>>)
     }
 }
 
+// This lemma proves that if a map is injective, then inverting it twice produces
+// the original map.
 pub proof fn lemma_injective_map_is_invertible<K, V>(map: Map<K, V>)
     requires 
         map.is_injective(),
@@ -94,6 +97,8 @@ pub proof fn lemma_injective_map_is_invertible<K, V>(map: Map<K, V>)
     assert(map =~= map.invert().invert());
 }
 
+// Proves that if a map `map` is injective, then `map.invert()` maps
+// its values to its keys.
 pub proof fn lemma_injective_map_inverse<K, V>(map: Map<K, V>)
     requires 
         map.is_injective()
@@ -142,6 +147,8 @@ pub proof fn lemma_seq_len_when_no_dup_and_all_values_in_range(s: Seq<int>, min:
     assert(s.len() <= set_int_range(min, max).len());
 }
 
+// This executable function clones a vector of objects of type `T`
+// when `T` implements the `PmCopy` trait.
 // TODO: Do this more efficiently by just calling Vec::clone.
 pub exec fn clone_pmcopy_vec<T: PmCopy>(v: &Vec<T>) -> (result: Vec<T>)
     ensures
@@ -160,6 +167,8 @@ pub exec fn clone_pmcopy_vec<T: PmCopy>(v: &Vec<T>) -> (result: Vec<T>)
     result
 }
 
+// This executable function extends a `Vec<u8>` with the contents of
+// a slice.
 #[inline]
 pub exec fn extend_vec_u8_from_slice(v: &mut Vec<u8>, s: &[u8])
     ensures
@@ -170,6 +179,8 @@ pub exec fn extend_vec_u8_from_slice(v: &mut Vec<u8>, s: &[u8])
 }
 
 
+// Proves that, given that `s` is finite, it contains `v` if and only if
+// `s.to_seq()` contains `v`.
 pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
     requires
         s.finite(),
@@ -200,6 +211,8 @@ pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
     }
 }
 
+// Proves that, given that `s` is finite, `s.to_seq()` has the same length as `s`
+// and has no duplicates.
 pub proof fn lemma_set_to_seq_has_same_length_with_no_duplicates<A>(s: Set<A>)
     requires
         s.finite(),
@@ -220,6 +233,11 @@ pub proof fn lemma_set_to_seq_has_same_length_with_no_duplicates<A>(s: Set<A>)
     q.unique_seq_to_set();
 }
 
+// Prove that if there exists a bijection between two sets `s1` and `s2`,
+// where `s1` is known to be finite, then `s2` is also finite and
+// has the same length as `s1`. The bijection takes the form of two
+// functions `f` and `g`, where `f` maps elements from `s1` to `s2`
+// and `g` maps elements from `s2` to `s1`.
 pub proof fn lemma_bijection_makes_sets_have_equal_size<A, B>(
     s1: Set<A>,
     s2: Set<B>,
@@ -300,6 +318,9 @@ pub proof fn lemma_bijection_makes_sets_have_equal_size<A, B>(
     }
 }
 
+// Proves that `s.fold_left(c, g)` can be expressed as a `fold_left`
+// of `s.map_values(f)`. For this, we require a fold function `h` that
+// inverts the effect of `f`.
 pub proof fn lemma_fold_equivalent_to_map_fold<A, B, C>(
     c: C,
     s: Seq<A>,
@@ -320,6 +341,7 @@ pub proof fn lemma_fold_equivalent_to_map_fold<A, B, C>(
     }
 }
 
+// Proves that if `s.filter(pred)` contains `x`, then `s` contains `x` and `pred(x)` is true.
 pub proof fn lemma_if_filter_contains_then_original_contains<A>(s: Seq<A>, pred: spec_fn(A) -> bool, x: A)
     ensures
         s.filter(pred).contains(x) ==> s.contains(x) && pred(x),
@@ -332,6 +354,7 @@ pub proof fn lemma_if_filter_contains_then_original_contains<A>(s: Seq<A>, pred:
     }
 }
 
+// Proves that if `s` has no duplicates, then `s.filter(pred)` also has no duplicates.
 pub proof fn lemma_filter_preserves_no_duplicates<A>(s: Seq<A>, pred: spec_fn(A) -> bool)
     requires
         s.no_duplicates(),
@@ -355,15 +378,21 @@ pub proof fn lemma_filter_preserves_no_duplicates<A>(s: Seq<A>, pred: spec_fn(A)
     }
 }
 
+// Indicates whether the given function `f` used for `fold_left` is commutative.
 pub open spec fn commutative_foldl<A, B>(f: spec_fn(B, A) -> B) -> bool {
     forall|x: A, y: A, v: B| #[trigger] f(f(v, x), y) == f(f(v, y), x)
 }
 
+// Converts a `fold_left` function to a `fold_right` function.
 pub open spec fn convert_foldl_to_foldr<A, B>(f: spec_fn(B, A) -> B) -> (spec_fn(A, B) -> B)
 {
     |a: A, b: B| f(b, a)
 }
 
+// Proves that if `f` is a commutative `fold_left` function, then the result of
+// folding left using `f` is equal to the result of folding right using
+// `convert_foldl_to_foldr(f)`. Furthermore, `convert_foldl_to_foldr(f)` is
+// a commutative `fold_right` function.
 pub proof fn lemma_commutative_foldl_equivalent_to_corresponding_foldr<A, B>(
     s: Seq<A>,
     b: B,
@@ -384,6 +413,8 @@ pub proof fn lemma_commutative_foldl_equivalent_to_corresponding_foldr<A, B>(
     }
 }
 
+// Proves that if two sequences `s1` and `s2` have no duplicates and map to the same set,
+// then they're permutations of each other.
 pub proof fn lemma_two_seqs_with_no_duplicates_and_same_to_set_are_permutations<A>(s1: Seq<A>, s2: Seq<A>)
     requires
         s1.no_duplicates(),
