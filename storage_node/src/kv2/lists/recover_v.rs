@@ -9,7 +9,8 @@ use crate::common::table_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
-use super::{ListSummary, ListTable, ListTableEntry, ListTableSnapshot, ListTableStaticMetadata};
+use super::impl_v::*;
+use super::spec_v::*;
 use super::super::spec_t::*;
 
 verus! {

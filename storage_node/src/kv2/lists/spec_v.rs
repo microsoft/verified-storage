@@ -3,7 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::ListTableStaticMetadata;
+use super::impl_v::*;
 use super::super::spec_t::*;
 
 verus! {

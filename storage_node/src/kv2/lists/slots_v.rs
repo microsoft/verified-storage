@@ -5,7 +5,8 @@ use vstd::prelude::*;
 
 use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
-use super::{ListTable, ListTableInternalView, ListTableStaticMetadata};
+use super::impl_v::*;
+use super::inv_v::*;
 use super::super::spec_t::*;
 use vstd::set_lib::*;
 

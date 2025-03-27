@@ -8,8 +8,8 @@ use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
-use super::{ListRowDisposition, ListSummary, ListTable, ListTableEntry, ListTableEntryView,
-            ListTableInternalView, ListTableStaticMetadata};
+use super::impl_v::*;
+use super::inv_v::*;
 use super::spec_v::*;
 use super::super::spec_t::*;
 #[cfg(verus_keep_ghost)]

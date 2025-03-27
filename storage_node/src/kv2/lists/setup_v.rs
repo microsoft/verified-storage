@@ -10,8 +10,9 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
-use super::{ListTable, ListTableSnapshot, ListTableStaticMetadata};
+use super::impl_v::*;
 use super::recover_v::*;
+use super::spec_v::*;
 use super::super::spec_t::*;
 use vstd::arithmetic::overflow::CheckedU64;
 
