@@ -13,11 +13,11 @@ use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
 use super::keys::*;
+use super::impl_v::*;
 use super::items::*;
 use super::lists::*;
 use super::recover_v::*;
 use super::spec_t::*;
-use super::UntrustedKvStoreImpl;
 use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {

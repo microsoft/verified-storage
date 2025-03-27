@@ -11,12 +11,12 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
+use super::impl_v::*;
 use super::items::*;
 use super::keys::*;
 use super::lists::*;
 use super::recover_v::*;
 use super::spec_t::*;
-use super::{KvStoreStatus, UntrustedKvStoreImpl};
 
 verus! {
 

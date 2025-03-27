@@ -8,9 +8,9 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
+use super::impl_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
-use super::UntrustedKvStoreImpl;
 
 verus! {
 
