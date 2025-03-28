@@ -13,12 +13,14 @@ use super::spec_v::*;
 
 verus! {
 
-pub struct Journal<Perm, PM>
-    where
-        PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
+pub struct Journal<Perm, PermFactory, PM>
+where
+    PM: PersistentMemoryRegion,
+    Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
 {
     pub(super) wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+    pub(super) perm_factory: Tracked<PermFactory>,
     pub(super) vm: Ghost<JournalVersionMetadata>,
     pub(super) sm: JournalStaticMetadata,
     pub(super) status: Ghost<JournalStatus>,
@@ -28,10 +30,11 @@ pub struct Journal<Perm, PM>
     pub(super) entries: ConcreteJournalEntries,
 }
 
-impl <Perm, PM> Journal<Perm, PM>
-    where
-        PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
+impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+where
+    PM: PersistentMemoryRegion,
+    Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
 {
     pub open(super) spec fn view(&self) -> JournalView
     {
@@ -145,6 +148,7 @@ impl <Perm, PM> Journal<Perm, PM>
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
         self.entries = ConcreteJournalEntries::new();
+        assert(self.perm_factory == old(self).perm_factory);
     }
 
     pub exec fn flush(&mut self)

@@ -14,10 +14,11 @@ use super::recover_v::*;
 
 verus! {
 
-impl <Perm, PM> Journal<Perm, PM>
-    where
-        PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
+impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+where
+    PM: PersistentMemoryRegion,
+    Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
 {
     proof fn lemma_write_journal_entry_initial_conditions(
         self,
@@ -63,7 +64,6 @@ impl <Perm, PM> Journal<Perm, PM>
     #[inline]
     exec fn write_journal_entry(
         &mut self,
-        Tracked(perm): Tracked<&Perm>,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
         Ghost(original_read_state): Ghost<Seq<u8>>,
         current_entry_index: usize,
@@ -73,8 +73,6 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
-                ==> #[trigger] perm.check_permission(s),
             recovers_to(original_durable_state, old(self).vm@, old(self).sm, old(self).constants),
             old(self).sm.journal_entries_start <= current_pos <= old(self).wrpm@.read_state.len(),
             parse_journal_entries(
@@ -124,7 +122,8 @@ impl <Perm, PM> Journal<Perm, PM>
 
         // First, write the `start` field of the entry, which is the address that the entry
         // is referring to, to the next position in the journal.
-    
+
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
         assert(crc_digest.bytes_in_digest() ==
@@ -137,6 +136,7 @@ impl <Perm, PM> Journal<Perm, PM>
         // Next, write the `num_bytes` field of the entry.
     
         let num_bytes_addr = current_pos + size_of::<u64>() as u64;
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
         crc_digest.write(&num_bytes);
         assert(crc_digest.bytes_in_digest() ==
@@ -150,6 +150,7 @@ impl <Perm, PM> Journal<Perm, PM>
     
         let bytes_to_write_addr = num_bytes_addr + size_of::<u64>() as u64;
         let bytes_to_write_as_slice = entry.bytes_to_write.as_slice();
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.write(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
         crc_digest.write_bytes(bytes_to_write_as_slice);
         assert(crc_digest.bytes_in_digest() ==
@@ -192,7 +193,6 @@ impl <Perm, PM> Journal<Perm, PM>
     #[inline]
     exec fn write_journal_entries(
         &mut self,
-        Tracked(perm): Tracked<&Perm>,
     ) -> (journal_entries_crc: u64)
         where
             PM: PersistentMemoryRegion,
@@ -200,8 +200,6 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(self).wrpm@.durable_state)
-                ==> #[trigger] perm.check_permission(s),
         ensures
             self.inv(),
             self == (Self{
@@ -238,8 +236,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 self.status@ is WritingJournal,
                 self.wrpm.constants() == old(self).wrpm.constants(),
                 end_pos == self.sm.journal_entries_start + self.journal_length,
-                forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
-                    ==> #[trigger] perm.check_permission(s),
                 recovers_to(original_durable_state, self.vm@, self.sm, self.constants),
                 parse_journal_entries(
                     self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int)
@@ -257,8 +253,8 @@ impl <Perm, PM> Journal<Perm, PM>
                 crc_digest.bytes_in_digest() ==
                     self.wrpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int),
         {
-            current_pos = self.write_journal_entry(Tracked(perm),
-                                                   Ghost(original_durable_state), Ghost(original_read_state),
+            let tracked perm = self.perm_factory.borrow().grant_permission();
+            current_pos = self.write_journal_entry(Ghost(original_durable_state), Ghost(original_read_state),
                                                    current_entry_index, current_pos,
                                                    &mut crc_digest);
             assert(current_entry_index < u64::MAX) by {
@@ -271,18 +267,10 @@ impl <Perm, PM> Journal<Perm, PM>
     }
 
     #[inline]
-    exec fn write_journal_metadata(
-        &mut self,
-        Tracked(perm): Tracked<&Perm>,
-    )
-        where
-            PM: PersistentMemoryRegion,
-            Perm: CheckPermission<Seq<u8>>,
+    exec fn write_journal_metadata(&mut self)
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(self).wrpm@.durable_state)
-                ==> #[trigger] perm.check_permission(s),
         ensures
             self.inv(),
             self.wrpm.constants() == old(self).wrpm.constants(),
@@ -307,9 +295,12 @@ impl <Perm, PM> Journal<Perm, PM>
             digest.sum64()
         };
 
-        let journal_entries_crc = self.write_journal_entries(Tracked(perm));
+        let journal_entries_crc = self.write_journal_entries();
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.serialize_and_write::<u64>(self.sm.journal_length_start, &self.journal_length, Tracked(perm));
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.serialize_and_write::<u64>(self.sm.journal_length_crc_start, &journal_length_crc, Tracked(perm));
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.serialize_and_write::<u64>(self.sm.journal_entries_crc_start, &journal_entries_crc, Tracked(perm));
         self.wrpm.flush();
 
@@ -324,11 +315,8 @@ impl <Perm, PM> Journal<Perm, PM>
         Ghost(original_durable_state): Ghost<Seq<u8>>,
         Ghost(original_read_state): Ghost<Seq<u8>>,
         Ghost(original_commit_state): Ghost<Seq<u8>>,
-        Tracked(perm): Tracked<&Perm>,
+        Tracked(perm): Tracked<Perm>,
     )
-        where
-            PM: PersistentMemoryRegion,
-            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
@@ -346,10 +334,10 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal_length(old(self).wrpm@.read_state, old(self).sm) == Some(old(self).journal_length),
             recover_journal_entries(old(self).wrpm@.read_state, old(self).sm, old(self).journal_length) ==
                 Some(old(self).entries@),
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
-                ==> #[trigger] perm.check_permission(s),
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
-                ==> #[trigger] perm.check_permission(s),
+            forall|s1: Seq<u8>, s2: Seq<u8>| {
+                &&& spec_recovery_equivalent_for_app(s1, original_durable_state)
+                &&& spec_recovery_equivalent_for_app(s2, original_commit_state)
+            } ==> #[trigger] perm.check_permission(s1, s2),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
         ensures
             self.inv(),
@@ -394,10 +382,12 @@ impl <Perm, PM> Journal<Perm, PM>
                                                                      self.sm, self.entries@);
         }
 
+        let tracked unchanged_perm = self.perm_factory.borrow().grant_permission();
+        let tracked combined_perm = unchanged_perm.combine(perm);
         assert forall |s| #[trigger] can_result_from_partial_write(s, self.wrpm@.durable_state,
                                                               self.sm.committed_cdb_start as int,
                                                               cdb.spec_to_bytes())
-            implies perm.check_permission(s) by {
+            implies combined_perm.check_permission(self.wrpm@.durable_state, s) by {
             assert(s == self.wrpm@.durable_state || s == desired_state) by {
                 assert(self.sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
                 lemma_only_two_crash_states_introduced_by_aligned_chunk_write(s, self.wrpm@.durable_state,
@@ -406,7 +396,7 @@ impl <Perm, PM> Journal<Perm, PM>
             }
         }
 
-        self.wrpm.serialize_and_write::<u64>(self.sm.committed_cdb_start, &cdb, Tracked(perm));
+        self.wrpm.serialize_and_write::<u64>(self.sm.committed_cdb_start, &cdb, Tracked(combined_perm));
         self.wrpm.flush();
         assert(self.wrpm@.read_state == desired_state);
         self.status = Ghost(JournalStatus::Committed);
@@ -419,11 +409,7 @@ impl <Perm, PM> Journal<Perm, PM>
         Ghost(original_read_state): Ghost<Seq<u8>>,
         Ghost(original_commit_state): Ghost<Seq<u8>>,
         Ghost(desired_commit_state): Ghost<Seq<u8>>,
-        Tracked(perm): Tracked<&Perm>,
     )
-        where
-            PM: PersistentMemoryRegion,
-            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is Committed,
@@ -444,8 +430,6 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal_entries(old(self).wrpm@.durable_state, old(self).sm, old(self).journal_length)
                 == Some(old(self).entries@),
             recover_journal(old(self).wrpm@.durable_state) == recover_journal(original_read_state),
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
-                ==> #[trigger] perm.check_permission(s),
             seqs_match_except_in_range(original_read_state, old(self).wrpm@.durable_state,
                                        old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
             seqs_match_except_in_range(original_read_state, old(self).wrpm@.read_state,
@@ -493,7 +477,7 @@ impl <Perm, PM> Journal<Perm, PM>
             }
             assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, entry.start as int,
                                                       entry.bytes_to_write@)
-                implies #[trigger] perm.check_permission(s) by {
+                implies #[trigger] self.perm_factory@.check_permission(self.wrpm@.durable_state, s) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
                     s, self.wrpm@.durable_state, entry.start as int, entry.bytes_to_write@,
                     entry@.addrs(),
@@ -502,6 +486,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 assert(recover_journal(s) == recover_journal(self.wrpm@.durable_state));
             }
         }
+        let tracked perm = self.perm_factory.borrow().grant_permission();
         self.wrpm.write(entry.start, entry.bytes_to_write.as_slice(), Tracked(perm));
         proof {
             assert(recover_journal(self.wrpm@.durable_state) == recover_journal(old(self).wrpm@.durable_state)) by {
@@ -526,11 +511,7 @@ impl <Perm, PM> Journal<Perm, PM>
     exec fn install_journal_entries_during_commit(
         &mut self,
         Ghost(original_commit_state): Ghost<Seq<u8>>,
-        Tracked(perm): Tracked<&Perm>,
     )
-        where
-            PM: PersistentMemoryRegion,
-            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is Committed,
@@ -545,8 +526,6 @@ impl <Perm, PM> Journal<Perm, PM>
                                       old(self).sm.app_area_end as int)
             }),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
-            forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
-                ==> #[trigger] perm.check_permission(s),
         ensures
             self.inv(),
             self == (Self{
@@ -588,8 +567,6 @@ impl <Perm, PM> Journal<Perm, PM>
                 recover_journal_length(self.wrpm@.durable_state, self.sm) == Some(self.journal_length),
                 recover_journal_entries(self.wrpm@.durable_state, self.sm, self.journal_length) == Some(self.entries@),
                 recover_journal(self.wrpm@.durable_state) == recover_journal(old(self).wrpm@.read_state),
-                forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
-                    ==> #[trigger] perm.check_permission(s),
                 seqs_match_except_in_range(old(self).wrpm@.read_state, self.wrpm@.durable_state,
                                            self.sm.app_area_start as int, self.sm.app_area_end as int),
                 seqs_match_except_in_range(old(self).wrpm@.read_state, self.wrpm@.read_state,
@@ -607,8 +584,7 @@ impl <Perm, PM> Journal<Perm, PM>
             let ghost durable_state_at_start_of_loop = self.wrpm@.durable_state;
     
             self.install_journal_entry_during_commit(num_entries_installed, Ghost(old(self).wrpm@.read_state),
-                                                     Ghost(original_commit_state), Ghost(desired_commit_state),
-                                                     Tracked(perm));
+                                                     Ghost(original_commit_state), Ghost(desired_commit_state));
             assert(self.entries@.skip(num_entries_installed as int)
                    =~= seq![self.entries@[num_entries_installed as int]]
                        + self.entries@.skip(num_entries_installed + 1));
@@ -653,13 +629,13 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
 
-    pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
+    pub exec fn commit(&mut self, Tracked(perm): Tracked<Perm>)
         requires
             old(self).valid(),
-            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(self)@.durable_state)
-                ==> #[trigger] perm.check_permission(s),
-            forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(self)@.commit_state)
-                ==> #[trigger] perm.check_permission(s),
+            forall|s1: Seq<u8>, s2: Seq<u8>| {
+                &&& Self::recovery_equivalent_for_app(s1, old(self)@.durable_state)
+                &&& Self::recovery_equivalent_for_app(s2, old(self)@.commit_state)
+            } ==> #[trigger] perm.check_permission(s1, s2),
         ensures
             self.valid(),
             self@.valid(),
@@ -670,11 +646,17 @@ impl <Perm, PM> Journal<Perm, PM>
             self.lemma_commit_initial_conditions();
         }
         self.status = Ghost(JournalStatus::WritingJournal);
-        self.write_journal_metadata(Tracked(perm));
+        assert(self.perm_factory == old(self).perm_factory);
+        self.write_journal_metadata();
         self.mark_journal_committed(Ghost(old(self).wrpm@.durable_state), Ghost(old(self).wrpm@.read_state),
                                     Ghost(old(self)@.commit_state), Tracked(perm));
-        self.install_journal_entries_during_commit(Ghost(old(self)@.commit_state), Tracked(perm));
-        Self::clear_log(&mut self.wrpm, Tracked(perm), self.vm, &self.sm);
+        self.install_journal_entries_during_commit(Ghost(old(self)@.commit_state));
+        assert(self.perm_factory == old(self).perm_factory);
+        assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
+                   implies #[trigger] self.perm_factory@.check_permission(s1, s2) by {
+            Self::lemma_recover_doesnt_change_size(s1);
+        }
+        Self::clear_log(&mut self.wrpm, Tracked(self.perm_factory.borrow()), self.vm, &self.sm);
         self.status = Ghost(JournalStatus::Quiescent);
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());

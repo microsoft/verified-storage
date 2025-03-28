@@ -11,10 +11,11 @@ use super::spec_v::*;
 
 verus! {
 
-impl <Perm, PM> Journal<Perm, PM>
-    where
-        PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
+impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+where
+    PM: PersistentMemoryRegion,
+    Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
 {
     pub open spec fn write_preconditions(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
     {
@@ -26,7 +27,7 @@ impl <Perm, PM> Journal<Perm, PM>
             &&& Self::recover(s) matches Some(j)
             &&& j.constants == self@.constants
             &&& j.state == s
-        } ==> #[trigger] perm.check_permission(s)
+        } ==> #[trigger] perm.check_permission(self@.durable_state, s)
         &&& forall|i: int| #![trigger self@.journaled_addrs.contains(i)]
             addr <= i < addr + bytes_to_write.len() ==> !self@.journaled_addrs.contains(i)
     }
@@ -52,10 +53,10 @@ impl <Perm, PM> Journal<Perm, PM>
         &mut self,
         addr: u64,
         bytes_to_write: &[u8],
-        Tracked(perm): Tracked<&Perm>,
+        Tracked(perm): Tracked<Perm>,
     )
         requires
-            old(self).write_preconditions(addr, bytes_to_write@, *perm),
+            old(self).write_preconditions(addr, bytes_to_write@, perm),
         ensures
             self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
@@ -65,7 +66,7 @@ impl <Perm, PM> Journal<Perm, PM>
         
         proof {
             assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, addr as int, bytes_to_write@)
-                implies #[trigger] perm.check_permission(s) by {
+                implies #[trigger] perm.check_permission(self.wrpm@.durable_state, s) by {
                 assert(seqs_match_except_in_range(s, self.wrpm@.durable_state, addr as int,
                                                     addr + bytes_to_write@.len()));
             }
@@ -93,10 +94,10 @@ impl <Perm, PM> Journal<Perm, PM>
         &mut self,
         addr: u64,
         bytes_to_write: Vec<u8>,
-        Tracked(perm): Tracked<&Perm>,
+        Tracked(perm): Tracked<Perm>,
     )
         requires
-            old(self).write_preconditions(addr, bytes_to_write@, *perm),
+            old(self).write_preconditions(addr, bytes_to_write@, perm),
         ensures
             self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
@@ -108,12 +109,12 @@ impl <Perm, PM> Journal<Perm, PM>
         &mut self,
         addr: u64,
         object: &S,
-        Tracked(perm): Tracked<&Perm>,
+        Tracked(perm): Tracked<Perm>,
     )
         where
             S: PmCopy,
         requires
-            old(self).write_preconditions(addr, object.spec_to_bytes(), *perm),
+            old(self).write_preconditions(addr, object.spec_to_bytes(), perm),
         ensures
             self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
     {
@@ -213,6 +214,7 @@ impl <Perm, PM> Journal<Perm, PM>
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 
+        assert(self.perm_factory == old(self).perm_factory);
         Ok(())
     }
 }

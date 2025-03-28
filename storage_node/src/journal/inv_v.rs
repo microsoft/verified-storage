@@ -16,10 +16,11 @@ pub(super) enum JournalStatus {
     Committed,
 }
 
-impl <Perm, PM> Journal<Perm, PM>
-    where
-        PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
+impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+where
+    PM: PersistentMemoryRegion,
+    Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
 {
     pub(super) open spec fn inv_constants_match(self) -> bool
     {
@@ -30,6 +31,12 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.constants.app_area_end == self.sm.app_area_end
     }
 
+    pub(super) open spec fn inv_perm_factory_allows_app_equivalent_changes(self) -> bool
+    {
+        forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==>
+            #[trigger] self.perm_factory@.check_permission(s1, s2)
+    }
+
     pub(super) open spec fn inv(self) -> bool
     {
         let pmv = self.wrpm.view();
@@ -37,6 +44,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self@.valid()
         &&& pmv.valid()
         &&& self.inv_constants_match()
+        &&& self.inv_perm_factory_allows_app_equivalent_changes()
         &&& self.constants.app_area_end == pmv.len()
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)

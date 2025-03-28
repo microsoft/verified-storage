@@ -6,9 +6,30 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-pub trait CheckPermission<State>
+pub trait CheckPermission<State>: Sized
 {
-    spec fn check_permission(&self, state: State) -> bool;
+    spec fn check_permission(&self, s1: State, s2: State) -> bool;
+
+    proof fn combine(self, tracked other: Self) -> (tracked combined: Self)
+        ensures
+            forall|s1: State, s2: State| #[trigger] combined.check_permission(s1, s2) <==>
+                self.check_permission(s1, s2) || other.check_permission(s1, s2)
+        ;
+}
+
+pub trait PermissionFactory<State, P>: Sized
+where
+    P: CheckPermission<State>,
+{
+    spec fn check_permission(&self, state1: State, state2: State) -> bool;
+
+    proof fn grant_permission(tracked &self) -> (tracked perm: P)
+        ensures
+            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2);
+
+    proof fn clone(tracked &self) -> (tracked other: Self)
+        ensures
+            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2);
 }
 
 #[allow(dead_code)]
@@ -86,13 +107,13 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     // can crash and recover into, the permission authorizes that
     // state.
     #[allow(unused_variables)]
-    pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<&Perm>)
+    pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>)
         requires
             old(self).inv(),
             addr + bytes@.len() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
-                  ==> #[trigger] perm@.check_permission(s),
+                  ==> #[trigger] perm@.check_permission(old(self)@.durable_state, s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
@@ -103,7 +124,7 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     }
 
     #[allow(unused_variables)]
-    pub exec fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S, perm: Tracked<&Perm>)
+    pub exec fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S, perm: Tracked<Perm>)
         where
             S: PmCopy + Sized
         requires
@@ -111,7 +132,7 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             addr + S::spec_size_of() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
-                  ==> #[trigger] perm@.check_permission(s),
+                  ==> #[trigger] perm@.check_permission(old(self)@.durable_state, s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
