@@ -272,9 +272,9 @@ fn main() {
 
 
     for i in 1..ITERATIONS+1 {
-        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        // run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
         run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
     }
 
@@ -331,11 +331,11 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     // }
     // KV::cleanup();
 
-    // startup measurements
-    {
-        run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
-    }
-    KV::cleanup();
+    // // startup measurements
+    // {
+    //     run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
+    // }
+    // KV::cleanup();
 
     Ok(())
 }

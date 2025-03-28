@@ -1,8 +1,8 @@
 [experiment_config]
-results_dir = "results/20241202/threads_1"
+results_dir = "results/20250328/threads_1"
 threads = 1
 mount_point = "/mnt/pmem"
 pm_device = "/dev/pmem0"
 iterations = 5
-op_count = 15000000
-record_count = 15000000
+op_count = 25000000
+record_count = 25000000
