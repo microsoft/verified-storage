@@ -18,13 +18,14 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, I> ItemTable<Perm, PM, I>
+impl<Perm, PermFactory, PM, I> ItemTable<Perm, PermFactory, PM, I>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read(&self, row_addr: u64, journal: &Journal<Perm, PM>) -> (result: Result<I, KvError>)
+    pub exec fn read(&self, row_addr: u64, journal: &Journal<Perm, PermFactory, PM>) -> (result: Result<I, KvError>)
         requires
             journal.valid(),
             self.valid(journal@),
@@ -87,20 +88,20 @@ where
         constants: JournalConstants,
         free_list_pos: int,
         row_addr: u64,
-        tracked perm: &Perm,
+        perm_factory: PermFactory,
     )
         requires
             sm.valid::<I>(),
             iv.valid(sm),
             iv.consistent_with_durable_state(initial_durable_state, sm),
-            Journal::<Perm, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
             sm.table.end <= initial_durable_state.len(),
-            forall|s: Seq<u8>| Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
-                                                                 initial_durable_state, constants, sm)
-                ==> #[trigger] perm.check_permission(s),
+            forall|s1: Seq<u8>, s2: Seq<u8>|
+                Self::state_equivalent_for_me_specific(s2, iv.as_durable_snapshot().m.dom(), s1, constants, sm)
+                ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
             forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
                 &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
@@ -108,12 +109,12 @@ where
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
-                &&& perm.check_permission(s)
+                &&& perm_factory.check_permission(current_durable_state, s)
             },
     {
         let item_addrs = iv.as_durable_snapshot().m.dom();
@@ -123,11 +124,11 @@ where
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me_specific(s, item_addrs, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
-                &&& perm.check_permission(s)
+                &&& perm_factory.check_permission(current_durable_state, s)
             } by {
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
@@ -139,14 +140,14 @@ where
     pub exec fn create(
         &mut self,
         item: &I,
-        journal: &mut Journal<Perm, PM>,
-        Tracked(perm): Tracked<&Perm>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
             old(journal).valid(),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -184,7 +185,7 @@ where
                     journal@.constants,
                     self.free_list@.len() - 1,
                     self.free_list@.last(),
-                    perm
+                    *perm_factory,
                 );
             }
 
@@ -207,8 +208,8 @@ where
         let item_crc_addr = row_addr + self.sm.row_item_crc_start;
         let item_crc = calculate_crc(item);
 
-        journal.write_object::<I>(item_addr, &item, Tracked(perm));
-        journal.write_object::<u64>(item_crc_addr, &item_crc, Tracked(perm));
+        journal.write_object::<I>(item_addr, &item, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64>(item_crc_addr, &item_crc, Tracked(perm_factory.grant_permission()));
 
         let ghost disposition =
             ItemRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat, item: *item };
@@ -222,7 +223,7 @@ where
     pub exec fn delete(
         &mut self,
         row_addr: u64,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<Perm, PermFactory, PM>,
     )
         requires
             old(self).valid(journal@),

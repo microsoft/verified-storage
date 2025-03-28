@@ -14,9 +14,10 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -24,13 +25,13 @@ where
 {
     pub exec fn commit(
         &mut self, 
-        Tracked(perm): Tracked<&Perm>
+        Tracked(perm): Tracked<Perm>
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <== {
-                ||| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
-                ||| Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })
+            forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] perm.check_permission(s1, s2) <== {
+                &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
+                &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })
             },
         ensures 
             self.valid(),
@@ -43,7 +44,6 @@ where
 
         proof {
             self.lemma_establish_recovery_equivalent_for_app(perm);
-            self.lemma_establish_recovery_equivalent_for_app_after_commit(perm);
         }
 
         self.journal.commit(Tracked(perm));

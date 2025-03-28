@@ -18,16 +18,17 @@ verus! {
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ConcurrentKvStoreInternal<Perm, PM, K, I, L>
+struct ConcurrentKvStoreInternal<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     invariant_resource: Tracked<Resource<OwnershipSplitter<K, I, L>>>,
-    kv: UntrustedKvStoreImpl<Perm, PM, K, I, L>,
+    kv: UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>,
 }
 
 struct ConcurrentKvStorePredicate
@@ -35,15 +36,16 @@ struct ConcurrentKvStorePredicate
     loc: Loc,
 }
 
-impl<Perm, PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<Perm, PM, K, I, L>> for ConcurrentKvStorePredicate
+impl<Perm, PermFactory, PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<Perm, PermFactory, PM, K, I, L>> for ConcurrentKvStorePredicate
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    closed spec fn inv(self, v: ConcurrentKvStoreInternal<Perm, PM, K, I, L>) -> bool
+    closed spec fn inv(self, v: ConcurrentKvStoreInternal<Perm, PermFactory, PM, K, I, L>) -> bool
     {
         &&& v.kv.valid()
         &&& v.kv@.ps.valid()
@@ -61,34 +63,38 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-pub struct ConcurrentKvStore<Perm, PM, K, I, L>
+pub struct ConcurrentKvStore<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
+    pm_constants: Ghost<PersistentMemoryConstants>,
     loc: Ghost<Loc>,
-    lock: RwLock<ConcurrentKvStoreInternal<Perm, PM, K, I, L>, ConcurrentKvStorePredicate>,
+    lock: RwLock<ConcurrentKvStoreInternal<Perm, PermFactory, PM, K, I, L>, ConcurrentKvStorePredicate>,
 }
 
-impl<Perm, PM, K, I, L> CanRecover<K, I, L> for ConcurrentKvStore<Perm, PM, K, I, L>
+impl<Perm, PermFactory, PM, K, I, L> CanRecover<K, I, L> for ConcurrentKvStore<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>> {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::recover(s)
+        UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::recover(s)
     }
 }
 
-impl<Perm, PM, K, I, L> ConcurrentKvStore<Perm, PM, K, I, L>
+impl<Perm, PermFactory, PM, K, I, L> ConcurrentKvStore<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -104,14 +110,19 @@ where
         self.loc@
     }
 
+    pub closed spec fn pm_constants(self) -> PersistentMemoryConstants
+    {
+        self.pm_constants@
+    }
+
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
     pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_transaction_operation()
+        UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::spec_space_needed_for_transaction_operation()
     }
 
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
@@ -123,7 +134,7 @@ where
                 Err(_) => false,
             },
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::space_needed_for_setup(ps)
     }
 
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
@@ -143,7 +154,7 @@ where
                 Err(_) => false,
             }
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::setup(pm, ps)
+        UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::setup(pm, ps)
     }
 
     pub exec fn start(
@@ -163,6 +174,7 @@ where
                 Ok((kv, r)) => {
                     &&& kv.valid()
                     &&& kv.loc() == r@.loc()
+                    &&& kv.pm_constants() == wrpm.constants()
                     &&& match r@.value() {
                            OwnershipSplitter::Application{ ckv } => {
                                &&& ckv.valid()
@@ -183,7 +195,7 @@ where
             }
         }),
     {
-        let kv = match UntrustedKvStoreImpl::<Perm, PM, K, I, L>::start(wrpm, kvstore_id, Ghost(state), Tracked(perm)) {
+        let kv = match UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::start(wrpm, kvstore_id, Ghost(state), Tracked(perm)) {
             Ok(kv) => kv,
             Err(e) => { return Err(e); },
         };
@@ -196,12 +208,12 @@ where
         let tracked split_resources = both.split(application_value, invariant_value);
         let tracked application_resource = split_resources.0;
         let tracked invariant_resource = split_resources.1;
-        let kv_internal = ConcurrentKvStoreInternal::<Perm, PM, K, I, L>{
+        let kv_internal = ConcurrentKvStoreInternal::<Perm, PermFactory, PM, K, I, L>{
             invariant_resource: Tracked(invariant_resource),
             kv
         };
         assert(pred.inv(kv_internal));
-        let lock = RwLock::<ConcurrentKvStoreInternal<Perm, PM, K, I, L>, ConcurrentKvStorePredicate>::new(
+        let lock = RwLock::<ConcurrentKvStoreInternal<Perm, PermFactory, PM, K, I, L>, ConcurrentKvStorePredicate>::new(
             kv_internal, Ghost(pred)
         );
         let selfish = Self{ loc: Ghost(loc), lock };
@@ -333,16 +345,19 @@ where
         &mut self,
         key: &K,
         item: &I,
+        Tracked(perm): Tracked<Perm>,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, CreateOp<K, I>, Self>,
+            CB: MutatingLinearizer<K, I, L, CreateOp<K, I>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
+            grants_permission_to_mutate(perm, CreateOp{ key: *key, item: *item }, self.pm_constants()),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), CreateOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -372,13 +387,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
+            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), UpdateItemOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -407,13 +423,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, DeleteOp<K>, Self>,
+            CB: MutatingLinearizer<K, I, L, DeleteOp<K>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), DeleteOp{ key: *key }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -443,13 +460,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, AppendToListOp<K, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), AppendToListOp{ key: *key, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -480,13 +498,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -517,13 +536,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -556,13 +576,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -595,13 +616,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, TrimListOp<K>, Self>,
+            CB: MutatingLinearizer<K, I, L, TrimListOp<K>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), TrimListOp{ key: *key, trim_length }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -632,13 +654,14 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
-            CB: MutatingLinearizer<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
+            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.pm_constants() == old(self).pm_constants(),
             cb.post(*old(cb), self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();

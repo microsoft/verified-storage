@@ -408,9 +408,10 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -419,7 +420,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
@@ -575,7 +576,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
@@ -725,8 +726,8 @@ where
         &self,
         new_element: L,
         row_addr: u64,
-        journal: &mut Journal<Perm, PM>,
-        Tracked(perm): Tracked<&Perm>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(prev_self): Ghost<Self>,
     )
         requires
@@ -737,7 +738,7 @@ where
             prev_self.valid(old(journal)@),
             prev_self@.tentative is Some,
             old(journal).valid(),
-            forall|s: Seq<u8>| prev_self.state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             journal.valid(),
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
@@ -772,7 +773,7 @@ where
                 prev_self.sm,
                 prev_self.free_list@.len() - 1,
                 row_addr,
-                perm
+                *perm_factory,
             );
 
             broadcast use group_validate_row_addr;
@@ -785,16 +786,16 @@ where
         let element_crc_addr = row_addr + self.sm.row_element_crc_start;
         let element_crc = calculate_crc(&new_element);
 
-        journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
-        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
+        journal.write_object::<L>(element_addr, &new_element, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm_factory.grant_permission()));
 
         let next_addr = row_addr + self.sm.row_next_start;
         let next_crc_addr = next_addr + size_of::<u64>() as u64;
         let next: u64 = 0;
         let next_crc = calculate_crc(&next);
 
-        journal.write_object::<u64>(next_addr, &next, Tracked(perm));
-        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+        journal.write_object::<u64>(next_addr, &next, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm_factory.grant_permission()));
 
         // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
         // to conclude that `self` is still consistent with both the durable and read state
@@ -813,15 +814,15 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<Perm, PM>,
-        Tracked(perm): Tracked<&Perm>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -846,7 +847,7 @@ where
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<Perm, PM>::spec_journal_entry_overhead() -
+                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::ListLengthWouldExceedUsizeMax) => {
@@ -876,7 +877,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<Perm, PM>::spec_journal_entry_overhead() +
+                                  Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -901,7 +902,7 @@ where
                     self.sm,
                     self.free_list@.len() - 1,
                     self.free_list@.last(),
-                    perm
+                    *perm_factory,
                 );
             }
 
@@ -965,7 +966,7 @@ where
 
         assert(row_addr == old(self).free_list@[old(self).free_list@.len() - 1]);
 
-        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm), Ghost(*old(self)));
+        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
 
         match entry {
             ListTableEntry::<L>::Durable{ .. } =>
@@ -980,14 +981,14 @@ where
     pub exec fn create_singleton(
         &mut self,
         new_element: L,
-        journal: &mut Journal<Perm, PM>,
-        Tracked(perm): Tracked<&Perm>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
             old(journal).valid(),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -1057,7 +1058,7 @@ where
         };
         assert(old(self).free_list@[self.free_list@.len() as int] == row_addr);
 
-        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm), Ghost(*old(self)));
+        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
 
         self.tentative_mapping = Ghost(self.tentative_mapping@.create_singleton(row_addr, new_element));
 

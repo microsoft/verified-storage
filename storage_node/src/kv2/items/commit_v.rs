@@ -20,9 +20,10 @@ pub(super) enum ItemTableStatus {
     Quiescent,
 }
 
-impl<Perm, PM, I> ItemTable<Perm, PM, I>
+impl<Perm, PermFactory, PM, I> ItemTable<Perm, PermFactory, PM, I>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {

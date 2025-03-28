@@ -85,9 +85,10 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {

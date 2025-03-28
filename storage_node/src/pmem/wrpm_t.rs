@@ -21,7 +21,7 @@ pub trait PermissionFactory<State, P>: Sized
 where
     P: CheckPermission<State>,
 {
-    spec fn check_permission(&self, state1: State, state2: State) -> bool;
+    spec fn check_permission(&self, s1: State, s2: State) -> bool;
 
     proof fn grant_permission(tracked &self) -> (tracked perm: P)
         ensures

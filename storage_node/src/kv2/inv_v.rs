@@ -15,9 +15,10 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -97,6 +98,12 @@ where
         }
     }
 
+    pub(super) open spec fn inv_perm_factory_allows_recovery_idempotent_changes(self) -> bool
+    {
+        forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
+            #[trigger] self.perm_factory.check_permission(s1, s2)
+    }
+
     pub(super) open spec fn inv(self) -> bool
     {
         &&& self.inv_journal_ok()
@@ -107,6 +114,7 @@ where
         &&& self.inv_components_correspond()
         &&& self.inv_components_finite()
         &&& self.inv_used_slots_correspond()
+        &&& self.inv_perm_factory_allows_recovery_idempotent_changes()
         &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)
     }
 

@@ -91,9 +91,10 @@ impl KeyTableStaticMetadata
     
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
-pub struct KeyTable<Perm, PM, K>
+pub struct KeyTable<Perm, PermFactory, PM, K>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
@@ -105,13 +106,15 @@ where
     pub(super) pending_deallocations: Vec<u64>,
     pub(super) memory_mapping: Ghost<KeyMemoryMapping<K>>,
     pub(super) undo_records: Vec<KeyUndoRecord<K>>,
+    pub(super) perm_factory: Tracked<PermFactory>,
     pub(super) phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
     pub(super) phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<Perm, PM, K> KeyTable<Perm, PM, K>
+impl<Perm, PermFactory, PM, K> KeyTable<Perm, PermFactory, PM, K>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
@@ -181,7 +184,7 @@ where
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, sm) == Self::recover(durable_state, sm)
     }
 

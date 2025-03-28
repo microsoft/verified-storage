@@ -14,9 +14,10 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
@@ -61,12 +62,9 @@ where
         &mut self,
         key: &K,
         item: &I,
-        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s)
-                <== Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -109,29 +107,29 @@ where
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
-        let ghost self_before_item_create = self.lemma_prepare_for_item_table_update(perm);
-        let result = self.items.create(item, &mut self.journal, Tracked(perm));
+        let ghost self_before_item_create = self.lemma_prepare_for_item_table_update();
+        let result = self.items.create(item, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
             Ok(i) => i,
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
+                self.internal_abort();
                 return Err(KvError::OutOfSpace);
             },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let ghost self_before_key_create = self.lemma_prepare_for_key_table_update(perm);
-        let result = self.keys.create(key, item_addr, &mut self.journal, Tracked(perm));
+        let ghost self_before_key_create = self.lemma_prepare_for_key_table_update();
+        let result = self.keys.create(key, item_addr, &mut self.journal);
         proof { self.lemma_reflect_key_table_update(self_before_key_create); }
 
         match result {
             Ok(()) => {},
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
+                self.internal_abort();
                 proof {
                     old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
                 }
@@ -156,12 +154,9 @@ where
     pub exec fn tentatively_delete(
         &mut self,
         key: &K,
-        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s)
-                <== Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -203,15 +198,15 @@ where
         self.items.delete(rm.item_addr, &self.journal);
 
         if rm.list_addr != 0 {
-            let ghost self_before_list_delete = self.lemma_prepare_for_list_table_update(perm);
-            let result = self.lists.delete(rm.list_addr, &mut self.journal, Tracked(perm));
+            let ghost self_before_list_delete = self.lemma_prepare_for_list_table_update();
+            let result = self.lists.delete(rm.list_addr, &mut self.journal, Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_list_table_update(self_before_list_delete); }
 
             match result {
                 Ok(()) => {},
                 Err(KvError::OutOfSpace) => {
                     self.status = Ghost(KvStoreStatus::MustAbort);
-                    self.internal_abort(Tracked(perm));
+                    self.internal_abort();
                     proof {
                         old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
                     }
@@ -219,7 +214,7 @@ where
                 },
                 Err(KvError::CRCMismatch) => {
                     self.status = Ghost(KvStoreStatus::MustAbort);
-                    self.internal_abort(Tracked(perm));
+                    self.internal_abort();
                     return Err(KvError::CRCMismatch);
                 },
                 _ => { assert(false); return Err(KvError::InternalError); },
@@ -228,15 +223,15 @@ where
 
         assert(self.journal@.remaining_capacity == old(self).journal@.remaining_capacity);
 
-        let ghost self_before_key_delete = self.lemma_prepare_for_key_table_update(perm);
-        let result = self.keys.delete(key, key_addr, rm, &mut self.journal, Tracked(perm));
+        let ghost self_before_key_delete = self.lemma_prepare_for_key_table_update();
+        let result = self.keys.delete(key, key_addr, rm, &mut self.journal);
         proof { self.lemma_reflect_key_table_update(self_before_key_delete); }
 
         match result {
             Ok(()) => {},
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
+                self.internal_abort();
                 proof {
                     old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
                 }
@@ -269,12 +264,9 @@ where
         &mut self,
         key: &K,
         new_item: &I,
-        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s)
-                <== Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -317,15 +309,15 @@ where
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
-        let ghost self_before_item_create = self.lemma_prepare_for_item_table_update(perm);
-        let result = self.items.create(new_item, &mut self.journal, Tracked(perm));
+        let ghost self_before_item_create = self.lemma_prepare_for_item_table_update();
+        let result = self.items.create(new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
             Ok(i) => i,
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
+                self.internal_abort();
                 proof {
                     old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
                 }
@@ -334,16 +326,16 @@ where
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let ghost self_before_key_update = self.lemma_prepare_for_key_table_update(perm);
+        let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, ..former_rm };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal, Tracked(perm));
+        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {
             Ok(()) => {},
             Err(KvError::OutOfSpace) => {
                 self.status = Ghost(KvStoreStatus::MustAbort);
-                self.internal_abort(Tracked(perm));
+                self.internal_abort();
                 proof {
                     old(self).lemma_insufficient_space_for_transaction_operation_indicates_all_slots_used();
                 }

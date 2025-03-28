@@ -15,9 +15,10 @@ use super::spec_v::*;
 
 verus! {
 
-impl<Perm, PM, K> KeyTable<Perm, PM, K>
+impl<Perm, PermFactory, PM, K> KeyTable<Perm, PermFactory, PM, K>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {

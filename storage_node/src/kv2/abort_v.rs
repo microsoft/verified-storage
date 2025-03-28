@@ -12,22 +12,18 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn abort(
-        &mut self,
-        Tracked(perm): Tracked<&Perm>
-    ) -> (result: Result<(), KvError>)
+    pub exec fn abort(&mut self) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall |s| #[trigger] perm.check_permission(s) <==
-                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             match result {
@@ -36,19 +32,14 @@ where
             }
     {
         self.status = Ghost(KvStoreStatus::MustAbort);
-        self.internal_abort(Tracked(perm));
+        self.internal_abort();
         Ok(())
     }
 
-    pub(super) exec fn internal_abort(
-        &mut self,
-        Tracked(perm): Tracked<&Perm>
-    )
+    pub(super) exec fn internal_abort(&mut self)
         requires 
             old(self).inv(),
             old(self).status@ is MustAbort,
-            forall |s| #[trigger] perm.check_permission(s) <==
-                Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures 
             self.valid(),
             self@ == old(self)@.abort(),

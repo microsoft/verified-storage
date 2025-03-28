@@ -23,15 +23,17 @@ use vstd::std_specs::hash::*;
 verus! {
 
 broadcast use group_hash_axioms;
-impl<Perm, PM, K> KeyTable<Perm, PM, K>
+impl<Perm, PermFactory, PM, K> KeyTable<Perm, PermFactory, PM, K>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn start(
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<Perm, PermFactory, PM>,
         sm: &KeyTableStaticMetadata,
+        Tracked(perm_factory): Tracked<PermFactory>,
     ) -> (result: Result<(Self, HashSet<u64>, Vec<u64>), KvError>)
         requires
             journal.valid(),
@@ -46,6 +48,8 @@ where
             sm.valid::<K>(),
             sm.end() <= journal@.durable_state.len(),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::state_equivalent_for_me_specific(s2, s1, journal@.constants, *sm) ==>
+                #[trigger] perm_factory.check_permission(s1, s2),
         ensures
             match result {
                 Ok((keys, item_addrs, list_addrs)) => {
@@ -222,6 +226,7 @@ where
             pending_deallocations: Vec::<u64>::new(),
             memory_mapping: Ghost(memory_mapping),
             undo_records: Vec::<KeyUndoRecord<K>>::new(),
+            perm_factory: Tracked(perm_factory),
             phantom_perm: Ghost(core::marker::PhantomData),
             phantom_pm: Ghost(core::marker::PhantomData),
         };

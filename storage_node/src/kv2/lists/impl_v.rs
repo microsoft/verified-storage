@@ -81,9 +81,10 @@ impl ListTableStaticMetadata
 
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(L)]
-pub struct ListTable<Perm, PM, L>
+pub struct ListTable<Perm, PermFactory, PM, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -102,13 +103,15 @@ where
     pub(super) free_list: Vec<u64>,
     pub(super) pending_allocations: Vec<u64>,
     pub(super) pending_deallocations: Vec<u64>,
+    pub(super) phantom_perm_factory: Ghost<core::marker::PhantomData<PermFactory>>,
     pub(super) phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
     pub(super) phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -171,13 +174,24 @@ where
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, list_addrs, sm) == Self::recover(durable_state, list_addrs, sm)
     }
 
     pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool
     {
         Self::state_equivalent_for_me_specific(s, self@.durable.m.dom(), jv.durable_state, jv.constants, self@.sm)
+    }
+
+    pub open spec fn perm_factory_permits_states_equivalent_for_me(
+        &self,
+        jv: JournalView,
+        perm_factory: PermFactory
+    ) -> bool
+    {
+        forall|s1: Seq<u8>, s2: Seq<u8>|
+            Self::state_equivalent_for_me_specific(s2, self@.durable.m.dom(), s1, jv.constants, self@.sm) ==>
+            #[trigger] perm_factory.check_permission(s1, s2)
     }
 }
 

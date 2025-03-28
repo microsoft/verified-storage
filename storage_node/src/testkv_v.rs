@@ -716,14 +716,56 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
 
 struct TestKvPermission
 {
-    ghost is_state_allowable: spec_fn(Seq<u8>) -> bool,
+    ghost is_transition_allowable: spec_fn(Seq<u8>) -> bool,
 }
 
 impl CheckPermission<Seq<u8>> for TestKvPermission
 {
-    closed spec fn check_permission(&self, state: Seq<u8>) -> bool
+    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
     {
-        (self.is_state_allowable)(state)
+        (self.is_transition_allowable)(s1, s2)
+    }
+
+    proof fn combine(self, tracked other: Self) -> (tracked combined: Self)
+        ensures
+            forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] combined.check_permission(s1, s2) <==>
+                self.check_permission(s1, s2) || other.check_permission(s1, s2)
+    {
+        Self{
+            is_transition_allowable:
+                |s1: Seq<u8>, s2: Seq<u8>| self.check_permission(s1, s2) || other.check_permission(s1, s2)
+        }
+    }
+}
+
+pub struct TestKvPermissionFactory
+{
+    ghost is_transition_allowable: spec_fn(Seq<u8>) -> bool,
+}
+
+impl PermissionFactory<Seq<u8>, TestKvPermission> for TestKvPermissionFactory
+{
+    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
+    {
+        (self.is_transition_allowable)(s1, s2)
+    }
+
+    proof fn grant_permission(tracked &self) -> (tracked perm: TestKvPermission)
+        ensures
+            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2)
+    {
+        TestKvPermission{
+            is_transition_allowable: |s1: Seq<u8>, s2: Seq<u8>| self.is_transition_allowable(s1, s2)
+        }
+    }
+
+    proof fn clone(tracked &self) -> (tracked other: Self)
+        ensures
+            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2)
+    {
+        Self{
+            is_transition_allowable: self.is_transition_allowable
+        }
     }
 }
 
@@ -736,25 +778,10 @@ impl TestKvPermission
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
     {
-        Self { is_state_allowable: |s: Seq<u8>| false }
-    }
-
-    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
-        where
-            PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-            I: PmCopy + std::fmt::Debug,
-            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-        ensures
-            forall |s| #[trigger] perm.check_permission(s) <==
-                ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
-                Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
-    {
-        Self {
-            is_state_allowable:
-                |s| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
-                    Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
-        }
+        Self { is_transition_allowable:
+                   |s1: Seq<u8>, s2: Seq<u8>|
+                       ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, PM, K, I, L>::recover(s1) ==
+                       ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, PM, K, I, L>::recover(s2) }
     }
 }
 
@@ -763,14 +790,37 @@ where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
     r: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>,
-    perm: TestKvPermission,
     ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
 }
 
-impl<Op> MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement, Op,
-                            ConcurrentKvStore<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+proof fn create_mutating_perm<Op>(op: Op, pm_constants: PersistentMemoryConstants) -> TestKvPermission
+where
+    Op: MutatingOperation<TestKey, TestItem, TestListElement>
+{
+    let ghost is_transition_allowable = |s1: Seq<u8>, s2: Seq<u8>| {
+        &&& ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
+                               TestItem, TestListElement>::recover(s1) matches Some(old_rkv)
+        &&& ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
+                               TestItem, TestListElement>::recover(s2) matches Some(new_rkv)
+        &&& exists|result| {
+               let old_ckv = ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>{
+                   ps: old_rkv.ps, pm_constants, kv: old_rkv.kv
+               };
+               let new_ckv = ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>{
+                   ps: new_rkv.ps, pm_constants, kv: new_rkv.kv
+               };
+               #[trigger] op.result_valid(old_ckv, new_ckv, result)
+         }
+    };
+    let tracked perm = TestKvPermission{ is_transition_allowable };
+    perm
+}
+
+impl<Op> MutatingLinearizer<TestKey, TestItem, TestListElement, Op,
+                            ConcurrentKvStore<TestKvPermission, TestKvPermissionFactory,
+                                              FileBackedPersistentMemoryRegion, TestKey,
                                               TestItem, TestListElement>>
     for TestMutatingLinearizer<Op>
 where
@@ -790,52 +840,10 @@ where
         &&& self.new_ckv is None
     }
 
-    closed spec fn ready(
-        self,
-        orig_self: Self,
-        old_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
-        loc: Loc,
-        op: Op
-    ) -> bool
-    {
-        &&& self.r == orig_self.r
-        &&& self.r.loc() == loc
-        &&& self.r.value() is Application
-        &&& self.op == orig_self.op
-        &&& self.op == op
-        &&& self.old_ckv == Some(old_ckv)
-        &&& self.new_ckv is None
-    }
-
-    proof fn grant_permission<'a>(
-        tracked &'a mut self,
-        op: Op,
-        tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
-    ) -> (tracked perm: &'a TestKvPermission)
-    {
-        let old_ckv = r.value()->Invariant_ckv;
-        self.old_ckv = Some(old_ckv);
-        let ghost is_state_allowable = |s: Seq<u8>| {
-            &&& ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
-                                   TestItem, TestListElement>::recover(s) matches Some(new_rkv)
-            &&& {
-                   let old_ckv = r.value()->Invariant_ckv;
-                   ||| old_ckv.kv == new_rkv.kv && new_rkv.ps == old_ckv.ps
-                   ||| exists|new_ckv, result| {
-                       &&& #[trigger] op.result_valid(old_ckv, new_ckv, result)
-                       &&& new_ckv.kv == new_rkv.kv
-                       &&& new_ckv.ps == new_rkv.ps
-                   }
-              }
-        };
-        let tracked perm = TestKvPermission{ is_state_allowable };
-        self.perm = perm;
-        &self.perm
-    }
-
     closed spec fn post(
         self,
         orig_self: Self,
+        old_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
         loc: Loc,
         op: Op,
         exec_result: Op::ExecResult,
@@ -846,7 +854,7 @@ where
         &&& self.r.loc() == loc
         &&& self.op == orig_self.op
         &&& self.op == op
-        &&& self.old_ckv matches Some(old_ckv)
+        &&& self.old_ckv == Some(old_ckv)
         &&& self.new_ckv matches Some(new_ckv)
         &&& op.result_valid(old_ckv, new_ckv, exec_result)
     }
@@ -860,6 +868,7 @@ where
         tracked r: &mut Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
     )
     {
+        self.old_ckv = Some(old(r).value()->Invariant_ckv);
         vstd::pcm_lib::update_and_redistribute(&mut self.r, r,
                                                OwnershipSplitter::Application{ckv: new_ckv},
                                                OwnershipSplitter::Invariant{ckv: new_ckv});

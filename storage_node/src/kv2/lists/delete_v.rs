@@ -136,9 +136,10 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
 where
     Perm: CheckPermission<Seq<u8>>,
+    PermFactory: PermissionFactory<Seq<u8>, Perm>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -146,7 +147,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<Perm, PermFactory, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -220,7 +221,7 @@ where
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         addrs: &Vec<u64>,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<Perm, PermFactory, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -309,7 +310,7 @@ where
     exec fn get_row_addrs(
         &self,
         list_addr: u64,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<Perm, PermFactory, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -342,15 +343,15 @@ where
     pub exec fn delete(
         &mut self,
         list_addr: u64,
-        journal: &mut Journal<Perm, PM>,
-        Tracked(perm): Tracked<&Perm>,
+        journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),
             old(self)@.tentative.is_some(),
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
