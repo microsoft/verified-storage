@@ -518,6 +518,7 @@ where
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
+        assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_update = self.lemma_prepare_for_list_table_update();
         let result = self.lists.update(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_list_table_update(self_before_list_update); }
@@ -642,6 +643,7 @@ where
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
+        assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_update = self.lemma_prepare_for_list_table_update();
         let result = self.lists.update(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_list_table_update(self_before_list_update); }
@@ -784,6 +786,7 @@ where
             proof {
                 self.lemma_using_space_for_transaction_operation_maintains_invariant(*old(self));
             }
+            assert(self.perm_factory == old(self).perm_factory);
             return Ok(());
         }
 
@@ -793,6 +796,7 @@ where
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
+        assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_trim = self.lemma_prepare_for_list_table_update();
         let result = self.lists.trim(former_rm.list_addr, trim_length, &mut self.journal,
                                      Tracked(self.perm_factory.borrow()));
@@ -916,6 +920,7 @@ where
 
         self.status = Ghost(KvStoreStatus::ComponentsDontCorrespond);
 
+        assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_trim = self.lemma_prepare_for_list_table_update();
         let result = self.lists.trim(former_rm.list_addr, trim_length, &mut self.journal,
                                      Tracked(self.perm_factory.borrow()));
