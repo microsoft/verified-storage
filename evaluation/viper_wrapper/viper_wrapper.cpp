@@ -2,8 +2,13 @@
 #include <chrono>
 #include <thread>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <stdio.h> 
+#include <stdlib.h> 
 #include "viper_wrapper.hpp"
 #include "../YCSB/viper/target/headers/site_ycsb_db_Viper.h"
+#include "../YCSB/viper/target/headers/site_ycsb_db_ViperThreadClient.h"
 
 using namespace std;
 
@@ -25,46 +30,52 @@ extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t ini
 
         viper_db = ViperDB::create(pool_file_string, initial_pool_size);
     }
+    sync();
 
     ViperDBFFI* db = new ViperDBFFI;
 
-    auto client = viper_db->get_client_unique_ptr();
-
     db->db = viper_db.release();
-    db->client = client.release();
 
     return db;
-    
 }
 
-extern "C" bool viperdb_put(struct ViperDBFFI* db, const K* key, const V* value) {
-    bool result = db->client->put(*key, *value);
+extern "C" struct ViperDBClientFFI* viperdb_get_client(struct ViperDBFFI* db) {
+    ViperDBClientFFI* client = new ViperDBClientFFI;
+    client->client = db->db->get_client_unique_ptr().release();
+    return client;
+}
+
+extern "C" bool viperdb_put(struct ViperDBClientFFI* client, const K* key, const V* value) {
+    bool result = client->client->put(*key, *value);
     return result;
 }
 
-extern "C" bool viperdb_get(struct ViperDBFFI* db, const K* key, V* value) {
-    return db->client->get(*key, value);
+extern "C" bool viperdb_get(struct ViperDBClientFFI* client, const K* key, V* value) {
+    return client->client->get(*key, value);
 }
 
 // NOTE: viper db puts are not atomic when updating an existing value
 // TODO: figure out how to use their support for atomic updates
-extern "C" bool viperdb_update(struct ViperDBFFI* db, const K* key, const V* value) {
-    bool result = db->client->put(*key, *value);
+extern "C" bool viperdb_update(struct ViperDBClientFFI* client, const K* key, const V* value) {
+    bool result = client->client->put(*key, *value);
     return result;
 }
 
-extern "C" bool viperdb_delete(struct ViperDBFFI* db, const K* key) {
-    return db->client->remove(*key);
+extern "C" bool viperdb_delete(struct ViperDBClientFFI* client, const K* key) {
+    return client->client->remove(*key);
 }
 
 extern "C" void viperdb_cleanup(ViperDBFFI* db) { 
-    delete db->client;
     delete db->db;
-
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
     delete db;
     viper::PMemAllocator::get().destroy();
+}
+
+extern "C" void viperdb_client_cleanup(ViperDBClientFFI* client) {
+    delete client->client;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    delete client;
 }
 
 std::string jbytearray_to_string(JNIEnv* env, jbyteArray array) {
@@ -92,10 +103,17 @@ JNIEXPORT jlong JNICALL Java_site_ycsb_db_Viper_ViperCreate
     return (long)db;
 }
 
-JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperPut
-    (JNIEnv * env, jclass _class, jlong kv_ptr, jbyteArray key, jbyteArray value)
+JNIEXPORT jlong JNICALL Java_site_ycsb_db_ViperThreadClient_ViperGetClient
+  (JNIEnv * _env, jclass _class, jlong kv_ptr) 
 {
     struct ViperDBFFI* db = (struct ViperDBFFI*)kv_ptr;
+    return (long)viperdb_get_client(db);
+}
+
+JNIEXPORT jboolean JNICALL Java_site_ycsb_db_ViperThreadClient_ViperPut
+    (JNIEnv * env, jclass _class, jlong client_ptr, jbyteArray key, jbyteArray value)
+{
+    struct ViperDBClientFFI* client = (struct ViperDBClientFFI*)client_ptr;
     std::string key_string = jbytearray_to_string(env, key);
     // std::cout << "key string: " << key_string << std::endl;
     std::string value_string = jbytearray_to_string(env, value);
@@ -108,20 +126,20 @@ JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperPut
         key_string.append(viper_key.total_size - key_string.size(), ' ');
     }
 
-    return viperdb_put(db, &viper_key.from_str(key_string), &viper_value.from_str(value_string));
+    return viperdb_put(client, &viper_key.from_str(key_string), &viper_value.from_str(value_string));
 }
 
-JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperUpdate
-    (JNIEnv * env, jclass _class, jlong kv_ptr, jbyteArray key, jbyteArray value)
+JNIEXPORT jboolean JNICALL Java_site_ycsb_db_ViperThreadClient_ViperUpdate
+    (JNIEnv * env, jclass _class, jlong client_ptr, jbyteArray key, jbyteArray value)
 {
-    return Java_site_ycsb_db_Viper_ViperPut(env, _class, kv_ptr, key, value);
+    return Java_site_ycsb_db_ViperThreadClient_ViperPut(env, _class, client_ptr, key, value);
 }
 
-JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperRead
-    (JNIEnv * env, jclass _class, jlong kv_ptr, jbyteArray key, jbyteArray value)
+JNIEXPORT jboolean JNICALL Java_site_ycsb_db_ViperThreadClient_ViperRead
+    (JNIEnv * env, jclass _class, jlong client_ptr, jbyteArray key, jbyteArray value)
 {
     uint64_t value_fill = 0;
-    struct ViperDBFFI* db = (struct ViperDBFFI*)kv_ptr;
+    struct ViperDBClientFFI* client = (struct ViperDBClientFFI*)client_ptr;
     std::string key_string = jbytearray_to_string(env, key);
     K viper_key = K();
     V viper_value = V(value_fill);
@@ -129,9 +147,16 @@ JNIEXPORT jboolean JNICALL Java_site_ycsb_db_Viper_ViperRead
         // right pad the key with spaces to make it the correct size
         key_string.append(viper_key.total_size - key_string.size(), ' ');
     }
-    bool result = viperdb_get(db, &viper_key.from_str(key_string), &viper_value);
+    bool result = viperdb_get(client, &viper_key.from_str(key_string), &viper_value);
     env->SetByteArrayRegion(value, 0, viper_value.data.size(), (jbyte*)viper_value.data.data());
     return result;
+}
+
+JNIEXPORT void JNICALL Java_site_ycsb_db_ViperThreadClient_ViperClientCleanup
+    (JNIEnv * _env, jclass _class, jlong client_ptr)
+{
+    struct ViperDBClientFFI* client = (struct ViperDBClientFFI*)client_ptr;
+    viperdb_client_cleanup(client);
 }
 
 JNIEXPORT void JNICALL Java_site_ycsb_db_Viper_ViperCleanup
@@ -142,29 +167,106 @@ JNIEXPORT void JNICALL Java_site_ycsb_db_Viper_ViperCleanup
 }
 
 #ifdef CXX_COMPILATION
-int main(void) {
+void magic_trace_stop_indicator() {}
+
+struct workload_args {
+    ViperDBFFI* db;
+    uint32_t num_keys;
+};
+
+void* get_workload_for_trace(void* args) {
     uint32_t val = 0;
+    int iterations = 10;
+    struct workload_args* workload_args = (struct workload_args*)args;
+    auto db = workload_args->db;
+    auto num_keys = workload_args->num_keys;
+    
+    auto client = viperdb_get_client(db);
+    auto value = new V(val);
 
-    const size_t initial_size = 1073741824;  // 1 GiB
+    // also look at non-sequential?
+
+    for (int j = 0; j < iterations; j++) {
+        for (uint32_t i = 0; i < num_keys; i++) {
+            auto key = new K(i);
+            viperdb_get(client, key, value);
+        }    
+    }
+    // magic_trace_stop_indicator();
+    
+    
+    cout << "Cleaning up" << endl;
+    viperdb_client_cleanup(client);
+    
+    return NULL;
+}
+
+
+const int NUM_THREADS = 16;
+int main(void) {
+    cout << "PID " << ::getpid() << std::endl;
+
+    pthread_t tids[NUM_THREADS];
+
+    uint64_t initial_size = 21474836480; 
     auto file = "/mnt/pmem/viper";
+    uint32_t num_keys = 10000000;
+    auto db = viperdb_create(file, initial_size);
 
-    {
-        auto db = viperdb_create(file, initial_size);
-        // TODO: better way of handling different sizes of keys
-        auto key = new K(val);
-        auto value = new V(val);
-        viperdb_put(db, key, value);
-        viperdb_cleanup(db);
+    auto client = viperdb_get_client(db);
+    uint32_t val = 0;
+    auto value = new V(val);
+
+    cout << "Filling in the KV store" << endl;
+    // fill in the kv store
+    for (uint32_t i = 0; i < num_keys; i++) {
+        auto key = new K(i);
+        viperdb_put(client, key, value);
     }
 
-    std::filesystem::remove_all(file);
+    viperdb_client_cleanup(client);
 
-    {
-        auto db = viperdb_create(file, initial_size);
-        auto key = new K(val);
-        auto value = new V(val);
-        viperdb_put(db, key, value);
-        viperdb_cleanup(db);
+    struct workload_args args{db, num_keys};
+
+    cout << "Done, starting reader threads" << endl;
+    for (int i = 0; i < NUM_THREADS; i++) {
+        // get_workload_for_trace(db);
+        pthread_create(&tids[i], NULL, get_workload_for_trace, (void*)&args);
     }
+
+    get_workload_for_trace(&args);
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(tids[i], NULL);
+    }
+
+    viperdb_cleanup(db);
+
+    // uint32_t val = 0;
+
+    // {
+    //     auto db = viperdb_create(file, initial_size);
+    //     auto client = viperdb_get_client(db);
+    //     // TODO: better way of handling different sizes of keys
+    //     auto key = new K(val);
+    //     auto value = new V(val);
+    //     viperdb_put(client, key, value);
+        
+    //     viperdb_client_cleanup(client);
+    //     viperdb_cleanup(db);
+    // }
+
+    // std::filesystem::remove_all(file);
+
+    // {
+    //     auto db = viperdb_create(file, initial_size);
+    //     auto client = viperdb_get_client(db);
+    //     auto key = new K(val);
+    //     auto value = new V(val);
+    //     viperdb_put(client, key, value);
+
+    //     viperdb_client_cleanup(client);
+    //     viperdb_cleanup(db);
+    // }
 }
 #endif

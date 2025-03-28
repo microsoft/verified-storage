@@ -29,19 +29,26 @@ using ViperDBClient = viper::Viper<K, V>::Client;
 
 struct ViperDBFFI {
     ViperDB* db;
+};
+
+struct ViperDBClientFFI {
     ViperDBClient* client;
 };
 
 extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t initial_pool_size);
 
-extern "C" bool viperdb_put(struct ViperDBFFI* db, const K* key, const V* value);
+extern "C" struct ViperDBClientFFI* viperdb_get_client(struct ViperDBFFI* db);
 
-extern "C" bool viperdb_get(struct ViperDBFFI* db, const K* key, V* value);
+extern "C" bool viperdb_put(struct ViperDBClientFFI*, const K* key, const V* value);
 
-extern "C" bool viperdb_update(struct ViperDBFFI* db, const K* key, const V* value);
+extern "C" bool viperdb_get(struct ViperDBClientFFI*, const K* key, V* value);
 
-extern "C" bool viperdb_delete(struct ViperDBFFI* db, const K* key);
+extern "C" bool viperdb_update(struct ViperDBClientFFI*, const K* key, const V* value);
+
+extern "C" bool viperdb_delete(struct ViperDBClientFFI*, const K* key);
 
 extern "C" void viperdb_cleanup(ViperDBFFI* db);
+
+extern "C" void viperdb_client_cleanup(ViperDBClientFFI* client);
 
 #endif

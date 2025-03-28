@@ -272,9 +272,9 @@ fn main() {
 
 
     for i in 1..ITERATIONS+1 {
-        // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        // run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
         run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
     }
 
@@ -323,19 +323,19 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     }
     KV::cleanup();
 
-    // // // mimic run d from YCSB
-    // // {
-    // //     KV::setup(NUM_KEYS)?;
-    // //     let mut client = KV::start()?;
-    // //     run_rand_latest_access_pattern(&mut client, &output_dir, i)?;
-    // // }
-    // // KV::cleanup();
-
-    // // startup measurements
+    // // mimic run d from YCSB
     // {
-    //     run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
+    //     KV::setup(NUM_KEYS)?;
+    //     let mut client = KV::start()?;
+    //     run_rand_latest_access_pattern(&mut client, &output_dir, i)?;
     // }
     // KV::cleanup();
+
+    // startup measurements
+    {
+        run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
+    }
+    KV::cleanup();
 
     Ok(())
 }

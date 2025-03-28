@@ -175,6 +175,8 @@ public class ClientThread implements Runnable {
       Thread.currentThread().interrupt();
     }
 
+    System.err.println("Thread " + threadid + " done, waiting for cleanup");
+
     try {
       measurements.setIntendedStartTimeNs(0);
       db.cleanup();

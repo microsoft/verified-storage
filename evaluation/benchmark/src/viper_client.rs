@@ -16,6 +16,7 @@ use std::thread::sleep;
 pub struct ViperClient
 {
     kv: *mut crate::ViperDBFFI,
+    client: *mut crate::ViperDBClientFFI,
 }
 
 impl KvInterface<TestKey, TestValue> for ViperClient
@@ -37,10 +38,11 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         println!("creating viper client");
 
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
+        let client = unsafe { crate::viperdb_get_client(kv) };
 
         println!("done creating\n");
 
-        Ok(Self { kv })
+        Ok(Self { kv, client })
     }
 
     fn timed_start() -> Result<(Self, Duration), Self::E> {
@@ -54,7 +56,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn put(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
         let value = &value.value as *const [u8; VALUE_LEN];
-        let result = unsafe { crate::viperdb_put(self.kv, key, value) };
+        let result = unsafe { crate::viperdb_put(self.client, key, value) };
         match result {
             true => Ok(()), 
             false => Err(false)
@@ -64,7 +66,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn get(&mut self, key: &TestKey) -> Result<TestValue, Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
         let mut value = TestValue::default();
-        let result = unsafe { crate::viperdb_get(self.kv, key, &mut value.value) };
+        let result = unsafe { crate::viperdb_get(self.client, key, &mut value.value) };
         match result {
             true => Ok(value),
             false => Err(false)
@@ -74,14 +76,14 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn update(&mut self, key: &TestKey, value: &TestValue) -> Result<(), Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
         let value = &value.value as *const [u8; VALUE_LEN];
-        let result = unsafe { crate::viperdb_update(self.kv, key, value) };
+        let result = unsafe { crate::viperdb_update(self.client, key, value) };
         // result is false if the value already exists, so ignore it
         Ok(())
     }
 
     fn delete(&mut self, key: &TestKey) -> Result<(), Self::E> {
         let key = &key.key as *const [u8; KEY_LEN];
-        let result = unsafe { crate::viperdb_delete(self.kv, key) };
+        let result = unsafe { crate::viperdb_delete(self.client, key) };
         match result {
             true => Ok(()),
             false => Err(false)
@@ -100,7 +102,10 @@ impl Drop for ViperClient
 {
     fn drop(&mut self) {
         println!("dropping viper db");
-        unsafe { crate::viperdb_cleanup(self.kv); }
+        unsafe { 
+            crate::viperdb_client_cleanup(self.client);
+            crate::viperdb_cleanup(self.kv); 
+        }
         println!("done dropping viperdb");
     }
 }

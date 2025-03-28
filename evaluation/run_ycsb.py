@@ -334,6 +334,8 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     options += ["-p", "recordcount=" + str(record_count)]
     options += ["-p", "operationcount=" + str(op_count)]
     options += ["-threads", str(threads)]
+    # options += ["-p", "measurementtype=histogram"]
+    # options += ["-p", "hdrhistogram.fileoutput=true"]
 
     if db == "capybarakv":
         options += ["-p", "capybarakv.configfile=" + os.path.join("..", capybarakv_config_file)]

@@ -37,14 +37,17 @@ public class ViperClient extends DB {
 
   // TODO: get these from a config file
   static final String POOL_FILE = "/mnt/pmem/viper";
-  static final long INITIAL_SIZE = 1073741824;
+  static final long INITIAL_SIZE = 64424509440L; // 60GB
   // static final int VALUE_SIZE = 1140; // TODO: don't hardcode this especially
   static final String PROPERTY_VIPER_VALUE_SIZE = "viper.valuesize";
 
   @GuardedBy("ViperClient.class") private static int references = 0;
   @GuardedBy("ViperClient.class") private static Viper db = null;
+  private ViperThreadClient client = null;
 
   private static int value_size = 0;
+
+  byte[] value_buffer;
 
   @Override
   public void init() throws DBException {
@@ -59,6 +62,8 @@ public class ViperClient extends DB {
         }
         db = new Viper(POOL_FILE, INITIAL_SIZE);
       }
+      client = new ViperThreadClient(db);
+      value_buffer = new byte[value_size];
       references++;
     }
   }
@@ -73,7 +78,7 @@ public class ViperClient extends DB {
   public Status insert(String table, String key, Map<String, ByteIterator> values) {
     try {
       byte[] serializedValues = serializeValues(values);
-      db.insert(key, serializedValues);
+      client.insert(key, serializedValues);
       return Status.OK;
     } catch (IOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -87,15 +92,15 @@ public class ViperClient extends DB {
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
     try {
-      // read the current value, update it, and write it back
-      byte[] readValues = new byte[value_size]; 
-      db.read(key, readValues);
-      final Map<String, ByteIterator> result = new HashMap<>();
-      deserializeValues(readValues, null, result);
-      result.putAll(values);
+      // // read the current value, update it, and write it back
+      // byte[] readValues = new byte[value_size]; 
+      // client.read(key, readValues);
+      // Map<String, ByteIterator> result = new HashMap<>();
+      // deserializeValues(readValues, null, result);
+      // result.putAll(values);
 
-      byte[] serializedValues = serializeValues(result);
-      db.update(key, serializedValues);
+      byte[] serializedValues = serializeValues(values);
+      client.update(key, serializedValues);
 
       return Status.OK;
     } catch (IOException e) {
@@ -119,20 +124,21 @@ public class ViperClient extends DB {
     // the read. The easiest place to allocate that is here and the easiest way to do that is 
     // to serialize `result`, which should already have the correct size.
     // byte[] values = serializeValues(result);
-    byte[] values = new byte[value_size]; 
-    db.read(key, values);
-    deserializeValues(values, fields, result);
+    // byte[] values = new byte[value_size]; 
+    client.read(key, value_buffer);
+    deserializeValues(value_buffer, fields, result);
     return Status.OK;
   }
 
   @Override
   public void cleanup() {
     synchronized (ViperClient.class) {
+      client.cleanup();
       if (references == 1) {
         System.out.println("cleaning up");
         db.cleanup();
         System.out.println("done cleaning up");
-      } 
+      }
       references--;
     }
   }
@@ -141,6 +147,8 @@ public class ViperClient extends DB {
   private Map<String, ByteIterator> deserializeValues(final byte[] values, final Set<String> fields,
       final Map<String, ByteIterator> result) {
     final ByteBuffer buf = ByteBuffer.allocate(4);
+
+    // System.out.println(values.length);
 
     int offset = 0;
     while(offset < values.length) {

@@ -339,7 +339,7 @@ struct ValueAccessor<std::string> {
     static const_ptr_type to_ptr_type(const type& x) { return &x; }
 };
 
-std::mutex v_blocks_lock;
+// std::mutex v_blocks_lock;
 
 template <typename K, typename V>
 class Viper {
@@ -667,7 +667,7 @@ ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
         }
     } else {
         const size_t meta_map_size = alloc_size;
-        void *metadata_addr = mmap(nullptr, PAGE_SIZE, VIPER_MAP_PROT, VIPER_MAP_FLAGS, meta_fd, 0);
+        void *metadata_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, meta_fd, 0);
         MMAP_CHECK(metadata_addr)
 
         metadata = static_cast<ViperFileMetadata *>(metadata_addr);
@@ -746,7 +746,6 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
         init_data = init_devdax_pool(pool_file, pool_size, is_new_pool, v_config, block_size);
     }
 #endif
-
     const auto end = std::chrono::steady_clock::now();
     DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " took " << ((end - start).count() / 1e6) << " ms");
     auto ret = ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
@@ -973,9 +972,9 @@ void Viper<K, V>::trigger_resize() {
     resize_thread_ = std::make_unique<std::thread>([this] {
         DEBUG_LOG("Start resizing.");
         ViperFileMapping mapping = allocate_v_page_blocks();
-        v_blocks_lock.lock();
+        // v_blocks_lock.lock();
         add_v_page_blocks(mapping);
-        v_blocks_lock.unlock();
+        // v_blocks_lock.unlock();
         is_resizing_.store(false, STORE_ORDER);
         DEBUG_LOG("End resizing.");
     });
@@ -1263,6 +1262,7 @@ bool Viper<K, V>::ReadOnlyClient::get(const K& key, V* value) const {
         if (get_const_value_from_offset(kv_offset, value)) {
             return true;
         }
+        std::cout << "readonlyclient get looping" << std::endl;
     }
 }
 
@@ -1542,7 +1542,7 @@ Viper<K, V>::Client::~Client() {
 template <typename K, typename V>
 inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type>
 Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
-    v_blocks_lock.lock();
+    // v_blocks_lock.lock();
     if constexpr (std::is_same_v<K, std::string>) {
         const auto[block, page, data_offset] = offset.get_offsets();
         const VPageBlock* v_block = this->viper_.v_blocks_[block];
@@ -1554,12 +1554,12 @@ Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset)
             const char* raw_value_data = &v_block->v_pages[page + 1].data[0];
             var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
         }
-        v_blocks_lock.unlock();
+        // v_blocks_lock.unlock();
         return {var_entry.key(), var_entry.value()};
     } else {
         const auto[block, page, slot] = offset.get_offsets();
         const auto& entry = this->viper_.v_blocks_[block]->v_pages[page].data[slot];
-        v_blocks_lock.unlock();
+        // v_blocks_lock.unlock();
         return {&entry.first, &entry.second};
     }
 }
@@ -1598,24 +1598,19 @@ size_t Viper<K, V>::ReadOnlyClient::get_total_allocated_pmem() const {
 
 template <typename K, typename V>
 inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V* value) {
-    v_blocks_lock.lock();
+    // v_blocks_lock.lock();
     const auto [block, page, slot] = offset.get_offsets();
-
-    auto temp0 = &this->viper_;
-    auto temp1 = this->viper_.v_blocks_[block];
-    auto temp2 = &this->viper_.v_blocks_[block]->v_pages;
-    auto temp3 = &this->viper_.v_blocks_[block]->v_pages[page];
 
     const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
     const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
     version_lock_t lock_val = page_lock.load(LOAD_ORDER);
     if (IS_LOCKED(lock_val)) {
-        v_blocks_lock.unlock();
+        // v_blocks_lock.unlock();
         return false;
     }
     *value = v_page.data[slot].second;
     auto result = lock_val == page_lock.load(LOAD_ORDER);
-    v_blocks_lock.unlock();
+    // v_blocks_lock.unlock();
     return result;
 }
 

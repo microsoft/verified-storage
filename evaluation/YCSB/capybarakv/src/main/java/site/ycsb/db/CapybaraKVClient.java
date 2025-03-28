@@ -161,14 +161,14 @@ public class CapybaraKVClient extends DB {
       //   long elapsed = System.nanoTime() - startTime;
       //   System.out.println("Waited " + elapsed / 1000 + " usec to acquire write lock " + id);
       // }
-      // read the current value at this key
-      byte[] currentValue = kv.read(table, key);
-      final Map<String, ByteIterator> result = new HashMap<>();
-      deserializeValues(currentValue, null, result);
-      // update the result with the new fields
-      result.putAll(values);
+      // // read the current value at this key
+      // byte[] currentValue = kv.read(table, key);
+      // final Map<String, ByteIterator> result = new HashMap<>();
+      // deserializeValues(currentValue, null, result);
+      // // update the result with the new fields
+      // result.putAll(values);
       // serialize the updated value to bytes
-      byte[] updateBytes = serializeValues(result);
+      byte[] updateBytes = serializeValues(values);
       kv.update(table, key, updateBytes);
       kv.commit();
       lock.writeLock().unlock();
