@@ -15,13 +15,13 @@ use vstd::prelude::*;
 
 pub mod common;
 pub mod journal;
-//pub mod kv2;
+pub mod kv2;
 // pub mod log;
 // pub mod multilog;
 pub mod pmem;
-//pub mod testkv_v;
+pub mod testkv_v;
 
-//use testkv_v::*;
+use testkv_v::*;
 
 mod tests {
 
@@ -37,17 +37,17 @@ use super::*;
 //    test_durable_on_memory_mapped_file();
 //}
 
-//#[test]
-//fn check_kv_on_memory_mapped_file () -> Result<(), ()>
-//{
-//    test_kv_on_memory_mapped_file()
-//}
+#[test]
+fn check_kv_on_memory_mapped_file () -> Result<(), ()>
+{
+    test_kv_on_memory_mapped_file()
+}
 
-//#[test]
-//fn check_kv_on_concurrent_memory_mapped_file () -> Result<(), ()>
-//{
-//    test_concurrent_kv_on_memory_mapped_file()
-//}
+#[test]
+fn check_kv_on_concurrent_memory_mapped_file () -> Result<(), ()>
+{
+    test_concurrent_kv_on_memory_mapped_file()
+}
     
 }
 
@@ -60,8 +60,8 @@ fn main()
     // test_multilog_on_memory_mapped_file();
     // test_log_on_memory_mapped_file();
     // test_durable_on_memory_mapped_file();
-//    let _ = test_kv_on_memory_mapped_file();
-//    let _ = test_concurrent_kv_on_memory_mapped_file();
+    let _ = test_kv_on_memory_mapped_file();
+    let _ = test_concurrent_kv_on_memory_mapped_file();
 }
 
 }
