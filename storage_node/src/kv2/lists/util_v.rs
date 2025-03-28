@@ -178,23 +178,25 @@ where
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
             sm.table.end <= initial_jv.durable_state.len(),
-            forall|s1: Seq<u8>, s2: Seq<u8>|
-                Self::state_equivalent_for_me_specific(s2, iv.durable_mapping.list_elements.dom(), s1,
-                                                       initial_jv.constants, sm)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| {
+                &&& Self::state_equivalent_for_me(s1, initial_jv.durable_state, iv.durable_mapping.list_elements.dom(),
+                                                 initial_jv.constants, sm)
+                &&& Self::state_equivalent_for_me(s2, initial_jv.durable_state, iv.durable_mapping.list_elements.dom(),
+                                                 initial_jv.constants, sm)
+            } ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
             forall|current_durable_state: Seq<u8>, new_durable_state: Seq<u8>, start: int, end: int|
                 #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
             {
                 &&& seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_mapping.list_elements.dom(),
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
+                &&& Self::state_equivalent_for_me(current_durable_state, initial_jv.durable_state,
+                                                iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(new_durable_state, initial_jv.constants)
             } ==> {
-                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_mapping.list_elements.dom(),
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
+                &&& Self::state_equivalent_for_me(new_durable_state, initial_jv.durable_state,
+                                                iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(new_durable_state, sm)
                 &&& perm_factory.check_permission(current_durable_state, new_durable_state)
             },
@@ -218,14 +220,14 @@ where
                 #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
             {
                 &&& seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.durable_mapping.list_elements.dom(),
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
+                &&& Self::state_equivalent_for_me(current_durable_state, initial_jv.durable_state,
+                                                iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(new_durable_state, initial_jv.constants)
             } implies {
-                &&& Self::state_equivalent_for_me_specific(new_durable_state, iv.durable_mapping.list_elements.dom(),
-                                                         initial_jv.durable_state, initial_jv.constants, sm)
+                &&& Self::state_equivalent_for_me(new_durable_state, initial_jv.durable_state,
+                                                iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(new_durable_state, sm)
                 &&& perm_factory.check_permission(current_durable_state, new_durable_state)
             } by {

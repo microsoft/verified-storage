@@ -99,20 +99,23 @@ where
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
             sm.table.end <= initial_durable_state.len(),
-            forall|s1: Seq<u8>, s2: Seq<u8>|
-                Self::state_equivalent_for_me_specific(s2, iv.as_durable_snapshot().m.dom(), s1, constants, sm)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| {
+                &&& Self::state_equivalent_for_me(s1, initial_durable_state, iv.as_durable_snapshot().m.dom(),
+                                                constants, sm)
+                &&& Self::state_equivalent_for_me(s2, initial_durable_state, iv.as_durable_snapshot().m.dom(),
+                                                constants, sm)
+            } ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
             forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
                 &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, iv.as_durable_snapshot().m.dom(),
-                                                         initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(current_durable_state, initial_durable_state,
+                                                iv.as_durable_snapshot().m.dom(), constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
             } ==> {
-                &&& Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
-                                                         initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(s, initial_durable_state, iv.as_durable_snapshot().m.dom(),
+                                                 constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
                 &&& perm_factory.check_permission(current_durable_state, s)
             },
@@ -120,13 +123,13 @@ where
         let item_addrs = iv.as_durable_snapshot().m.dom();
         assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
                 &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, item_addrs,
-                                                         initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(current_durable_state, initial_durable_state, item_addrs,
+                                                constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
             } implies {
-                &&& Self::state_equivalent_for_me_specific(s, item_addrs, initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(s, initial_durable_state, item_addrs, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
                 &&& perm_factory.check_permission(current_durable_state, s)
             } by {

@@ -155,10 +155,10 @@ where
         self.sm.table.validate_row_addr(addr)
     }
 
-    pub open spec fn state_equivalent_for_me_specific(
+    pub open spec fn state_equivalent_for_me(
         s: Seq<u8>,
-        item_addrs: Set<u64>,
         durable_state: Seq<u8>,
+        item_addrs: Set<u64>,
         constants: JournalConstants,
         sm: ItemTableStaticMetadata
     ) -> bool
@@ -168,20 +168,16 @@ where
         &&& Self::recover(s, item_addrs, sm) == Self::recover(durable_state, item_addrs, sm)
     }
 
-    pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool
-    {
-        Self::state_equivalent_for_me_specific(s, self@.durable.m.dom(), jv.durable_state, jv.constants, self@.sm)
-    }
-
     pub open spec fn perm_factory_permits_states_equivalent_for_me(
         &self,
         jv: JournalView,
         perm_factory: PermFactory
     ) -> bool
     {
-        forall|s1: Seq<u8>, s2: Seq<u8>|
-            Self::state_equivalent_for_me_specific(s2, self@.durable.m.dom(), s1, jv.constants, self@.sm) ==>
-            #[trigger] perm_factory.check_permission(s1, s2)
+        forall|s1: Seq<u8>, s2: Seq<u8>| {
+            &&& Self::state_equivalent_for_me(s1, jv.durable_state, self@.durable.m.dom(), jv.constants, self@.sm)
+            &&& Self::state_equivalent_for_me(s2, jv.durable_state, self@.durable.m.dom(), jv.constants, self@.sm)
+        } ==> #[trigger] perm_factory.check_permission(s1, s2)
     }
 }
 

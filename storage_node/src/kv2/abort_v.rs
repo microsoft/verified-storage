@@ -32,6 +32,7 @@ where
             }
     {
         self.status = Ghost(KvStoreStatus::MustAbort);
+        assert(self.perm_factory == old(self).perm_factory);
         self.internal_abort();
         Ok(())
     }
