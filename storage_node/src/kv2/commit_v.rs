@@ -29,10 +29,10 @@ where
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] perm.check_permission(s1, s2) <== {
+            forall|s1: Seq<u8>, s2: Seq<u8>| {
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })
-            },
+            } ==> #[trigger] perm.check_permission(s1, s2),
         ensures 
             self.valid(),
             match result {
@@ -43,7 +43,7 @@ where
         let ghost jv_before_commit = self.journal@;
 
         proof {
-            self.lemma_establish_recovery_equivalent_for_app(perm);
+            self.lemma_establish_recovery_equivalent_for_app_on_commit(perm);
         }
 
         self.journal.commit(Tracked(perm));
@@ -51,7 +51,7 @@ where
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(
-                old(self).journal@.durable_state, self.journal@.commit_state, self.sm@, jv_before_commit.constants
+                old(self).journal@.durable_state, self.journal@.commit_state, jv_before_commit.constants
             );
         }
 

@@ -87,7 +87,7 @@ where
         assert(self.valid(new_jv));
     }
 
-    pub proof fn lemma_recover_depends_only_on_my_area(
+    proof fn lemma_recover_depends_only_on_my_area_if_valid(
         s1: Seq<u8>,
         s2: Seq<u8>,
         addrs: Set<u64>,
@@ -104,6 +104,27 @@ where
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use group_validate_row_addr;
         assert(Self::recover(s1, addrs, sm) =~= Self::recover(s2, addrs, sm));
+    }
+
+    pub proof fn lemma_recover_depends_only_on_my_area(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        addrs: Set<u64>,
+        sm: ItemTableStaticMetadata,
+    )
+        requires
+            sm.valid::<I>(),
+            sm.end() <= s1.len(),
+            seqs_match_in_range(s1, s2, sm.start() as int, sm.end() as int),
+        ensures
+            Self::recover(s1, addrs, sm) == Self::recover(s2, addrs, sm),
+    {
+        if Self::recover(s1, addrs, sm) is Some {
+            Self::lemma_recover_depends_only_on_my_area_if_valid(s1, s2, addrs, sm);
+        }
+        else if Self::recover(s2, addrs, sm) is Some {
+            Self::lemma_recover_depends_only_on_my_area_if_valid(s2, s1, addrs, sm);
+        }
     }
 }
 

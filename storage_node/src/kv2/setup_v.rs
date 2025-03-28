@@ -223,22 +223,24 @@ where
     
         let ghost empty_keys = KeyTableSnapshot::<K>::init();
         assert(recover_static_metadata::<K, I, L>(pm@.read_state, jc) == Some(kv_sm)) by {
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(state_after_sm_init, pm@.read_state,
-                                                                              kv_sm, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(state_after_sm_init, pm@.read_state, jc);
         }
         assert(KeyTable::<Perm, PermFactory, PM, K>::recover(pm@.read_state, key_sm) == Some(empty_keys)) by {
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(state_after_key_init, pm@.read_state,
-                                                                           key_sm);
+            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
+                state_after_key_init, pm@.read_state, key_sm
+            );
         }
         assert(ItemTable::<Perm, PermFactory, PM, I>::recover(pm@.read_state, empty_keys.item_addrs(), item_sm)
                == Some(ItemTableSnapshot::<I>::init())) by {
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(state_after_item_init, pm@.read_state,
-                                                                            empty_keys.item_addrs(), item_sm);
+            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+                state_after_item_init, pm@.read_state, empty_keys.item_addrs(), item_sm
+            );
         }
         assert(ListTable::<Perm, PermFactory, PM, L>::recover(pm@.read_state, empty_keys.list_addrs(), list_sm)
                == Some(ListTableSnapshot::<L>::init())) by {
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(state_after_list_init, pm@.read_state,
-                                                                            empty_keys.list_addrs(), list_sm);
+            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+                state_after_list_init, pm@.read_state, empty_keys.list_addrs(), list_sm
+            );
         }
     
         assert(recover_kv::<Perm, PermFactory, PM, K, I, L>(pm@.read_state, jc) =~= Some(RecoveredKvStore::<K, I, L>::init(*ps)));

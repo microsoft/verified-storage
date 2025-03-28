@@ -142,7 +142,7 @@ where
             states_match_in_static_metadata_area(new_jv.durable_state, new_jv.commit_state, new_jv.constants),
     {
         lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(
-            old_jv.durable_state, new_jv.durable_state, self.sm@, old_jv.constants
+            old_jv.durable_state, new_jv.durable_state, old_jv.constants
         );
     }
 }

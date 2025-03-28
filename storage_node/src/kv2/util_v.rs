@@ -27,7 +27,79 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub(super) proof fn lemma_establish_recovery_equivalent_for_app(self, perm: Perm)
+    pub(super) proof fn lemma_establish_recovery_equivalent_for_app(perm_factory: PermFactory)
+        requires
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
+                #[trigger] perm_factory.check_permission(s1, s2)
+        ensures
+            forall|s1: Seq<u8>, s2: Seq<u8>|
+                Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s1, s2)
+            ==> #[trigger] perm_factory.check_permission(s1, s2),
+    {
+        assert forall|s1: Seq<u8>, s2: Seq<u8>|
+                   Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s1, s2)
+               implies #[trigger] perm_factory.check_permission(s1, s2) by {
+            broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+            let r1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap();
+            let jc = r1.constants;
+            let js1 = r1.state;
+            let r2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap();
+            let js2 = r2.state;
+            assert(r1.constants == r2.constants);
+            if jc.app_program_guid != KVSTORE_PROGRAM_GUID || jc.app_version_number != KVSTORE_PROGRAM_VERSION_NUMBER {
+            }
+            else if jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() > jc.app_area_end {
+                assert(Self::recover(s1) is None && Self::recover(s2) is None) by {
+                    reveal(recover_static_metadata);
+                }
+            }
+            else {
+                assert(states_match_in_static_metadata_area(js1, js2, jc));
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js1, js2, jc);
+                match recover_static_metadata::<K, I, L>(js1, jc) {
+                    None => {},
+                    Some(sm) => {
+                        assert(validate_static_metadata::<K, I, L>(sm, jc)) by {
+                            reveal(recover_static_metadata);
+                        }
+                        if {
+                               ||| jc.journal_capacity <
+                                     sm.max_operations_per_transaction *
+                                     UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::
+                                         spec_space_needed_for_transaction_operation()
+                               ||| sm.setup_parameters() is None
+                               ||| !sm.setup_parameters().unwrap().valid()
+                           } {
+                        }
+                        else {
+                            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
+                                js1, js2, sm.keys
+                            );
+                            match KeyTable::<Perm, PermFactory, PM, K>::recover(js1, sm.keys) {
+                                None => {},
+                                Some(keys) => {
+                                    ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+                                        js1, js2, keys.item_addrs(), sm.items
+                                    );
+                                    match ItemTable::<Perm, PermFactory, PM, I>::recover(js1, keys.item_addrs(),
+                                                                                         sm.items) {
+                                        None => {},
+                                        Some(items) => {
+                                            ListTable::<Perm, PermFactory, PM, L>::
+                                                lemma_recover_depends_only_on_my_area(js1, js2, keys.list_addrs(),
+                                                                                      sm.lists);
+                                        },
+                                    }
+                                },
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    pub(super) proof fn lemma_establish_recovery_equivalent_for_app_on_commit(self, perm: Perm)
         requires
             self.valid(),
             forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] perm.check_permission(s1, s2) <== {
@@ -54,13 +126,10 @@ where
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
             let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js1,
-                                                                              self.sm@, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js1, jc);
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state,
-                                                                              self.journal@.commit_state,
-                                                                              self.sm@, jc);
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.commit_state, js2,
-                                                                              self.sm@, jc);
+                                                                              self.journal@.commit_state, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.commit_state, js2, jc);
             self.keys.lemma_valid_implications(self.journal@);
             self.items.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
@@ -203,8 +272,8 @@ where
         } implies #[trigger] self.perm_factory@.check_permission(s1, s2) by {
             let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
             let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, self.sm@, jc);
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, self.sm@, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, jc);
             self.keys.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
             KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js1, sm.keys);
@@ -288,8 +357,8 @@ where
         } implies #[trigger] self.perm_factory@.check_permission(s1, s2) by {
             let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
             let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, self.sm@, jc);
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, self.sm@, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, jc);
+            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, jc);
             self.keys.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
             KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js1, sm.keys);

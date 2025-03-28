@@ -284,7 +284,6 @@ pub(super) open spec fn states_match_in_static_metadata_area(s1: Seq<u8>, s2: Se
 pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I, L>(
     s1: Seq<u8>,
     s2: Seq<u8>,
-    sm: KvStaticMetadata,
     jc: JournalConstants,
 )
     where
@@ -292,15 +291,12 @@ pub(super) proof fn lemma_recover_static_metadata_depends_only_on_its_area<K, I,
         I: PmCopy + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
     requires
-        validate_static_metadata::<K, I, L>(sm, jc),
         states_match_in_static_metadata_area(s1, s2, jc),
-        recover_static_metadata::<K, I, L>(s1, jc) == Some(sm),
     ensures
-        recover_static_metadata::<K, I, L>(s2, jc) == Some(sm),
+        recover_static_metadata::<K, I, L>(s2, jc) == recover_static_metadata::<K, I, L>(s1, jc)
 {
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
     reveal(recover_static_metadata);
-    assert(recover_static_metadata::<K, I, L>(s2, jc) =~= Some(sm));
 }
 
 pub(super) open spec fn combine_component_snapshots<K, I, L>(

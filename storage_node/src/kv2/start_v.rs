@@ -93,6 +93,9 @@ where
         }
 
         let tracked journal_perm_factory = perm_factory.clone();
+        proof {
+            Self::lemma_establish_recovery_equivalent_for_app(journal_perm_factory);
+        }
         let journal = match Journal::<Perm, PermFactory, PM>::start(wrpm, Tracked(journal_perm_factory)) {
             Ok(j) => j,
             Err(JournalError::CRCError) => { return Err(KvError::CRCMismatch); },
