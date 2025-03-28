@@ -1,8 +1,6 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
-#[cfg(verus_keep_ghost)]
-#[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 use crate::common::recover_v::*;

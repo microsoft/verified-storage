@@ -24,7 +24,7 @@ where
 {
     exec fn apply_last_undo_record(
         &mut self,
-        Ghos(jv): Ghost<JournalView>,
+        Ghost(jv): Ghost<JournalView>,
     )
         requires
             old(self).inv(jv),

@@ -10,7 +10,7 @@ mod write_v;
 
 #[cfg(verus_keep_ghost)]
 pub use spec_v::{broadcast_journal_view_matches_in_range_can_narrow_range,
-                 broadcast_journal_view_matches_in_range_transitive,
-                 JournalConstants, JournalError, JournalView, RecoveredJournal};
+                 broadcast_journal_view_matches_in_range_transitive};
+pub use spec_v::{JournalConstants, JournalError, JournalView, RecoveredJournal};
 pub use impl_v::Journal;
 
