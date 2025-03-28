@@ -416,3 +416,5 @@ evaluation/venv/*
 *.pch
 a.out
 *.so
+
+*/latency/*
