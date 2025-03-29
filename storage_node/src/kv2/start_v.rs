@@ -144,10 +144,7 @@ where
             );
         }
 
-        let tracked key_perm_factory = perm_factory.clone();
-        let (keys, item_addrs, list_addrs) = match KeyTable::<Perm, PermFactory, PM, K>::start(
-            &journal, &sm.keys, Tracked(key_perm_factory)
-        ) {
+        let (keys, item_addrs, list_addrs) = match KeyTable::<Perm, PermFactory, PM, K>::start(&journal, &sm.keys) {
             Ok((k, i, l)) => (k, i, l),
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },

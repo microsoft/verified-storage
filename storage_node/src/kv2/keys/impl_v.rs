@@ -106,7 +106,7 @@ where
     pub(super) pending_deallocations: Vec<u64>,
     pub(super) memory_mapping: Ghost<KeyMemoryMapping<K>>,
     pub(super) undo_records: Vec<KeyUndoRecord<K>>,
-    pub(super) perm_factory: Tracked<PermFactory>,
+    pub(super) phantom_perm_factory: Ghost<core::marker::PhantomData<PermFactory>>,
     pub(super) phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
     pub(super) phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
@@ -176,7 +176,7 @@ where
         self.m@.contains_key(k) && self.m@[k].row_addr == addr
     }
 
-    pub open spec fn state_equivalent_for_me_specific(
+    pub open spec fn state_equivalent_for_me(
         s: Seq<u8>,
         durable_state: Seq<u8>,
         constants: JournalConstants,
@@ -188,9 +188,16 @@ where
         &&& Self::recover(s, sm) == Self::recover(durable_state, sm)
     }
 
-    pub open spec fn state_equivalent_for_me(&self, s: Seq<u8>, jv: JournalView) -> bool
+    pub open spec fn perm_factory_permits_states_equivalent_for_me(
+        &self,
+        jv: JournalView,
+        perm_factory: PermFactory
+    ) -> bool
     {
-        Self::state_equivalent_for_me_specific(s, jv.durable_state, jv.constants, self@.sm)
+        forall|s1: Seq<u8>, s2: Seq<u8>| {
+            &&& Self::state_equivalent_for_me(s1, jv.durable_state, jv.constants, self@.sm)
+            &&& Self::state_equivalent_for_me(s2, jv.durable_state, jv.constants, self@.sm)
+        } ==> #[trigger] perm_factory.check_permission(s1, s2)
     }
 }
 

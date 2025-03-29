@@ -719,12 +719,6 @@ where
         }
     }
 
-    pub(super) open spec fn inv_perm_factory_allows_states_equivalent_for_me(self, jv: JournalView) -> bool
-    {
-        forall|s1: Seq<u8>, s2: Seq<u8>| Self::state_equivalent_for_me_specific(s2, s1, jv.constants, self.sm) ==>
-            #[trigger] self.perm_factory@.check_permission(s1, s2)
-    }
-
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
@@ -741,7 +735,6 @@ where
             self.sm.table.validate_row_addr(#[trigger] self.free_list@[i])
         &&& forall|i: int| 0 <= i < self.pending_deallocations@.len() ==>
             self.sm.table.validate_row_addr(#[trigger] self.pending_deallocations@[i])
-        &&& self.inv_perm_factory_allows_states_equivalent_for_me(jv)
     }
 
     pub proof fn lemma_valid_depends_only_on_my_area(&self, old_jv: JournalView, new_jv: JournalView)

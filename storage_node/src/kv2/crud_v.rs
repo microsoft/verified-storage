@@ -123,7 +123,7 @@ where
         };
 
         let ghost self_before_key_create = self.lemma_prepare_for_key_table_update();
-        let result = self.keys.create(key, item_addr, &mut self.journal);
+        let result = self.keys.create(key, item_addr, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_create); }
 
         match result {
@@ -226,7 +226,7 @@ where
         assert(self.journal@.remaining_capacity == old(self).journal@.remaining_capacity);
 
         let ghost self_before_key_delete = self.lemma_prepare_for_key_table_update();
-        let result = self.keys.delete(key, key_addr, rm, &mut self.journal);
+        let result = self.keys.delete(key, key_addr, rm, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_delete); }
 
         match result {
@@ -331,7 +331,8 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, ..former_rm };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                      Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {

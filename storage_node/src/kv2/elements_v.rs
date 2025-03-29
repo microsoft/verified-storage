@@ -317,7 +317,8 @@ where
         if list_addr != former_rm.list_addr {
             let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
             let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
-            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                          Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
             match result {
@@ -424,7 +425,8 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                      Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {
@@ -552,7 +554,8 @@ where
         if list_addr != former_rm.list_addr {
             let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
             let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
-            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                          Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
             match result {
@@ -693,7 +696,8 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                      Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {
@@ -827,7 +831,8 @@ where
         if list_addr != former_rm.list_addr {
             let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
             let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
-            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                          Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
             match result {
@@ -967,7 +972,8 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal);
+        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+                                      Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
         match result {

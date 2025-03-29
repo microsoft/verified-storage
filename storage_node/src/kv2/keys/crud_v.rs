@@ -97,31 +97,31 @@ where
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
             sm.table.end <= initial_durable_state.len(),
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::state_equivalent_for_me_specific(s2, s1, constants, sm)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| {
+                &&& Self::state_equivalent_for_me(s1, initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(s2, initial_durable_state, constants, sm)
+            } ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
             forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
                 &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, initial_durable_state,
-                                                         constants, sm)
+                &&& Self::state_equivalent_for_me(current_durable_state, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
             } ==> {
-                &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
                 &&& perm_factory.check_permission(current_durable_state, s)
             },
     {
         assert forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
                 &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
-                &&& Self::state_equivalent_for_me_specific(current_durable_state, initial_durable_state,
-                                                         constants, sm)
+                &&& Self::state_equivalent_for_me(current_durable_state, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
                 &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
             } implies {
-                &&& Self::state_equivalent_for_me_specific(s, initial_durable_state, constants, sm)
+                &&& Self::state_equivalent_for_me(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
                 &&& perm_factory.check_permission(current_durable_state, s)
             } by {
@@ -227,6 +227,7 @@ where
         item_addr: u64,
         journal: &mut Journal<Perm, PermFactory, PM>,
         row_addr: u64,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     )
         requires
             self.inv(old(journal)@),
@@ -240,6 +241,7 @@ where
             forall|addr: int|
                 row_addr + self.sm.row_metadata_start <= addr < row_addr + self.sm.table.row_size ==>
                 !(#[trigger] old(journal)@.journaled_addrs.contains(addr)),
+            self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.inv(journal@),
             journal.valid(),
@@ -280,25 +282,25 @@ where
                 journal@.constants,
                 free_list_pos as int,
                 row_addr,
-                self.perm_factory@,
+                *perm_factory,
             );
         }
 
         let key_addr = row_addr + self.sm.row_key_start;
-        let tracked perm = self.perm_factory.borrow().grant_permission();
+        let tracked perm = perm_factory.grant_permission();
         journal.write_object(key_addr, k, Tracked(perm));
         let key_crc_addr = row_addr + self.sm.row_key_crc_start;
         let key_crc = calculate_crc(k);
-        let tracked perm = self.perm_factory.borrow().grant_permission();
+        let tracked perm = perm_factory.grant_permission();
         journal.write_object(key_crc_addr, &key_crc, Tracked(perm));
 
         let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
         let metadata_addr = row_addr + self.sm.row_metadata_start;
-        let tracked perm = self.perm_factory.borrow().grant_permission();
+        let tracked perm = perm_factory.grant_permission();
         journal.write_object(metadata_addr, &rm, Tracked(perm));
         let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
         let rm_crc = calculate_crc(&rm);
-        let tracked perm = self.perm_factory.borrow().grant_permission();
+        let tracked perm = perm_factory.grant_permission();
         journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
     }
 
@@ -307,6 +309,7 @@ where
         k: &K,
         item_addr: u64,
         journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -314,6 +317,7 @@ where
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -353,7 +357,7 @@ where
             Ok(r) => r,
             Err(e) => { return Err(e); },
         };
-        self.create_step2(k, item_addr, journal, row_addr);
+        self.create_step2(k, item_addr, journal, row_addr, Tracked(perm_factory));
 
         let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
         let _ = self.free_list.pop();
@@ -391,6 +395,7 @@ where
         row_addr: u64,
         rm: KeyTableRowMetadata,
         journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -399,6 +404,7 @@ where
             old(self)@.tentative.unwrap().key_info.contains_key(*k),
             old(self)@.tentative.unwrap().key_info[*k] == rm,
             old(self).key_corresponds_to_key_addr(*k, row_addr),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
@@ -440,7 +446,6 @@ where
             Ok(()) => {},
             Err(JournalError::NotEnoughSpace) => {
                 self.must_abort = Ghost(true);
-                assert(self.perm_factory == old(self).perm_factory);
                 return Err(KvError::OutOfSpace);
             },
             _ => {
@@ -474,7 +479,6 @@ where
             broadcast use group_validate_row_addr;
         }
 
-        assert(self.perm_factory == old(self).perm_factory);
         assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().delete(*k)));
         Ok(())
@@ -592,6 +596,7 @@ where
         new_rm: KeyTableRowMetadata,
         former_rm: KeyTableRowMetadata,
         journal: &mut Journal<Perm, PermFactory, PM>,
+        Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -609,6 +614,7 @@ where
                 ||| new_rm.list_addr == former_rm.list_addr
                 ||| !old(self)@.tentative.unwrap().list_addrs().contains(new_rm.list_addr)
             }),
+            old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),

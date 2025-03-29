@@ -38,7 +38,6 @@ where
             self.must_abort == old(self).must_abort,
             self.sm == old(self).sm,
             self.undo_records@ == old(self).undo_records@.drop_last(),
-            self.perm_factory == old(self).perm_factory,
     {
         broadcast use group_hash_axioms;
 
@@ -82,7 +81,6 @@ where
             self.must_abort == old(self).must_abort,
             self.sm == old(self).sm,
             self.undo_records@.len() == 0,
-            self.perm_factory == old(self).perm_factory,
     {
         while self.undo_records.len() > 0
             invariant
@@ -90,7 +88,6 @@ where
                 self.status@ is Inconsistent,
                 self.must_abort == old(self).must_abort,
                 self.sm == old(self).sm,
-                self.perm_factory == old(self).perm_factory,
         {
             self.apply_last_undo_record(Ghost(jv));
         }
@@ -114,7 +111,6 @@ where
             self@.used_slots == self@.durable.key_info.dom().len(),
     {
         self.status = Ghost(KeyTableStatus::Inconsistent);
-        assert(self.perm_factory == old(self).perm_factory);
         self.apply_all_undo_records(Ghost(jv_before_abort));
         self.status = Ghost(KeyTableStatus::Quiescent);
         self.must_abort = Ghost(false);
