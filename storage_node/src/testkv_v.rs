@@ -921,6 +921,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     }
 
     let mut wrpm = WriteRestrictedPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
+    let ghost pm_constants = wrpm.constants();
     let ghost state = ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory,
                                           FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                           TestListElement>::recover(wrpm@.durable_state).unwrap();
@@ -946,21 +947,17 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item1 = TestItem { val: 0x55555555 };
     let item2 = TestItem { val: 0x66666666 };
 
-    /*
-
-    let tracked empty_perm =
-        TestKvPermission::new::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>();
-
+    let ghost op = CreateOp::<TestKey, TestItem>{ key: key1, item: item1 };
+    let tracked perm = create_mutating_perm::<CreateOp<TestKey, TestItem>>(op, pm_constants);
     let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem>>{
         r: app_resource,
-        perm: empty_perm,
-        op: CreateOp::<TestKey, TestItem>{ key: key1, item: item1 },
+        op,
         old_ckv: None,
         new_ckv: None,
     };
 
     match ckv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
-        &key1, &item1, Tracked(&mut create_linearizer)
+        &key1, &item1, Tracked(perm), Tracked(&mut create_linearizer)
     ) {
         Ok(()) => {},
         Err(e) => { print_message("Error when creating key 1"); return Err(()); },
@@ -990,8 +987,6 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(KvError::KeyNotFound) => {},
         Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
     };
-
-    */
 
     print_message("All kv operations gave expected results");
     return Ok(());
