@@ -163,9 +163,11 @@ where
         &&& Kv::recover(s1) matches Some(old_rkv)
         &&& Kv::recover(s2) matches Some(new_rkv)
         &&& exists|result| {
-               let old_ckv = ConcurrentKvStoreView::<K, I, L>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv };
-               let new_ckv = ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv };
-               #[trigger] op.result_valid(old_ckv, new_ckv, result)
+               #[trigger] op.result_valid(
+                   ConcurrentKvStoreView::<K, I, L>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv },
+                   ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
+                   result
+               )
            }
     } ==> #[trigger] perm.check_permission(s1, s2)
 }
@@ -176,8 +178,7 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRec
 
     spec fn pre(self, loc: Loc, op: Op) -> bool;
 
-    spec fn post(self, orig_self: Self, old_ckv: ConcurrentKvStoreView<K, I, L>, loc: Loc, op: Op,
-                 exec_result: Op::ExecResult) -> bool;
+    spec fn post(self, orig_self: Self, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
 
     proof fn apply(
         tracked &mut self,
@@ -194,7 +195,7 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRec
         ensures
             r.loc() == old(r).loc(),
             r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
-            self.post(*old(self), old(r).value()->Invariant_ckv, r.loc(), op, exec_result),
+            self.post(*old(self), r.loc(), op, exec_result),
         opens_invariants old(self).namespaces()
     ;
 }
