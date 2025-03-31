@@ -220,122 +220,127 @@ where
     pub exec fn read_item<CB>(
         &self,
         key: &K,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<I, KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<I, KvError>, Tracked<CB::Completion>))
         where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
         requires 
             self.valid(),
-            old(cb).pre(self.loc(), ReadItemOp{ key: *key }),
+            cb.pre(self.loc(), ReadItemOp{ key: *key }),
         ensures
             self.valid(),
-            cb.post(*old(cb), self.loc(), ReadItemOp{ key: *key }, result),
+            cb.post(result.1@, self.loc(), ReadItemOp{ key: *key }, result.0),
     {
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadItemOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_item(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked mut completion;
         proof {
-            cb.apply(op, result, invariant_resource);
+            completion = cb.apply(op, result, invariant_resource);
         }
         read_handle.release_read();
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn get_keys<CB: ReadLinearizer<K, I, L, GetKeysOp>>(
         &self,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<Vec<K>, KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<Vec<K>, KvError>, Tracked<CB::Completion>))
         requires 
             self.valid(),
-            old(cb).pre(self.loc(), GetKeysOp{ }),
+            cb.pre(self.loc(), GetKeysOp{ }),
         ensures
             self.valid(),
-            cb.post(*old(cb), self.loc(), GetKeysOp{ }, result),
+            cb.post(result.1@, self.loc(), GetKeysOp{ }, result.0),
     {
         let read_handle = self.lock.acquire_read();
         let ghost op = GetKeysOp{ };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.get_keys();
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked mut completion;
         proof {
-            cb.apply(op, result, invariant_resource);
+            completion = cb.apply(op, result, invariant_resource);
         }
         read_handle.release_read();
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn read_item_and_list<CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>>(
         &self,
         key: &K,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(I, Vec<L>), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(I, Vec<L>), KvError>, Tracked<CB::Completion>))
         requires 
             self.valid(),
-            old(cb).pre(self.loc(), ReadItemAndListOp{ key: *key }),
+            cb.pre(self.loc(), ReadItemAndListOp{ key: *key }),
         ensures
             self.valid(),
-            cb.post(*old(cb), self.loc(), ReadItemAndListOp{ key: *key }, result),
+            cb.post(result.1@, self.loc(), ReadItemAndListOp{ key: *key }, result.0),
     {
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadItemAndListOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_item_and_list(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked mut completion;
         proof {
-            cb.apply(op, result, invariant_resource);
+            completion = cb.apply(op, result, invariant_resource);
         }
         read_handle.release_read();
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn read_list<CB: ReadLinearizer<K, I, L, ReadListOp<K>>>(
         &self,
         key: &K,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<Vec<L>, KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<Vec<L>, KvError>, Tracked<CB::Completion>))
         requires 
             self.valid(),
-            old(cb).pre(self.loc(), ReadListOp{ key: *key }),
+            cb.pre(self.loc(), ReadListOp{ key: *key }),
         ensures
             self.valid(),
-            cb.post(*old(cb), self.loc(), ReadListOp{ key: *key }, result),
+            cb.post(result.1@, self.loc(), ReadListOp{ key: *key }, result.0),
     {
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadListOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_list(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked mut completion;
         proof {
-            cb.apply(op, result, invariant_resource);
+            completion = cb.apply(op, result, invariant_resource);
         }
         read_handle.release_read();
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn get_list_length<CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>>(
         &self,
         key: &K,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<usize, KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<usize, KvError>, Tracked<CB::Completion>))
         requires 
             self.valid(),
-            old(cb).pre(self.loc(), GetListLengthOp{ key: *key }),
+            cb.pre(self.loc(), GetListLengthOp{ key: *key }),
         ensures
             self.valid(),
-            cb.post(*old(cb), self.loc(), GetListLengthOp{ key: *key }, result),
+            cb.post(result.1@, self.loc(), GetListLengthOp{ key: *key }, result.0),
     {
         let read_handle = self.lock.acquire_read();
         let ghost op = GetListLengthOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.get_list_length(key);
         let tracked invariant_resource = kv_internal.invariant_resource.borrow();
+        let tracked mut completion;
         proof {
-            cb.apply(op, result, invariant_resource);
+            completion = cb.apply(op, result, invariant_resource);
         }
         read_handle.release_read();
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn create<Perm, CB>(
