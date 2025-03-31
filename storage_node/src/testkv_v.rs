@@ -862,6 +862,8 @@ impl<Op> MutatingLinearizer<TestKey, TestItem, TestListElement, Op,
 where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
+    type Completion = Self;
+
     closed spec fn namespaces(self) -> Set<int>
     {
         Set::empty()
@@ -878,36 +880,36 @@ where
 
     closed spec fn post(
         self,
-        orig_self: Self,
+        complete: Self::Completion,
         loc: Loc,
         op: Op,
         exec_result: Op::ExecResult,
     ) -> bool
     {
-        &&& self.r.value() is Application
-        &&& self.r.loc() == orig_self.r.loc()
-        &&& self.r.loc() == loc
-        &&& self.op == orig_self.op
+        &&& complete.r.value() is Application
+        &&& complete.r.loc() == self.r.loc()
+        &&& complete.r.loc() == loc
         &&& self.op == op
-        &&& self.old_ckv matches Some(old_ckv)
-        &&& self.new_ckv matches Some(new_ckv)
+        &&& complete.old_ckv matches Some(old_ckv)
+        &&& complete.new_ckv matches Some(new_ckv)
         &&& op.result_valid(old_ckv, new_ckv, exec_result)
     }
 
     proof fn apply(
-        tracked &mut self,
-        orig_self: Self,
+        tracked self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
         exec_result: Op::ExecResult,
         tracked r: &mut Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
-    )
+    ) -> (tracked complete: Self::Completion)
     {
-        self.old_ckv = Some(old(r).value()->Invariant_ckv);
-        vstd::pcm_lib::update_and_redistribute(&mut self.r, r,
+        let tracked mut mself = self;
+        mself.old_ckv = Some(old(r).value()->Invariant_ckv);
+        vstd::pcm_lib::update_and_redistribute(&mut mself.r, r,
                                                OwnershipSplitter::Application{ckv: new_ckv},
                                                OwnershipSplitter::Invariant{ckv: new_ckv});
-        self.new_ckv = Some(new_ckv);
+        mself.new_ckv = Some(new_ckv);
+        mself
     }
 }
 
@@ -992,14 +994,15 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         powerpm_id: powerpm.id(),
     };
 
-    match ckv.create::<TestKvPermission, TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
-        &key1, &item1, Tracked(perm), Tracked(&mut create_linearizer)
-    ) {
+    let (create_result, Tracked(create_linearizer)) = ckv.create::<TestKvPermission, TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
+        &key1, &item1, Tracked(perm), Tracked(create_linearizer)
+    );
+    match create_result {
         Ok(()) => {},
         Err(e) => { print_message("Error when creating key 1"); return Err(()); },
     };
 
-    let tracked app_resource: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>> = create_linearizer.r;
+    let tracked app_resource = create_linearizer.r;
 
     // read the item of the record we just created
     let (read_item_result, Tracked(app_resource)) = ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(

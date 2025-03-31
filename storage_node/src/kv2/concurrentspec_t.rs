@@ -176,29 +176,30 @@ where
 
 pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRecover<K, I, L>> : Sized
 {
+    type Completion;
+
     spec fn namespaces(self) -> Set<int>;
 
     spec fn pre(self, loc: Loc, op: Op) -> bool;
 
-    spec fn post(self, orig_self: Self, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
+    spec fn post(self, complete: Self::Completion, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
 
     proof fn apply(
-        tracked &mut self,
-        orig_self: Self,
+        tracked self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
         exec_result: Op::ExecResult,
         tracked r: &mut Resource<OwnershipSplitter<K, I, L>>
-    )
+    ) -> (tracked complete: Self::Completion)
         requires
             old(r).value() is Invariant,
-            old(self).pre(old(r).loc(), op),
+            self.pre(old(r).loc(), op),
             op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
         ensures
             r.loc() == old(r).loc(),
             r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
-            self.post(*old(self), r.loc(), op, exec_result),
-        opens_invariants old(self).namespaces()
+            self.post(complete, r.loc(), op, exec_result),
+        opens_invariants self.namespaces()
     ;
 }
 

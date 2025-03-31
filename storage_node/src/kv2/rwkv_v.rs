@@ -360,15 +360,15 @@ where
         key: &K,
         item: &I,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
             grants_permission_to_mutate::<Perm, K, I, L, CreateOp<K, I>, Self>(
                 perm, CreateOp{ key: *key, item: *item }, old(self).pm_constants()
             ),
@@ -377,7 +377,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), CreateOp{ key: *key, item: *item }, result),
+            cb.post(result.1@, self.loc(), CreateOp{ key: *key, item: *item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
@@ -398,11 +398,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn update_item<Perm, CB>(
@@ -410,15 +411,15 @@ where
         key: &K,
         item: &I,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateItemOp<K, I>, Self>(
                 perm, UpdateItemOp{ key: *key, item: *item }, old(self).pm_constants()
             ),
@@ -427,7 +428,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), UpdateItemOp{ key: *key, item: *item }, result),
+            cb.post(result.1@, self.loc(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
@@ -448,26 +449,27 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn delete<Perm, CB>(
         &mut self,
         key: &K,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), DeleteOp{ key: *key }),
             grants_permission_to_mutate::<Perm, K, I, L, DeleteOp<K>, Self>(
                 perm, DeleteOp{ key: *key }, old(self).pm_constants()
             ),
@@ -476,7 +478,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), DeleteOp{ key: *key }, result),
+            cb.post(result.1@, self.loc(), DeleteOp{ key: *key }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = DeleteOp::<K>{ key: *key };
@@ -497,11 +499,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn append_to_list<Perm, CB>(
@@ -509,15 +512,15 @@ where
         key: &K,
         new_list_element: L,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
             grants_permission_to_mutate::<Perm, K, I, L, AppendToListOp<K, L>, Self>(
                 perm, AppendToListOp{ key: *key, new_list_element }, old(self).pm_constants()
             ),
@@ -526,7 +529,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), AppendToListOp{ key: *key, new_list_element }, result),
+            cb.post(result.1@, self.loc(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListOp::<K, L>{ key: *key, new_list_element };
@@ -547,11 +550,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn append_to_list_and_update_item<Perm, CB>(
@@ -560,15 +564,15 @@ where
         new_list_element: L,
         new_item: &I,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
             grants_permission_to_mutate::<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>(
                 perm, AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -577,7 +581,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result),
+            cb.post(result.1@, self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
@@ -598,11 +602,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn update_list_element_at_index<Perm, CB>(
@@ -611,15 +616,15 @@ where
         idx: usize,
         new_list_element: L,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>(
                 perm, UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, old(self).pm_constants()
             ),
@@ -628,7 +633,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result),
+            cb.post(result.1@, self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
@@ -649,11 +654,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn update_list_element_at_index_and_item
@@ -664,15 +670,15 @@ where
         new_list_element: L,
         new_item: &I,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>(
                 perm, UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -681,7 +687,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result),
+            cb.post(result.1@, self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L>{ key: *key, idx, new_list_element,
@@ -705,11 +711,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn trim_list<Perm, CB>(
@@ -717,15 +724,15 @@ where
         key: &K,
         trim_length: usize,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, TrimListOp<K>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
             grants_permission_to_mutate::<Perm, K, I, L, TrimListOp<K>, Self>(
                 perm, TrimListOp{ key : *key, trim_length }, old(self).pm_constants()
             ),
@@ -734,7 +741,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), TrimListOp{ key: *key, trim_length }, result),
+            cb.post(result.1@, self.loc(), TrimListOp{ key: *key, trim_length }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListOp::<K>{ key: *key, trim_length };
@@ -755,11 +762,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 
     pub exec fn trim_list_and_update_item<Perm, CB>(
@@ -768,15 +776,15 @@ where
         trim_length: usize,
         new_item: &I,
         Tracked(perm): Tracked<Perm>,
-        Tracked(cb): Tracked<&mut CB>,
-    ) -> (result: Result<(), KvError>)
+        Tracked(cb): Tracked<CB>,
+    ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
-            old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
             perm.id() == old(self).powerpm_id(),
+            cb.pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
             grants_permission_to_mutate::<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>(
                 perm, TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -785,7 +793,7 @@ where
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
             self.powerpm_id() == old(self).powerpm_id(),
-            cb.post(*old(cb), self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result),
+            cb.post(result.1@, self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
@@ -806,11 +814,12 @@ where
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+        let tracked mut completion;
         proof {
-            cb.apply(*old(cb), op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
+            completion = cb.apply(op, new_ckv, result, kv_internal.invariant_resource.borrow_mut());
         }
         write_handle.release_write(kv_internal);
-        result
+        (result, Tracked(completion))
     }
 }
 
