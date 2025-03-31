@@ -74,7 +74,7 @@ def plot_ycsb(ax, ycsb_results_file):
 
     x = np.arange(len(ycsb_run_names))
 
-    width = 0.25
+    width = 0.2
 
     # fig, ax = plt.subplots()
 
@@ -122,14 +122,14 @@ def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_
     # axs[1].set_ylim(0,26)
     axs[1].set_xlabel("(b) 16 threads")
     axs[1].sharey(axs[0])
-    axs[0].set_yticks([1, 5, 10, 15, 20])
+    axs[0].set_yticks([1, 5, 10, 15, 20, 25, 30, 35])
 
     axs[0].set_ylabel("throughput relative to pmem-Redis")
 
     fig.set_figwidth(10)
     fig.set_figheight(2.5)
     # fig.legend(legend_names, ncol=3, loc="upper center", bbox_to_anchor=(0.5,1.2))
-    fig.legend(legend_names, ncol=3, loc="upper center", bbox_to_anchor=(0.5,1.1))
+    fig.legend(legend_names, ncol=4, loc="upper center", bbox_to_anchor=(0.5,1.1))
     fig.tight_layout(pad=0.75)
     plt.savefig(output_file, format="pdf", bbox_inches="tight")
 
