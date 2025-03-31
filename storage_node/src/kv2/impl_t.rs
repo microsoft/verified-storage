@@ -36,7 +36,7 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
         (self.is_transition_allowable)(s1, s2)
     }
 
-    proof fn combine(self, tracked other: Self) -> (tracked combined: Self)
+    proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
         ensures
             forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] combined.check_permission(s1, s2) <==>
                 self.check_permission(s1, s2) || other.check_permission(s1, s2)

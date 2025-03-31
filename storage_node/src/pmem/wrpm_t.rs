@@ -10,7 +10,7 @@ pub trait CheckPermission<State>: Sized
 {
     spec fn check_permission(&self, s1: State, s2: State) -> bool;
 
-    proof fn combine(self, tracked other: Self) -> (tracked combined: Self)
+    proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
         ensures
             forall|s1: State, s2: State| #[trigger] combined.check_permission(s1, s2) <==>
                 self.check_permission(s1, s2) || other.check_permission(s1, s2)
