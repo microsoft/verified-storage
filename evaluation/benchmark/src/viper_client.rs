@@ -9,9 +9,9 @@ use pmsafe::PmCopy;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::time::Duration;
 use std::ffi::{c_void, CString};
 use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 pub struct ViperClient
 {
@@ -24,10 +24,6 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     type E = bool;
 
     fn setup(num_keys: u64) -> Result<(), Self::E> { 
-        Ok(())
-    }
-
-    fn start() -> Result<Self, Self::E> {
         init_and_mount_pm_fs();
         
         let file = crate::MOUNT_POINT.to_owned() + "/viper";
@@ -35,18 +31,74 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file_ptr = file_cstring.as_ptr();
         let init_size = 53687091200;
 
-        println!("creating viper client");
+        println!("setting up initial viper instance");
+
+        {
+            unsafe {
+                let kv = crate::viperdb_create(file_ptr, init_size) ;
+                let client = crate::viperdb_get_client(kv);
+                
+                crate::viperdb_client_cleanup(client);
+                crate::viperdb_cleanup(kv); 
+            }
+        }
+        ViperClient::cleanup();
+        
+        // let client = unsafe { crate::viperdb_get_client(kv) };
+
+        println!("done creating\n");
+
+        // Ok(Self { kv, client })
+
+        Ok(())
+    }
+
+    fn start() -> Result<Self, Self::E> {
+        // init_and_mount_pm_fs();
+        
+        let file = crate::MOUNT_POINT.to_owned() + "/viper";
+        let file_cstring = CString::new(file.clone()).unwrap();
+        let file_ptr = file_cstring.as_ptr();
+        let init_size = 53687091200;
+
+        // println!("creating viper client");
+
+        // let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
+        // let client = unsafe { crate::viperdb_get_client(kv) };
+
+        // println!("done creating\n");
+
+        // Ok(Self { kv, client })
+
+        // sleep(Duration::from_secs(10));
+
+        remount_pm_fs();
 
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
         let client = unsafe { crate::viperdb_get_client(kv) };
 
-        println!("done creating\n");
-
-        Ok(Self { kv, client })
+        Ok(Self { kv, client } )
     }
 
     fn timed_start() -> Result<(Self, Duration), Self::E> {
-        todo!()
+        
+        println!("running timed start");
+
+        let file = crate::MOUNT_POINT.to_owned() + "/viper";
+        let file_cstring = CString::new(file.clone()).unwrap();
+        let file_ptr = file_cstring.as_ptr();
+        let init_size = 53687091200;
+
+        remount_pm_fs();
+
+        let t0 = Instant::now();
+        let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
+        let client = unsafe { crate::viperdb_get_client(kv) };
+        let dur = t0.elapsed();
+
+        println!("timed start done");
+
+        Ok((Self { kv, client } , dur))
     }
     
     fn db_name() -> String {
