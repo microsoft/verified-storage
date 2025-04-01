@@ -31,6 +31,8 @@ obj_x: $(CPP_FILE)
 static: $(OBJ_FILE)
 	ar rcs $(STATIC_LIB) $(OPTIMIZE) $(OBJ_FILE)
 
+static_big_val: $(OBJ_FILE)
+
 # shared_x: $(OBJX_FILE) 
 shared_x: $(CPP_FILE)
 	$(CXX) -shared -o $(SHARED_LIB) $(OPTIMIZE) $(CXXFLAGS) $(SHARED_FLAGS) $(WORKLOADX_FLAG) $(LDFLAGS) $^  

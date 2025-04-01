@@ -21,7 +21,6 @@ extern "C" struct ViperDBFFI* viperdb_create(const char* pool_file, uint64_t ini
         // opening existing database instance
         viper::PMemAllocator::get().initialize();
         viper_db = ViperDB::open(pool_file_string);
-
     } else {
         // creating new database instance
         std::filesystem::create_directory(pool_file_string);
@@ -46,8 +45,16 @@ extern "C" struct ViperDBClientFFI* viperdb_get_client(struct ViperDBFFI* db) {
 }
 
 extern "C" bool viperdb_put(struct ViperDBClientFFI* client, const K* key, const V* value) {
-    bool result = client->client->put(*key, *value);
-    return result;
+    // the startup timing experiments intentionally fill up the KV store until we run out space.
+    // viper handles this with an exception rather than returning an error code, so we have 
+    // to handle that specially here.
+    try {
+        bool result = client->client->put(*key, *value);
+        return result;
+    } catch (const runtime_error& error) {
+        return false;
+    }
+    
 }
 
 extern "C" bool viperdb_get(struct ViperDBClientFFI* client, const K* key, V* value) {
