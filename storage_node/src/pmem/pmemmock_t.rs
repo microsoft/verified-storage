@@ -45,7 +45,7 @@ verus! {
     impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion
     {
         #[verifier::external_body]
-        closed spec fn view(&self) -> PersistentMemoryRegionView;
+        uninterp spec fn view(&self) -> PersistentMemoryRegionView;
 
         closed spec fn inv(&self) -> bool
         {
@@ -62,7 +62,7 @@ verus! {
             &&& self.constants().valid()
         }
 
-        closed spec fn constants(&self) -> PersistentMemoryConstants;
+        uninterp spec fn constants(&self) -> PersistentMemoryConstants;
 
         proof fn lemma_inv_implies_view_valid(&self)
         {

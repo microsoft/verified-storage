@@ -366,8 +366,8 @@ impl FileBackedPersistentMemoryRegion
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
-    closed spec fn view(&self) -> PersistentMemoryRegionView;
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
+    uninterp spec fn view(&self) -> PersistentMemoryRegionView;
+    uninterp spec fn constants(&self) -> PersistentMemoryConstants;
     closed spec fn inv(&self) -> bool {
         self.constants().valid()
     }
