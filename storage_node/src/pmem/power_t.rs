@@ -9,6 +9,7 @@ verus! {
 pub trait CheckPermission<State>
 {
     spec fn check_permission(&self, state: State) -> bool;
+    spec fn valid(&self, id: int) -> bool;
 }
 
 #[allow(dead_code)]
@@ -39,6 +40,11 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     pub closed spec fn constants(&self) -> PersistentMemoryConstants
     {
         self.pm_region.constants()
+    }
+
+    pub open spec fn id(&self) -> int
+    {
+        self.constants().id
     }
 
     pub proof fn lemma_inv_implies_view_valid(&self)
@@ -89,6 +95,7 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<&Perm>)
         requires
             old(self).inv(),
+            perm@.valid(old(self).id()),
             addr + bytes@.len() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
@@ -108,6 +115,7 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
             S: PmCopy + Sized
         requires
             old(self).inv(),
+            perm@.valid(old(self).id()),
             addr + S::spec_size_of() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())

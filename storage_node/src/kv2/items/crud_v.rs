@@ -146,10 +146,12 @@ where
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
             old(journal).valid(),
+            perm.valid(old(journal)@.powerpm_id),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.remaining_capacity == old(journal)@.remaining_capacity,
             match result {

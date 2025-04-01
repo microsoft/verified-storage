@@ -147,6 +147,7 @@ where
         ensures
             self.inv(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.durable_state == old(journal)@.durable_state,
             match result {
@@ -235,6 +236,7 @@ where
             self@.tentative is Some,
             !self@.tentative.unwrap().key_info.contains_key(*k),
             !self@.tentative.unwrap().item_addrs().contains(item_addr),
+            perm.valid(old(journal)@.powerpm_id),
             forall|s: Seq<u8>| self.state_equivalent_for_me(s, old(journal)@) ==>
                 #[trigger] perm.check_permission(s),
             0 < self.free_list@.len(),
@@ -245,6 +247,7 @@ where
         ensures
             self.inv(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.journaled_addrs == old(journal)@.journaled_addrs,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.remaining_capacity == old(journal)@.remaining_capacity,
@@ -313,11 +316,13 @@ where
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
+            perm.valid(old(journal)@.powerpm_id),
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
                 #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -406,6 +411,7 @@ where
         ensures
             self.valid(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {
@@ -509,6 +515,7 @@ where
             }),
         ensures
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             match result {
                 Ok(()) => {
                     &&& self == Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) }
@@ -616,6 +623,7 @@ where
         ensures
             self.valid(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(()) => {

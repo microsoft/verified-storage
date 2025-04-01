@@ -286,6 +286,7 @@ impl PoWERPersistentMemorySubregion
             powerpm@.valid(),
             (start as nat) % (const_persistence_chunk_size() as nat) == 0,
             start + len <= powerpm@.len() <= u64::MAX,
+            perm.valid(powerpm.id()),
             forall |alt_crash_state: Seq<u8>|
                 memories_differ_only_where_subregion_allows(powerpm@.durable_state, alt_crash_state,
                                                             start as nat, len, is_writable_absolute_addr_fn)
@@ -325,6 +326,7 @@ impl PoWERPersistentMemorySubregion
             powerpm.inv(),
             powerpm@.valid(),
             (start as nat) % (const_persistence_chunk_size() as nat) == 0,
+            perm.valid(powerpm.id()),
             condition_sufficient_to_create_powerpm_subregion(powerpm@, perm, start, len, is_writable_absolute_addr_fn,
                                                           condition),
         ensures
@@ -445,6 +447,7 @@ impl PoWERPersistentMemorySubregion
         &&& self.initial_region_view().len() <= u64::MAX
         &&& self.opaque_relation_with_powerpm(powerpm)
         &&& self.opaque_relation_with_perm(perm)
+        &&& perm.valid(powerpm.id())
     }
 
     pub proof fn lemma_state_resulting_from_partial_write_differs_only_where_this_allows(

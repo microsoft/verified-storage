@@ -732,6 +732,11 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
     {
         (self.is_state_allowable)(state)
     }
+
+    closed spec fn valid(&self, id: int) -> bool
+    {
+        true
+    }
 }
 
 impl TestKvPermission
@@ -774,6 +779,7 @@ where
     ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
+    ghost powerpm_id: int,
 }
 
 impl<Op> MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement, Op,
@@ -812,6 +818,10 @@ where
         &&& self.op == op
         &&& self.old_ckv == Some(old_ckv)
         &&& self.new_ckv is None
+    }
+
+    closed spec fn powerpm_id(self) -> int {
+        self.powerpm_id
     }
 
     proof fn grant_permission<'a>(
@@ -944,6 +954,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         op: CreateOp::<TestKey, TestItem>{ key: key1, item: item1 },
         old_ckv: None,
         new_ckv: None,
+        powerpm_id: powerpm.id(),
     };
 
     match ckv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(

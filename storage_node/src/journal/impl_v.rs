@@ -43,6 +43,7 @@ impl <Perm, PM> Journal<Perm, PM>
             commit_state: apply_journal_entries(self.powerpm@.read_state, self.entries@, self.sm).unwrap(),
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
+            powerpm_id: self.powerpm.id(),
         }
     }
 

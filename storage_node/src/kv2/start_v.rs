@@ -38,6 +38,7 @@ where
             powerpm.inv(),
             Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            perm.valid(powerpm.id()),
             forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
             match result {
@@ -52,6 +53,7 @@ where
                     &&& kv@.pm_constants == powerpm.constants()
                     &&& kv@.durable == state.kv
                     &&& kv@.tentative == state.kv
+                    &&& kv@.powerpm_id == powerpm.id()
                 }
                 Err(KvError::CRCMismatch) => !powerpm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {

@@ -148,6 +148,7 @@ where
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
             old(self).keys@.tentative is Some,
@@ -188,6 +189,7 @@ where
                     &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
                            Journal::<Perm, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
+                    &&& self.journal@.powerpm_id == old(self).journal@.powerpm_id
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self.valid()
@@ -269,6 +271,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
@@ -362,6 +365,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
@@ -478,6 +482,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
@@ -605,6 +610,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures
@@ -879,6 +885,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable }),
         ensures

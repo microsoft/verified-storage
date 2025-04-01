@@ -160,6 +160,8 @@ where
 
     spec fn post(self, orig_self: Self, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
 
+    spec fn powerpm_id(self) -> int;
+
     proof fn grant_permission<'a>(
         tracked &'a mut self,
         op: Op,
@@ -171,6 +173,8 @@ where
         ensures
             self.ready(*old(self), r.value()->Invariant_ckv, r.loc(), op),
             self.namespaces() == old(self).namespaces(),
+            self.powerpm_id() == old(self).powerpm_id(),
+            perm.valid(self.powerpm_id()),
             forall|s: Seq<u8>| {
                 &&& Kv::recover(s) matches Some(new_rkv)
                 &&& {

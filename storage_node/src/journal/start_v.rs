@@ -171,6 +171,7 @@ impl <Perm, PM> Journal<Perm, PM>
             0 <= num_entries_installed < entries.len(),
             entries[num_entries_installed as int].start == write_addr,
             entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
+            perm.valid(old(powerpm).id()),
             forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(powerpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -240,6 +241,7 @@ impl <Perm, PM> Journal<Perm, PM>
             parse_journal_entries(entries_bytes@) == Some(entries),
             apply_journal_entries(old(powerpm)@.read_state, entries, *sm) is Some,
             recover_journal(old(powerpm)@.read_state) is Some,
+            perm.valid(old(powerpm).id()),
             forall|s: Seq<u8>| recover_journal(old(powerpm)@.durable_state) == recover_journal(s)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -298,6 +300,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 recover_journal_entries_bytes(powerpm@.durable_state, *sm, entries_bytes.len() as u64)
                     == Some(entries_bytes@),
                 recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
+                perm.valid(powerpm.id()),
                 forall|s: Seq<u8>| recover_journal(s) == recover_journal(old(powerpm)@.durable_state)
                     ==> #[trigger] perm.check_permission(s),
                 parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
@@ -368,6 +371,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 &&& recover_journal(old(powerpm)@.read_state) matches Some(j)
                 &&& j.state == old(powerpm)@.read_state
             }),
+            perm.valid(old(powerpm).id()),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(powerpm)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -408,6 +412,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             powerpm.inv(),
             Self::recover(powerpm@.durable_state).is_some(),
+            perm.valid(powerpm.id()),
             forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, powerpm@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -422,6 +427,7 @@ impl <Perm, PM> Journal<Perm, PM>
                     &&& j@.journaled_addrs == Set::<int>::empty()
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
+                    &&& j@.powerpm_id == powerpm.id()
                     &&& Self::recovery_equivalent_for_app(j@.durable_state, powerpm@.durable_state)
                 },
                 Err(JournalError::CRCError) => !powerpm.constants().impervious_to_corruption(),

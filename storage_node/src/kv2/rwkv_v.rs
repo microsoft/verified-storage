@@ -33,6 +33,7 @@ where
 struct ConcurrentKvStorePredicate
 {
     loc: Loc,
+    powerpm_id: int,
 }
 
 impl<Perm, PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<Perm, PM, K, I, L>> for ConcurrentKvStorePredicate
@@ -53,6 +54,7 @@ where
         &&& v.kv@.durable == v.kv@.tentative
         &&& v.kv@.ps.logical_range_gaps_policy == v.kv@.durable.logical_range_gaps_policy
         &&& self.loc == v.invariant_resource@.loc()
+        &&& self.powerpm_id == v.kv@.powerpm_id
         &&& v.invariant_resource@.value() ==
                OwnershipSplitter::Invariant{ ckv: ConcurrentKvStoreView::from_kvstore_view(v.kv@) }
     }
@@ -102,6 +104,11 @@ where
     pub closed spec fn loc(self) -> Loc
     {
         self.loc@
+    }
+
+    pub closed spec fn powerpm_id(self) -> int
+    {
+        self.lock.pred().powerpm_id
     }
 
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
@@ -156,6 +163,7 @@ where
             powerpm.inv(),
             Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            perm.valid(powerpm.id()),
             forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
         ({
@@ -163,6 +171,7 @@ where
                 Ok((kv, r)) => {
                     &&& kv.valid()
                     &&& kv.loc() == r@.loc()
+                    &&& kv.powerpm_id() == powerpm.id()
                     &&& match r@.value() {
                            OwnershipSplitter::Application{ ckv } => {
                                &&& ckv.valid()
@@ -190,7 +199,10 @@ where
         let ghost ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv@);
         let tracked both = Resource::<OwnershipSplitter<K, I, L>>::alloc(OwnershipSplitter::<K, I, L>::Both{ ckv });
         let ghost loc = both.loc();
-        let ghost pred = ConcurrentKvStorePredicate{ loc };
+        let ghost pred = ConcurrentKvStorePredicate{
+            loc: loc,
+            powerpm_id: kv@.powerpm_id,
+        };
         let ghost application_value = OwnershipSplitter::<K, I, L>::Application{ ckv };
         let ghost invariant_value = OwnershipSplitter::<K, I, L>::Invariant{ ckv };
         let tracked split_resources = both.split(application_value, invariant_value);
@@ -339,10 +351,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, CreateOp<K, I>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), CreateOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -375,10 +389,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), UpdateItemOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -410,10 +426,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, DeleteOp<K>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), DeleteOp{ key: *key }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -446,10 +464,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, AppendToListOp<K, L>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), AppendToListOp{ key: *key, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -483,10 +503,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -520,10 +542,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -559,10 +583,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -598,10 +624,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, TrimListOp<K>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), TrimListOp{ key: *key, trim_length }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -635,10 +663,12 @@ where
             CB: MutatingLinearizer<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
+            old(cb).powerpm_id() == old(self).powerpm_id(),
             old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
         ensures 
             self.valid(),
             self.loc() == old(self).loc(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();

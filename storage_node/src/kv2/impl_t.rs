@@ -35,6 +35,11 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
     {
         (self.is_state_allowable)(state)
     }
+
+    closed spec fn valid(&self, id: int) -> bool
+    {
+        true
+    }
 }
 
 #[verifier::reject_recursive_types(K)]

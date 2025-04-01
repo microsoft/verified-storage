@@ -76,6 +76,7 @@ where
                 self.items@.tentative.unwrap(),
                 self.lists@.tentative.unwrap(),
             ),
+            powerpm_id: self.journal@.powerpm_id,
         }
     }
 }

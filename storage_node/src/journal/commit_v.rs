@@ -73,6 +73,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
                 ==> #[trigger] perm.check_permission(s),
             recovers_to(original_durable_state, old(self).vm@, old(self).sm, old(self).constants),
@@ -200,6 +201,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(self).powerpm@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -238,6 +240,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 self.status@ is WritingJournal,
                 self.powerpm.constants() == old(self).powerpm.constants(),
                 end_pos == self.sm.journal_entries_start + self.journal_length,
+                perm.valid(self@.powerpm_id),
                 forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
                     ==> #[trigger] perm.check_permission(s),
                 recovers_to(original_durable_state, self.vm@, self.sm, self.constants),
@@ -281,6 +284,7 @@ impl <Perm, PM> Journal<Perm, PM>
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, old(self).powerpm@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -346,6 +350,7 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal_length(old(self).powerpm@.read_state, old(self).sm) == Some(old(self).journal_length),
             recover_journal_entries(old(self).powerpm@.read_state, old(self).sm, old(self).journal_length) ==
                 Some(old(self).entries@),
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
                 ==> #[trigger] perm.check_permission(s),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
@@ -444,6 +449,7 @@ impl <Perm, PM> Journal<Perm, PM>
             recover_journal_entries(old(self).powerpm@.durable_state, old(self).sm, old(self).journal_length)
                 == Some(old(self).entries@),
             recover_journal(old(self).powerpm@.durable_state) == recover_journal(original_read_state),
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
                 ==> #[trigger] perm.check_permission(s),
             seqs_match_except_in_range(original_read_state, old(self).powerpm@.durable_state,
@@ -545,6 +551,7 @@ impl <Perm, PM> Journal<Perm, PM>
                                       old(self).sm.app_area_end as int)
             }),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
                 ==> #[trigger] perm.check_permission(s),
         ensures
@@ -588,6 +595,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 recover_journal_length(self.powerpm@.durable_state, self.sm) == Some(self.journal_length),
                 recover_journal_entries(self.powerpm@.durable_state, self.sm, self.journal_length) == Some(self.entries@),
                 recover_journal(self.powerpm@.durable_state) == recover_journal(old(self).powerpm@.read_state),
+                perm.valid(self@.powerpm_id),
                 forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_commit_state)
                     ==> #[trigger] perm.check_permission(s),
                 seqs_match_except_in_range(old(self).powerpm@.read_state, self.powerpm@.durable_state,
@@ -656,6 +664,7 @@ impl <Perm, PM> Journal<Perm, PM>
     pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
         requires
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(self)@.durable_state)
                 ==> #[trigger] perm.check_permission(s),
             forall|s: Seq<u8>| Self::recovery_equivalent_for_app(s, old(self)@.commit_state)
