@@ -200,8 +200,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
             Ghost(self.constants()),
         );
 
-        std::mem::drop(mmf_borrowed);
-
         Ok(maybe_corrupted_val)
     }
 
@@ -212,8 +210,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
         // Allocate an unaligned buffer to copy the bytes into
         let unaligned_buffer = copy_from_slice(pm_slice);
 
-        std::mem::drop(mmf_borrowed);
-
         Ok(unaligned_buffer)
     }
 
@@ -221,7 +217,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
     fn write(&mut self, addr: u64, bytes: &[u8]) {
         let mut mmf_borrowed = self.section.mmf.borrow_mut();
         mmf_borrowed.mmap[addr as usize..addr as usize + bytes.len()].copy_from_slice(bytes);
-        std::mem::drop(mmf_borrowed);
     }
 
     #[verifier::external_body]
@@ -235,7 +230,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
 
         let mut mmf_borrowed = self.section.mmf.borrow_mut();
         mmf_borrowed.mmap[addr as usize..addr as usize + num_bytes].copy_from_slice(s_slice);
-        std::mem::drop(mmf_borrowed);
     }
 
     #[verifier::external_body]
@@ -247,7 +241,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
                 eprintln!("flush: {:?}", e);
             },
         };
-        std::mem::drop(mmf_borrowed);
     }
 }
 

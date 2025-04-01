@@ -18,7 +18,7 @@ use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
 #[cfg(target_os = "macos")]
-use crate::pmem::macos_pmemfile_t::*;
+use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;

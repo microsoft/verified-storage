@@ -12,7 +12,7 @@ vstd = { git = "https://github.com/verus-lang/verus.git" }
 deps_hack = { path = "../deps_hack" }
 pmsafe = { path = "../pmsafe" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(target_family = "unix")'.dependencies]
 memmap = "0.7.0"
 
 [lints.rust]
