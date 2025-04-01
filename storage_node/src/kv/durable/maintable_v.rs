@@ -27,7 +27,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::traits_t;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::common::util_v::*;
 
 verus! {
@@ -285,7 +285,7 @@ verus! {
     }
 
     pub open spec fn subregion_grants_access_to_main_table_entry<K>(
-        subregion: WriteRestrictedPersistentMemorySubregion,
+        subregion: PoWERPersistentMemorySubregion,
         idx: u64
     ) -> bool
         where 
@@ -819,7 +819,7 @@ verus! {
 
         pub open spec fn subregion_grants_access_to_free_slots(
             self,
-            subregion: WriteRestrictedPersistentMemorySubregion
+            subregion: PoWERPersistentMemorySubregion
         ) -> bool
         {
             forall|idx: u64| {
@@ -1782,8 +1782,8 @@ verus! {
         // log a commit op for it, then flip the CDB once the log has been committed
         pub exec fn tentative_create<Perm, PM>(
             &mut self,
-            subregion: &WriteRestrictedPersistentMemorySubregion,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            subregion: &PoWERPersistentMemorySubregion,
+            powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PM>,
             list_node_index: u64,
             item_table_index: u64,
             key: &K,
@@ -1794,15 +1794,15 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires 
-                subregion.inv(&*old(wrpm_region), perm),
-                old(self).inv(subregion.view(&*old(wrpm_region)), overall_metadata),
+                subregion.inv(&*old(powerpm_region), perm),
+                old(self).inv(subregion.view(&*old(powerpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.main_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
                 !old(self).tentative_view().valid_item_indices().contains(item_table_index),
                 // old(self).allocator_inv(),
             ensures
-                subregion.inv(wrpm_region, perm),
-                self.inv(subregion.view(wrpm_region), overall_metadata),
+                subregion.inv(powerpm_region, perm),
+                self.inv(subregion.view(powerpm_region), overall_metadata),
                 // self.allocator_inv(),
                 match result {
                     Ok(index) => {
@@ -1820,7 +1820,7 @@ verus! {
                         &&& e.entry.length == 0
                         &&& e.entry.first_entry_offset == 0
                         &&& e.entry.item_index == item_table_index
-                        &&& self.outstanding_entry_write_matches_pm_view(subregion.view(wrpm_region), index,
+                        &&& self.outstanding_entry_write_matches_pm_view(subregion.view(powerpm_region), index,
                                                                        overall_metadata.main_table_entry_size)
                         &&& self.tentative_view() ==
                               old(self).tentative_view().update(index as int, self.outstanding_entries[index].unwrap()@)
@@ -1830,12 +1830,12 @@ verus! {
                         {
                             let entry_size = overall_metadata.main_table_entry_size as nat;
                             let start = index_to_offset(index as nat, entry_size);
-                            let old_pm_view = subregion.view(&*old(wrpm_region));
+                            let old_pm_view = subregion.view(&*old(powerpm_region));
                             &&& #[trigger] trigger_addr(addr)
                             &&& 0 <= addr < overall_metadata.main_table_size
                             &&& !(start <= addr < start + entry_size)
-                        } ==> views_match_at_addr(subregion.view(wrpm_region),
-                                                  subregion.view(&*old(wrpm_region)), addr)
+                        } ==> views_match_at_addr(subregion.view(powerpm_region),
+                                                  subregion.view(&*old(powerpm_region)), addr)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -1844,12 +1844,12 @@ verus! {
                         // &&& self.pending_allocations_view() == old(self).pending_allocations_view()
                         // &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& self.free_list().len() == 0
-                        &&& wrpm_region == old(wrpm_region)
+                        &&& powerpm_region == old(powerpm_region)
                     },
                     _ => false,
                 }
         {
-            let ghost old_pm_view = subregion.view(wrpm_region);
+            let ghost old_pm_view = subregion.view(powerpm_region);
             assert(self.inv(old_pm_view, overall_metadata));
 
             // 1. pop an index from the free list
@@ -1942,12 +1942,12 @@ verus! {
             let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
             assert(subregion_grants_access_to_main_table_entry::<K>(*subregion, free_index));
-            subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
+            subregion.serialize_and_write_relative::<u64, Perm, PM>(powerpm_region, crc_addr, &crc, Tracked(perm));
 
-            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
+            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(powerpm_region, entry_addr,
                                                                                   &entry, Tracked(perm));
 
-            subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
+            subregion.serialize_and_write_relative::<K, Perm, PM>(powerpm_region, key_addr, &key, Tracked(perm));
 
 
             let ghost main_table_entry = MainTableViewEntry{entry, key: *key };
@@ -1999,7 +1999,7 @@ verus! {
                 } 
             }
 
-            let ghost pm_view = subregion.view(wrpm_region);
+            let ghost pm_view = subregion.view(powerpm_region);
 
             proof {
                 lemma_auto_can_result_from_partial_write_effect();
@@ -2019,7 +2019,7 @@ verus! {
                        let entry_size = overall_metadata.main_table_entry_size as nat;
                        let start = index_to_offset(free_index as nat, entry_size);
                        0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size)
-                   } implies #[trigger] views_match_at_addr(subregion.view(wrpm_region), old_pm_view, addr) by {
+                   } implies #[trigger] views_match_at_addr(subregion.view(powerpm_region), old_pm_view, addr) by {
                 lemma_auto_addr_in_entry_divided_by_entry_size(free_index as nat,
                                                                overall_metadata.num_keys as nat,
                                                                main_table_entry_size as nat);
@@ -2032,11 +2032,11 @@ verus! {
 
             assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() &&
                      !(#[trigger] self.outstanding_entries@.contains_key(idx)) implies
-                    self.no_outstanding_writes_to_entry(subregion.view(wrpm_region), idx,
+                    self.no_outstanding_writes_to_entry(subregion.view(powerpm_region), idx,
                                                         overall_metadata.main_table_entry_size) by {
                 assert(!old(self).outstanding_entries@.contains_key(idx));
                 assert(idx != free_index);
-                assert(old(self).no_outstanding_writes_to_entry(subregion.view(&*old(wrpm_region)), idx,
+                assert(old(self).no_outstanding_writes_to_entry(subregion.view(&*old(powerpm_region)), idx,
                                                               overall_metadata.main_table_entry_size));
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, main_table_entry_size as nat);

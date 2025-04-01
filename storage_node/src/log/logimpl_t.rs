@@ -42,7 +42,7 @@ use std::fmt::Write;
 use crate::log::logimpl_v::UntrustedLogImpl;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -181,16 +181,16 @@ verus! {
     ///
     /// The `log_id` field is the log ID. It's ghost.
     ///
-    /// The `wrpm_region` field contains the write-restricted persistent
+    /// The `powerpm_region` field contains the write-restricted persistent
     /// memory. This memory will only allow updates allowed by a
-    /// tracked `TrustedPermission`. So we can pass `wrpm_region` to an
+    /// tracked `TrustedPermission`. So we can pass `powerpm_region` to an
     /// untrusted method, along with a restricting
     /// `TrustedPermission`, to limit what it's allowed to do.
 
     pub struct LogImpl<PMRegion: PersistentMemoryRegion> {
         untrusted_log_impl: UntrustedLogImpl,
         log_id: Ghost<u128>,
-        wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>
+        powerpm_region: PoWERPersistentMemoryRegion<TrustedPermission, PMRegion>
     }
 
     impl <PMRegion: PersistentMemoryRegion> LogImpl<PMRegion> {
@@ -204,7 +204,7 @@ verus! {
         // The constants of a `LogImpl` are whatever the
         // persistent memory it wraps says they are.
         pub closed spec fn constants(&self) -> PersistentMemoryConstants {
-            self.wrpm_region.constants()
+            self.powerpm_region.constants()
         }
 
         // This is the validity condition that is maintained between
@@ -222,8 +222,8 @@ verus! {
         // if it crashes and recovers, must represent the current
         // abstract state with pending tentative appends dropped.
         pub closed spec fn valid(self) -> bool {
-            &&& self.untrusted_log_impl.inv(&self.wrpm_region, self.log_id@)
-            &&& crashes_as_abstract_state(self.wrpm_region@, self.log_id@, self@.drop_pending_appends())
+            &&& self.untrusted_log_impl.inv(&self.powerpm_region, self.log_id@)
+            &&& crashes_as_abstract_state(self.powerpm_region@, self.log_id@, self@.drop_pending_appends())
         }
 
         // The `setup` method sets up persistent memory regions
@@ -289,15 +289,15 @@ verus! {
             // it doesn't change the persistent state.
 
             let ghost state = UntrustedLogImpl::recover(pm_region@.durable_state, log_id).get_Some_0();
-            let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);
+            let mut powerpm_region = PoWERPersistentMemoryRegion::new(pm_region);
             let tracked perm = TrustedPermission::new_one_possibility(log_id, state);
             let untrusted_log_impl =
-                UntrustedLogImpl::start(&mut wrpm_region, log_id, Tracked(&perm), Ghost(state))?;
+                UntrustedLogImpl::start(&mut powerpm_region, log_id, Tracked(&perm), Ghost(state))?;
             Ok(
                 LogImpl {
                     untrusted_log_impl,
                     log_id:  Ghost(log_id),
-                    wrpm_region
+                    powerpm_region
                 },
             )
         }
@@ -336,7 +336,7 @@ verus! {
             // the view of the persistent state is the current
             // state with pending appends dropped.
             let tracked perm = TrustedPermission::new_one_possibility(self.log_id@, self@.drop_pending_appends());
-            self.untrusted_log_impl.tentatively_append(&mut self.wrpm_region, bytes_to_append,
+            self.untrusted_log_impl.tentatively_append(&mut self.powerpm_region, bytes_to_append,
                                                        self.log_id, Tracked(&perm))
         }
 
@@ -365,7 +365,7 @@ verus! {
             // state with all uncommitted appends committed.
             let tracked perm = TrustedPermission::new_two_possibilities(self.log_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
-            self.untrusted_log_impl.commit(&mut self.wrpm_region, self.log_id, Tracked(&perm))
+            self.untrusted_log_impl.commit(&mut self.powerpm_region, self.log_id, Tracked(&perm))
         }
 
         // The `advance_head` method advances the head of the log to
@@ -409,7 +409,7 @@ verus! {
                 self@.drop_pending_appends(),
                 self@.advance_head(new_head as int).drop_pending_appends()
             );
-            self.untrusted_log_impl.advance_head(&mut self.wrpm_region, new_head,
+            self.untrusted_log_impl.advance_head(&mut self.powerpm_region, new_head,
                                                  self.log_id, Tracked(&perm))
         }
 
@@ -446,7 +446,7 @@ verus! {
                     }
                 })
         {
-            let (bytes, addrs) = self.untrusted_log_impl.read(&self.wrpm_region, pos, len, self.log_id)?;
+            let (bytes, addrs) = self.untrusted_log_impl.read(&self.powerpm_region, pos, len, self.log_id)?;
             Ok(bytes)
         }
 
@@ -470,7 +470,7 @@ verus! {
                     _ => false
                 }
         {
-            self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_region, self.log_id)
+            self.untrusted_log_impl.get_head_tail_and_capacity(&self.powerpm_region, self.log_id)
         }
     }
 

@@ -5,7 +5,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::common::align_v::*;
 use crate::common::subrange_v::*;
 use super::impl_v::*;

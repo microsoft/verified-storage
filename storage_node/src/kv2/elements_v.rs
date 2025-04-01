@@ -6,7 +6,7 @@ use vstd::prelude::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::keys::*;
 use super::impl_v::*;

@@ -5,7 +5,7 @@ use vstd::prelude::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use super::entry_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
@@ -18,7 +18,7 @@ pub struct Journal<Perm, PM>
         PM: PersistentMemoryRegion,
         Perm: CheckPermission<Seq<u8>>,
 {
-    pub(super) wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+    pub(super) powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
     pub(super) vm: Ghost<JournalVersionMetadata>,
     pub(super) sm: JournalStaticMetadata,
     pub(super) status: Ghost<JournalStatus>,
@@ -37,10 +37,10 @@ impl <Perm, PM> Journal<Perm, PM>
     {
         JournalView{
             constants: self.constants,
-            pm_constants: self.wrpm.constants(),
-            durable_state: self.wrpm@.durable_state,
-            read_state: self.wrpm@.read_state,
-            commit_state: apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap(),
+            pm_constants: self.powerpm.constants(),
+            durable_state: self.powerpm@.durable_state,
+            read_state: self.powerpm@.read_state,
+            commit_state: apply_journal_entries(self.powerpm@.read_state, self.entries@, self.sm).unwrap(),
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
         }
@@ -119,9 +119,9 @@ impl <Perm, PM> Journal<Perm, PM>
             result@.valid(),
     {
         proof {
-            self.wrpm.lemma_inv_implies_view_valid();
+            self.powerpm.lemma_inv_implies_view_valid();
         }
-        self.wrpm.get_pm_region_ref()
+        self.powerpm.get_pm_region_ref()
     }
 
     pub exec fn constants(&self) -> (result: &JournalConstants)
@@ -155,7 +155,7 @@ impl <Perm, PM> Journal<Perm, PM>
             self@ == old(self)@,
             self@.durable_state == self@.read_state,
     {
-        self.wrpm.flush();
+        self.powerpm.flush();
     }
 }
 

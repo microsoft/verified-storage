@@ -9,7 +9,7 @@ use crate::common::table_v::*;
 use crate::journal::Journal;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use super::impl_v::*;

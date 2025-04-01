@@ -5,7 +5,7 @@ use vstd::prelude::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::concurrentspec_t::*;
 use super::impl_v::*;
@@ -147,14 +147,14 @@ where
     }
 
     pub exec fn start(
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
         Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(Self, Tracked<Resource<OwnershipSplitter::<K, I, L>>>), KvError>)
         requires 
-            wrpm.inv(),
-            Self::recover(wrpm@.durable_state) == Some(state),
+            powerpm.inv(),
+            Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
             forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
@@ -167,13 +167,13 @@ where
                            OwnershipSplitter::Application{ ckv } => {
                                &&& ckv.valid()
                                &&& ckv.ps == state.ps
-                               &&& ckv.pm_constants == wrpm.constants()
+                               &&& ckv.pm_constants == powerpm.constants()
                                &&& ckv.kv == state.kv
                            },
                            _ => false,
                     }
                 },
-                Err(KvError::CRCMismatch) => !wrpm.constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !powerpm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
                    &&& actual_id == state.ps.kvstore_id
@@ -183,7 +183,7 @@ where
             }
         }),
     {
-        let kv = match UntrustedKvStoreImpl::<Perm, PM, K, I, L>::start(wrpm, kvstore_id, Ghost(state), Tracked(perm)) {
+        let kv = match UntrustedKvStoreImpl::<Perm, PM, K, I, L>::start(powerpm, kvstore_id, Ghost(state), Tracked(perm)) {
             Ok(kv) => kv,
             Err(e) => { return Err(e); },
         };

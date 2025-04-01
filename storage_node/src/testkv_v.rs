@@ -24,7 +24,7 @@ use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
 use std::hash::Hash;
@@ -493,12 +493,12 @@ pub fn test_durable_on_memory_mapped_file() {
     DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, 
         kvstore_id, num_keys, node_size).unwrap();
 
-    let mut log_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedPermission, _>::new(log_region);
-    let mut metadata_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedMetadataPermission, _>::new(metadata_region);
-    let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedItemTablePermission, _>::new(item_table_region);
-    let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedListPermission, _>::new(list_region);
+    let mut log_powerpm = PoWERPersistentMemoryRegion::<TrustedPermission, _>::new(log_region);
+    let mut metadata_powerpm = PoWERPersistentMemoryRegion::<TrustedMetadataPermission, _>::new(metadata_region);
+    let mut item_powerpm = PoWERPersistentMemoryRegion::<TrustedItemTablePermission, _>::new(item_table_region);
+    let mut list_powerpm = PoWERPersistentMemoryRegion::<TrustedListPermission, _>::new(list_region);
     let tracked fake_kv_permission = TrustedKvPermission::<_, TestKey, TestItem, TestListElement>::fake_kv_perm();
-    let (mut kv_store, _) = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
+    let (mut kv_store, _) = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_powerpm, item_powerpm, list_powerpm, log_powerpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
 
     let key1 = TestKey { val: 0 };
     let key2 = TestKey { val: 1 };
@@ -915,15 +915,15 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
     }
 
-    let mut wrpm = WriteRestrictedPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
+    let mut powerpm = PoWERPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
     let ghost state = ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey, TestItem,
-                                          TestListElement>::recover(wrpm@.durable_state).unwrap();
+                                          TestListElement>::recover(powerpm@.durable_state).unwrap();
     let tracked perm = TestKvPermission::new_one_possibility::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                                                TestListElement>(state.ps, state.kv);
     let (mut ckv, Tracked(app_resource)) =
         match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
                                   TestItem, TestListElement>::start(
-            wrpm, kvstore_id, Ghost(state), Tracked(&perm)
+            powerpm, kvstore_id, Ghost(state), Tracked(&perm)
         ) {
             Ok(tup) => tup,
             Err(e) => { print_message("Failed to start KV store"); return Err(()); },

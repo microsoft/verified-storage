@@ -12,7 +12,7 @@ pub trait CheckPermission<State>
 }
 
 #[allow(dead_code)]
-pub struct WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
+pub struct PoWERPersistentMemoryRegion<Perm, PMRegion>
     where
         Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion
@@ -21,7 +21,7 @@ pub struct WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     ghost perm: Option<Perm>, // Needed to work around Rust limitation that Perm must be referenced
 }
 
-impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
+impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     where
         Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion
@@ -51,13 +51,13 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         self.pm_region.lemma_inv_implies_view_valid();
     }
 
-    pub exec fn new(pm_region: PMRegion) -> (wrpm_region: Self)
+    pub exec fn new(pm_region: PMRegion) -> (powerpm_region: Self)
         requires
             pm_region.inv(),
         ensures
-            wrpm_region.inv(),
-            wrpm_region@ == pm_region@,
-            wrpm_region.constants() == pm_region.constants(),
+            powerpm_region.inv(),
+            powerpm_region@ == pm_region@,
+            powerpm_region.constants() == pm_region.constants(),
     {
         Self {
             pm_region: pm_region,

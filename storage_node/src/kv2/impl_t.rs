@@ -16,7 +16,7 @@ use vstd::prelude::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::inv_v::*;
@@ -214,12 +214,12 @@ where
             }
         }),
     {
-        let mut wrpm = WriteRestrictedPersistentMemoryRegion::new(pm);
-        wrpm.flush(); // ensure there are no outstanding writes
-        let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(wrpm@.durable_state).unwrap();
+        let mut powerpm = PoWERPersistentMemoryRegion::new(pm);
+        powerpm.flush(); // ensure there are no outstanding writes
+        let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(powerpm@.durable_state).unwrap();
         let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state.ps, state.kv);
         let untrusted_kv_impl = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::start(
-            wrpm, kvstore_id, Ghost(state), Tracked(&perm))?;
+            powerpm, kvstore_id, Ghost(state), Tracked(&perm))?;
 
         Ok(Self { untrusted_kv_impl })
     }

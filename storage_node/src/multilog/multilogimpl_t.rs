@@ -43,7 +43,7 @@ use std::fmt::Write;
 use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -195,16 +195,16 @@ verus! {
     ///
     /// The `multilog_id` field is the multilog ID. It's ghost.
     ///
-    /// The `wrpm_regions` field contains the write-restricted persistent
+    /// The `powerpm_regions` field contains the write-restricted persistent
     /// memory. This memory will only allow updates allowed by a
-    /// tracked `TrustedMultiLogPermission`. So we can pass `wrpm_regions` to an
+    /// tracked `TrustedMultiLogPermission`. So we can pass `powerpm_regions` to an
     /// untrusted method, along with a restricting
     /// `TrustedMultiLogPermission`, to limit what it's allowed to do.
 
     pub struct MultiLogImpl<PMRegions: PersistentMemoryRegions> {
         untrusted_log_impl: UntrustedMultiLogImpl,
         multilog_id: Ghost<u128>,
-        wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>
+        powerpm_regions: PoWERPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>
     }
 
     impl <PMRegions: PersistentMemoryRegions> MultiLogImpl<PMRegions> {
@@ -218,7 +218,7 @@ verus! {
         // The constants of a `MultiLogImpl` are whatever the
         // persistent memory it wraps says they are.
         pub closed spec fn constants(&self) -> PersistentMemoryConstants {
-            self.wrpm_regions.constants()
+            self.powerpm_regions.constants()
         }
 
         // This is the validity condition that is maintained between
@@ -236,26 +236,26 @@ verus! {
         // if it crashes and recovers, must represent the current
         // abstract state with pending tentative appends dropped.
         pub closed spec fn valid(self) -> bool {
-            &&& self.untrusted_log_impl.inv(&self.wrpm_regions, self.multilog_id@)
-            &&& can_only_crash_as_state(self.wrpm_regions@, self.multilog_id@, self@.drop_pending_appends())
+            &&& self.untrusted_log_impl.inv(&self.powerpm_regions, self.multilog_id@)
+            &&& can_only_crash_as_state(self.powerpm_regions@, self.multilog_id@, self@.drop_pending_appends())
         }
 
-        proof fn lemma_valid_implies_wrpm_inv(self)
+        proof fn lemma_valid_implies_powerpm_inv(self)
             requires
                 self.valid()
             ensures
-                self.wrpm_regions.inv()
+                self.powerpm_regions.inv()
         {
-            self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_regions, self.multilog_id@);
+            self.untrusted_log_impl.lemma_inv_implies_powerpm_inv(&self.powerpm_regions, self.multilog_id@);
         }
 
         proof fn lemma_untrusted_log_inv_implies_valid(self)
             requires
-                self.untrusted_log_impl.inv(&self.wrpm_regions, self.multilog_id@)
+                self.untrusted_log_impl.inv(&self.powerpm_regions, self.multilog_id@)
             ensures
                 self.valid()
         {
-            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_regions, self.multilog_id@);
+            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.powerpm_regions, self.multilog_id@);
         }
 
         // The `setup` method sets up persistent memory regions `pm_regions`
@@ -345,15 +345,15 @@ verus! {
             // it doesn't change the persistent state.
 
             let ghost state = UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).get_Some_0();
-            let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
+            let mut powerpm_regions = PoWERPersistentMemoryRegions::new(pm_regions);
             let tracked perm = TrustedMultiLogPermission::new_one_possibility(multilog_id, state);
             let untrusted_log_impl =
-                UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state))?;
+                UntrustedMultiLogImpl::start(&mut powerpm_regions, multilog_id, Tracked(&perm), Ghost(state))?;
             Ok(
                 MultiLogImpl {
                     untrusted_log_impl,
                     multilog_id:  Ghost(multilog_id),
-                    wrpm_regions
+                    powerpm_regions
                 },
             )
         }
@@ -401,7 +401,7 @@ verus! {
             // the view of the persistent state is the current
             // state with pending appends dropped.
             let tracked perm = TrustedMultiLogPermission::new_one_possibility(self.multilog_id@, self@.drop_pending_appends());
-            self.untrusted_log_impl.tentatively_append(&mut self.wrpm_regions, which_log, bytes_to_append,
+            self.untrusted_log_impl.tentatively_append(&mut self.powerpm_regions, which_log, bytes_to_append,
                                                        self.multilog_id, Tracked(&perm))
         }
 
@@ -430,7 +430,7 @@ verus! {
             // state with all uncommitted appends committed.
             let tracked perm = TrustedMultiLogPermission::new_two_possibilities(self.multilog_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
-            self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.multilog_id, Tracked(&perm))
+            self.untrusted_log_impl.commit(&mut self.powerpm_regions, self.multilog_id, Tracked(&perm))
         }
 
         // The `advance_head` method advances the head of log number
@@ -482,7 +482,7 @@ verus! {
                 self@.drop_pending_appends(),
                 self@.advance_head(which_log as int, new_head as int).drop_pending_appends()
             );
-            self.untrusted_log_impl.advance_head(&mut self.wrpm_regions, which_log, new_head,
+            self.untrusted_log_impl.advance_head(&mut self.powerpm_regions, which_log, new_head,
                                                  self.multilog_id, Tracked(&perm))
         }
 
@@ -526,7 +526,7 @@ verus! {
                     }
                 })
         {
-            self.untrusted_log_impl.read(&self.wrpm_regions, which_log, pos, len, self.multilog_id)
+            self.untrusted_log_impl.read(&self.powerpm_regions, which_log, pos, len, self.multilog_id)
         }
 
         // The `get_head_tail_and_capacity` method returns three
@@ -554,7 +554,7 @@ verus! {
                     _ => false
                 }
         {
-            self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_regions, which_log, self.multilog_id)
+            self.untrusted_log_impl.get_head_tail_and_capacity(&self.powerpm_regions, which_log, self.multilog_id)
         }
     }
 
