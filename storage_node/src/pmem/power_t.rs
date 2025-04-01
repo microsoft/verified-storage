@@ -18,7 +18,7 @@ pub struct PoWERPersistentMemoryRegion<Perm, PMRegion>
         PMRegion: PersistentMemoryRegion
 {
     pm_region: PMRegion,
-    ghost perm: Option<Perm>, // Needed to work around Rust limitation that Perm must be referenced
+    perm: core::marker::PhantomData<Perm>, // Needed to work around Rust limitation that Perm must be referenced
 }
 
 impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
@@ -61,7 +61,7 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     {
         Self {
             pm_region: pm_region,
-            perm: None
+            perm: core::marker::PhantomData,
         }
     }
 
