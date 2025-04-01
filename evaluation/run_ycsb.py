@@ -175,7 +175,7 @@ def run_load_y_check(workloads):
     return False
 
 def run_load_z_check(workloads):
-    if "Y" in workloads:
+    if "Z" in workloads:
         return True
     return False
 
@@ -361,13 +361,13 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
             else:
                 setup_pm(configs)
 
-            with open(loady_output_path, "w") as f:
+            with open(loadz_output_path, "w") as f:
                 subprocess_under_dir("YCSB/",
                     [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloadz"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
-            with open(runy_output_path, "w") as f:
+            with open(runz_output_path, "w") as f:
                 subprocess_under_dir("YCSB/",
                     [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadz"] + options, 
                     stdout=f,
