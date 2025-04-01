@@ -7,7 +7,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use core::ffi::c_void;
 use core::slice;
-use memmap::MmapMut;
+use deps_hack::memmap::MmapMut;
 use std::fs::OpenOptions;
 use std::sync::Arc;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
@@ -181,6 +181,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
         self.section.size as u64
     }
 
+    #[verifier::external_body]
     fn read_aligned<S>(&self, addr: u64) -> (bytes: Result<
         MaybeCorruptedBytes<S>,
         PmemError,
@@ -203,6 +204,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
         Ok(maybe_corrupted_val)
     }
 
+    #[verifier::external_body]
     fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) {
         let mut mmf_borrowed = self.section.mmf.borrow_mut();
         let pm_slice: &[u8] = &mmf_borrowed.mmap[addr as usize..(addr + num_bytes) as usize];
