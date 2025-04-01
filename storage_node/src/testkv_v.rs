@@ -17,6 +17,8 @@ use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsP
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
+#[cfg(target_os = "macos")]
+use crate::pmem::macos_pmemfile_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -451,6 +453,11 @@ fn create_pm_region(file_name: &str, region_size: u64) -> (result: Result<FileBa
         &file_name,
         region_size,
         PersistentMemoryCheck::DontCheckForPersistentMemory,
+    );
+    #[cfg(target_os = "macos")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name,
+        region_size,
     );
 
     pm_region
