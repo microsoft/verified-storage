@@ -44,6 +44,7 @@
 
 // #![verus::trusted]
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::hamming_t::*;
 use crate::pmem::hamming_v::*;
 use builtin::*;
 use builtin_macros::*;

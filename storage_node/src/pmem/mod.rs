@@ -6,6 +6,7 @@ pub mod windows_pmemfile_t;
 pub mod mmap_pmemfile_t;
 
 pub mod crc_t;
+pub mod hamming_t;
 pub mod hamming_v;
 pub mod pmemmock_t;
 pub mod pmemspec_t;
