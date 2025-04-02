@@ -12,5 +12,5 @@ build/
 
 *.pc 
 *.cmake
-cmake/
+!cmake/*.cmake
 CMakeFiles/
