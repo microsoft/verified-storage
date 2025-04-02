@@ -1,5 +1,5 @@
 [experiment_config]
-results_dir = "results/viper_test_output/threads_4"
+results_dir = "results/20250328/threads_4"
 threads = 4
 mount_point = "/mnt/pmem"
 pm_device = "/dev/pmem0"

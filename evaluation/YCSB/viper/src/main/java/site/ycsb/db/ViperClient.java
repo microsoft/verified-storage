@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -40,18 +42,27 @@ public class ViperClient extends DB {
   static final long INITIAL_SIZE = 64424509440L; // 60GB
   // static final int VALUE_SIZE = 1140; // TODO: don't hardcode this especially
   static final String PROPERTY_VIPER_VALUE_SIZE = "viper.valuesize";
+  static final String PROPERTY_VIPER_INITIAL_POOL_SIZE = "viper.initialpoolsize";
 
   @GuardedBy("ViperClient.class") private static int references = 0;
   @GuardedBy("ViperClient.class") private static Viper db = null;
   private ViperThreadClient client = null;
 
+  private static long preAvailableMem = 0;
+  private static long postAvailableMem = 0;
+
   private static int value_size = 0;
+  private static long pool_size = 0;
 
   byte[] value_buffer;
 
   @Override
   public void init() throws DBException {
     synchronized(ViperClient.class) {
+      if (preAvailableMem == 0) {
+        preAvailableMem = getAvailableMem();
+        System.out.println("Pre-experiment available mem: " + preAvailableMem);
+      }
       if (db == null) {
         System.out.println("viper init");
         String value_size_str = getProperties().getProperty(PROPERTY_VIPER_VALUE_SIZE);
@@ -60,7 +71,13 @@ public class ViperClient extends DB {
         } else {
           value_size = Integer.parseInt(value_size_str);
         }
-        db = new Viper(POOL_FILE, INITIAL_SIZE);
+        String pool_size_str = getProperties().getProperty(PROPERTY_VIPER_INITIAL_POOL_SIZE);
+        if (pool_size_str == null) {
+          pool_size = INITIAL_SIZE; // default size that works well for ycsb workloads
+        } else {
+          pool_size = Long.parseLong(pool_size_str);
+        }
+        db = new Viper(POOL_FILE, pool_size);
       }
       client = new ViperThreadClient(db);
       value_buffer = new byte[value_size];
@@ -133,6 +150,11 @@ public class ViperClient extends DB {
   @Override
   public void cleanup() {
     synchronized (ViperClient.class) {
+      if (postAvailableMem == 0) {
+        postAvailableMem = getAvailableMem();
+        System.out.println("Post-experiment available mem: " + postAvailableMem);
+        System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
+      }
       client.cleanup();
       if (references == 1) {
         System.out.println("cleaning up");
@@ -207,4 +229,19 @@ public class ViperClient extends DB {
     }
   }
 
+  private static long getAvailableMem() {
+    try {
+      BufferedReader memInfo = new BufferedReader(new FileReader("/proc/meminfo"));
+      String line;
+      while ((line = memInfo.readLine()) != null) {
+        if (line.startsWith("MemAvailable: ")) {
+          // Output is in KB which is close enough.
+          return java.lang.Long.parseLong(line.split("[^0-9]+")[1]) * 1024;
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return -1;
+  } 
 }

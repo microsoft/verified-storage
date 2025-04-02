@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -37,6 +39,9 @@ public class CapybaraKVClient extends DB {
   
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKVClient.class);
 
+  private static long preAvailableMem = 0;
+  private static long postAvailableMem = 0;
+
   // maps shard IDs to the corresponding KV
   // TODO: a more idiomatic approach would be to have a thread pool where each 
   // thread handles one KV, but that might interact strangely with 
@@ -51,6 +56,10 @@ public class CapybaraKVClient extends DB {
   @Override
   public void init() throws DBException {
     synchronized(CapybaraKVClient.class) {
+      if (preAvailableMem == 0) {
+        preAvailableMem = getAvailableMem();
+        System.out.println("Pre-experiment available mem: " + preAvailableMem);
+      }
       if (capybarakvConfigFile == null) {
         capybarakvConfigFile = getProperties().getProperty(PROPERTY_CAPYBARAKV_CONFIG_FILE);
         if (capybarakvConfigFile == null) {
@@ -221,6 +230,10 @@ public class CapybaraKVClient extends DB {
   public void cleanup() throws DBException {
     synchronized(CapybaraKVClient.class) {
       if (kvMap != null) {
+        postAvailableMem = getAvailableMem();
+        System.out.println("Post-experiment available mem: " + postAvailableMem);
+        System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
+
         System.out.println("Cleaning up");
         for (long id = 0; id < counter.get(); id++) {
           CapybaraKV kv = kvMap.get(id);
@@ -306,4 +319,20 @@ public class CapybaraKVClient extends DB {
     long id = hash % Long.valueOf(counter.get());
     return id;
   }
+
+  private static long getAvailableMem() {
+    try {
+      BufferedReader memInfo = new BufferedReader(new FileReader("/proc/meminfo"));
+      String line;
+      while ((line = memInfo.readLine()) != null) {
+        if (line.startsWith("MemAvailable: ")) {
+          // Output is in KB which is close enough.
+          return java.lang.Long.parseLong(line.split("[^0-9]+")[1]) * 1024;
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return -1;
+  } 
 }

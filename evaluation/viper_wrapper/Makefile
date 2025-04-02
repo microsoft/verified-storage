@@ -4,7 +4,7 @@ JAVA_HOME:=/usr/lib/jvm/java-17-openjdk-amd64
 CXXFLAGS:=-I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmark \
 	-I../viper_deps/benchmark/include -I../viper_deps/libpmemobj-cpp/include \
 	-I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux \
-	-std=c++17 -mclwb -DCXX_COMPILATION -fPIC #-DNDEBUG #-flto
+	-std=c++17 -mclwb -DCXX_COMPILATION -fPIC -DNDEBUG #-flto
 LDFLAGS=-lpmem -lpmempool -lpmemobj -lbenchmark -pthread
 SHARED_FLAGS=-L../viper_deps/benchmark/build/src -L/mnt/local_ssd/usr/lib/x86_64-linux-gnu/
 WORKLOADX_FLAG=-DWORKLOADX

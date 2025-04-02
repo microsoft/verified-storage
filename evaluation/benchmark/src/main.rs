@@ -277,16 +277,16 @@ fn main() {
 
 
     for i in 1..ITERATIONS+1 {
-        // run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        // run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
-        // run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
+        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
     }
 
-    // // full setup works differently so that we don't have to rebuild the full KV every iteration
-    // run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
-    // run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
-    // run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+    // full setup works differently so that we don't have to rebuild the full KV every iteration
+    run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
+    run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
+    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
     run_full_setup::<ViperClient>(&viper_output_dir, NUM_KEYS).unwrap();
 }
 

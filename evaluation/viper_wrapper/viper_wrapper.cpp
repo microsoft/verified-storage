@@ -209,7 +209,7 @@ void* get_workload_for_trace(void* args) {
 }
 
 
-const int NUM_THREADS = 16;
+const int NUM_THREADS = 0;
 int main(void) {
     cout << "PID " << ::getpid() << std::endl;
 

@@ -54,7 +54,7 @@ def arg_parser():
             selected workloads. All workloads are run if this \
             argument is not provided.", 
         required=False,
-        default=["A", "B", "C", "D", "E", "F", "X"])
+        default=["A", "B", "C", "D", "E", "F", "X", "Y", "Z"])
     parser.add_argument("--experiment_config", type=str, 
         help="path to the experiment config file to use", default="experiment_config.toml")
     parser.add_argument("--capybarakv_config", type=str, 
@@ -225,17 +225,37 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
 
         if run_load_a_check(workloads):
             setup_pm(configs)
+
+            with open(loada_output_path, "w") as f:
+                p = subprocess.Popen("df", stdout=subprocess.PIPE)
+                output = p.communicate()[0]
+                for line in str(output).split("\\n"):                 
+                    if configs["mount_point"] in line:
+                        f.write("Pre-experiment storage stats: ")
+                        f.write(line)
+                        f.write("\n")
+                        break
+
             if db == "capybarakv":
                 setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
             if db == "redis":
                 p = setup_redis(configs)
         
-            with open(loada_output_path, "w") as f:
+            with open(loada_output_path, "a") as f:
                 subprocess_under_dir("YCSB/",
                     [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloada"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
+                p = subprocess.Popen("df", stdout=subprocess.PIPE)
+                output = p.communicate()[0]
+                for line in str(output).split("\\n"):                 
+                    if configs["mount_point"] in line:
+                        f.write("Post-experiment storage stats: ")
+                        f.write(line)
+                        f.write("\n")
+                        break
+                
 
             if "A" in workloads:
                 with open(runa_output_path, "w") as f:
@@ -394,6 +414,7 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     op_count = configs["op_count"]
     record_count = configs["record_count"]
     results_dir = configs["results_dir"]
+    viper_initial_size = configs["viper_initial_size"]
 
     # TODO: get DB-specific options from config files rather than hardcoding them?
 
@@ -408,6 +429,7 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     if db == "capybarakv":
         options += ["-p", "capybarakv.configfile=" + os.path.join("..", capybarakv_config_file)]
         options += ["-p", "experiment.configfile=" + os.path.join("..", experiment_config_file)]
+
     elif db == "redis":
         options += ["-p", "redis.host=127.0.0.1"]
         options += ["-p", "redis.port=6379"]
@@ -417,6 +439,8 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
         # options += ["-p", "rocksdb.allow_mmap_reads=true"]
         # options += ["-p", "rocksdb.allow_mmap_writes=true"]
         # options += ["-p", "max_background_compaction=4"]
+    elif db == "viper":
+        options += ["-p", "viper.initialpoolsize=" + str(viper_initial_size)]
     elif db != "viper": # viper currently has no specific arguments
         assert False, "Not implemented"
     
