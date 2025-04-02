@@ -3,6 +3,13 @@
 // MacOSX does not support PMDK, so we simply support mmap-based
 // memory-mapped files, for development purposes.
 //
+// This file implements the `FileBackedPersistentMemoryRegion` type, which
+// simulates a persistent memory region backed by a file. The type implements the
+// `PersistentMemoryRegion` trait, allowing operations like reading, writing, and flushing.
+// Besides that, it also implements static functions `new` and `restore`. `new` creates
+// a new file with unknown contents; `restore` opens an existing file, so named because
+// it's typically used after a crash and restart to restore system state.
+
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use core::ffi::c_void;
