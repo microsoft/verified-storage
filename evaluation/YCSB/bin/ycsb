@@ -105,6 +105,7 @@ DATABASES = {
     "solr7"        : "site.ycsb.db.solr7.SolrClient",
     "tarantool"    : "site.ycsb.db.TarantoolClient",
     "tablestore"   : "site.ycsb.db.tablestore.TableStoreClient",
+    "viper"        : "site.ycsb.db.ViperClient",
     "zookeeper"    : "site.ycsb.db.zookeeper.ZKClient"
 }
 

@@ -3,4 +3,4 @@
 # features. This release is compatible.
 
 [toolchain]
-channel = "nightly-2024-06-15"
+channel = "nightly-2024-10-15"

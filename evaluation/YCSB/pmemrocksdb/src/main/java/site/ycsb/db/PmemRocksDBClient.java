@@ -33,6 +33,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
@@ -56,12 +59,20 @@ public class PmemRocksDBClient extends DB {
   @GuardedBy("PmemRocksDBClient.class") private static RocksDB rocksDb = null;
   @GuardedBy("PmemRocksDBClient.class") private static int references = 0;
 
+  private static Path mountPointPath = null;
+  private static long preAvailableMem = 0;
+  private static long postAvailableMem = 0;
+
   private static final ConcurrentMap<String, ColumnFamily> COLUMN_FAMILIES = new ConcurrentHashMap<>();
   private static final ConcurrentMap<String, Lock> COLUMN_FAMILY_LOCKS = new ConcurrentHashMap<>();
 
   @Override
   public void init() throws DBException {
     synchronized(PmemRocksDBClient.class) {
+      if (preAvailableMem == 0) {
+        preAvailableMem = getAvailableMem();
+        System.out.println("Pre-experiment available mem: " + preAvailableMem);
+      }
       if(rocksDb == null) {
         rocksDbDir = Paths.get(getProperties().getProperty(PROPERTY_ROCKSDB_DIR));
         LOGGER.info("RocksDB data dir: " + rocksDbDir);
@@ -200,6 +211,13 @@ public class PmemRocksDBClient extends DB {
     super.cleanup();
 
     synchronized (PmemRocksDBClient.class) {
+
+      if (postAvailableMem == 0) {
+        postAvailableMem = getAvailableMem();
+        System.out.println("Post-experiment available mem: " + postAvailableMem);
+        System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
+      }
+      
       try {
         if (references == 1) {
           for (final ColumnFamily cf : COLUMN_FAMILIES.values()) {
@@ -483,5 +501,41 @@ public class PmemRocksDBClient extends DB {
     public ColumnFamilyOptions getOptions() {
       return options;
     }
+  }
+
+  private static long getAvailableMem() {
+    try {
+      BufferedReader memInfo = new BufferedReader(new FileReader("/proc/meminfo"));
+      String line;
+      while ((line = memInfo.readLine()) != null) {
+        if (line.startsWith("MemAvailable: ")) {
+          // Output is in KB which is close enough.
+          return java.lang.Long.parseLong(line.split("[^0-9]+")[1]) * 1024;
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return -1;
+  } 
+
+  private static long getAvailableStorage() {
+    try {
+      FileStore store = Files.getFileStore(mountPointPath);
+      return store.getUsableSpace();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return -1;
+  }
+
+  private static long getTotalStorage() {
+    try {
+      FileStore store = Files.getFileStore(mountPointPath);
+      return store.getTotalSpace();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return -1;
   }
 }

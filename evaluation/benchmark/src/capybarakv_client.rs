@@ -1,5 +1,6 @@
-use storage_node::kv::kvimpl_t::*;
+use storage_node::kv2::impl_t::*;
 use storage_node::pmem::linux_pmemfile_t::*;
+use storage_node::kv2::spec_t::*;
 use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
@@ -22,7 +23,7 @@ pub struct CapybaraKvClient<K, V, L>
     where 
         K: PmCopy + Key + Debug + Hash,
         V: PmCopy + Value + Debug + Hash,
-        L: PmCopy + Debug,
+        L: PmCopy + Debug + LogicalRange,
 {
     kv: KvStore::<FileBackedPersistentMemoryRegion, K, V, L>,
 }
@@ -31,23 +32,31 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
     where 
         K: PmCopy + Key + Debug + Hash,
         V: PmCopy + Value + Debug + Hash,
-        L: PmCopy + Debug,
+        L: PmCopy + Debug + LogicalRange,
 {
-    type E = KvError<K>;
+    type E = KvError;
 
     fn setup(num_keys: u64) -> Result<(), Self::E> {
         init_and_mount_pm_fs();
 
+        let setup_parameters = SetupParameters {
+            kvstore_id: KVSTORE_ID,
+            logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsPermitted,
+            max_keys: num_keys + 1,
+            max_list_elements: 10, // TODO: set this to something that makes sense
+            max_operations_per_transaction: 5 // TODO: set this to something that makes sense
+        };
+
         let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
         KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
-            &mut kv_region, KVSTORE_ID, num_keys + 1, 1, 1
+            &mut kv_region, &setup_parameters
         )?;
 
         Ok(())
     }
 
     fn start() -> Result<Self, Self::E> {
-        let mut region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
+        let region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
         let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
             region, KVSTORE_ID)?;
         
@@ -64,7 +73,7 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
         //     &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
         // )?;
 
-        let mut region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
+        let region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
         let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
             region, KVSTORE_ID)?;
         let dur = t0.elapsed();
@@ -77,22 +86,22 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
     }
 
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        self.kv.create(key, value)?;
+        self.kv.tentatively_create(key, value)?;
         self.kv.commit()
     }
 
     fn get(&mut self, key: &K) -> Result<V, Self::E> {
         let value = self.kv.read_item(key)?;
-        Ok(*value)
+        Ok(value)
     }
 
     fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        self.kv.update_item(key, value)?;
+        self.kv.tentatively_update_item(key, value)?;
         self.kv.commit()
     }
 
     fn delete(&mut self, key: &K) -> Result<(), Self::E> {
-        self.kv.delete(key)?;
+        self.kv.tentatively_delete(key)?;
         self.kv.commit()
     }
 

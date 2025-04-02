@@ -1,0 +1,16 @@
+.*
+!.clang-format
+!.gitattributes
+!.gitignore
+!.github/
+!.mailmap
+!.version
+build/
+*~
+*.swp
+~*
+
+*.pc 
+*.cmake
+cmake/
+CMakeFiles/

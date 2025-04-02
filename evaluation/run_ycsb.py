@@ -8,7 +8,7 @@ import time
 import sys
 from pathlib import Path
 
-DBS = ["capybarakv", "pmemrocksdb", "redis"]
+DBS = ["capybarakv", "pmemrocksdb", "redis", "viper"]
 
 def is_windows():
     return sys.platform.startswith("win")
@@ -49,12 +49,12 @@ def arg_parser():
     parser.add_argument("--workloads", 
         type=list_of_strings, 
         help="select workloads to run as a comma separated list. \
-            Options are A, B, C, D, E, F, and X. The script will \
+            Options are A, B, C, D, E, F, X, Y, Z. The script will \
             automatically run required load operations for the \
             selected workloads. All workloads are run if this \
             argument is not provided.", 
         required=False,
-        default=["A", "B", "C", "D", "E", "F", "X"])
+        default=["A", "B", "C", "D", "E", "F", "X", "Y", "Z"])
     parser.add_argument("--experiment_config", type=str, 
         help="path to the experiment config file to use", default="experiment_config.toml")
     parser.add_argument("--capybarakv_config", type=str, 
@@ -138,7 +138,11 @@ def create_output_dirs(configs, db):
         Path(results_dir, db, "Loade"),
         Path(results_dir, db, "Runf"),
         Path(results_dir, db, "Loadx"),
-        Path(results_dir, db, "Runx")
+        Path(results_dir, db, "Runx"),
+        Path(results_dir, db, "Loady"),
+        Path(results_dir, db, "Runy"),
+        Path(results_dir, db, "Loadz"),
+        Path(results_dir, db, "Runz")
     ]
 
     for path in paths:
@@ -165,12 +169,25 @@ def run_load_x_check(workloads):
         return True 
     return False
 
-def subprocess_under_dir(dir, cmd, stdout, check=True):
+def run_load_y_check(workloads):
+    if "Y" in workloads:
+        return True
+    return False
+
+def run_load_z_check(workloads):
+    if "Z" in workloads:
+        return True
+    return False
+
+def subprocess_under_dir(dir, cmd, stdout, stderr=None, check=True):
     original_cwd = os.getcwd()
     try:
         os.chdir(dir)
         print(f"Running command: {' '.join(cmd)} in {dir}")
-        return subprocess.run(cmd, stdout=stdout, check=check)
+        if stderr != None:
+            return subprocess.run(cmd, stdout=stdout, stderr=stderr, check=check)
+        else:
+            return subprocess.run(cmd, stdout=stdout, check=check)
     finally:
         os.chdir(original_cwd)
 
@@ -196,20 +213,49 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
         runf_output_path = os.path.join(output_dir_paths[6], "Run" + str(i))
         loadx_output_path = os.path.join(output_dir_paths[7], "Run" + str(i))
         runx_output_path = os.path.join(output_dir_paths[8], "Run" + str(i))
+        loady_output_path = os.path.join(output_dir_paths[9], "Run" + str(i))
+        runy_output_path = os.path.join(output_dir_paths[10], "Run" + str(i))
+        loadz_output_path = os.path.join(output_dir_paths[11], "Run" + str(i))
+        runz_output_path = os.path.join(output_dir_paths[12], "Run" + str(i))
+
+        # make sure viper is built correctly for non-x workloads. 
+        # if we're only running workload x this will do some unnecessary work
+        # but it's quick so it doesn't really matter
+        rebuild_viper_wrapper(False)
 
         if run_load_a_check(workloads):
             setup_pm(configs)
+
+            with open(loada_output_path, "w") as f:
+                p = subprocess.Popen("df", stdout=subprocess.PIPE)
+                output = p.communicate()[0]
+                for line in str(output).split("\\n"):                 
+                    if configs["mount_point"] in line:
+                        f.write("Pre-experiment storage stats: ")
+                        f.write(line)
+                        f.write("\n")
+                        break
+
             if db == "capybarakv":
                 setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
             if db == "redis":
                 p = setup_redis(configs)
         
-            with open(loada_output_path, "w") as f:
+            with open(loada_output_path, "a") as f:
                 subprocess_under_dir("YCSB/",
                     [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloada"] + options, 
                     stdout=f,
                     # stderr=f,
                     check=True)
+                p = subprocess.Popen("df", stdout=subprocess.PIPE)
+                output = p.communicate()[0]
+                for line in str(output).split("\\n"):                 
+                    if configs["mount_point"] in line:
+                        f.write("Post-experiment storage stats: ")
+                        f.write(line)
+                        f.write("\n")
+                        break
+                
 
             if "A" in workloads:
                 with open(runa_output_path, "w") as f:
@@ -276,6 +322,12 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
                 cleanup(configs, db, redis_process=p)
                 setup_pm(configs)
                 p = setup_redis(configs)
+            elif db == "viper":
+                # we need to rebuild the viper wrapper to use the correct 
+                # key size for workload x
+                rebuild_viper_wrapper(True)
+                options += ["-p", "viper.value_size=1024"]
+                setup_pm(configs)
             else:
                 setup_pm(configs)
 
@@ -291,9 +343,69 @@ def run_experiment(configs, db, output_dir_paths, workloads, experiment_config_f
                     stdout=f,
                     # stderr=f,
                     check=True)
+        
+        if run_load_y_check(workloads):
+            # we only run this with capybarakv, but the others can support it too
+            if db == "capybarakv":
+                setup_pm(configs)
+                setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
+            elif db == "redis":
+                cleanup(configs, db, redis_process=p)
+                setup_pm(configs)
+                p = setup_redis(configs)
+            else:
+                setup_pm(configs)
+
+            with open(loady_output_path, "w") as f:
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloady"] + options, 
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
+            with open(runy_output_path, "w") as f:
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloady"] + options, 
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
+
+        if run_load_z_check(workloads):
+            # we only run this with capybarakv, but the others can support it too
+            if db == "capybarakv":
+                setup_pm(configs)
+                setup_capybarakv(configs, experiment_config_file, capybarakv_config_file)
+            elif db == "redis":
+                cleanup(configs, db, redis_process=p)
+                setup_pm(configs)
+                p = setup_redis(configs)
+            else:
+                setup_pm(configs)
+
+            with open(loadz_output_path, "w") as f:
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "load", db, "-s", "-P", "workloads/workloadz"] + options, 
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
+            with open(runz_output_path, "w") as f:
+                subprocess_under_dir("YCSB/",
+                    [get_ycsb_path(), "run", db, "-s", "-P", "workloads/workloadz"] + options, 
+                    stdout=f,
+                    # stderr=f,
+                    check=True)
                 
         if db == "redis":
             cleanup(configs, db, redis_process=p)
+        if db == "viper":
+            # rebuild so that it works for other workloads in the future
+            rebuild_viper_wrapper(False)
+
+def rebuild_viper_wrapper(x):
+    subprocess.check_call(["make", "clean"], cwd="viper_wrapper/")
+    if x:
+        subprocess.check_call(["make", "shared_x"], cwd="viper_wrapper/")
+    else:
+        subprocess.check_call(["make", "shared"], cwd="viper_wrapper/")
 
 def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     iterations = configs["iterations"]
@@ -302,6 +414,7 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     op_count = configs["op_count"]
     record_count = configs["record_count"]
     results_dir = configs["results_dir"]
+    viper_initial_size = configs["viper_initial_size"]
 
     # TODO: get DB-specific options from config files rather than hardcoding them?
 
@@ -310,10 +423,13 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
     options += ["-p", "recordcount=" + str(record_count)]
     options += ["-p", "operationcount=" + str(op_count)]
     options += ["-threads", str(threads)]
+    # options += ["-p", "measurementtype=histogram"]
+    # options += ["-p", "hdrhistogram.fileoutput=true"]
 
     if db == "capybarakv":
         options += ["-p", "capybarakv.configfile=" + os.path.join("..", capybarakv_config_file)]
         options += ["-p", "experiment.configfile=" + os.path.join("..", experiment_config_file)]
+
     elif db == "redis":
         options += ["-p", "redis.host=127.0.0.1"]
         options += ["-p", "redis.port=6379"]
@@ -323,7 +439,9 @@ def build_options(configs, db, experiment_config_file, capybarakv_config_file):
         # options += ["-p", "rocksdb.allow_mmap_reads=true"]
         # options += ["-p", "rocksdb.allow_mmap_writes=true"]
         # options += ["-p", "max_background_compaction=4"]
-    else:
+    elif db == "viper":
+        options += ["-p", "viper.initialpoolsize=" + str(viper_initial_size)]
+    elif db != "viper": # viper currently has no specific arguments
         assert False, "Not implemented"
     
     return options

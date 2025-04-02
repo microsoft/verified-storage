@@ -12,8 +12,8 @@ import csv
 import scipy.stats as st
 import json
 
-kvstores = ["redis", "pmemrocksdb", "capybarakv"]
-nice_kvstore_names = ["pmem-Redis", "pmem-RocksDB", "CapybaraKV"]
+kvstores = ["redis", "pmemrocksdb", "viper", "capybarakv"]
+nice_kvstore_names = ["pmem-Redis", "pmem-RocksDB", "ViperDB", "CapybaraKV"]
 workloads = ["sequential_put", "sequential_get", "sequential_update", "sequential_delete", 
     "rand_put", "rand_get", "rand_update", "rand_delete"]
 nice_workload_names = ["Seq\nput", "Seq\nget", "Seq\nupdate", "Seq\ndelete",
@@ -97,7 +97,7 @@ def read_results_from_json(input_file):
 def plot_results(results, output_file='results.pdf'):
     """Create a bar plot with error bars from the results."""
 
-    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "orange", "black"]) 
+    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "orange", "mediumpurple", "black"]) 
     
     # Set up the plot
     plt.figure(figsize=(4.6, 1.8))
@@ -116,6 +116,8 @@ def plot_results(results, output_file='results.pdf'):
             hatch = "////"
         elif kvstore == kvstores[1]:
             hatch= ".."
+        elif kvstore == kvstores[2]:
+            hatch = "xx"
         else:
             hatch = ""
         
@@ -135,7 +137,7 @@ def plot_results(results, output_file='results.pdf'):
     
     plt.xticks(x, nice_workload_names, fontsize="8")
     plt.legend(nice_kvstore_names, loc="upper center", fontsize="8", 
-        ncol=3, bbox_to_anchor=(0.5, 1.25))
+        ncol=4, bbox_to_anchor=(0.5, 1.25))
     plt.tight_layout(pad=0)
     
     

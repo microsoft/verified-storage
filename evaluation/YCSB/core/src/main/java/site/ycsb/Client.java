@@ -303,11 +303,7 @@ public final class Client {
 
     final Tracer tracer = getTracer(props, workload);
 
-    System.err.println("Init workload");
-
     initWorkload(props, warningthread, workload, tracer);
-
-    System.err.println("Starting test.");
     final CountDownLatch completeLatch = new CountDownLatch(threadcount);
 
     // latch used to ensure we don't start taking measurements until 
@@ -318,24 +314,8 @@ public final class Client {
     // before cleaning up
     final CountDownLatch cleanupLatch = new CountDownLatch(threadcount);
 
-    System.err.println("Init db");
-
     final List<ClientThread> clients = initDb(dbname, props, threadcount, targetperthreadperms,
         workload, tracer, completeLatch, initLatch, cleanupLatch);
-
-    if (status) {
-      boolean standardstatus = false;
-      if (props.getProperty(Measurements.MEASUREMENT_TYPE_PROPERTY, "").compareTo("timeseries") == 0) {
-        standardstatus = true;
-      }
-      int statusIntervalSeconds = Integer.parseInt(props.getProperty("status.interval", "10"));
-      boolean trackJVMStats = props.getProperty(Measurements.MEASUREMENT_TRACK_JVM_PROPERTY,
-          Measurements.MEASUREMENT_TRACK_JVM_PROPERTY_DEFAULT).equals("true");
-      statusthread = new StatusThread(completeLatch, initLatch, cleanupLatch, clients, 
-          label, standardstatus, statusIntervalSeconds, trackJVMStats);
-      System.err.println("Starting status thread");
-      statusthread.start();
-    }
 
     Thread terminator = null;
     long st;
@@ -348,12 +328,32 @@ public final class Client {
       for (ClientThread client : clients) {
         threads.put(new Thread(tracer.wrap(client, "ClientThread")), client);
       }
-
-      st = System.currentTimeMillis();
-
+     
       for (Thread t : threads.keySet()) {
         t.start();
       }
+
+      if (status) {
+        boolean standardstatus = false;
+        if (props.getProperty(Measurements.MEASUREMENT_TYPE_PROPERTY, "").compareTo("timeseries") == 0) {
+          standardstatus = true;
+        }
+        int statusIntervalSeconds = Integer.parseInt(props.getProperty("status.interval", "10"));
+        boolean trackJVMStats = props.getProperty(Measurements.MEASUREMENT_TRACK_JVM_PROPERTY,
+            Measurements.MEASUREMENT_TRACK_JVM_PROPERTY_DEFAULT).equals("true");
+        statusthread = new StatusThread(completeLatch, initLatch, cleanupLatch, clients, 
+            label, standardstatus, statusIntervalSeconds, trackJVMStats);
+        statusthread.start();
+      }
+
+      // don't start timing until all threads are ready
+      try {
+        initLatch.await();
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+      }
+
+      st = System.currentTimeMillis();
 
       if (maxExecutionTime > 0) {
         terminator = new TerminatorThread(maxExecutionTime, threads.keySet(), workload);
@@ -361,6 +361,18 @@ public final class Client {
       }
 
       opsDone = 0;
+
+      // wait until all threads have hit cleanup, then stop measuring runtime
+      // since this is used to measure total throughput and some dbs take a long
+      // time to clean up
+
+      try {
+        cleanupLatch.await();
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+      }
+      System.err.println("stopping timing");
+      en = System.currentTimeMillis();
 
       for (Map.Entry<Thread, ClientThread> entry : threads.entrySet()) {
         try {
@@ -370,8 +382,6 @@ public final class Client {
           // ignored
         }
       }
-
-      en = System.currentTimeMillis();
     }
 
     try {

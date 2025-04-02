@@ -38,6 +38,8 @@ import redis.clients.jedis.Protocol;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.HashSet;
@@ -64,9 +66,17 @@ public class RedisClient extends DB {
 
   public static final String INDEX_KEY = "_indices";
 
+  private static long preAvailableMem = 0;
+  private static long postAvailableMem = 0;
+
   public void init() throws DBException {
     Properties props = getProperties();
     int port;
+
+    if (preAvailableMem == 0) {
+      preAvailableMem = getAvailableMem();
+      System.out.println("Pre-experiment available mem: " + preAvailableMem);
+    }
 
     String portString = props.getProperty(PORT_PROPERTY);
     if (portString != null) {
@@ -99,6 +109,12 @@ public class RedisClient extends DB {
   }
 
   public void cleanup() throws DBException {
+    if (postAvailableMem == 0) {
+      postAvailableMem = getAvailableMem();
+      System.out.println("Post-experiment available mem: " + postAvailableMem);
+      System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
+    }
+    
     try {
       ((Closeable) jedis).close();
     } catch (IOException e) {
@@ -178,4 +194,19 @@ public class RedisClient extends DB {
     return Status.OK;
   }
 
+  private static long getAvailableMem() {
+    try {
+      BufferedReader memInfo = new BufferedReader(new FileReader("/proc/meminfo"));
+      String line;
+      while ((line = memInfo.readLine()) != null) {
+        if (line.startsWith("MemAvailable: ")) {
+          // Output is in KB which is close enough.
+          return java.lang.Long.parseLong(line.split("[^0-9]+")[1]) * 1024;
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return -1;
+  } 
 }
