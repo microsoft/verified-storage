@@ -1,5 +1,5 @@
 # TODO: DONT HARDCODE
-JAVA_HOME:=/usr/lib/jvm/java-17-openjdk-amd64
+# JAVA_HOME:=/usr/lib/jvm/java-21-openjdk-amd64
 
 CXXFLAGS:=-I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmark \
 	-I../viper_deps/benchmark/include -I../viper_deps/libpmemobj-cpp/include \
@@ -29,7 +29,7 @@ obj_x: $(CPP_FILE)
 # 	$(CXX) -c $^ -o $(OBJ_FILE) $(CXXFLAGS) $(LDFLAGS)
 
 static: $(OBJ_FILE)
-	ar rcs $(STATIC_LIB) $(OPTIMIZE) $(OBJ_FILE)
+	ar rcs $(STATIC_LIB) $(OBJ_FILE)
 
 static_big_val: $(OBJ_FILE)
 
