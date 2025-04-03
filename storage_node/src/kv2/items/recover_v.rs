@@ -9,7 +9,7 @@ use crate::common::table_v::*;
 use crate::journal::JournalView;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use super::{ItemTable, ItemTableStaticMetadata};
 
 verus! {

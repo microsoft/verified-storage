@@ -44,6 +44,7 @@
 
 // #![verus::trusted]
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::hamming_t::*;
 use crate::pmem::hamming_v::*;
 use builtin::*;
 use builtin_macros::*;
@@ -103,7 +104,7 @@ verus! {
         spec_crc_u64(bytes).spec_to_bytes()
     }
 
-    pub closed spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
+    pub uninterp spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
 
     pub open spec fn spec_crc_hamming_bound(len: nat) -> nat {
         // From https://users.ece.cmu.edu/~koopman/crc/crc64.html as one example.
@@ -271,7 +272,8 @@ verus! {
     // remain the same across all operations on persistent memory.
 
     pub struct PersistentMemoryConstants {
-        pub corruption: Seq<u8>
+        // Mask of corrupted bits on this persistent memory device.
+        pub corruption: Seq<u8>,
     }
 
     impl PersistentMemoryConstants {

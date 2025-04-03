@@ -1,0 +1,269 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2016-2020, Intel Corporation */
+
+/*
+ * obj_cpp_mutex.cpp -- cpp mutex test
+ */
+
+#include "unittest.hpp"
+
+#include <libpmemobj++/persistent_ptr.hpp>
+#include <libpmemobj++/pool.hpp>
+#include <libpmemobj++/timed_mutex.hpp>
+#include <libpmemobj/atomic_base.h>
+
+#include <mutex>
+#include <thread>
+
+#define LAYOUT "cpp"
+
+namespace nvobj = pmem::obj;
+
+namespace
+{
+
+/* pool root structure */
+struct root {
+	nvobj::timed_mutex pmutex;
+	unsigned counter;
+};
+
+/* number of ops per thread */
+const unsigned num_ops = 200;
+
+/* the number of threads */
+const unsigned num_threads = 30;
+
+/* timeout for try_lock_for and try_lock_until methods */
+const auto timeout = std::chrono::milliseconds(100);
+
+/* loop trylock_for|until tests */
+bool loop;
+
+/*
+ * Premature wake-up tolerance.
+ * XXX Windows - this needs to be investigated, it shouldn't timeout this long
+ * before the actual timeout.
+ */
+const auto epsilon = std::chrono::milliseconds(16);
+
+/*
+ * increment_pint -- (internal) test the mutex with an std::lock_guard
+ */
+static void
+increment_pint(nvobj::persistent_ptr<root> proot)
+{
+	for (unsigned i = 0; i < num_ops; ++i) {
+		std::lock_guard<nvobj::timed_mutex> lock(proot->pmutex);
+		(proot->counter)++;
+	}
+}
+
+/*
+ * decrement_pint -- (internal) test the mutex with an std::unique_lock
+ */
+static void
+decrement_pint(nvobj::persistent_ptr<root> proot)
+{
+	std::unique_lock<nvobj::timed_mutex> lock(proot->pmutex);
+	for (unsigned i = 0; i < num_ops; ++i)
+		--(proot->counter);
+
+	lock.unlock();
+}
+
+/*
+ * trylock_test -- (internal) test the trylock implementation
+ */
+static void
+trylock_test(nvobj::persistent_ptr<root> proot)
+{
+	for (;;) {
+		if (proot->pmutex.try_lock()) {
+			(proot->counter)++;
+			proot->pmutex.unlock();
+			return;
+		}
+	}
+}
+
+/*
+ * trylock_for_test -- (internal) test the try_lock_for implementation
+ */
+static void
+trylock_for_test(nvobj::persistent_ptr<root> proot)
+{
+	using clk = std::chrono::system_clock;
+
+	do {
+		auto t1 = clk::now();
+		if (proot->pmutex.try_lock_for(timeout)) {
+			(proot->counter)++;
+			proot->pmutex.unlock();
+			break;
+		} else {
+			auto t2 = clk::now();
+			auto diff = std::chrono::duration_cast<
+				std::chrono::milliseconds>((t1 + timeout) - t2);
+			UT_ASSERT(diff < epsilon);
+		}
+	} while (loop);
+	return;
+}
+
+/*
+ * trylock_until_test -- (internal) test the try_lock_until implementation
+ */
+static void
+trylock_until_test(nvobj::persistent_ptr<root> proot)
+{
+	using clk = std::chrono::system_clock;
+
+	do {
+		auto t1 = clk::now();
+		if (proot->pmutex.try_lock_until(t1 + timeout)) {
+			--(proot->counter);
+			proot->pmutex.unlock();
+			break;
+		} else {
+			auto t2 = clk::now();
+			auto diff = std::chrono::duration_cast<
+				std::chrono::milliseconds>((t1 + timeout) - t2);
+			UT_ASSERT(diff < epsilon);
+		}
+	} while (loop);
+
+	return;
+}
+
+/*
+ * mutex_zero_test -- (internal) test the zeroing constructor
+ */
+void
+mutex_zero_test(nvobj::pool<struct root> &pop)
+{
+	PMEMoid raw_mutex;
+
+	pmemobj_alloc(
+		pop.handle(), &raw_mutex, sizeof(PMEMmutex), 1,
+		[](PMEMobjpool *pop, void *ptr, void *) -> int {
+			PMEMmutex *mtx = static_cast<PMEMmutex *>(ptr);
+			pmemobj_memset_persist(pop, mtx, 1, sizeof(*mtx));
+			return 0;
+		},
+		nullptr);
+
+	nvobj::timed_mutex *placed_mtx =
+		new (pmemobj_direct(raw_mutex)) nvobj::timed_mutex;
+	std::unique_lock<nvobj::timed_mutex> lck(*placed_mtx);
+}
+
+/*
+ * mutex_test -- (internal) launch worker threads to test the pmutex
+ */
+template <typename Worker>
+void
+timed_mtx_test(nvobj::pool<root> &pop, const Worker &function)
+{
+	std::thread threads[num_threads];
+
+	auto proot = pop.root();
+
+	for (unsigned i = 0; i < num_threads; ++i)
+		threads[i] = std::thread(function, proot);
+
+	for (unsigned i = 0; i < num_threads; ++i)
+		threads[i].join();
+}
+
+void
+test_stack()
+{
+	/* mutex is not allowed outside of pmem */
+	try {
+		nvobj::timed_mutex stack_mutex;
+		UT_ASSERT(0);
+	} catch (pmem::lock_error &le) {
+	} catch (...) {
+		UT_ASSERT(0);
+	}
+}
+
+void
+test_error_handling(nvobj::pool<root> &pop)
+{
+	nvobj::persistent_ptr<root> proot = pop.root();
+
+	proot->pmutex.lock();
+
+	/* try_locking already taken lock fails with false */
+	UT_ASSERT(proot->pmutex.try_lock() == false);
+
+	proot->pmutex.unlock();
+}
+}
+
+static void
+test(int argc, char *argv[])
+{
+	if (argc != 2)
+		UT_FATAL("usage: %s file-name", argv[0]);
+
+	const char *path = argv[1];
+
+	nvobj::pool<root> pop;
+
+	try {
+		pop = nvobj::pool<root>::create(path, LAYOUT, PMEMOBJ_MIN_POOL,
+						S_IWUSR | S_IRUSR);
+	} catch (pmem::pool_error &pe) {
+		UT_FATAL("!pool::create: %s %s", pe.what(), path);
+	}
+
+	mutex_zero_test(pop);
+
+	timed_mtx_test(pop, increment_pint);
+	UT_ASSERTeq(pop.root()->counter, num_threads * num_ops);
+
+	timed_mtx_test(pop, decrement_pint);
+	UT_ASSERTeq(pop.root()->counter, 0);
+
+	timed_mtx_test(pop, trylock_test);
+	UT_ASSERTeq(pop.root()->counter, num_threads);
+
+	/* loop the next two tests */
+	loop = true;
+
+	timed_mtx_test(pop, trylock_until_test);
+	UT_ASSERTeq(pop.root()->counter, 0);
+
+	timed_mtx_test(pop, trylock_for_test);
+	UT_ASSERTeq(pop.root()->counter, num_threads);
+
+	loop = false;
+
+	pop.root()->pmutex.lock();
+
+	timed_mtx_test(pop, trylock_until_test);
+	UT_ASSERTeq(pop.root()->counter, num_threads);
+
+	timed_mtx_test(pop, trylock_for_test);
+	UT_ASSERTeq(pop.root()->counter, num_threads);
+
+	pop.root()->pmutex.unlock();
+
+	/* pmemcheck related persist */
+	pmemobj_persist(pop.handle(), &(pop.root()->counter),
+			sizeof(pop.root()->counter));
+
+	test_stack();
+	test_error_handling(pop);
+
+	pop.close();
+}
+
+int
+main(int argc, char *argv[])
+{
+	return run_test([&] { test(argc, argv); });
+}

@@ -7,8 +7,8 @@ import numpy as np
 import pprint
 
 thread_counts = [1, 2, 4, 8, 16]
-workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Loade', 'Runf', 'Loadx', 'Runx']
-workload_titles = ['LoadA', 'RunA', 'RunB', 'RunC', 'RunD', 'LoadE', 'RunF', 'LoadX', 'RunX']
+workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Loade', 'Runf', 'Loadx', 'Runx', "Runy", "Runz"]
+workload_titles = ['LoadA', 'RunA', 'RunB', 'RunC', 'RunD', 'LoadE', 'RunF', 'LoadX', 'RunX', 'RunY', 'RunZ']
 nice_names = {"redis": "pmem-Redis", "pmemrocksdb": "pmem-RocksDB", "capybarakv": "CapybaraKV"}
 
 def parse_data(fs, runs, result_dir):
@@ -87,18 +87,22 @@ def plot_data_single_fig(fs, avg_results, output_file):
     for t in thread_counts:
         thread_vals = []
         for w in workloads:
-            thread_vals.append(avg_results[w][t][0] / 1000)
+            thread_vals.append(avg_results[w][t][0] / 1000000)
         values.append(thread_vals)
 
     fig, ax = plt.subplots()
 
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    ax.set_prop_cycle(color=color_cycle[0:9], marker=["o", "x", "s", "d", "+", "v", "^", "p", "."])
+    ax.set_prop_cycle(
+        color=color_cycle+["black"], 
+        marker=["o", "x", "s", "d", "+", "v", "^", "p", ".", "o", "x"],
+        linestyle=["-", "-", "-", "-", "-", "-", "--", "--", "--", "--", "--"]
+    )
     ax.plot(thread_counts, values)
     ax.set_xticks(thread_counts)
     ax.legend(workload_titles, loc="center right", bbox_to_anchor=(1.35, 0.5))
     ax.set_xlabel("Thread count")
-    ax.set_ylabel("Througput (kops/s)")
+    ax.set_ylabel("Througput (Mops/s)")
     
 
     fig.set_figwidth(5)
@@ -107,7 +111,7 @@ def plot_data_single_fig(fs, avg_results, output_file):
     ax.grid(True, zorder=0, axis="y")
     # plt.gca().yscale("log")
     # plt.yscale("log")
-    plt.yticks([500,1000,1500,2000])
+    # plt.yticks([500,1000,1500,2000,2500,3000,3500,4000])
     # formatter = matplotlib.ticker.ScalarFormatter()
     # formatter.set_powerlimits((0,3))
     # plt.gca().yaxis.set_major_formatter(formatter)

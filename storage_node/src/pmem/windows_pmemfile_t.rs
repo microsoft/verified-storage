@@ -1,7 +1,11 @@
-//! This file contains the trusted implementation for
-//! `FileBackedPersistentMemoryRegions`, a collection of persistent
-//! memory regions backed by files. It implements trait
-//! `PersistentMemoryRegions`.
+// #![verus::trusted]
+//
+// This file implements, for Windows, the `FileBackedPersistentMemoryRegion` type, which
+// represents a persistent memory region backed by a file. The type implements the
+// `PersistentMemoryRegion` trait, allowing operations like reading, writing, and flushing.
+// Besides that, it also implements static functions `new` and `restore`. `new` creates
+// a new file with unknown contents; `restore` opens an existing file, so named because
+// it's typically used after a crash and restart to restore system state.
 
 // #![verus::trusted]
 use builtin::*;
@@ -366,8 +370,8 @@ impl FileBackedPersistentMemoryRegion
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
-    closed spec fn view(&self) -> PersistentMemoryRegionView;
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
+    uninterp spec fn view(&self) -> PersistentMemoryRegionView;
+    uninterp spec fn constants(&self) -> PersistentMemoryConstants;
     closed spec fn inv(&self) -> bool {
         self.constants().valid()
     }

@@ -51,7 +51,7 @@ impl Default for EnvOptions {
 
 impl<'a> SstFileWriter<'a> {
     /// Initializes SstFileWriter with given DB options.
-    pub fn create(opts: &'a Options) -> SstFileWriter {
+    pub fn create(opts: &'a Options) -> SstFileWriter<'a> {
         let env_options = EnvOptions::default();
 
         let writer = SstFileWriter::create_raw(opts, &env_options);

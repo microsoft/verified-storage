@@ -7,7 +7,7 @@ use crate::common::subrange_v::*;
 use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use super::entry_v::*;

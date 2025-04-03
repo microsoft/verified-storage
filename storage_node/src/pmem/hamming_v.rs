@@ -1,17 +1,32 @@
+// This file proves a key lemma `hamming_indexes` that states that the
+// Hamming distance between two byte sequences considering only a
+// subset of the indexes is bounded by the overall Hamming distance
+// between the two sequences.
+//
+// It also provides utilities for working with sequences, including
+// multi-indexing, summation, and bitwise operations, for use in
+// reasoning about Hamming distance calculations.
+
 use vstd::prelude::*;
+
+use super::hamming_t::*;
 use vstd::seq_lib::*;
 use vstd::relations::*;
 
 verus! {
-    // Multi-indexing of a sequence.
+    // Functions related to multi-indexing of a sequence.
+
+    // Indicates if the given integer is a valid index for the given sequence.
     pub open spec fn valid_index<T>(s: Seq<T>, i: int) -> bool {
         0 <= i < s.len()
     }
 
+    // Indicates if the given sequence of integers is a valid multi-index for the given sequence.
     pub open spec fn valid_indexes<T>(s: Seq<T>, indexes: Seq<int>) -> bool {
         forall |i: int| 0 <= i < indexes.len() ==> #[trigger] valid_index(s, indexes[i])
     }
 
+    // Proves that any permutation of a valid multi-index is also valid.
     pub proof fn valid_indexes_permute<T>(s: Seq<T>, idx1: Seq<int>, idx2: Seq<int>)
         requires
             valid_indexes(s, idx1),
@@ -34,6 +49,7 @@ verus! {
     }
 
     impl<T> WSeq<T> {
+        // Maps a sequence of indices to the corresponding elements in the wrapped sequence.
         pub open spec fn spec_index(self, idx: Seq<int>) -> Seq<T>
             recommends
                 valid_indexes(self.s, idx)
@@ -42,6 +58,7 @@ verus! {
         }
     }
 
+    // Constructs a WSeq from a Seq.
     #[allow(non_snake_case)]
     pub open spec fn S<T>(s: Seq<T>) -> WSeq<T>
     {
@@ -92,11 +109,6 @@ verus! {
             assert(S(s)[idx1] =~= seq![s[i]] + S(s)[idx1rec]);
             assert(S(s)[idx2rec] =~= S(s)[idx2].remove(idx2pos));
         }
-    }
-
-    // sum
-    pub closed spec fn sum(l: Seq<nat>) -> nat {
-        l.fold_right(|i, s: nat| { s+i as nat }, 0)
     }
 
     pub proof fn sum_permute(s1: Seq<nat>, s2: Seq<nat>)
@@ -196,33 +208,6 @@ verus! {
         }
     }
 
-    // popcnt
-    #[verifier::inline]
-    pub open spec fn _popcnt_byte(a: u8) -> nat {
-        let p0 = 1u8 & (a >> 0u8);
-        let p1 = 1u8 & (a >> 1u8);
-        let p2 = 1u8 & (a >> 2u8);
-        let p3 = 1u8 & (a >> 3u8);
-        let p4 = 1u8 & (a >> 4u8);
-        let p5 = 1u8 & (a >> 5u8);
-        let p6 = 1u8 & (a >> 6u8);
-        let p7 = 1u8 & (a >> 7u8);
-        let sum = add(p0, add(p1, add(p2, add(p3, add(p4, add(p5, add(p6, p7)))))));
-        sum as nat
-    }
-
-    pub open spec fn popcnt_byte(a: u8) -> nat {
-        _popcnt_byte(a)
-    }
-
-    spec fn popcnt_seq(l: Seq<u8>) -> Seq<nat> {
-        l.map_values(|v: u8| popcnt_byte(v))
-    }
-
-    pub closed spec fn popcnt(l: Seq<u8>) -> nat {
-        sum(popcnt_seq(l))
-    }
-
     proof fn popcnt_remove(l: Seq<u8>, i: int)
         requires
             0 <= i < l.len()
@@ -284,11 +269,6 @@ verus! {
             popcnt_remove(s2, 0);
             popcnt_ext_le(s1.drop_first(), s2.drop_first());
         }
-    }
-
-    // Bitwise XOR and AND for sequences
-    pub open spec fn xor(a: Seq<u8>, b: Seq<u8>) -> Seq<u8> {
-        a.zip_with(b).map_values(|v: (u8, u8)| v.0 ^ v.1)
     }
 
     pub open spec fn and(a: Seq<u8>, b: Seq<u8>) -> Seq<u8> {
@@ -459,13 +439,9 @@ verus! {
         sum_nat_zeroes(len);
     }
 
-    // Top-level lemma: definition of Hamming distance, and proof that the
-    // Hamming distance of a subset of indexes in a sequence is bounded by
-    // the Hamming distance of the entire sequence.
-    pub open spec fn hamming(a: Seq<u8>, b: Seq<u8>) -> nat {
-        popcnt(xor(a, b))
-    }
-
+    // Key top-level lemma: proof that the Hamming distance of a
+    // subset of indexes in a sequence is bounded by the Hamming
+    // distance of the entire sequence.
     pub proof fn hamming_indexes(s1: Seq<u8>, s2: Seq<u8>, idx: Seq<int>)
         requires
             s1.len() == s2.len(),

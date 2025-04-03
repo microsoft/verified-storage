@@ -10,7 +10,7 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::subregion_v::*;
 use crate::common::util_v::*;
@@ -817,8 +817,8 @@ verus! {
         // returns the index of the slot that the item was written to
         pub exec fn tentatively_write_item<PM, Perm>(
             &mut self,
-            subregion: &WriteRestrictedPersistentMemorySubregion,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            subregion: &PoWERPersistentMemorySubregion,
+            powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PM>,
             item: &I,
             Tracked(perm): Tracked<&Perm>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
@@ -827,11 +827,11 @@ verus! {
                 PM: PersistentMemoryRegion,
                 Perm: CheckPermission<Seq<u8>>,
             requires
-                subregion.inv(&*old(wrpm_region), perm),
-                old(self).inv(subregion.view(&*old(wrpm_region)), overall_metadata),
+                subregion.inv(&*old(powerpm_region), perm),
+                old(self).inv(subregion.view(&*old(powerpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
-                    &&& 0 <= addr < subregion.view(&*old(wrpm_region)).len()
+                    &&& 0 <= addr < subregion.view(&*old(powerpm_region)).len()
                     &&& address_belongs_to_invalid_item_table_entry::<I>(
                         addr, overall_metadata.num_keys,
                         old(self).durable_valid_indices().union(old(self).tentative_valid_indices())
@@ -839,11 +839,11 @@ verus! {
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
                 old(self).free_list().disjoint(old(self).tentative_valid_indices()),
                 // we have not yet made any modifications to the subregion
-                subregion.initial_subregion_view() == subregion.view(&*old(wrpm_region)),
-                subregion.initial_region_view() == (&*old(wrpm_region))@,
+                subregion.initial_subregion_view() == subregion.view(&*old(powerpm_region)),
+                subregion.initial_region_view() == (&*old(powerpm_region))@,
             ensures
-                subregion.inv(wrpm_region, perm),
-                self.inv(subregion.view(wrpm_region), overall_metadata),
+                subregion.inv(powerpm_region, perm),
+                self.inv(subregion.view(powerpm_region), overall_metadata),
                 match result {
                     Ok(index) => {
                         &&& index < overall_metadata.num_keys
@@ -860,17 +860,17 @@ verus! {
                         &&& self@ == old(self)@
                         &&& self.free_list() == old(self).free_list()
                         &&& self.free_list().len() == 0
-                        &&& wrpm_region == old(wrpm_region)
+                        &&& powerpm_region == old(powerpm_region)
                         &&& self.tentative_view() == old(self).tentative_view()
                         &&& self.tentative_valid_indices() == old(self).tentative_valid_indices()
                     },
                     _ => false,
                 }
         {
-            let ghost old_pm_view = subregion.view(wrpm_region);
+            let ghost old_pm_view = subregion.view(powerpm_region);
             
             let entry_size = self.entry_size;
-            assert(self.inv(subregion.view(wrpm_region), overall_metadata));
+            assert(self.inv(subregion.view(powerpm_region), overall_metadata));
             assert(entry_size == u64::spec_size_of() + I::spec_size_of());
             
             // pop a free index from the free list
@@ -880,7 +880,7 @@ verus! {
                     proof {
                         self.free_list@.unique_seq_to_set();
                         assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
-                            self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), idx)
+                            self.outstanding_item_table_entry_matches_pm_view(subregion.view(powerpm_region), idx)
                         by {
                             lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
                             assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx));
@@ -893,9 +893,9 @@ verus! {
             proof {
                 // popping an index from the free list breaks some parts of the invariant, but since we haven't modified
                 // PM or the outstanding item map, this part still holds
-                assert(self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), free_index)) by {
+                assert(self.outstanding_item_table_entry_matches_pm_view(subregion.view(powerpm_region), free_index)) by {
                     assert(!self.modified_indices@.contains(free_index));
-                    assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(&*old(wrpm_region)), free_index));
+                    assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(&*old(powerpm_region)), free_index));
                 }
 
                 assert(old(self).free_list().contains(free_index));
@@ -970,18 +970,18 @@ verus! {
             // calculate and write the CRC of the provided item
             let crc: u64 = calculate_crc(item);
 
-            assert(subregion.view(wrpm_region) == subregion.view(&*old(wrpm_region)));
-            subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
+            assert(subregion.view(powerpm_region) == subregion.view(&*old(powerpm_region)));
+            subregion.serialize_and_write_relative::<u64, Perm, PM>(powerpm_region, crc_addr, &crc, Tracked(perm));
             
-            let ghost cur_wrpm = *wrpm_region;
+            let ghost cur_powerpm = *powerpm_region;
 
             // write the item itself
-            subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
+            subregion.serialize_and_write_relative::<I, Perm, PM>(powerpm_region, item_addr, item, Tracked(perm));
 
             // Add this item to the outstanding item map
             self.outstanding_item_create(free_index, *item, Ghost(overall_metadata));
 
-            let ghost pm_view = subregion.view(wrpm_region);
+            let ghost pm_view = subregion.view(powerpm_region);
             proof {
                 lemma_auto_can_result_from_partial_write_effect();
             }
@@ -996,9 +996,9 @@ verus! {
                 let start = index_to_offset(idx as nat, entry_size as nat) as int;
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(&*old(wrpm_region)),
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(&*old(powerpm_region)),
                                                                             idx));
-                assert(no_outstanding_writes_in_range(subregion.view(&*old(wrpm_region)), start,
+                assert(no_outstanding_writes_in_range(subregion.view(&*old(powerpm_region)), start,
                                                       start + entry_size));
             }
 
@@ -1012,7 +1012,7 @@ verus! {
                 let entry_bytes = extract_bytes(pm_view.durable_state, (idx * entry_size) as nat, entry_size as nat);
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(entry_bytes =~= extract_bytes(subregion.view(&*old(wrpm_region)).durable_state,
+                assert(entry_bytes =~= extract_bytes(subregion.view(&*old(powerpm_region)).durable_state,
                                                      (idx * entry_size) as nat, entry_size as nat));
             }
 

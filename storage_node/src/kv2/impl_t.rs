@@ -16,7 +16,8 @@ use vstd::prelude::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
+use crate::pmem::frac_v::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::inv_v::*;
@@ -36,6 +37,11 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
         (self.is_transition_allowable)(s1, s2)
     }
 
+    closed spec fn valid(&self, id: int) -> bool
+    {
+        true
+    }
+
     proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
         ensures
             forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] combined.check_permission(s1, s2) <==>
@@ -45,6 +51,11 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
             is_transition_allowable:
                 |s1: Seq<u8>, s2: Seq<u8>| self.check_permission(s1, s2) || other.check_permission(s1, s2)
         }
+    }
+
+    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    {
+        admit();
     }
 }
 
@@ -76,6 +87,11 @@ impl PermissionFactory<Seq<u8>, TrustedKvPermission> for TrustedKvPermissionFact
         Self{
             is_transition_allowable: self.is_transition_allowable
         }
+    }
+
+    closed spec fn valid(&self, id: int) -> bool
+    {
+        true
     }
 }
 
@@ -198,10 +214,10 @@ where
             }
         }),
     {
-        let mut wrpm = WriteRestrictedPersistentMemoryRegion::new(pm);
-        wrpm.flush(); // ensure there are no outstanding writes
+        let (mut powerpm, _) = PoWERPersistentMemoryRegion::new(pm);
+        powerpm.flush(); // ensure there are no outstanding writes
         let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory,
-                                                 PM, K, I, L>::recover(wrpm@.durable_state).unwrap();
+                                                 PM, K, I, L>::recover(powerpm@.durable_state).unwrap();
         let ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool = |s1: Seq<u8>, s2: Seq<u8>| {
             UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
             UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s2)
@@ -209,7 +225,7 @@ where
         let tracked perm_factory = TrustedKvPermissionFactory{ is_transition_allowable };
         let untrusted_kv_impl =
             UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::start(
-                wrpm, kvstore_id, Ghost(state), Tracked(perm_factory)
+                powerpm, kvstore_id, Ghost(state), Tracked(perm_factory)
             )?;
 
         Ok(Self { untrusted_kv_impl })

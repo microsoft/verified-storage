@@ -10,7 +10,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 
 use crate::kv::durable::durableimpl_v::*;
 use crate::kv::kvimpl_t::*;

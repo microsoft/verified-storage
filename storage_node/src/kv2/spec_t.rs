@@ -426,6 +426,7 @@ pub struct KvStoreView<K, I, L>
     pub pm_constants: PersistentMemoryConstants,
     pub durable: AtomicKvStore<K, I, L>,
     pub tentative: AtomicKvStore<K, I, L>,
+    pub powerpm_id: int,
 }
 
 impl <K, I, L> KvStoreView<K, I, L>

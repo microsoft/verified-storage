@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use super::entry_v::*;
 use super::impl_v::*;
 use super::spec_v::*;
@@ -22,6 +22,7 @@ where
         &&& self.valid()
         &&& self@.constants.app_area_start <= addr
         &&& addr + bytes_to_write.len() <= self@.constants.app_area_end
+        &&& perm.valid(self@.powerpm_id)
         &&& forall|s: Seq<u8>| {
             &&& seqs_match_except_in_range(self@.durable_state, s, addr as int, addr + bytes_to_write.len())
             &&& Self::recover(s) matches Some(j)
@@ -65,25 +66,25 @@ where
         broadcast use group_can_result_from_write_effect;
         
         proof {
-            assert forall|s| can_result_from_partial_write(s, self.wrpm@.durable_state, addr as int, bytes_to_write@)
-                implies #[trigger] perm.check_permission(self.wrpm@.durable_state, s) by {
-                assert(seqs_match_except_in_range(s, self.wrpm@.durable_state, addr as int,
-                                                    addr + bytes_to_write@.len()));
+            assert forall|s| can_result_from_partial_write(s, self.powerpm@.durable_state, addr as int, bytes_to_write@)
+                implies #[trigger] perm.check_permission(self.powerpm@.durable_state, s) by {
+                assert(seqs_match_except_in_range(s, self.powerpm@.durable_state, addr as int,
+                                                  addr + bytes_to_write@.len()));
             }
         }
-        self.wrpm.write(addr, bytes_to_write, Tracked(perm));
+        self.powerpm.write(addr, bytes_to_write, Tracked(perm));
         assert({
-            &&& apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
+            &&& apply_journal_entries(self.powerpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
             &&& self@.commit_state == update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
         }) by {
-            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).wrpm@.read_state, self.entries@,
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).powerpm@.read_state, self.entries@,
                                                                        self.sm);
             assert forall|i: int| #![trigger self.journaled_addrs@.contains(i)]
                 addr <= i < addr + bytes_to_write@.len() implies !self.journaled_addrs@.contains(i) by {
                 assert(self.journaled_addrs@.contains(i) <==> old(self)@.journaled_addrs.contains(i)); // trigger
             }
             lemma_apply_journal_entries_commutes_with_update_bytes(
-                old(self).wrpm@.read_state, self.entries@, self.journaled_addrs@, addr as int,
+                old(self).powerpm@.read_state, self.entries@, self.journaled_addrs@, addr as int,
                 bytes_to_write@, self.sm
             );
         }
@@ -183,12 +184,12 @@ where
         self.entries.push(concrete_entry);
 
         assert({
-            &&& apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
+            &&& apply_journal_entries(self.powerpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
             &&& self@.commit_state == update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
         }) by {
-            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).wrpm@.read_state,
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(self).powerpm@.read_state,
                                                                        old(self).entries@, self.sm);
-            lemma_effect_of_append_on_apply_journal_entries(old(self).wrpm@.read_state, old(self).entries@,
+            lemma_effect_of_append_on_apply_journal_entries(old(self).powerpm@.read_state, old(self).entries@,
                                                             concrete_entry@, self.sm);
         }
 
@@ -209,7 +210,7 @@ where
         }
 
         proof {
-            lemma_apply_journal_entries_some_iff_journal_entries_valid(self.wrpm@.read_state, self.entries@, self.sm);
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(self.powerpm@.read_state, self.entries@, self.sm);
         }
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;

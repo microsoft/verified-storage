@@ -3,7 +3,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::common::subrange_v::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use super::entry_v::*;
 use super::impl_v::*;
 use super::recover_v::*;
@@ -33,14 +33,15 @@ where
 
     pub(super) open spec fn inv_perm_factory_allows_app_equivalent_changes(self) -> bool
     {
-        forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==>
+        &&& self.perm_factory@.valid(self.powerpm.id())
+        &&& forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==>
             #[trigger] self.perm_factory@.check_permission(s1, s2)
     }
 
     pub(super) open spec fn inv(self) -> bool
     {
-        let pmv = self.wrpm.view();
-        &&& self.wrpm.inv()
+        let pmv = self.powerpm.view();
+        &&& self.powerpm.inv()
         &&& self@.valid()
         &&& pmv.valid()
         &&& self.inv_constants_match()

@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2016-2022, Intel Corporation
+
+#
+# Dockerfile - a 'recipe' for Docker to build an image of opensuse-based
+#              environment prepared for running libpmemobj-cpp tests.
+#
+
+# Pull base image
+FROM registry.opensuse.org/opensuse/tumbleweed:latest
+MAINTAINER igor.chorazewicz@intel.com
+
+# Set required environment variables
+ENV OS opensuse-tumbleweed
+ENV OS_VER latest
+ENV PACKAGE_MANAGER rpm
+ENV NOTTY 1
+
+# Additional parameters to build docker without building components
+ARG SKIP_VALGRIND_BUILD
+ARG SKIP_PMDK_BUILD
+
+# Base development packages
+ARG BASE_DEPS="\
+	cmake \
+	gcc \
+	git \
+	make \
+	shadow"
+
+# Dependencies for compiling libpmemobj-cpp project
+ARG LIBPMEMOBJ_CPP_DEPS="\
+	libatomic1 \
+	tbb-devel"
+
+# PMDK's dependencies (optional; libpmemobj-devel package may be used instead)
+ARG PMDK_DEPS="\
+	autoconf \
+	automake \
+	fdupes \
+	gdb \
+	libndctl-devel \
+	man \
+	pandoc \
+	python3 \
+	rpm-build \
+	rpmdevtools \
+	which"
+
+# pmem's Valgrind dependencies (optional; valgrind-devel package may be used instead)
+ARG VALGRIND_DEPS="\
+	autoconf \
+	automake"
+
+# Examples (optional)
+ARG EXAMPLES_DEPS="\
+	ncurses-devel"
+
+# Documentation (optional)
+ARG DOC_DEPS="\
+	doxygen"
+
+# Tests (optional)
+ARG TESTS_DEPS="\
+	gdb \
+	glibc-debuginfo \
+	libunwind-devel"
+
+# Misc for our builds/CI (optional)
+ARG MISC_DEPS="\
+	clang \
+	perl-Text-Diff \
+	pkg-config \
+	sudo"
+
+# Update the OS, packages and install basic tools
+# using additional repo for glibc debuginfo
+RUN zypper dup -y \
+ && zypper update -y \
+ && zypper mr -e repo-debug \
+ && zypper install -y \
+	${BASE_DEPS} \
+	${LIBPMEMOBJ_CPP_DEPS} \
+	${PMDK_DEPS} \
+	${VALGRIND_DEPS} \
+	${EXAMPLES_DEPS} \
+	${DOC_DEPS} \
+	${TESTS_DEPS} \
+	${MISC_DEPS} \
+ && zypper clean all
+
+# Install valgrind
+COPY install-valgrind.sh install-valgrind.sh
+RUN ./install-valgrind.sh
+ENV PKG_CONFIG_PATH $PKG_CONFIG_PATH:/usr/lib/pkgconfig/
+
+# Install pmdk
+COPY install-pmdk.sh install-pmdk.sh
+RUN ./install-pmdk.sh rpm
+
+# Add user
+ENV USER user
+ENV USERPASS p1a2s3s4
+ENV PFILE ./password
+RUN useradd -m $USER \
+ && echo $USERPASS > $PFILE \
+ && echo $USERPASS >> $PFILE \
+ && passwd $USER < $PFILE \
+ && rm -f $PFILE \
+ && sed -i 's/# %wheel/%wheel/g' /etc/sudoers \
+ && groupadd wheel \
+ && gpasswd wheel -a $USER
+USER $USER

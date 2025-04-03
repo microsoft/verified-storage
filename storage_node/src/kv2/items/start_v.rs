@@ -7,7 +7,7 @@ use crate::common::table_v::*;
 use crate::journal::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::collections::HashSet;
 use super::{ItemTable, ItemTableStaticMetadata};
 use super::inv_v::*;

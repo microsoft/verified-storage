@@ -1,0 +1,207 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/* Copyright 2016-2018, Intel Corporation */
+
+/*
+ * panaconda.hpp -- example usage of libpmemobj C++ bindings
+ */
+
+#ifndef LIBPMEMOBJ_CPP_EXAMPLES_PANACONDA_HPP
+#define LIBPMEMOBJ_CPP_EXAMPLES_PANACONDA_HPP
+
+#include <libpmemobj++/make_persistent_array.hpp>
+#include <libpmemobj++/p.hpp>
+#include <libpmemobj++/pool.hpp>
+#include <libpmemobj++/transaction.hpp>
+#include <libpmemobj_cpp_examples_list.hpp>
+
+class board_element;
+
+enum direction { UNDEFINED, DOWN, RIGHT, UP, LEFT };
+enum object_type { SNAKE_SEGMENT, WALL, FOOD };
+enum config_file_symbol { SYM_NOTHING = '0', SYM_WALL = '1' };
+enum play_state { STATE_NEW, STATE_PLAY, STATE_GAMEOVER };
+
+enum snake_event { EV_OK, EV_COLLISION };
+
+enum action { ACTION_NEW_GAME = 'n', ACTION_QUIT = 'q' };
+
+typedef pmem::obj::persistent_ptr<examples::list<board_element>> element_list;
+
+struct color_pair {
+	color_pair();
+	color_pair(const int col_fg, const int col_bg);
+	int color_bg;
+	int color_fg;
+};
+
+struct parameters {
+	bool use_maze;
+	std::string name;
+	std::string maze_path;
+};
+
+class helper {
+public:
+	static color_pair get_color(const object_type obj_type);
+	static int parse_params(int argc, char *argv[],
+				struct parameters *params);
+	static inline void sleep(int time);
+	static inline void print_usage(std::string &name);
+};
+
+class point {
+public:
+	pmem::obj::p<int> x;
+	pmem::obj::p<int> y;
+
+	point();
+	point(int x, int y);
+	friend bool operator==(point &point1, point &point2);
+};
+
+bool operator==(point &point1, point &point2);
+
+class element_shape {
+public:
+	element_shape() = default;
+	element_shape(int shape);
+	int get_val();
+
+private:
+	pmem::obj::p<int> val;
+	int get_symbol(int shape);
+};
+
+class board_element {
+public:
+	board_element();
+	board_element(int px, int py,
+		      pmem::obj::persistent_ptr<element_shape> shape,
+		      direction dir);
+	board_element(point p, pmem::obj::persistent_ptr<element_shape> shape,
+		      direction dir);
+	board_element(const board_element &element);
+	~board_element();
+
+	pmem::obj::persistent_ptr<point> calc_new_position(const direction dir);
+	void print(void);
+	void print_double_col(void);
+	void print_single_double_col(void);
+	pmem::obj::persistent_ptr<point> get_position(void);
+	void set_position(const pmem::obj::persistent_ptr<point> new_point);
+	direction get_direction(void);
+	void set_direction(const direction dir);
+
+private:
+	pmem::obj::persistent_ptr<point> position;
+	pmem::obj::persistent_ptr<element_shape> shape;
+	pmem::obj::p<direction> element_dir;
+};
+
+class snake {
+public:
+	snake();
+	~snake();
+
+	void move(const direction dir);
+	void print(void);
+	void add_segment(void);
+	bool check_point_against_segments(point point);
+	point get_head_point(void);
+	direction get_direction(void);
+	point get_next_point(const direction dir);
+
+private:
+	element_list snake_segments;
+	pmem::obj::p<point> last_seg_position;
+	pmem::obj::p<direction> last_seg_dir;
+};
+
+class game_board {
+public:
+	game_board();
+	~game_board();
+	void print(const int score);
+	void print_game_over(const int score);
+	unsigned get_size_row(void);
+	void set_size_row(const unsigned size_r);
+	unsigned get_size_col(void);
+	void set_size_col(const unsigned size_c);
+	int creat_dynamic_layout(const unsigned row_no, char *const buffer);
+	int creat_static_layout(void);
+	bool is_snake_head_food_hit(void);
+	void create_new_food(void);
+	bool is_collision(point point);
+	snake_event move_snake(const direction dir);
+	direction get_snake_dir(void);
+	void add_snake_segment(void);
+
+private:
+	pmem::obj::persistent_ptr<snake> anaconda;
+	pmem::obj::persistent_ptr<board_element> food;
+	element_list layout;
+
+	pmem::obj::p<unsigned> size_row;
+	pmem::obj::p<unsigned> size_col;
+
+	void set_new_food(const point point);
+	bool is_snake_collision(point point);
+	bool is_wall_collision(point point);
+};
+
+class game_player {
+public:
+	game_player();
+	~game_player();
+	int get_score(void);
+	void update_score(void);
+	play_state get_state(void);
+	void set_state(const play_state st);
+
+private:
+	pmem::obj::p<int> score;
+	pmem::obj::p<play_state> state;
+};
+
+class game_state {
+public:
+	game_state();
+	~game_state();
+	pmem::obj::persistent_ptr<game_board> get_board();
+	pmem::obj::persistent_ptr<game_player> get_player();
+	void init(void);
+	void clean_pool(void);
+
+private:
+	pmem::obj::persistent_ptr<game_board> board;
+	pmem::obj::persistent_ptr<game_player> player;
+};
+
+class game {
+public:
+	game(struct parameters *par);
+	~game();
+	void init(void);
+	void init_colors(void);
+	void process_step(void);
+	void process_key(const int lastkey);
+	inline bool is_stopped(void);
+	void process_delay(void);
+	void clear_screen(void);
+	bool is_game_over(void);
+	void game_over(void);
+	void clear_prog(void);
+
+private:
+	pmem::obj::pool<game_state> state;
+	int last_key;
+	int delay;
+	struct parameters *params;
+	direction direction_key;
+
+	void clean_pool(void);
+	void set_direction_key(void);
+	int parse_conf_create_dynamic_layout(void);
+};
+
+#endif /* LIBPMEMOBJ_CPP_EXAMPLES_PANACONDA_HPP */

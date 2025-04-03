@@ -2,7 +2,8 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JByteArray};
 use jni::sys::jlong;
 
-use storage_node::kv::kvimpl_t::*;
+use storage_node::kv2::impl_t::*;
+use storage_node::kv2::spec_t::*;
 #[cfg(target_os = "linux")]
 use storage_node::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
@@ -20,7 +21,7 @@ use std::fs;
 use std::env;
 use chrono;
 
-const MAX_KEY_LEN: usize = 64;
+const MAX_KEY_LEN: usize = 24; // TODO: check that this is ok
 const MAX_ITEM_LEN: usize = 1140; 
 const MAX_CONFIG_FILE_NAME_LEN: usize = 1024;
 
@@ -130,6 +131,14 @@ pub fn main() {
     // spread out across multiple shards
     let per_thread_num_keys = (capybarakv_config.num_keys / experiment_config.threads) + 1; 
 
+    let setup_parameters = SetupParameters {
+        kvstore_id: KVSTORE_ID,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsPermitted,
+        max_keys: per_thread_num_keys,
+        max_list_elements: 10, // TODO: set this to something that makes sense
+        max_operations_per_transaction: 5 // TODO: set this to something that makes sense
+    };
+
     for i in 0..experiment_config.threads {
         let i: u64 = i.try_into().unwrap();
         let current_file_name = get_kv_file_name(&capybarakv_config.kv_file, i);
@@ -142,7 +151,7 @@ pub fn main() {
         // Create a file, and a PM region, for each component
         let mut kv_region = create_pm_region(&current_file_name, per_thread_region_size);
         KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
-            &mut kv_region, KVSTORE_ID, per_thread_num_keys, capybarakv_config.node_size, 1).unwrap();
+            &mut kv_region, &setup_parameters).unwrap();
 
         let mut kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
 
@@ -153,13 +162,13 @@ pub fn main() {
         let ycsb_key = YcsbKey::new_from_slice(&test_key.as_bytes().iter().map(|&b| b as i8).collect::<Vec<i8>>());
         let ycsb_item = YcsbItem::new_from_slice(&test_value.as_bytes().iter().map(|&b| b as i8).collect::<Vec<i8>>());
 
-        kv.create(&ycsb_key, &ycsb_item).unwrap();
+        kv.tentatively_create(&ycsb_key, &ycsb_item).unwrap();
 
         // Read operation
         kv.read_item(&ycsb_key).unwrap();
 
         // Delete operation
-        kv.delete(&ycsb_key).unwrap();
+        kv.tentatively_delete(&ycsb_key).unwrap();
     }    
     println!("Done setting up! You can now run YCSB workloads");
 }
@@ -249,7 +258,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let ret = kv.kv.create(&ycsb_key, &ycsb_item);
+    let ret = kv.kv.tentatively_create(&ycsb_key, &ycsb_item);
     match ret {
         Ok(_) => {}
         Err(e) => {
@@ -335,7 +344,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let ret = kv.kv.update_item(&ycsb_key, &ycsb_item);
+    let ret = kv.kv.tentatively_update_item(&ycsb_key, &ycsb_item);
     match ret {
         Ok(_) => {}
         Err(e) => {
@@ -454,6 +463,16 @@ impl YcsbItem {
 #[derive(PmCopy, Copy, Debug)]
 struct TestListElement {
     val: u64,
+}
+
+impl LogicalRange for TestListElement {
+    fn start(&self) -> usize {
+        self.val as usize
+    }
+
+    fn end(&self) -> usize {
+        self.val as usize
+    }
 }
 
 fn remove_file(name: &str) {

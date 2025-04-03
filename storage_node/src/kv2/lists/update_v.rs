@@ -10,7 +10,7 @@ use crate::common::util_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::pmem::pmemutil_v::*;
 use super::impl_v::*;
 use super::inv_v::*;
@@ -677,6 +677,7 @@ where
                 .push_to_free_list(new_row_addr)
                 .corresponds_to_journal(old(journal)@, self.sm),
             old(journal).valid(),
+            perm_factory.valid(old(journal)@.powerpm_id),
             self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
             idx == 0 || old(journal)@.remaining_capacity >= self.space_needed_to_journal_next,
             match entry {
@@ -691,6 +692,7 @@ where
             },
         ensures
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
             ({
@@ -974,6 +976,7 @@ where
             old(self).internal_view().add_entry(list_addr, entry@).corresponds_to_journal(old(journal)@, old(self).sm),
             !old(self).m@.contains_key(list_addr),
             old(journal).valid(),
+            perm_factory.valid(old(journal)@.powerpm_id),
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
             idx == 0 || old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
             old(self).free_list.len() > 0,
@@ -991,6 +994,7 @@ where
         ensures
             self.valid(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
             new_list_addr != 0,
@@ -1086,10 +1090,12 @@ where
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
+            perm_factory.valid(old(journal)@.powerpm_id),
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
             journal.valid(),
+            journal@.powerpm_id == old(journal)@.powerpm_id,
             journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
             match result {
                 Ok(new_list_addr) => {

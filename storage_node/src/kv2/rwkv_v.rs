@@ -5,7 +5,7 @@ use vstd::prelude::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::concurrentspec_t::*;
 use super::impl_v::*;
@@ -34,6 +34,7 @@ where
 struct ConcurrentKvStorePredicate
 {
     loc: Loc,
+    powerpm_id: int,
 }
 
 impl<Perm, PermFactory, PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<Perm, PermFactory, PM, K, I, L>> for ConcurrentKvStorePredicate
@@ -55,6 +56,7 @@ where
         &&& v.kv@.durable == v.kv@.tentative
         &&& v.kv@.ps.logical_range_gaps_policy == v.kv@.durable.logical_range_gaps_policy
         &&& self.loc == v.invariant_resource@.loc()
+        &&& self.powerpm_id == v.kv@.powerpm_id
         &&& v.invariant_resource@.value() ==
                OwnershipSplitter::Invariant{ ckv: ConcurrentKvStoreView::from_kvstore_view(v.kv@) }
     }
@@ -115,6 +117,11 @@ where
         self.pm_constants@
     }
 
+    pub closed spec fn powerpm_id(self) -> int
+    {
+        self.lock.pred().powerpm_id
+    }
+
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
         UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::spec_space_needed_for_setup(ps)
@@ -158,15 +165,16 @@ where
     }
 
     pub exec fn start(
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
         Tracked(perm_factory): Tracked<PermFactory>
     ) -> (result: Result<(Self, Tracked<Resource<OwnershipSplitter::<K, I, L>>>), KvError>)
         requires 
-            wrpm.inv(),
-            Self::recover(wrpm@.durable_state) == Some(state),
+            powerpm.inv(),
+            Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            perm_factory.valid(powerpm.id()),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
                 #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -175,18 +183,19 @@ where
                 Ok((kv, r)) => {
                     &&& kv.valid()
                     &&& kv.loc() == r@.loc()
-                    &&& kv.pm_constants() == wrpm.constants()
+                    &&& kv.pm_constants() == powerpm.constants()
+                    &&& kv.powerpm_id() == powerpm.id()
                     &&& match r@.value() {
                            OwnershipSplitter::Application{ ckv } => {
                                &&& ckv.valid()
                                &&& ckv.ps == state.ps
-                               &&& ckv.pm_constants == wrpm.constants()
+                               &&& ckv.pm_constants == powerpm.constants()
                                &&& ckv.kv == state.kv
                            },
                            _ => false,
                     }
                 },
-                Err(KvError::CRCMismatch) => !wrpm.constants().impervious_to_corruption(),
+                Err(KvError::CRCMismatch) => !powerpm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
                    &&& actual_id == state.ps.kvstore_id
@@ -196,15 +205,18 @@ where
             }
         }),
     {
-        let kv = match UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::start(wrpm, kvstore_id, Ghost(state), Tracked(perm_factory)) {
+        let kv = match UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::start(powerpm, kvstore_id, Ghost(state), Tracked(perm_factory)) {
             Ok(kv) => kv,
             Err(e) => { return Err(e); },
         };
         let ghost ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv@);
         let tracked both = Resource::<OwnershipSplitter<K, I, L>>::alloc(OwnershipSplitter::<K, I, L>::Both{ ckv });
-        let ghost pm_constants = wrpm.constants();
+        let ghost pm_constants = powerpm.constants();
         let ghost loc = both.loc();
-        let ghost pred = ConcurrentKvStorePredicate{ loc };
+        let ghost pred = ConcurrentKvStorePredicate{
+            loc: loc,
+            powerpm_id: kv@.powerpm_id,
+        };
         let ghost application_value = OwnershipSplitter::<K, I, L>::Application{ ckv };
         let ghost invariant_value = OwnershipSplitter::<K, I, L>::Invariant{ ckv };
         let tracked split_resources = both.split(application_value, invariant_value);
@@ -355,6 +367,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, CreateOp<K, I>, Self>(
                 perm, CreateOp{ key: *key, item: *item }, old(self).pm_constants()
             ),
@@ -362,6 +375,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), CreateOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -402,6 +416,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateItemOp<K, I>, Self>(
                 perm, UpdateItemOp{ key: *key, item: *item }, old(self).pm_constants()
             ),
@@ -409,6 +424,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), UpdateItemOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -448,6 +464,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, DeleteOp<K>, Self>(
                 perm, DeleteOp{ key: *key }, old(self).pm_constants()
             ),
@@ -455,6 +472,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), DeleteOp{ key: *key }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -495,6 +513,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, AppendToListOp<K, L>, Self>(
                 perm, AppendToListOp{ key: *key, new_list_element }, old(self).pm_constants()
             ),
@@ -502,6 +521,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), AppendToListOp{ key: *key, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -543,6 +563,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>(
                 perm, AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -550,6 +571,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -591,6 +613,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>(
                 perm, UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, old(self).pm_constants()
             ),
@@ -598,6 +621,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -641,6 +665,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>(
                 perm, UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -648,6 +673,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -691,6 +717,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, TrimListOp<K>, Self>(
                 perm, TrimListOp{ key : *key, trim_length }, old(self).pm_constants()
             ),
@@ -698,6 +725,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), TrimListOp{ key: *key, trim_length }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -739,6 +767,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
+            perm.valid(old(self).powerpm_id()),
             grants_permission_to_mutate::<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>(
                 perm, TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -746,6 +775,7 @@ where
             self.valid(),
             self.loc() == old(self).loc(),
             self.pm_constants() == old(self).pm_constants(),
+            self.powerpm_id() == old(self).powerpm_id(),
             cb.post(*old(cb), self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();

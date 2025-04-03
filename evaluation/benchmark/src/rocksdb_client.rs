@@ -17,8 +17,8 @@ pub struct RocksDbClient<K, V>
         V: PmCopy + Value,
 {
     db: DB,
-    options: Options,
-    path: String,
+    _options: Options,
+    _path: String,
     _key_type: PhantomData<K>,
     _value_type: PhantomData<V>,
 }
@@ -55,13 +55,13 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
     fn start() -> Result<Self, Self::E> {
         init_and_mount_pm_fs();
 
-        let mut options = rocksdb_options();
+        let options = rocksdb_options();
 
         let db = DB::open(&options, crate::MOUNT_POINT)?;
         Ok(Self { 
             db,
-            options,
-            path: crate::MOUNT_POINT.to_string(),
+            _options: options,
+            _path: crate::MOUNT_POINT.to_string(),
             _key_type: PhantomData,
             _value_type: PhantomData,
         })
@@ -81,8 +81,8 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         let dur = t0.elapsed();
         Ok((Self { 
             db,
-            options,
-            path: crate::MOUNT_POINT.to_string(),
+            _options: options,
+            _path: crate::MOUNT_POINT.to_string(),
             _key_type: PhantomData,
             _value_type: PhantomData,
         }, dur))
@@ -119,7 +119,7 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
     }
 
     fn flush(&mut self) {
-        self.db.flush();
+        self.db.flush().unwrap();
     }
 
     fn cleanup() {

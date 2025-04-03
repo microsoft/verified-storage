@@ -6,7 +6,7 @@ use vstd::prelude::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::keys::*;
 use super::impl_v::*;
@@ -186,6 +186,7 @@ where
                     &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
                            Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
+                    &&& self.journal@.powerpm_id == old(self).journal@.powerpm_id
                 },
                 Err(KvError::CRCMismatch) => {
                     &&& self.valid()

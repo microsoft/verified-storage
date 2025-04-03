@@ -17,12 +17,15 @@ use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsP
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
+#[cfg(target_os = "macos")]
+use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
+use crate::pmem::frac_v::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
 use std::hash::Hash;
@@ -452,6 +455,11 @@ fn create_pm_region(file_name: &str, region_size: u64) -> (result: Result<FileBa
         region_size,
         PersistentMemoryCheck::DontCheckForPersistentMemory,
     );
+    #[cfg(target_os = "macos")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name,
+        region_size,
+    );
 
     pm_region
 }
@@ -486,12 +494,12 @@ pub fn test_durable_on_memory_mapped_file() {
     DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, 
         kvstore_id, num_keys, node_size).unwrap();
 
-    let mut log_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedPermission, _>::new(log_region);
-    let mut metadata_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedMetadataPermission, _>::new(metadata_region);
-    let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedItemTablePermission, _>::new(item_table_region);
-    let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedListPermission, _>::new(list_region);
+    let mut log_powerpm = PoWERPersistentMemoryRegion::<TrustedPermission, _>::new(log_region);
+    let mut metadata_powerpm = PoWERPersistentMemoryRegion::<TrustedMetadataPermission, _>::new(metadata_region);
+    let mut item_powerpm = PoWERPersistentMemoryRegion::<TrustedItemTablePermission, _>::new(item_table_region);
+    let mut list_powerpm = PoWERPersistentMemoryRegion::<TrustedListPermission, _>::new(list_region);
     let tracked fake_kv_permission = TrustedKvPermission::<_, TestKey, TestItem, TestListElement>::fake_kv_perm();
-    let (mut kv_store, _) = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
+    let (mut kv_store, _) = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_powerpm, item_powerpm, list_powerpm, log_powerpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
 
     let key1 = TestKey { val: 0 };
     let key2 = TestKey { val: 1 };
@@ -726,6 +734,11 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
         (self.is_transition_allowable)(s1, s2)
     }
 
+    closed spec fn valid(&self, id: int) -> bool
+    {
+        true
+    }
+
     proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
         ensures
             forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] combined.check_permission(s1, s2) <==>
@@ -735,6 +748,11 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
             is_transition_allowable:
                 |s1: Seq<u8>, s2: Seq<u8>| self.check_permission(s1, s2) || other.check_permission(s1, s2)
         }
+    }
+
+    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    {
+        admit();
     }
 }
 
@@ -767,6 +785,11 @@ impl PermissionFactory<Seq<u8>, TestKvPermission> for TestKvPermissionFactory
             is_transition_allowable: self.is_transition_allowable
         }
     }
+
+    closed spec fn valid(&self, id: int) -> bool
+    {
+        true
+    }
 }
 
 impl TestKvPermission
@@ -793,6 +816,7 @@ where
     ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
+    ghost powerpm_id: int,
 }
 
 proof fn create_mutating_perm<Op>(op: Op, pm_constants: PersistentMemoryConstants) -> (tracked perm: TestKvPermission)
@@ -920,11 +944,11 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
     }
 
-    let mut wrpm = WriteRestrictedPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
-    let ghost pm_constants = wrpm.constants();
+    let (mut powerpm, _) = PoWERPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
+    let ghost pm_constants = powerpm.constants();
     let ghost state = ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory,
                                           FileBackedPersistentMemoryRegion, TestKey, TestItem,
-                                          TestListElement>::recover(wrpm@.durable_state).unwrap();
+                                          TestListElement>::recover(powerpm@.durable_state).unwrap();
     let ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool = |s1: Seq<u8>, s2: Seq<u8>| {
         ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
                                   TestItem, TestListElement>::recover(s1) ==
@@ -935,7 +959,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let (mut ckv, Tracked(app_resource)) =
         match ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
                                   TestItem, TestListElement>::start(
-            wrpm, kvstore_id, Ghost(state), Tracked(perm_factory)
+            powerpm, kvstore_id, Ghost(state), Tracked(perm_factory)
         ) {
             Ok(tup) => tup,
             Err(e) => { print_message("Failed to start KV store"); return Err(()); },
@@ -954,6 +978,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         op,
         old_ckv: None,
         new_ckv: None,
+        powerpm_id: powerpm.id(),
     };
 
     match ckv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(

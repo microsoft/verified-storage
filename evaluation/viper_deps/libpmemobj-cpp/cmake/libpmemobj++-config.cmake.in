@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2018, Intel Corporation
+
+@PACKAGE_INIT@
+
+find_path(LIBPMEMOBJ_INCLUDE_DIR libpmemobj.h)
+find_library(LIBPMEMOBJ_LIBRARY NAMES pmemobj libpmemobj)
+find_library(LIBPMEM_LIBRARY NAMES pmem libpmem)
+
+set_and_check(LIBPMEMOBJ++_INCLUDE "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+
+set(LIBPMEMOBJ++_LIBRARIES ${LIBPMEMOBJ_LIBRARY} ${LIBPMEM_LIBRARY})
+set(LIBPMEMOBJ++_INCLUDE_DIRS ${LIBPMEMOBJ++_INCLUDE} ${LIBPMEMOBJ_INCLUDE_DIR})

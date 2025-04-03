@@ -5,7 +5,7 @@ use vstd::prelude::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use super::entry_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
@@ -19,7 +19,7 @@ where
     Perm: CheckPermission<Seq<u8>>,
     PermFactory: PermissionFactory<Seq<u8>, Perm>,
 {
-    pub(super) wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+    pub(super) powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
     pub(super) perm_factory: Tracked<PermFactory>,
     pub(super) vm: Ghost<JournalVersionMetadata>,
     pub(super) sm: JournalStaticMetadata,
@@ -40,12 +40,13 @@ where
     {
         JournalView{
             constants: self.constants,
-            pm_constants: self.wrpm.constants(),
-            durable_state: self.wrpm@.durable_state,
-            read_state: self.wrpm@.read_state,
-            commit_state: apply_journal_entries(self.wrpm@.read_state, self.entries@, self.sm).unwrap(),
+            pm_constants: self.powerpm.constants(),
+            durable_state: self.powerpm@.durable_state,
+            read_state: self.powerpm@.read_state,
+            commit_state: apply_journal_entries(self.powerpm@.read_state, self.entries@, self.sm).unwrap(),
             remaining_capacity: self.constants.journal_capacity - self.journal_length,
             journaled_addrs: self.journaled_addrs@,
+            powerpm_id: self.powerpm.id(),
         }
     }
 
@@ -122,9 +123,9 @@ where
             result@.valid(),
     {
         proof {
-            self.wrpm.lemma_inv_implies_view_valid();
+            self.powerpm.lemma_inv_implies_view_valid();
         }
-        self.wrpm.get_pm_region_ref()
+        self.powerpm.get_pm_region_ref()
     }
 
     pub exec fn constants(&self) -> (result: &JournalConstants)
@@ -159,7 +160,7 @@ where
             self@ == old(self)@,
             self@.durable_state == self@.read_state,
     {
-        self.wrpm.flush();
+        self.powerpm.flush();
     }
 }
 

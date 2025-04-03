@@ -44,6 +44,7 @@ pub struct JournalView {
     pub commit_state: Seq<u8>,
     pub remaining_capacity: int,
     pub journaled_addrs: Set<int>,
+    pub powerpm_id: int,
 }
 
 impl JournalView {

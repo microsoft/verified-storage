@@ -6,7 +6,7 @@ use vstd::prelude::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::recover_v::*;
@@ -29,6 +29,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
+            perm.valid(old(self)@.powerpm_id),
             forall|s1: Seq<u8>, s2: Seq<u8>| {
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })

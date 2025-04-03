@@ -7,7 +7,7 @@ use crate::journal::JournalView;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::recover_v::*;
@@ -100,7 +100,8 @@ where
 
     pub(super) open spec fn inv_perm_factory_allows_recovery_idempotent_changes(self) -> bool
     {
-        forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
+        &&& self.perm_factory@.valid(self@.powerpm_id)
+        &&& forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
             #[trigger] self.perm_factory@.check_permission(s1, s2)
     }
 

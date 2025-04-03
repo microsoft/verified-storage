@@ -1,3 +1,12 @@
+// This file defines the `CrcDigest` structure, which provides functionality for computing
+// CRC64 checksums over sequences of bytes or `PmCopy` objects. It integrates with the
+// `crc64fast` crate for efficient CRC computation while maintaining ghost state for
+// verification purposes using Verus.
+//
+// This file is in the trusted computing base (hence the `_t.rs` extension) because
+// it relies on the unverified `crc64fast` crate and makes assumptions about its behavior.
+// As such, it needs to be audited manually to have confidence in its correctness.
+
 // #![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -18,8 +27,8 @@ verus! {
         digest: Digest
     }
 
-    // A structure for obtaining CRCs of multiple PmCopy objects
-    // and writing proofs about them.
+    // A structure for obtaining CRCs of byte sequences and/or
+    // PmCopy objects and writing proofs about them.
     pub struct CrcDigest
     {
         digest: ExternalDigest,
@@ -28,15 +37,18 @@ verus! {
 
     impl CrcDigest
     {
+        // The ghost state that tracks the bytes that have been digested so far.
         pub closed spec fn bytes_in_digest(self) -> Seq<u8>
         {
             self.bytes_in_digest@
         }
 
+        // Creates a new `CrcDigest` object with an empty digest.
         #[verifier::external_body]
         pub fn new() -> (output: Self)
             ensures
-                output.bytes_in_digest() == Seq::<u8>::empty(),
+                output.bytes_in_digest() == Seq::<u8>::empty()
+,
         {
             Self {
                 digest: ExternalDigest{ digest: Digest::new() },
@@ -44,6 +56,8 @@ verus! {
             }
         }
 
+        // Writes a `PmCopy` object to the digest and updates the ghost state
+        // accordingly.
         #[verifier::external_body]
         pub fn write<S>(&mut self, val: &S)
             where
@@ -68,6 +82,8 @@ verus! {
             self.digest.digest.write(bytes);
         }
 
+        // Writes a slice of bytes to the digest and updates the ghost state
+        // accordingly.
         #[verifier::external_body]
         pub fn write_bytes(&mut self, val: &[u8])
             ensures 
@@ -76,7 +92,7 @@ verus! {
             self.digest.digest.write(val);
         }
 
-        // Compute and return the CRC for all bytes in the digest.
+        // Computes and returns the CRC for the sequence of bytes in the digest.
         #[verifier::external_body]
         pub fn sum64(&self) -> (output: u64)
             ensures

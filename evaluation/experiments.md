@@ -1,19 +1,68 @@
 # Experiments
 
 ## YCSB
+
+Tested Linux environments:
+- Linux v6.7 and 6.12
+- Debian Trixie
+
 ### Setup
-1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev daxctl libzstd-dev cmake build-essential liblz4-dev; pip3 install toml`
+1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind; pip3 install toml`
+2. Install Maven:
+    - Download and untar a binary from https://maven.apache.org/download.cgi
+    - Add the `bin` folder in the extracted directory to your `PATH`.
+
+3. Set up Viper
+    - Clone from GitHub: `git clone git@github.com:hpides/viper.git` into a sibling directory of `evaluation/benchmark`
+    - Viper has two main dependencies, `concurrentqueue` and `benchmark`, which are already in `evaluation/viper_deps`. 
+    - Follow these instructions to build the benchmark dependency and install it globally:
+    ```
+    # Go to the library root directory
+    $ cd viper_deps/benchmark
+    # Make a build directory to place the build output.
+    $ cmake -E make_directory "build"
+    # Generate build system files with cmake, and download any dependencies.
+    $ cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -S . -B "build" -DBUILD_SHARED_LIBS=ON
+    # Build the library.
+    $ cmake --build "build" --config Release
+    $ sudo cmake --build "build" --config Release --target install
+    ```
+    - Follow these instructions to build the `libpmemobj++` dependency:
+    ```
+    cd viper_deps/libpmemobj-cpp
+    mkdir build
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./build
+    make
+    make install
+    ```
+    - Build required Viper wrapper libraries:
+    ```
+    cd viper_wrapper
+    make all
+    ```
+    
+**To compile Viper wrapper on its own:** `clang++ viper_wrapper.cpp -I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmark -I../viper_deps/benchmark/include -std=c++17 -lpmem -lpmemobj -lpmempool -I../viper_deps/libpmemobj-cpp/include -mclwb -DVIPER_BUILD_BENCHMARKS=ON -lbenchmark -DCXX_COMPILATION`
 
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.
-3. Build pmem-RocksDB: `cd` to `pmem-rocksdb` and build with `make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j 8`
-4. Build redis: `cd` to `pmem-redis` and run `make USE_NVM=yes` 
-3. Build YCSB:
+3. Run `export LD_LIBRARY_PATH=$HOME/verified-storage/evaluation/ycsb_ffi/target/release:$HOME/verified_storage/evaluation/viper_wrapper:$HOME/verified-storage/evaluation/viper_deps/benchmark/build/src:$HOME/verified-storage/evaluation/viper_deps/benchmark/include:$HOME/verified_storage/evaluation/viper/benchmark`
+
+<!-- TODO: for some reason that path doesn't work but this one does: 
+```
+export LD_LIBRARY_PATH=/mnt/local_ssd/home/hayley/verified-storage/evaluation/viper_deps/benchmark/include:/mnt/local_ssd/home/hayley/verified-storage/evaluation/viper_deps/benchmark/include:/mnt/local_ssd/home/hayley/verified-storage/evaluation/viper_wrapper:/mnt/local_ssd/home/hayley/verified_storage/evaluation/viper/benchmark:/mnt/local_ssd/home/hayley/verified-storage/evaluation/ycsb_ffi/target/release:/mnt/local_ssd/home/hayley/verified_storage/evaluation/viper_wrapper:/mnt/local_ssd/home/hayley/verified-storage/evaluation/viper_deps/benchmark/build/src
+```
+what's the difference? we were missing a couple of benchmark ones, but that wouldn't really make sense...it's the absolute paths -->
+
+
+4. Run `export JAVA_HOME=/usr/lib/jvm/java-X-openjdk-amd64/` where `X` is the Java version to use.
+5. Build pmem-RocksDB: `cd` to `pmem-rocksdb` and build with `make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j 8`
+6. Build redis: `cd` to `pmem-redis` and run `make USE_NVM=yes` 
+7. Build YCSB:
     - CapybaraKV: `cd YCSB; mvn -pl site.ycsb:capybarakv-binding -am clean package`
     - redis (pmem and standard): `cd YCSB; mvn -pl site.ycsb:redis-binding -am clean package`
     - pmem-RocksDB: `cd YCSB; mvn -pl site.ycsb:pmemrocksdb-binding -am clean package`
-
-3. Run `export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/release`
-4. Run `export JAVA_HOME=/usr/lib/jvm/java-X-openjdk-amd64/` where `X` is the Java version to use.
+    
+8. Build the benchmark crate: `cargo +nightly build --release`
+    - As of 03/11/2025, the `+nightly` arg is required for verified storage to build properly
 
 ### redis troubleshooting
 If redis doesn't build, the following may help:

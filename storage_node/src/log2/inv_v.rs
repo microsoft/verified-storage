@@ -3,7 +3,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::arithmetic::div_mod::*;
 use crate::kv::layout_v::OverallMetadata;
-use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*, wrpm_t::*};
+use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*, power_t::*};
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::pmem::pmcopy_t::*;

@@ -7,7 +7,7 @@ use crate::common::recover_v::*;
 use crate::journal::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use super::{ItemTable, ItemTableSnapshot, ItemTableStaticMetadata};
 
 verus! {

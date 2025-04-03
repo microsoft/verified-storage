@@ -1045,53 +1045,53 @@ verus! {
 
     // This lemma proves that active metadata remains the same after writing to inactive metadata.
     //
-    // `wrpm_regions_old` -- an initial PM state
-    // `wrpm_regions_new` -- the same PM state after a write to bytes in inactive metadata of one of the logs
+    // `powerpm_regions_old` -- an initial PM state
+    // `powerpm_regions_new` -- the same PM state after a write to bytes in inactive metadata of one of the logs
     // `which_log` -- which log was written to 
     // `addr` -- the address that was written to; must be within the inactive metadata of the specified log
     // `bytes_to_write` -- the bytes that were written to `addr`
-    // `cdb` -- the current CDB of `wrpm_regions_old` (and `wrpm_regions_new`)
+    // `cdb` -- the current CDB of `powerpm_regions_old` (and `powerpm_regions_new`)
     pub proof fn lemma_write_to_inactive_metadata_implies_active_metadata_stays_equal(
-        wrpm_regions_old: PersistentMemoryRegionsView,
-        wrpm_regions_new: PersistentMemoryRegionsView,
+        powerpm_regions_old: PersistentMemoryRegionsView,
+        powerpm_regions_new: PersistentMemoryRegionsView,
         which_log: int,
         addr: int,
         bytes_to_write: Seq<u8>,
         cdb: bool,
     )
         requires 
-            wrpm_regions_new == wrpm_regions_old.write(which_log, addr, bytes_to_write),
-            0 <= which_log < wrpm_regions_old.len(),
-            memory_matches_deserialized_cdb(wrpm_regions_old, cdb),
-            metadata_types_set(wrpm_regions_old.committed()),
+            powerpm_regions_new == powerpm_regions_old.write(which_log, addr, bytes_to_write),
+            0 <= which_log < powerpm_regions_old.len(),
+            memory_matches_deserialized_cdb(powerpm_regions_old, cdb),
+            metadata_types_set(powerpm_regions_old.committed()),
             ({
                 let unused_metadata_pos = get_log_metadata_pos(!cdb);
                 unused_metadata_pos <= addr < addr + bytes_to_write.len()
                     <= unused_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
             }),
-            no_outstanding_writes_to_active_metadata(wrpm_regions_old, cdb),
-            no_outstanding_writes_to_active_metadata(wrpm_regions_new, cdb),
-            wrpm_regions_new.len() == wrpm_regions_old.len(),
-            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions_new.len() ==> {
-                &&& wrpm_regions_new[i].len() == wrpm_regions_old[i].len()
-                &&& wrpm_regions_new[i].len() > ABSOLUTE_POS_OF_LOG_AREA
-                &&& wrpm_regions_old[i].len() > ABSOLUTE_POS_OF_LOG_AREA
+            no_outstanding_writes_to_active_metadata(powerpm_regions_old, cdb),
+            no_outstanding_writes_to_active_metadata(powerpm_regions_new, cdb),
+            powerpm_regions_new.len() == powerpm_regions_old.len(),
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < powerpm_regions_new.len() ==> {
+                &&& powerpm_regions_new[i].len() == powerpm_regions_old[i].len()
+                &&& powerpm_regions_new[i].len() > ABSOLUTE_POS_OF_LOG_AREA
+                &&& powerpm_regions_old[i].len() > ABSOLUTE_POS_OF_LOG_AREA
             },
-            deserialize_and_check_log_cdb(wrpm_regions_old[0].committed()) == Some(cdb),
+            deserialize_and_check_log_cdb(powerpm_regions_old[0].committed()) == Some(cdb),
         ensures
-            metadata_types_set(wrpm_regions_new.committed()),
-            active_metadata_is_equal(wrpm_regions_new, wrpm_regions_old)
+            metadata_types_set(powerpm_regions_new.committed()),
+            active_metadata_is_equal(powerpm_regions_new, powerpm_regions_old)
     {
         reveal(spec_padding_needed);
-        assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions_new.len() && i != which_log ==> 
-               wrpm_regions_old[i] == wrpm_regions_new[i]); 
-        assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions_new.len() && i != which_log ==> 
-               active_metadata_is_equal_in_region(wrpm_regions_old[i], wrpm_regions_new[i], cdb));
+        assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < powerpm_regions_new.len() && i != which_log ==> 
+               powerpm_regions_old[i] == powerpm_regions_new[i]); 
+        assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < powerpm_regions_new.len() && i != which_log ==> 
+               active_metadata_is_equal_in_region(powerpm_regions_old[i], powerpm_regions_new[i], cdb));
 
-        let cur_old = wrpm_regions_old[which_log].committed();
-        let cur_new = wrpm_regions_new[which_log].committed();
-        assert(cur_old.len() == wrpm_regions_old[which_log].len());
-        assert(cur_new.len() == wrpm_regions_new[which_log].len());
+        let cur_old = powerpm_regions_old[which_log].committed();
+        let cur_new = powerpm_regions_new[which_log].committed();
+        assert(cur_old.len() == powerpm_regions_old[which_log].len());
+        assert(cur_new.len() == powerpm_regions_new[which_log].len());
 
         lemma_auto_smaller_range_of_seq_is_subrange(cur_old);
         lemma_auto_smaller_range_of_seq_is_subrange(cur_new);
@@ -1102,14 +1102,14 @@ verus! {
                cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
 
-        let old_cdb = deserialize_and_check_log_cdb(wrpm_regions_old[0].committed());
+        let old_cdb = deserialize_and_check_log_cdb(powerpm_regions_old[0].committed());
         let log_metadata_pos = get_log_metadata_pos(old_cdb.unwrap());
 
         assert(extract_bytes(cur_old, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) == 
                extract_bytes(cur_new, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
 
-        assert(active_metadata_is_equal_in_region(wrpm_regions_old[which_log], wrpm_regions_new[which_log], cdb));
-        lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions_old, wrpm_regions_new, cdb);
-        assert(metadata_types_set(wrpm_regions_new.committed()));
+        assert(active_metadata_is_equal_in_region(powerpm_regions_old[which_log], powerpm_regions_new[which_log], cdb));
+        lemma_regions_metadata_matches_implies_metadata_types_set(powerpm_regions_old, powerpm_regions_new, cdb);
+        assert(metadata_types_set(powerpm_regions_new.committed()));
     }
 }

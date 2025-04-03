@@ -11,7 +11,7 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::subregion_v::*;
 use builtin::*;
@@ -651,7 +651,7 @@ verus! {
 
         // // TODO: refactor into smaller functions
         // pub exec fn start<PM>(
-        //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        //     powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
         //     list_id: u128,
         //     node_size: u32,
         //     // log_entries: &Vec<OpLogEntryType<L>>,
@@ -661,7 +661,7 @@ verus! {
         //     where
         //         PM: PersistentMemoryRegion,
         //     requires
-        //         old(wrpm_region).inv(),
+        //         old(powerpm_region).inv(),
         //         ({
         //             let metadata_size = ListEntryMetadata::spec_size_of();
         //             let key_size = K::spec_size_of();
@@ -671,7 +671,7 @@ verus! {
         //             &&& list_element_slot_size <= u64::MAX
         //         })
         //     ensures
-        //         wrpm_region.inv()
+        //         powerpm_region.inv()
         //         // TODO
         // {
         //     assume(false);
@@ -679,7 +679,7 @@ verus! {
         //     // We assume that the caller set up the regions with `setup`, which checks that we got the
         //     // correct number of regions and that they are large enough, but we check again here
         //     // in case they didn't.
-        //     let pm_region = wrpm_region.get_pm_region_ref();
+        //     let pm_region = powerpm_region.get_pm_region_ref();
         //     let region_size = pm_region.get_region_size();
         //     if region_size < ABSOLUTE_POS_OF_LIST_REGION_NODE_START {
         //         let required = ABSOLUTE_POS_OF_LIST_REGION_NODE_START as usize;
@@ -705,10 +705,10 @@ verus! {
         //     let ghost mem = pm_region@.durable_state;
 
         //     // // recover the list region from the log entries
-        //     // Self::replay_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
+        //     // Self::replay_log_list(powerpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
 
         //     // reborrow to satisfy the borrow checker
-        //     let pm_region = wrpm_region.get_pm_region_ref();
+        //     let pm_region = powerpm_region.get_pm_region_ref();
 
         //     let mut list_node_region_free_list: Vec<u64> = Vec::new();
         //     // this list will store in-use nodes; all nodes not in this list go in the free list
@@ -804,7 +804,7 @@ verus! {
 
         // pub exec fn play_log_list<PM>(
         //     &mut self,
-        //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        //     powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
         //     list_id: u128,
         //     log_entries: &Vec<OpLogEntryType<L>>,
         //     Tracked(perm): Tracked<&TrustedListPermission>,
@@ -828,11 +828,11 @@ verus! {
 
         //         match log_entry {
         //             OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
-        //                 Self::apply_append_list_node_log_entry(wrpm_region, list_id, log_entry, 
+        //                 Self::apply_append_list_node_log_entry(powerpm_region, list_id, log_entry, 
         //                     self.node_size, Tracked(perm), Ghost(state))?;
         //             }
         //             OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
-        //                 Self::apply_insert_list_element_log_entry(wrpm_region, list_id, log_entry, 
+        //                 Self::apply_insert_list_element_log_entry(powerpm_region, list_id, log_entry, 
         //                     self.node_size, Tracked(perm), Ghost(state))?;
         //             }
         //             OpLogEntryType::NodeDeallocInMemory { old_head, new_head } => {
@@ -843,7 +843,7 @@ verus! {
         //                     assume(false);
         //                     let cur = current_node.unwrap();
         //                     // Look up the next pointer
-        //                     let next_ptr = self.get_next_list_node(wrpm_region.get_pm_region_ref(), cur, list_id)?;
+        //                     let next_ptr = self.get_next_list_node(powerpm_region.get_pm_region_ref(), cur, list_id)?;
 
         //                     // Deallocate the current node
         //                     if let Some(next_ptr) = next_ptr {
@@ -864,7 +864,7 @@ verus! {
         // } 
 
         // exec fn replay_log_list<PM>(
-        //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        //     powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
         //     list_id: u128,
         //     log_entries: &Vec<OpLogEntryType<L>>,
         //     node_size: u32,
@@ -889,11 +889,11 @@ verus! {
 
         //         match log_entry {
         //             OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
-        //                 Self::apply_append_list_node_log_entry(wrpm_region, list_id, log_entry, 
+        //                 Self::apply_append_list_node_log_entry(powerpm_region, list_id, log_entry, 
         //                     node_size, Tracked(perm), Ghost(state))?;
         //             }
         //             OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
-        //                 Self::apply_insert_list_element_log_entry(wrpm_region, list_id, log_entry, 
+        //                 Self::apply_insert_list_element_log_entry(powerpm_region, list_id, log_entry, 
         //                     node_size, Tracked(perm), Ghost(state))?;
         //             }
         //             _ => {} // all other entry types do not modify the list directly
@@ -906,7 +906,7 @@ verus! {
         // // replay code in the cases where list crash recovery and regular list log replay share
         // // behavior.
         // exec fn apply_insert_list_element_log_entry<PM>(
-        //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        //     powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
         //     list_id: u128,
         //     log_entry: &OpLogEntryType<L>,
         //     node_size: u32,
@@ -930,8 +930,8 @@ verus! {
 
         //             let list_element_crc = calculate_crc(list_element);
 
-        //             wrpm_region.serialize_and_write(crc_addr, &list_element_crc, Tracked(perm));
-        //             wrpm_region.serialize_and_write(list_element_addr, list_element, Tracked(perm));
+        //             powerpm_region.serialize_and_write(crc_addr, &list_element_crc, Tracked(perm));
+        //             powerpm_region.serialize_and_write(list_element_addr, list_element, Tracked(perm));
 
         //             Ok(())
         //         }
@@ -940,7 +940,7 @@ verus! {
         // }
 
         // exec fn apply_append_list_node_log_entry<PM>(
-        //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        //     powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
         //     list_id: u128,
         //     log_entry: &OpLogEntryType<L>,
         //     node_size: u32,
@@ -966,8 +966,8 @@ verus! {
         //             // the tail addr is the address of the next pointer
         //             let old_crc_addr = old_tail_addr + traits_t::size_of::<u64>() as u64;
 
-        //             wrpm_region.serialize_and_write(old_tail_addr, new_tail, Tracked(perm));
-        //             wrpm_region.serialize_and_write(old_crc_addr, &new_tail_crc, Tracked(perm));
+        //             powerpm_region.serialize_and_write(old_tail_addr, new_tail, Tracked(perm));
+        //             powerpm_region.serialize_and_write(old_crc_addr, &new_tail_crc, Tracked(perm));
         //             Ok(())
         //         }
         //         _ => Err(KvError::InternalError)
@@ -981,17 +981,17 @@ verus! {
         // allocated node.
         pub exec fn alloc_and_init_list_node<PM>(
             &mut self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
             Ghost(list_id): Ghost<u128>,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<u64, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
-                old(wrpm_region).inv(),
+                old(powerpm_region).inv(),
                 // TODO
             ensures
-                wrpm_region.inv()
+                powerpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -1006,13 +1006,13 @@ verus! {
             // 2. set its next pointer. Since we only allocate nodes to append to the tail of 
             // the list, we'll set its next pointer to itself
             let next_ptr_addr = new_node_addr + RELATIVE_POS_OF_NEXT_POINTER;
-            wrpm_region.serialize_and_write(next_ptr_addr, &new_node_idx, Tracked(perm));
+            powerpm_region.serialize_and_write(next_ptr_addr, &new_node_idx, Tracked(perm));
 
             // 3. set its crc
             let crc_addr = new_node_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
             let crc = calculate_crc(&new_node_idx);
 
-            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            powerpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
 
             Ok(new_node_idx)
         }
@@ -1025,7 +1025,7 @@ verus! {
         // 2. The update to the tail node pointer in the list metadata
         pub exec fn append_list_node<PM>(
             &mut self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             new_tail: u64,
             old_tail: u64,
@@ -1034,11 +1034,11 @@ verus! {
             where
                 PM: PersistentMemoryRegion,
             requires
-                old(wrpm_region).inv(),
+                old(powerpm_region).inv(),
                 // TODO
                 // the new tail should be initialized but not currently in use
             ensures
-                wrpm_region.inv()
+                powerpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -1048,12 +1048,12 @@ verus! {
 
             // 2. update the old tail node's next pointer to point to the new tail
             let next_ptr_addr = old_tail_addr + RELATIVE_POS_OF_NEXT_POINTER;
-            wrpm_region.serialize_and_write(next_ptr_addr, &new_tail, Tracked(perm));
+            powerpm_region.serialize_and_write(next_ptr_addr, &new_tail, Tracked(perm));
 
             // 3. set its crc
             let crc_addr = old_tail_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
             let crc = calculate_crc(&new_tail);
-            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            powerpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
 
             Ok(())
         }
@@ -1067,7 +1067,7 @@ verus! {
         // 2. The list length update
         pub exec fn append_element<PM>(
             &mut self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            powerpm_region: &mut PoWERPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             tail_node: u64,
             idx: u64,
@@ -1077,11 +1077,11 @@ verus! {
             where
                 PM: PersistentMemoryRegion,
             requires
-                old(wrpm_region).inv(),
+                old(powerpm_region).inv(),
                 // TODO: require that the tail node has at least one free slot
                 // TODO
             ensures
-                wrpm_region.inv()
+                powerpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -1105,8 +1105,8 @@ verus! {
             let crc = calculate_crc(list_element);
 
             // 4. write the new list element and its CRC
-            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
-            wrpm_region.serialize_and_write(element_addr, list_element, Tracked(perm));
+            powerpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            powerpm_region.serialize_and_write(element_addr, list_element, Tracked(perm));
 
             Ok(())
         }

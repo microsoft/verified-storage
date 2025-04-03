@@ -329,7 +329,7 @@ pub proof fn lemma_fold_equivalent_to_map_fold<A, B, C>(
     h: spec_fn(C, B) -> C,
 )
     requires
-        forall|c: C, a: A| s.contains(a) ==> #[trigger] g(c, a) == h(c, f(a)),
+        forall|k: C, a: A| s.contains(a) ==> #[trigger] g(k, a) == h(k, f(a)),
     ensures
         s.fold_left(c, g) == s.map_values(f).fold_left(c, h),
     decreases

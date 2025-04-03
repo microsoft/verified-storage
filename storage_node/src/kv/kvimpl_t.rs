@@ -9,7 +9,7 @@
 //! Note that the design of this component is different from the original
 //! verified log in that the untrusted implementation, rather than
 //! the trusted implementation in this file, owns the
-//! WriteRestrictedPersistentMemoryRegion backing the structures.
+//! PoWERPersistentMemoryRegion backing the structures.
 //! This makes the interface to the untrusted component simpler and
 //! will make it easier to distinguish between regions owned by
 //! different components.
@@ -32,7 +32,7 @@ use super::volatile::volatilespec_v::*;
 use crate::log2::logimpl_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -167,12 +167,12 @@ where
                 Err(_) => false,
             }
     {
-        let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);
-        wrpm_region.flush(); // ensure there are no outstanding writes
-        let ghost state = AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(wrpm_region@.durable_state, kvstore_id).unwrap();
+        let mut powerpm_region = PoWERPersistentMemoryRegion::new(pm_region);
+        powerpm_region.flush(); // ensure there are no outstanding writes
+        let ghost state = AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(powerpm_region@.durable_state, kvstore_id).unwrap();
         let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(kvstore_id, state);
         let durable_store = UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_start(
-            wrpm_region, kvstore_id, Ghost(state), Tracked(&perm))?;
+            powerpm_region, kvstore_id, Ghost(state), Tracked(&perm))?;
 
         Ok(Self {
             id: kvstore_id,

@@ -7,7 +7,7 @@ use crate::common::subrange_v::*;
 use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::items::*;
@@ -233,6 +233,7 @@ where
                 used_slots: self.keys@.used_slots,
                 ..old_self.keys@
             }),
+            self@.powerpm_id == old_self@.powerpm_id,
         ensures
             ({
                 let new_self: Self = 
@@ -318,6 +319,7 @@ where
                 used_slots: self.items@.used_slots,
                 ..old_self.items@
             }),
+            self@.powerpm_id == old_self@.powerpm_id,
         ensures
             ({
                 let new_self: Self = 
@@ -403,6 +405,7 @@ where
                 used_slots: self.lists@.used_slots,
                 ..old_self.lists@
             }),
+            self@.powerpm_id == old_self@.powerpm_id,
         ensures
             ({
                 let new_self: Self = 

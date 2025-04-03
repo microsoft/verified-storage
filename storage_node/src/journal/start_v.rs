@@ -5,7 +5,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::size_of;
-use crate::pmem::wrpm_t::*;
+use crate::pmem::power_t::*;
 use crate::common::align_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
@@ -141,7 +141,7 @@ where
     }
     
     exec fn install_journal_entry_during_start(
-        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
@@ -154,68 +154,70 @@ where
         Ghost(commit_state): Ghost<Seq<u8>>,
     )
         requires
-            old(wrpm).inv(),
-            old(wrpm)@.valid(),
-            0 <= sm.app_area_end <= old(wrpm)@.len(),
-            recover_version_metadata(old(wrpm)@.durable_state) == Some(vm),
-            recover_static_metadata(old(wrpm)@.durable_state, vm) == Some(*sm),
-            recover_committed_cdb(old(wrpm)@.durable_state, *sm) == Some(true),
-            recover_journal_length(old(wrpm)@.durable_state, *sm) == Some(entries_bytes.len() as u64),
-            recover_journal_entries_bytes(old(wrpm)@.durable_state, *sm, entries_bytes.len() as u64)
+            old(powerpm).inv(),
+            old(powerpm)@.valid(),
+            0 <= sm.app_area_end <= old(powerpm)@.len(),
+            recover_version_metadata(old(powerpm)@.durable_state) == Some(vm),
+            recover_static_metadata(old(powerpm)@.durable_state, vm) == Some(*sm),
+            recover_committed_cdb(old(powerpm)@.durable_state, *sm) == Some(true),
+            recover_journal_length(old(powerpm)@.durable_state, *sm) == Some(entries_bytes.len() as u64),
+            recover_journal_entries_bytes(old(powerpm)@.durable_state, *sm, entries_bytes.len() as u64)
                 == Some(entries_bytes),
             journal_entries_valid(entries, *sm),
-            apply_journal_entries(old(wrpm)@.read_state, entries.skip(num_entries_installed), *sm)
+            apply_journal_entries(old(powerpm)@.read_state, entries.skip(num_entries_installed), *sm)
                 == Some(commit_state),
             parse_journal_entries(entries_bytes) == Some(entries),
-            recover_journal(old(wrpm)@.durable_state) is Some,
+            recover_journal(old(powerpm)@.durable_state) is Some,
             0 <= start < entries_bytes.len(),
             0 <= num_entries_installed < entries.len(),
             entries[num_entries_installed as int].start == write_addr,
             entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
+            perm_factory.valid(old(powerpm).id()),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
-            wrpm.inv(),
-            wrpm.constants() == old(wrpm).constants(),
-            wrpm@.len() == old(wrpm)@.len(),
-            wrpm@.valid(),
-            recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
-            apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
-            seqs_match_in_range(old(wrpm)@.durable_state, wrpm@.durable_state, 0, sm.app_area_start as int),
-            seqs_match_in_range(old(wrpm)@.read_state, wrpm@.read_state, 0, sm.app_area_start as int),
+            powerpm.inv(),
+            powerpm.constants() == old(powerpm).constants(),
+            powerpm.id() == old(powerpm).id(),
+            powerpm@.len() == old(powerpm)@.len(),
+            powerpm@.valid(),
+            recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
+            apply_journal_entries(powerpm@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
+            seqs_match_in_range(old(powerpm)@.durable_state, powerpm@.durable_state, 0, sm.app_area_start as int),
+            seqs_match_in_range(old(powerpm)@.read_state, powerpm@.read_state, 0, sm.app_area_start as int),
     {
         proof {
-            lemma_addresses_in_entry_dont_affect_recovery(wrpm@.durable_state, vm, *sm,
+            lemma_addresses_in_entry_dont_affect_recovery(powerpm@.durable_state, vm, *sm,
                                                           entries_bytes, entries, num_entries_installed);
             assert(entries[num_entries_installed].fits(*sm)) by {
                 lemma_journal_entries_valid_implies_one_valid(entries, *sm, num_entries_installed);
             }
-            assert forall|s| can_result_from_partial_write(s, wrpm@.durable_state, write_addr as int, bytes_to_write@)
-                implies #[trigger] perm_factory.check_permission(wrpm@.durable_state, s) by {
+            assert forall|s| can_result_from_partial_write(s, powerpm@.durable_state, write_addr as int, bytes_to_write@)
+                implies #[trigger] perm_factory.check_permission(powerpm@.durable_state, s) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
-                    s, wrpm@.durable_state, write_addr as int, bytes_to_write@,
+                    s, powerpm@.durable_state, write_addr as int, bytes_to_write@,
                     entries[num_entries_installed as int].addrs(),
                     |s| recover_journal(s),
                 );
-                assert(recover_journal(s) == recover_journal(wrpm@.durable_state));
-                Self::lemma_recover_doesnt_change_size(wrpm@.durable_state);
+                assert(recover_journal(s) == recover_journal(powerpm@.durable_state));
+                Self::lemma_recover_doesnt_change_size(powerpm@.durable_state);
             }
         }
         let tracked perm = perm_factory.grant_permission();
-        wrpm.write(write_addr, bytes_to_write, Tracked(perm));
+        powerpm.write(write_addr, bytes_to_write, Tracked(perm));
         proof {
             broadcast use group_can_result_from_write_effect;
-            assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state)) by {
+            assert(recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state)) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
-                    wrpm@.durable_state, old(wrpm)@.durable_state, write_addr as int, bytes_to_write@,
+                    powerpm@.durable_state, old(powerpm)@.durable_state, write_addr as int, bytes_to_write@,
                     entries[num_entries_installed as int].addrs(),
                     |s| recover_journal(s),
                 );
             }
-            assert(Some(wrpm@.read_state) ==
-                   apply_journal_entry(old(wrpm)@.read_state, entries[num_entries_installed], *sm));
-            assert(recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state));
-            assert(recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
+            assert(Some(powerpm@.read_state) ==
+                   apply_journal_entry(old(powerpm)@.read_state, entries[num_entries_installed], *sm));
+            assert(recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state));
+            assert(recover_journal_length(powerpm@.durable_state, *sm) == Some(entries_bytes.len() as u64));
     
             assert(entries.skip(num_entries_installed)[0] =~= entries[num_entries_installed]);
             assert(entries.skip(num_entries_installed).skip(1) =~= entries.skip(num_entries_installed + 1));
@@ -223,7 +225,7 @@ where
     }
     
     exec fn install_journal_entries_during_start(
-        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
@@ -231,88 +233,92 @@ where
         Ghost(entries): Ghost<Seq<JournalEntry>>,
     )
         requires
-            old(wrpm).inv(),
-            old(wrpm)@.valid(),
-            old(wrpm)@.flush_predicted(),
-            recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
-            recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
-            recover_committed_cdb(old(wrpm)@.read_state, *sm) == Some(true),
-            recover_journal_length(old(wrpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
-            recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
+            old(powerpm).inv(),
+            old(powerpm)@.valid(),
+            old(powerpm)@.flush_predicted(),
+            recover_version_metadata(old(powerpm)@.read_state) == Some(vm),
+            recover_static_metadata(old(powerpm)@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(old(powerpm)@.read_state, *sm) == Some(true),
+            recover_journal_length(old(powerpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
+            recover_journal_entries_bytes(old(powerpm)@.read_state, *sm, entries_bytes.len() as u64)
                 == Some(entries_bytes@),
             parse_journal_entries(entries_bytes@) == Some(entries),
-            apply_journal_entries(old(wrpm)@.read_state, entries, *sm) is Some,
-            recover_journal(old(wrpm)@.read_state) is Some,
+            apply_journal_entries(old(powerpm)@.read_state, entries, *sm) is Some,
+            recover_journal(old(powerpm)@.read_state) is Some,
+            perm_factory.valid(old(powerpm).id()),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
-            wrpm.inv(),
-            wrpm.constants() == old(wrpm).constants(),
-            wrpm@.len() == old(wrpm)@.len(),
-            wrpm@.flush_predicted(),
-            recover_version_metadata(wrpm@.read_state) == Some(vm),
-            recover_static_metadata(wrpm@.read_state, vm) == Some(*sm),
-            recover_committed_cdb(wrpm@.read_state, *sm) == Some(true),
-            recover_journal_length(wrpm@.read_state, *sm) == Some(entries_bytes.len() as u64),
-            recover_journal_entries_bytes(wrpm@.read_state, *sm, entries_bytes.len() as u64) == Some(entries_bytes@),
-            apply_journal_entries(wrpm@.durable_state, entries, *sm) == Some(wrpm@.read_state),
-            apply_journal_entries(old(wrpm)@.read_state, entries, *sm) == Some(wrpm@.read_state),
-            recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
+            powerpm.inv(),
+            powerpm.constants() == old(powerpm).constants(),
+            powerpm.id() == old(powerpm).id(),
+            powerpm@.len() == old(powerpm)@.len(),
+            powerpm@.flush_predicted(),
+            recover_version_metadata(powerpm@.read_state) == Some(vm),
+            recover_static_metadata(powerpm@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(powerpm@.read_state, *sm) == Some(true),
+            recover_journal_length(powerpm@.read_state, *sm) == Some(entries_bytes.len() as u64),
+            recover_journal_entries_bytes(powerpm@.read_state, *sm, entries_bytes.len() as u64) == Some(entries_bytes@),
+            apply_journal_entries(powerpm@.durable_state, entries, *sm) == Some(powerpm@.read_state),
+            apply_journal_entries(old(powerpm)@.read_state, entries, *sm) == Some(powerpm@.read_state),
+            recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
     {
         let mut start: usize = 0;
         let end: usize = entries_bytes.len();
         let ghost mut num_entries_installed: int = 0;
         let u64_size: usize = size_of::<u64>();
         let twice_u64_size: usize = u64_size + u64_size;
-        let ghost commit_state = apply_journal_entries(wrpm@.read_state, entries, *sm).unwrap();
+        let ghost commit_state = apply_journal_entries(powerpm@.read_state, entries, *sm).unwrap();
     
         assert(entries.skip(0) =~= entries);
         assert(entries_bytes@.skip(0) =~= entries_bytes@);
         proof {
-            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(wrpm)@.read_state, entries, *sm);
+            lemma_apply_journal_entries_some_iff_journal_entries_valid(old(powerpm)@.read_state, entries, *sm);
         }
     
         while start < end
             invariant
-                wrpm.inv(),
-                wrpm.constants() == old(wrpm).constants(),
-                wrpm@.valid(),
-                wrpm@.len() == old(wrpm)@.len(),
+                powerpm.inv(),
+                powerpm.constants() == old(powerpm).constants(),
+                powerpm.id() == old(powerpm).id(),
+                powerpm@.valid(),
+                powerpm@.len() == old(powerpm)@.len(),
                 start <= end == entries_bytes.len(),
                 u64_size == u64::spec_size_of(),
                 twice_u64_size == u64_size + u64_size,
                 0 <= num_entries_installed <= entries.len(),
                 num_entries_installed == entries.len() <==> start == end,
-                old(wrpm)@.read_state == old(wrpm)@.durable_state,
-                recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
-                recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
-                recover_committed_cdb(old(wrpm)@.read_state, *sm) == Some(true),
-                recover_journal_length(old(wrpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
-                recover_journal_entries_bytes(old(wrpm)@.read_state, *sm, entries_bytes.len() as u64)
+                old(powerpm)@.read_state == old(powerpm)@.durable_state,
+                recover_version_metadata(old(powerpm)@.read_state) == Some(vm),
+                recover_static_metadata(old(powerpm)@.read_state, vm) == Some(*sm),
+                recover_committed_cdb(old(powerpm)@.read_state, *sm) == Some(true),
+                recover_journal_length(old(powerpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
+                recover_journal_entries_bytes(old(powerpm)@.read_state, *sm, entries_bytes.len() as u64)
                     == Some(entries_bytes@),
                 parse_journal_entries(entries_bytes@) == Some(entries),
                 journal_entries_valid(entries, *sm),
-                apply_journal_entries(old(wrpm)@.read_state, entries, *sm) is Some,
-                recover_journal(old(wrpm)@.read_state) is Some,
-                recover_version_metadata(wrpm@.durable_state) == Some(vm),
-                recover_static_metadata(wrpm@.durable_state, vm) == Some(*sm),
-                recover_committed_cdb(wrpm@.durable_state, *sm) == Some(true),
-                recover_journal_length(wrpm@.durable_state, *sm) == Some(entries_bytes.len() as u64),
-                recover_journal_entries_bytes(wrpm@.durable_state, *sm, entries_bytes.len() as u64)
+                apply_journal_entries(old(powerpm)@.read_state, entries, *sm) is Some,
+                recover_journal(old(powerpm)@.read_state) is Some,
+                recover_version_metadata(powerpm@.durable_state) == Some(vm),
+                recover_static_metadata(powerpm@.durable_state, vm) == Some(*sm),
+                recover_committed_cdb(powerpm@.durable_state, *sm) == Some(true),
+                recover_journal_length(powerpm@.durable_state, *sm) == Some(entries_bytes.len() as u64),
+                recover_journal_entries_bytes(powerpm@.durable_state, *sm, entries_bytes.len() as u64)
                     == Some(entries_bytes@),
-                recover_journal(wrpm@.durable_state) == recover_journal(old(wrpm)@.durable_state),
+                recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
+                perm_factory.valid(powerpm.id()),
                 forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                     ==> #[trigger] perm_factory.check_permission(s1, s2),
                 parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
-                seqs_match_in_range(old(wrpm)@.durable_state, wrpm@.durable_state, 0, sm.app_area_start as int),
-                seqs_match_in_range(old(wrpm)@.read_state, wrpm@.read_state, 0, sm.app_area_start as int),
-                apply_journal_entries(wrpm@.read_state, entries.skip(num_entries_installed), *sm)
+                seqs_match_in_range(old(powerpm)@.durable_state, powerpm@.durable_state, 0, sm.app_area_start as int),
+                seqs_match_in_range(old(powerpm)@.read_state, powerpm@.read_state, 0, sm.app_area_start as int),
+                apply_journal_entries(powerpm@.read_state, entries.skip(num_entries_installed), *sm)
                     == Some(commit_state),
         {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use pmcopy_axioms;
             
-            let ghost durable_state_at_start_of_loop = wrpm@.durable_state;
+            let ghost durable_state_at_start_of_loop = powerpm@.durable_state;
     
             assert(start + twice_u64_size <= end);
             assert(parse_journal_entry(entries_bytes@.skip(start as int)) is Some);
@@ -339,7 +345,7 @@ where
                 lemma_parse_journal_entry_implications(entries_bytes@, entries, start as int, num_entries_installed);
                 assert(entries[num_entries_installed as int] == entry);
             }
-            Self::install_journal_entry_during_start(wrpm, Tracked(&perm_factory), Ghost(vm), sm, start,
+            Self::install_journal_entry_during_start(powerpm, Tracked(&perm_factory), Ghost(vm), sm, start,
                                                      addr, bytes_to_write,
                                                      Ghost(entries_bytes@), Ghost(num_entries_installed),
                                                      Ghost(entries), Ghost(commit_state));
@@ -352,67 +358,70 @@ where
             start += twice_u64_size + len as usize;
         }
     
-        wrpm.flush();
+        powerpm.flush();
     }
     
     pub(super) exec fn clear_log(
-        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
     )
         requires
-            old(wrpm).inv(),
-            old(wrpm)@.valid(),
-            old(wrpm)@.flush_predicted(),
-            recover_version_metadata(old(wrpm)@.read_state) == Some(vm),
-            recover_static_metadata(old(wrpm)@.read_state, vm) == Some(*sm),
-            recover_committed_cdb(old(wrpm)@.read_state, *sm) == Some(true),
+            old(powerpm).inv(),
+            old(powerpm)@.valid(),
+            old(powerpm)@.flush_predicted(),
+            recover_version_metadata(old(powerpm)@.read_state) == Some(vm),
+            recover_static_metadata(old(powerpm)@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(old(powerpm)@.read_state, *sm) == Some(true),
             ({
-                &&& recover_journal(old(wrpm)@.read_state) matches Some(j)
-                &&& j.state == old(wrpm)@.read_state
+                &&& recover_journal(old(powerpm)@.read_state) matches Some(j)
+                &&& j.state == old(powerpm)@.read_state
             }),
+            perm_factory.valid(old(powerpm).id()),
             forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
-            wrpm.inv(),
-            wrpm.constants() == old(wrpm).constants(),
-            wrpm@.len() == old(wrpm)@.len(),
-            wrpm@.flush_predicted(),
-            recover_version_metadata(wrpm@.read_state) == Some(vm),
-            recover_static_metadata(wrpm@.read_state, vm) == Some(*sm),
-            recover_committed_cdb(wrpm@.read_state, *sm) == Some(false),
-            spec_recovery_equivalent_for_app(wrpm@.durable_state, old(wrpm)@.durable_state),
+            powerpm.inv(),
+            powerpm.constants() == old(powerpm).constants(),
+            powerpm.id() == old(powerpm).id(),
+            powerpm@.len() == old(powerpm)@.len(),
+            powerpm@.flush_predicted(),
+            recover_version_metadata(powerpm@.read_state) == Some(vm),
+            recover_static_metadata(powerpm@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(powerpm@.read_state, *sm) == Some(false),
+            spec_recovery_equivalent_for_app(powerpm@.durable_state, old(powerpm)@.durable_state),
     {
         let new_cdb: u64 = CDB_FALSE;
-        let ghost new_state = update_bytes(wrpm@.durable_state, sm.committed_cdb_start as int,
+        let ghost new_state = update_bytes(powerpm@.durable_state, sm.committed_cdb_start as int,
             new_cdb.spec_to_bytes());
         proof {
             broadcast use pmcopy_axioms;
             broadcast use group_update_bytes_effect;
             assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
             assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
-            assert(spec_recovery_equivalent_for_app(wrpm@.durable_state, wrpm@.durable_state));
-            assert(perm_factory.check_permission(wrpm@.durable_state, wrpm@.durable_state));
+            assert(spec_recovery_equivalent_for_app(powerpm@.durable_state, powerpm@.durable_state));
+            assert(perm_factory.check_permission(powerpm@.durable_state, powerpm@.durable_state));
             assert(recover_version_metadata(new_state) == Some(vm));
             assert(recover_static_metadata(new_state, vm) == Some(*sm));
             assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms
-            assert(spec_recovery_equivalent_for_app(new_state, old(wrpm)@.durable_state));
+            assert(spec_recovery_equivalent_for_app(new_state, old(powerpm)@.durable_state));
             lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write();
         }
         let tracked perm = perm_factory.grant_permission();
-        wrpm.serialize_and_write::<u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
-        wrpm.flush();
-        assert(wrpm@.read_state == new_state);
+        powerpm.serialize_and_write::<u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
+        powerpm.flush();
+        assert(powerpm@.read_state == new_state);
     }
 
     pub exec fn start(
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
         Tracked(perm_factory): Tracked<PermFactory>
     ) -> (result: Result<Self, JournalError>)
         requires
-            wrpm.inv(),
-            Self::recover(wrpm@.durable_state).is_some(),
+            powerpm.inv(),
+            Self::recover(powerpm@.durable_state).is_some(),
+            perm_factory.valid(powerpm.id()),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -421,26 +430,27 @@ where
                     &&& j.valid()
                     &&& j.recover_idempotent()
                     &&& j@.valid()
-                    &&& j@.constants == Self::recover(wrpm@.durable_state).unwrap().constants
-                    &&& j@.pm_constants == wrpm.constants()
+                    &&& j@.constants == Self::recover(powerpm@.durable_state).unwrap().constants
+                    &&& j@.pm_constants == powerpm.constants()
                     &&& j@.remaining_capacity == j@.constants.journal_capacity
                     &&& j@.journaled_addrs == Set::<int>::empty()
                     &&& j@.durable_state == j@.read_state
                     &&& j@.read_state == j@.commit_state
-                    &&& Self::recovery_equivalent_for_app(j@.durable_state, wrpm@.durable_state)
+                    &&& j@.powerpm_id == powerpm.id()
+                    &&& Self::recovery_equivalent_for_app(j@.durable_state, powerpm@.durable_state)
                 },
-                Err(JournalError::CRCError) => !wrpm.constants().impervious_to_corruption(),
+                Err(JournalError::CRCError) => !powerpm.constants().impervious_to_corruption(),
                 _ => false,
             }
     {
-        let ghost old_durable_state = wrpm@.durable_state;
-        assert(wrpm.constants().valid()) by {
-            wrpm.lemma_inv_implies_view_valid();
+        let ghost old_durable_state = powerpm@.durable_state;
+        assert(powerpm.constants().valid()) by {
+            powerpm.lemma_inv_implies_view_valid();
         }
-        let mut wrpm = wrpm;
-        wrpm.flush();
+        let mut powerpm = powerpm;
+        powerpm.flush();
 
-        let pm = wrpm.get_pm_region_ref();
+        let pm = powerpm.get_pm_region_ref();
         let pm_size = pm.get_region_size(); // This establishes that `pm@.len() <= u64::MAX`
  
         let vm = Self::read_version_metadata(pm).ok_or(JournalError::CRCError)?;
@@ -454,22 +464,22 @@ where
             app_area_end: sm.app_area_end,
         };
 
-        assert(Self::recover(wrpm@.durable_state).unwrap().constants.app_area_end == wrpm@.len());
+        assert(Self::recover(powerpm@.durable_state).unwrap().constants.app_area_end == powerpm@.len());
         if cdb {
             let journal_length = Self::read_journal_length(pm, Ghost(vm), &sm).ok_or(JournalError::CRCError)?;
             let entries_bytes =
                 Self::read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
             let ghost entries = parse_journal_entries(entries_bytes@).unwrap();
-            Self::install_journal_entries_during_start(&mut wrpm, Tracked(&perm_factory), Ghost(vm), &sm,
+            Self::install_journal_entries_during_start(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm,
                                                        &entries_bytes, Ghost(entries));
             assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                        implies #[trigger] perm_factory.check_permission(s1, s2) by {
                 Self::lemma_recover_doesnt_change_size(s1);
             }
-            Self::clear_log(&mut wrpm, Tracked(&perm_factory), Ghost(vm), &sm);
+            Self::clear_log(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm);
         }
         let j = Self {
-            wrpm,
+            powerpm,
             perm_factory: Tracked(perm_factory),
             vm: Ghost(vm),
             sm,

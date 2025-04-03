@@ -1,8 +1,25 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(dependency_on_unit_never_type_fallback)]
+#![allow(unused_imports)]
+#![allow(deprecated)]
+
+// these are required to suppress warnings from bindgen-generated code
+#![allow(non_camel_case_types)]
+#![allow(non_upper_case_globals)]
+#![allow(non_snake_case)]
+#![allow(improper_ctypes)]
+
+include!("./bindings.rs");
+
 // use storage_node::kv::kvimpl_t::*;
 // use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
+use storage_node::kv2::spec_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmsafe::PmCopy;
+use std::time::Duration;
+use std::thread::sleep;
 
 #[allow(unused_imports)]
 use builtin::*;
@@ -13,23 +30,28 @@ use redis::{FromRedisValue, RedisResult};
 
 use std::fs;
 use std::env;
-use std::time::{Instant, Duration};
-use std::thread::sleep;
+use std::time::{Instant};
+// use std::thread::sleep;
 use std::io::{BufWriter, Write};
 use std::process::Command;
 
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 
+use nix::sys;
+
 use crate::kv_interface::*;
 use crate::redis_client::*;
 use crate::rocksdb_client::*;
 use crate::capybarakv_client::*;
+use crate::viper_client::*;
 
 pub mod kv_interface;
 pub mod redis_client;
 pub mod rocksdb_client;
 pub mod capybarakv_client;
+pub mod viper_client;
+// pub mod custom_bindings;
 
 // length of key and value in byte for most tests
 const KEY_LEN: usize = 64;
@@ -46,6 +68,7 @@ const MOUNT_POINT: &str = "/mnt/pmem";
 // TODO: read these from a config file?
 const NUM_KEYS: u64 = 25000000;
 const ITERATIONS: u64 = 1;
+const START_ITERATIONS: u64 = 5;
 // for use in the full startup experiment
 // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
 // 115GB CapybaraKV instances uses 100% of PM device
@@ -94,6 +117,15 @@ impl AsRef<[u8]> for BigTestKey {
 struct TestValue {
     value: [u8; VALUE_LEN]
 }
+
+impl Default for TestValue {
+    fn default() -> Self {
+        Self {
+            value: [0; VALUE_LEN]
+        }
+    }
+}
+
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
@@ -158,7 +190,17 @@ impl Value for BigTestValue {
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
 pub struct PlaceholderListElem {
-    _val: u64,
+    val: u64,
+}
+
+impl LogicalRange for PlaceholderListElem {
+    fn start(&self) -> usize {
+        self.val as usize
+    }
+
+    fn end(&self) -> usize {
+        self.val as usize
+    }
 }
 
 impl FromRedisValue for TestValue {
@@ -226,22 +268,35 @@ fn main() {
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
     let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
+    let viper_output_dir = output_dir.clone() + "/" + &ViperClient::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
     fs::create_dir_all(&rocksdb_output_dir).unwrap();
     fs::create_dir_all(&capybara_output_dir).unwrap();
+    fs::create_dir_all(&viper_output_dir).unwrap();
 
 
     for i in 1..ITERATIONS+1 {
         run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
         run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
         run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
+        run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
     }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
     run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
     run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
     run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+    run_full_setup::<ViperClient>(&viper_output_dir, NUM_KEYS).unwrap();
+}
+
+fn test_setup<KV>(output_dir: &str) -> Result<(), KV::E> 
+    where 
+        KV: KvInterface<TestKey, TestValue>,
+{
+    let mut client = KV::start()?;
+
+    Ok(())
 }
 
 fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
@@ -259,6 +314,8 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
         run_sequential_delete(&mut client, &output_dir, i)?;
     }
     KV::cleanup();
+
+    println!("sequential done");
 
     // random access operations
     {
@@ -281,10 +338,13 @@ fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
     // KV::cleanup();
 
     // startup measurements
-    {
-        run_empty_start::<KV>(&output_dir, i, CAPYBARAKV_MAX_KEYS)?;
+    for j in 0..START_ITERATIONS {
+        {
+            run_empty_start::<KV>(&output_dir, j, CAPYBARAKV_MAX_KEYS)?;
+        }
+        KV::cleanup();
     }
-    KV::cleanup();
+    
 
     Ok(())
 }
@@ -602,18 +662,22 @@ fn run_empty_start<KV>(output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV
 
     println!("EMPTY SETUP");
     KV::setup(num_keys)?;
-    let (kv, dur) = KV::timed_start()?;
-    let elapsed = format!("{:?}\n", dur.as_micros());
-    out_stream.write(&elapsed.into_bytes()).unwrap();
-    out_stream.flush().unwrap();
-    println!("EMPTY SETUP DONE");
+    {
+        let (_kv, dur) = KV::timed_start()?;
+        let elapsed = format!("{:?}\n", dur.as_micros());
+        out_stream.write(&elapsed.into_bytes()).unwrap();
+        out_stream.flush().unwrap();
+        println!("EMPTY SETUP DONE");
+    }
+    
+    KV::cleanup();
 
     Ok(())
 }
 
 fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
     where 
-        KV: KvInterface<BigTestKey, BigTestValue>,
+        KV: KvInterface<TestKey, TestValue>,
         KV::E: std::fmt::Debug,
 {
     let exp_output_dir = output_dir.to_owned() + "/full_setup/";
@@ -624,7 +688,8 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
         KV::setup(num_keys)?;
         let mut kv = KV::start()?;
     
-        let value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
+        // let value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
+        let value = TestValue { value: [0u8; VALUE_LEN] };
         let mut i = 0;
 
         println!("Inserting keys until failure");
@@ -632,22 +697,33 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
         // insert keys until the KV store runs out of space
         let mut insert_ok = Ok(());
         while insert_ok.is_ok() {
-            let key = u64_to_big_test_key(i);
+            let key = u64_to_test_key(i);
             insert_ok = kv.put(&key, &value);
             i += 1;
-            if i % 10000 == 0 {
+            if i % 1000000 == 0 {
                 println!("Inserted {:?} keys", i);
+                // viper throws an exception in a different thread when it runs out space,
+                // which we can't really handle from Rust, so instead of waiting for 
+                // and error we'll periodically check if we're close to running out 
+                // of space and break when we are
+                let stat = sys::statvfs::statvfs(MOUNT_POINT).unwrap();
+                if (stat.blocks_available()*100) / stat.blocks() == 0 {
+                    println!("Full, stopping.");
+                    break;
+                }
             }
         }
         println!("Maxed out at {:?} keys", i);
     }
     KV::cleanup();
 
-    for i in 0..ITERATIONS {
+    println!("Done setting up, running timed start");
+
+    for i in 0..START_ITERATIONS {
         let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
         fs::create_dir_all(&exp_output_dir).unwrap();
         let mut out_stream = create_file_and_build_output_stream(&output_file);
-        let (kv, dur) = KV::timed_start()?;
+        let (_kv, dur) = KV::timed_start()?;
         let elapsed = format!("{:?}\n", dur.as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
         out_stream.flush().unwrap();
@@ -665,17 +741,17 @@ pub fn init_and_mount_pm_fs() {
     println!("Unmounted");
 
     // Set up PM with a fresh file system instance
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["mkfs.ext4", PM_DEV, "-F"])
         .status()
         .expect("mkfs.ext4 failed");
 
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
         .status()
         .expect("mount failed");
 
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["chmod", "777", MOUNT_POINT])
         .status()
         .expect("chmod failed");
@@ -689,7 +765,7 @@ pub fn remount_pm_fs() {
 
     println!("Unmounted");
 
-    let status = Command::new("sudo")
+    Command::new("sudo")
         .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
         .status()
         .expect("mount failed");
@@ -698,8 +774,9 @@ pub fn remount_pm_fs() {
 }
 
 pub fn unmount_pm_fs() {
+    // sleep(Duration::from_secs(5));
     let status = Command::new("sudo")
-        .args(["umount", PM_DEV])
+        .args(["umount", PM_DEV, "-f"])
         .status();
     if let Err(e) = status {
         println!("{:?}", e);
