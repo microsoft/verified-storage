@@ -80,7 +80,7 @@ printf "${BOLD}${MAGENTA}Done building YCSB FFI layer for CapybaraKV!${NC}\n\n\n
 # 8. Building pmem-RocksDB
 printf "${BOLD}${MAGENTA}Building pmem-RocksDB...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/pmem-rocksdb
-make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j
+make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true JAVA_HOME=$JAVA_HOME
 printf "${BOLD}${MAGENTA}Done building pmem-RocksDB!${NC}\n\n\n"
 
 # 9. Building pmem-Redis
@@ -100,11 +100,19 @@ printf "${BOLD}${MAGENTA}Done building YCSB bindings!${NC}\n\n\n"
 
 #11. Build Viper dependencies
 printf "${BOLD}${MAGENTA}Building Viper dependencies...${NC}\n"
+printf "Building libpmemobj-cpp\n"
 cd $VERIF_STORAGE_DIR/evaluation/viper_deps/libpmemobj-cpp
-mkdir build
+mkdir -p build
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=./build
 make
 make install
+
+printf "Building benchmark\n"
+cd $VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark
+cmake -E make_directory "build"
+cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -S . -B "build" -DBUILD_SHARED_LIBS=ON
+cmake --build "build" --config Release
+sudo cmake --build "build" --config Release --target install`
 printf "${BOLD}${MAGENTA}Done building Viper dependencies!${NC}\n\n\n"
 
 # 12. Build Viper wrapper
