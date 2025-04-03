@@ -139,18 +139,18 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
 
 // Soundness argument for PoWER:
 //
-// Consider any predicate SoundnessParam::valid(state: Seq<u8>) that the
+// Consider any predicate PoWERApplication::valid(state: Seq<u8>) that the
 // application wants to enforce for possible crash states.  We construct
 // an AtomicInvariant that holds the durable_state resource from
-// PersistentMemoryRegionAtomic, and enforces SoundnessParam::valid() on it,
+// PersistentMemoryRegionAtomic, and enforces PoWERApplication::valid() on it,
 // while allowing the application to execute arbitrary code with access to
 // a CheckPermission object that matches the application's valid() predicate.
 //
-// The soundness argument depends on invariant_recovery_soundness_axiom(),
-// defined below, and the assumption that PersistentMemoryRegionAtomic soundly
-// models crash behavior with respect to how the durable state resource is updated.
+// The soundness argument depends on invariant_recovery_axiom(), defined below,
+// and the assumption that PersistentMemoryRegionAtomic soundly models crash
+// behavior with respect to how the durable state resource is updated.
 
-trait SoundnessParam<PM> : Sized
+trait PoWERApplication<PM> : Sized
     where
         PM: PersistentMemoryRegion,
 {
@@ -174,7 +174,7 @@ trait SoundnessParam<PM> : Sized
     // crash.
     //
     // The application receives a permission `perm` that allows all crash
-    // states specified by the soudness predicate's valid().
+    // states specified by the application's valid() predicate.
     exec fn recover<Perm>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm): Tracked<&Perm>)
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -186,17 +186,17 @@ trait SoundnessParam<PM> : Sized
             self.valid(pm@.durable_state);
 }
 
-// An example toy application modeled as SoundnessParam, to validate that
+// An example toy application modeled as PoWERApplication, to validate that
 // it's possible to construct this trait.  The application enforces that
 // location `addr` in persistent memory is always either `val0` or `val1`.
 
-struct ExampleSoundnessApp {
+struct ExampleApp {
     addr: u64,
     val0: u8,
     val1: u8,
 }
 
-impl<PM> SoundnessParam<PM> for ExampleSoundnessApp
+impl<PM> PoWERApplication<PM> for ExampleApp
     where
         PM: PersistentMemoryRegion,
 {
@@ -229,8 +229,8 @@ impl<PM> SoundnessParam<PM> for ExampleSoundnessApp
                 power_pm.inv(),
                 perm.valid(power_pm.id()),
                 self.addr < power_pm@.len(),
-                <Self as SoundnessParam<PM>>::valid(*self, power_pm@.durable_state),
-                forall |s| <Self as SoundnessParam<PM>>::valid(*self, s) ==> #[trigger] perm.check_permission(s),
+                <Self as PoWERApplication<PM>>::valid(*self, power_pm@.durable_state),
+                forall |s| <Self as PoWERApplication<PM>>::valid(*self, s) ==> #[trigger] perm.check_permission(s),
         {
             assert forall |s| can_result_from_partial_write(s, power_pm@.durable_state, self.addr as int, seq![self.val0]) implies #[trigger] perm.check_permission(s) by {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s, power_pm@.durable_state, self.addr as int, seq![self.val0]);
@@ -251,42 +251,42 @@ struct DurableResource {
     r: Frac<Seq<u8>>,
 }
 
-struct DurablePredicate<PM, S>
+struct DurablePredicate<PM, A>
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
 {
     id: int,
-    sound: S,
+    app: A,
     _pm: core::marker::PhantomData<PM>,
 }
 
-impl<PM, S> InvariantPredicate<DurablePredicate<PM, S>, DurableResource> for DurablePredicate<PM, S>
+impl<PM, A> InvariantPredicate<DurablePredicate<PM, A>, DurableResource> for DurablePredicate<PM, A>
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
 {
-    closed spec fn inv(k: DurablePredicate<PM, S>, inner: DurableResource) -> bool {
-        &&& inner.r.valid(k.id, 1)
-        &&& k.sound.valid(inner.r@)
+    closed spec fn inv(pred: DurablePredicate<PM, A>, inner: DurableResource) -> bool {
+        &&& inner.r.valid(pred.id, 1)
+        &&& pred.app.valid(inner.r@)
     }
 }
 
-struct SoundnessPermission<PM, S>
+struct SoundPermission<PM, A>
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
 {
-    inv: AtomicInvariant::<DurablePredicate<PM, S>, DurableResource, DurablePredicate<PM, S>>,
+    inv: AtomicInvariant::<DurablePredicate<PM, A>, DurableResource, DurablePredicate<PM, A>>,
 }
 
-impl<PM, S> CheckPermission<Seq<u8>> for SoundnessPermission<PM, S>
+impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
 {
     closed spec fn check_permission(&self, state: Seq<u8>) -> bool {
-        self.inv.constant().sound.valid(state)
+        self.inv.constant().app.valid(state)
     }
 
     closed spec fn valid(&self, id: int) -> bool {
@@ -300,26 +300,26 @@ impl<PM, S> CheckPermission<Seq<u8>> for SoundnessPermission<PM, S>
     }
 }
 
-// The soundness_setup() function models what happens the first time
-// persistent memory is initialized by the application: the soundness
+// The top_level_setup() function models what happens the first time
+// persistent memory is initialized by the application: the application
 // predicate is only established once the application finishes setup,
 // and keeps being true at all points after that.
-exec fn soundness_setup<PM, S>(mut pm: PM, s: S)
+exec fn top_level_setup<PM, A>(mut pm: PM, app: A)
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
     requires
         pm.inv(),
 {
     // Initialize the contents of the persistent memory.
-    s.setup(&mut pm);
+    app.setup(&mut pm);
 
     // Set up the atomic invariant to keep track of the durable state.
     let (mut pm_atomic, Tracked(r)) = PersistentMemoryRegionAtomic::new(pm);
 
     let ghost pred = DurablePredicate{
         id: r.id(),
-        sound: s,
+        app: app,
         _pm: core::marker::PhantomData,
     };
 
@@ -327,33 +327,33 @@ exec fn soundness_setup<PM, S>(mut pm: PM, s: S)
         r: r
     };
 
-    let tracked inv = AtomicInvariant::<_, _, DurablePredicate<PM, S>>::new(pred, inv_res, 0);
+    let tracked inv = AtomicInvariant::<_, _, DurablePredicate<PM, A>>::new(pred, inv_res, 0);
 
     // Establish that the read state matches the durable state.
     pm_atomic.flush();
 
-    // Construct a permission that captures the soundness predicate.
-    let tracked perm = SoundnessPermission{
+    // Construct a permission that captures the application predicate.
+    let tracked perm = SoundPermission{
         inv: inv
     };
 
     // Allow the application to run until the next crash.
-    s.recover::<SoundnessPermission::<PM, S>>(pm_atomic, Tracked(&perm))
+    app.recover::<SoundPermission::<PM, A>>(pm_atomic, Tracked(&perm))
 
     // Note that the atomic invariant continues to exist, and therefore
-    // enforces that the durable state will still satisfy the soundness
+    // enforces that the durable state will still satisfy the application
     // predicate, at all points during the application's execution in
-    // s.recover().
+    // app.recover().
 }
 
-// The soundness_recover() function models what happens on recovery from
+// The top_level_recover() function models what happens on recovery from
 // crash once the system has already been successfully initialized by
-// soundness_setup(), with zero or more additional crashes and recoveries
+// top_level_setup(), with zero or more additional crashes and recoveries
 // after that.
-exec fn soundness_recover<PM, S>(pm: PM, s: S)
+exec fn top_level_recover<PM, A>(pm: PM, app: A)
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
     requires
         pm.inv(),
 {
@@ -362,15 +362,16 @@ exec fn soundness_recover<PM, S>(pm: PM, s: S)
 
     // Restore the atomic invariant, which we assume was true before the
     // system crashed (i.e., it must have been that the previous execution
-    // started with soundness_setup() and got all the way to running
-    // s.recover(), or the previous execution started with soundness_recover().
+    // started with top_level_setup() and got all the way to running
+    // app.recover(), or the previous execution started with
+    // op_level_recover().
     let ghost pred = DurablePredicate{
         id: r.id(),
-        sound: s,
+        app: app,
         _pm: core::marker::PhantomData,
     };
 
-    let tracked inv = invariant_recovery_soundness_axiom(pred);
+    let tracked inv = invariant_recovery_axiom(pred);
 
     // Open the invariant to observe that the current state satisfies valid(),
     // because the resource in the invariant agrees with `pm_atomic`.
@@ -381,34 +382,34 @@ exec fn soundness_recover<PM, S>(pm: PM, s: S)
     });
 
     // Establish that the read state matches the durable state, since this
-    // is technically not required by the precondition of soundness_recover().
+    // is technically not required by the precondition of top_level_recover().
     pm_atomic.flush();
 
-    // Construct a permission that captures the soundness predicate.
-    let tracked perm = SoundnessPermission{
+    // Construct a permission that captures the application predicate.
+    let tracked perm = SoundPermission{
         inv: inv
     };
 
     // Allow the application to run until the next crash.
-    s.recover::<SoundnessPermission::<PM, S>>(pm_atomic, Tracked(&perm))
+    app.recover::<SoundPermission::<PM, A>>(pm_atomic, Tracked(&perm))
 
     // Note that the atomic invariant continues to exist, and therefore
-    // enforces that the durable state will still satisfy the soundness
+    // enforces that the durable state will still satisfy the application
     // predicate, at all points during the application's execution in
-    // s.recover().
+    // app.recover().
 }
 
-// The invariant_recovery_soundness_axiom() states a key assumption for
-// the soundness argument: that an AtomicInvariant on the logically atomic
+// The invariant_recovery_axiom() states a key assumption for the
+// soundness argument: that an AtomicInvariant on the logically atomic
 // contents of the disk still holds after recovery.  The assumption is
 // that this axiom will be invoked only in situations where we know the
 // AtomicInvariant held before the crash.  This models the use of atomic
 // invariants that persist across crashes in Perennial.
 #[verifier::external_body]
-proof fn invariant_recovery_soundness_axiom<PM, S>(pred: DurablePredicate<PM, S>) -> (tracked result: AtomicInvariant::<DurablePredicate<PM, S>, DurableResource, DurablePredicate<PM, S>>)
+proof fn invariant_recovery_axiom<PM, A>(pred: DurablePredicate<PM, A>) -> (tracked result: AtomicInvariant::<DurablePredicate<PM, A>, DurableResource, DurablePredicate<PM, A>>)
     where
         PM: PersistentMemoryRegion,
-        S: SoundnessParam<PM>,
+        A: PoWERApplication<PM>,
     ensures
         result.constant() == pred,
 {
