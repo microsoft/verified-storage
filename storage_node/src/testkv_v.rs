@@ -739,7 +739,7 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
         true
     }
 
-    proof fn apply(&self, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    proof fn apply(tracked &self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
     {
         admit();
     }
