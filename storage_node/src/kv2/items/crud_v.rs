@@ -150,7 +150,7 @@ where
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
             old(journal).valid(),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),

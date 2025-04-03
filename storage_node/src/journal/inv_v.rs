@@ -33,7 +33,7 @@ where
 
     pub(super) open spec fn inv_perm_factory_allows_app_equivalent_changes(self) -> bool
     {
-        &&& self.perm_factory@.valid(self.powerpm.id())
+        &&& self.perm_factory@.id() == self.powerpm.id()
         &&& forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==>
             #[trigger] self.perm_factory@.check_permission(s1, s2)
     }

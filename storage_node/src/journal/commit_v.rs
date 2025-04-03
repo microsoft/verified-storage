@@ -338,7 +338,7 @@ where
             recover_journal_length(old(self).powerpm@.read_state, old(self).sm) == Some(old(self).journal_length),
             recover_journal_entries(old(self).powerpm@.read_state, old(self).sm, old(self).journal_length) ==
                 Some(old(self).entries@),
-            perm.valid(old(self)@.powerpm_id),
+            perm.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| {
                 &&& spec_recovery_equivalent_for_app(s1, original_durable_state)
                 &&& spec_recovery_equivalent_for_app(s2, original_commit_state)
@@ -641,7 +641,7 @@ where
     pub exec fn commit(&mut self, Tracked(perm): Tracked<Perm>)
         requires
             old(self).valid(),
-            perm.valid(old(self)@.powerpm_id),
+            perm.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| {
                 &&& Self::recovery_equivalent_for_app(s1, old(self)@.durable_state)
                 &&& Self::recovery_equivalent_for_app(s2, old(self)@.commit_state)

@@ -677,7 +677,7 @@ where
                 .push_to_free_list(new_row_addr)
                 .corresponds_to_journal(old(journal)@, self.sm),
             old(journal).valid(),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
             idx == 0 || old(journal)@.remaining_capacity >= self.space_needed_to_journal_next,
             match entry {
@@ -976,7 +976,7 @@ where
             old(self).internal_view().add_entry(list_addr, entry@).corresponds_to_journal(old(journal)@, old(self).sm),
             !old(self).m@.contains_key(list_addr),
             old(journal).valid(),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
             idx == 0 || old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
             old(self).free_list.len() > 0,
@@ -1090,7 +1090,7 @@ where
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),

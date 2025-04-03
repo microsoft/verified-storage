@@ -14,16 +14,16 @@ where
     P: CheckPermission<State>,
 {
     spec fn check_permission(&self, s1: State, s2: State) -> bool;
-    spec fn valid(&self, id: int) -> bool;
+    spec fn id(&self) -> int;
 
     proof fn grant_permission(tracked &self) -> (tracked perm: P)
         ensures
-            forall|id| self.valid(id) ==> #[trigger] perm.valid(id),
+            self.id() == perm.id(),
             forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2);
 
     proof fn clone(tracked &self) -> (tracked other: Self)
         ensures
-            forall|id| self.valid(id) ==> #[trigger] other.valid(id),
+            self.id() == other.id(),
             forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2);
 }
 
@@ -129,7 +129,7 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>)
         requires
             old(self).inv(),
-            perm@.valid(old(self).id()),
+            perm@.id() == old(self).id(),
             addr + bytes@.len() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
@@ -150,7 +150,7 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
             S: PmCopy + Sized
         requires
             old(self).inv(),
-            perm@.valid(old(self).id()),
+            perm@.id() == old(self).id(),
             addr + S::spec_size_of() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())

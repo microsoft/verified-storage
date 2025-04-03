@@ -56,7 +56,7 @@ trait PoWERApplication<PM> : Sized
         requires
             pm.inv(),
             pm@.durable_state == pm@.read_state,
-            perm_factory.valid(pm.id()),
+            perm_factory.id() == pm.id(),
             forall |s1, s2| self.valid(s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
             self.valid(pm@.durable_state);
 }
@@ -103,21 +103,47 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         loop
             invariant
                 power_pm.inv(),
-                perm_factory.valid(power_pm.id()),
+                perm_factory.id() == power_pm.id(),
                 self.addr < power_pm@.len(),
                 <Self as PoWERApplication<PM>>::valid(*self, power_pm@.durable_state),
                 forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
         {
-            assert forall |s| can_result_from_partial_write(s, power_pm@.durable_state, self.addr as int, seq![self.val0]) implies #[trigger] perm_factory.check_permission(power_pm@.durable_state, s) by {
-                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s, power_pm@.durable_state, self.addr as int, seq![self.val0]);
+            assert forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s1) && can_result_from_partial_write(s2, s1, self.addr as int, seq![self.val0]) implies #[trigger] perm_factory.check_permission(s1, s2) by {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s2, s1, self.addr as int, seq![self.val0]);
             }
 
+            assert forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s1) && can_result_from_partial_write(s2, s1, self.addr as int, seq![self.val1]) implies #[trigger] perm_factory.check_permission(s1, s2) by {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s2, s1, self.addr as int, seq![self.val1]);
+            }
+
+            let ghost durable_0 = power_pm@.durable_state;
+
             power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
+            let ghost durable_1 = power_pm@.durable_state;
+            proof {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_1, durable_0, self.addr as int, seq![self.val0]);
+            }
+
             power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
+            let ghost durable_2 = power_pm@.durable_state;
+            proof {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_2, durable_1, self.addr as int, seq![self.val1]);
+            }
+
             power_pm.flush();
 
             power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
+            let ghost durable_3 = power_pm@.durable_state;
+            proof {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_3, durable_2, self.addr as int, seq![self.val1]);
+            }
+
             power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
+            let ghost durable_4 = power_pm@.durable_state;
+            proof {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_4, durable_3, self.addr as int, seq![self.val0]);
+            }
+
             power_pm.flush();
         }
     }
@@ -184,10 +210,12 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         self.inv.constant().app.valid(s2)
     }
 
-    closed spec fn valid(&self, id: int) -> bool {
-        self.inv.constant().id == id
+    closed spec fn id(&self) -> int {
+        self.inv.constant().id
     }
 
+    // XXX complicated
+    #[verifier::external_body]
     proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self) {
         self
     }
@@ -208,8 +236,8 @@ impl<PM, A> PermissionFactory<Seq<u8>, SoundPermission<PM, A>> for SoundPermissi
         CheckPermission::check_permission(self, s1, s2)
     }
 
-    closed spec fn valid(&self, id: int) -> bool {
-        CheckPermission::valid(self, id)
+    closed spec fn id(&self) -> int {
+        CheckPermission::id(self)
     }
 
     proof fn grant_permission(tracked &self) -> (tracked perm: SoundPermission<PM, A>) {

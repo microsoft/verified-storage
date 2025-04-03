@@ -29,7 +29,7 @@ where
     ) -> (result: Result<(), KvError>)
         requires 
             old(self).valid(),
-            perm.valid(old(self)@.powerpm_id),
+            perm.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| {
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })

@@ -242,7 +242,7 @@ where
             forall|addr: int|
                 row_addr + self.sm.row_metadata_start <= addr < row_addr + self.sm.table.row_size ==>
                 !(#[trigger] old(journal)@.journaled_addrs.contains(addr)),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.inv(journal@),
@@ -320,7 +320,7 @@ where
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),

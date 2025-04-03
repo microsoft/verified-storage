@@ -2,7 +2,7 @@
 
 VERUS_PATH=/home/$USER/verus/source/target-verus/release/verus
 
-clear
+# clear
 cd ../../deps_hack
 echo "Building deps_hack"
 cargo build

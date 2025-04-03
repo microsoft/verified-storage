@@ -172,7 +172,7 @@ where
             0 <= num_entries_installed < entries.len(),
             entries[num_entries_installed as int].start == write_addr,
             entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
-            perm_factory.valid(old(powerpm).id()),
+            perm_factory.id() == old(powerpm).id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -245,7 +245,7 @@ where
             parse_journal_entries(entries_bytes@) == Some(entries),
             apply_journal_entries(old(powerpm)@.read_state, entries, *sm) is Some,
             recover_journal(old(powerpm)@.read_state) is Some,
-            perm_factory.valid(old(powerpm).id()),
+            perm_factory.id() == old(powerpm).id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -306,7 +306,7 @@ where
                 recover_journal_entries_bytes(powerpm@.durable_state, *sm, entries_bytes.len() as u64)
                     == Some(entries_bytes@),
                 recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
-                perm_factory.valid(powerpm.id()),
+                perm_factory.id() == powerpm.id(),
                 forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                     ==> #[trigger] perm_factory.check_permission(s1, s2),
                 parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
@@ -378,7 +378,7 @@ where
                 &&& recover_journal(old(powerpm)@.read_state) matches Some(j)
                 &&& j.state == old(powerpm)@.read_state
             }),
-            perm_factory.valid(old(powerpm).id()),
+            perm_factory.id() == old(powerpm).id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -421,7 +421,7 @@ where
         requires
             powerpm.inv(),
             Self::recover(powerpm@.durable_state).is_some(),
-            perm_factory.valid(powerpm.id()),
+            perm_factory.id() == powerpm.id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures

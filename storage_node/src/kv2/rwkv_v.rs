@@ -174,7 +174,7 @@ where
             powerpm.inv(),
             Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
-            perm_factory.valid(powerpm.id()),
+            perm_factory.id() == powerpm.id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
                 #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -367,7 +367,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, CreateOp<K, I>, Self>(
                 perm, CreateOp{ key: *key, item: *item }, old(self).pm_constants()
             ),
@@ -416,7 +416,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateItemOp<K, I>, Self>(
                 perm, UpdateItemOp{ key: *key, item: *item }, old(self).pm_constants()
             ),
@@ -464,7 +464,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, DeleteOp<K>, Self>(
                 perm, DeleteOp{ key: *key }, old(self).pm_constants()
             ),
@@ -513,7 +513,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, AppendToListOp<K, L>, Self>(
                 perm, AppendToListOp{ key: *key, new_list_element }, old(self).pm_constants()
             ),
@@ -563,7 +563,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>(
                 perm, AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -613,7 +613,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>(
                 perm, UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, old(self).pm_constants()
             ),
@@ -665,7 +665,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>(
                 perm, UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, old(self).pm_constants()
             ),
@@ -717,7 +717,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, TrimListOp<K>, Self>(
                 perm, TrimListOp{ key : *key, trim_length }, old(self).pm_constants()
             ),
@@ -767,7 +767,7 @@ where
         requires
             old(self).valid(),
             old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
-            perm.valid(old(self).powerpm_id()),
+            perm.id() == old(self).powerpm_id(),
             grants_permission_to_mutate::<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>(
                 perm, TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }, old(self).pm_constants()
             ),

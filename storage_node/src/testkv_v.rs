@@ -725,6 +725,7 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
 struct TestKvPermission
 {
     ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool,
+    ghost powerpm_id: int,
 }
 
 impl CheckPermission<Seq<u8>> for TestKvPermission
@@ -734,9 +735,9 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
         (self.is_transition_allowable)(s1, s2)
     }
 
-    closed spec fn valid(&self, id: int) -> bool
+    closed spec fn id(&self) -> int
     {
-        true
+        self.powerpm_id
     }
 
     proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
@@ -746,7 +747,8 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
     {
         Self{
             is_transition_allowable:
-                |s1: Seq<u8>, s2: Seq<u8>| self.check_permission(s1, s2) || other.check_permission(s1, s2)
+                |s1: Seq<u8>, s2: Seq<u8>| self.check_permission(s1, s2) || other.check_permission(s1, s2),
+            powerpm_id: self.powerpm_id,
         }
     }
 
@@ -759,6 +761,7 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
 pub struct TestKvPermissionFactory
 {
     ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool,
+    ghost powerpm_id: int,
 }
 
 impl PermissionFactory<Seq<u8>, TestKvPermission> for TestKvPermissionFactory
@@ -773,7 +776,8 @@ impl PermissionFactory<Seq<u8>, TestKvPermission> for TestKvPermissionFactory
             forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2)
     {
         TestKvPermission{
-            is_transition_allowable: |s1: Seq<u8>, s2: Seq<u8>| (self.is_transition_allowable)(s1, s2)
+            is_transition_allowable: |s1: Seq<u8>, s2: Seq<u8>| (self.is_transition_allowable)(s1, s2),
+            powerpm_id: self.powerpm_id,
         }
     }
 
@@ -782,29 +786,35 @@ impl PermissionFactory<Seq<u8>, TestKvPermission> for TestKvPermissionFactory
             forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2)
     {
         Self{
-            is_transition_allowable: self.is_transition_allowable
+            is_transition_allowable: self.is_transition_allowable,
+            powerpm_id: self.powerpm_id,
         }
     }
 
-    closed spec fn valid(&self, id: int) -> bool
+    closed spec fn id(&self) -> int
     {
-        true
+        self.powerpm_id
     }
 }
 
 impl TestKvPermission
 {
-    proof fn new<PM, K, I, L>() -> (tracked perm: Self)
+    proof fn new<PM, K, I, L>(powerpm_id: int) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        ensures
+            perm.id() == powerpm_id,
     {
-        Self { is_transition_allowable:
+        Self {
+            is_transition_allowable:
                    |s1: Seq<u8>, s2: Seq<u8>|
                        ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, PM, K, I, L>::recover(s1) ==
-                       ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, PM, K, I, L>::recover(s2) }
+                       ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, PM, K, I, L>::recover(s2),
+            powerpm_id: powerpm_id,
+        }
     }
 }
 
@@ -819,10 +829,11 @@ where
     ghost powerpm_id: int,
 }
 
-proof fn create_mutating_perm<Op>(op: Op, pm_constants: PersistentMemoryConstants) -> (tracked perm: TestKvPermission)
+proof fn create_mutating_perm<Op>(op: Op, pm_constants: PersistentMemoryConstants, powerpm_id: int) -> (tracked perm: TestKvPermission)
 where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
     ensures
+        perm.id() == powerpm_id,
         grants_permission_to_mutate::<TestKvPermission, TestKey, TestItem, TestListElement, Op,
                                       ConcurrentKvStore<TestKvPermission, TestKvPermissionFactory,
                                                         FileBackedPersistentMemoryRegion, TestKey,
@@ -842,7 +853,10 @@ where
                )
          }
     };
-    let tracked perm = TestKvPermission{ is_transition_allowable };
+    let tracked perm = TestKvPermission{
+        is_transition_allowable,
+        powerpm_id: powerpm_id,
+    };
     perm
 }
 
@@ -955,7 +969,10 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
                                   TestItem, TestListElement>::recover(s2)
     };
-    let tracked perm_factory = TestKvPermissionFactory{ is_transition_allowable };
+    let tracked perm_factory = TestKvPermissionFactory{
+        is_transition_allowable,
+        powerpm_id: powerpm.id(),
+    };
     let (mut ckv, Tracked(app_resource)) =
         match ConcurrentKvStore::<TestKvPermission, TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
                                   TestItem, TestListElement>::start(
@@ -972,7 +989,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item2 = TestItem { val: 0x66666666 };
 
     let ghost op = CreateOp::<TestKey, TestItem>{ key: key1, item: item1 };
-    let tracked perm = create_mutating_perm::<CreateOp<TestKey, TestItem>>(op, pm_constants);
+    let tracked perm = create_mutating_perm::<CreateOp<TestKey, TestItem>>(op, pm_constants, powerpm.id());
     let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem>>{
         r: app_resource,
         op,

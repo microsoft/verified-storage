@@ -740,7 +740,7 @@ where
             prev_self.valid(old(journal)@),
             prev_self@.tentative is Some,
             old(journal).valid(),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             journal.valid(),
@@ -826,7 +826,7 @@ where
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
@@ -994,7 +994,7 @@ where
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
             old(journal).valid(),
-            perm_factory.valid(old(journal)@.powerpm_id),
+            perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
             self.valid(journal@),
