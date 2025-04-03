@@ -14,27 +14,37 @@ MAGENTA="\e[35m"
 BOLD=$(tput bold)
 NC="\e[0m"
 
-LD_LIBRARY_PATH=$VERIF_STORAGE_PROJECT/evaluation/ycsb_ffi/target/release \
-    :$VERIF_STORAGE_PROJECT/evaluation/viper_wrapper \
-    :$VERIF_STORAGE_PROJECT/evaluation/viper_deps/benchmark/build/src \
-    :$VERIF_STORAGE_PROJECT/evaluation/viper_deps/benchmark/include \
-    :$VERIF_STORAGE_PROJECT/evaluation/viper/benchmark
+LD_LIBRARY_PATH=$VERIF_STORAGE_DIR/evaluation/ycsb_ffi/target/release \
+    :$VERIF_STORAGE_DIR/evaluation/viper_wrapper \
+    :$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/build/src \
+    :$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/include \
+    :$VERIF_STORAGE_DIR/evaluation/viper/benchmark
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64/`
 
-# 1. Install Rust and automatically select default installation
+# 1. Install apt dependencies
+# TODO: is valgrind necessary?
+printf "${BOLD}${MAGENTA}Installing dependencies...${NC}\n"
+sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
+    pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
+    daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
+    python3-toml numactl llvm-dev libclang-dev clang libpmem1 libpmem-dev \
+    python3-pip unzip
+printf "${BOLD}${MAGENTA}Done installing dependencies!${NC}\n\n\n"
+
+# 2. Install Rust and automatically select default installation
 printf "${BOLD}${MAGENTA}Installing Rust...${NC}\n"
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 . "$HOME/.cargo/env"
 printf "${BOLD}${MAGENTA}Done installing Rust!${NC}\n\n\n"
 
-# 2. Confirm that verified-storage crates build successfully
+# 3. Confirm that verified-storage crates build successfully
 printf "${BOLD}${MAGENTA}Building verified-storage crates...${NC}\n"
 cd $VERIF_STORAGE_DIR/deps_hack; cargo build --release
 cd $VERIF_STORAGE_DIR/pmsafe; cargo build --release
 cd $VERIF_STORAGE_DIR/storage_node/src; cargo build --release
 printf "${BOLD}${MAGENTA}Done building verified-storage crates!${NC}\n\n\n"
 
-# 3. Clone and build Verus
+# 4. Clone and build Verus
 printf "${BOLD}${MAGENTA}Cloning and building Verus...${NC}\n"
 cd $PROJECT_DIR
 if [ -d verus ]; 
@@ -43,22 +53,13 @@ then
 else 
     git clone https://github.com/verus-lang/verus.git;
 fi
-cd $VERUS_DIR/source; source ../tools/activate; ./tools/get-z3.sh; vargo build --release
+cd $VERUS_DIR/source; ./tools/get-z3.sh; /bin/bash -c "source ../tools/activate; vargo build --release"
 printf "${BOLD}${MAGENTA}Done building Verus!${NC}\n\n\n"
 
-# 4. Confirm that CapybaraKV verifies
+# 5. Confirm that CapybaraKV verifies
 printf "${BOLD}${MAGENTA}Verifying CapybaraKV...${NC}\n"
 cd $VERIF_STORAGE_DIR/storage_node/src/; ./verify.sh
 printf "${BOLD}${MAGENTA}Done verifying CapybaraKV!${NC}\n\n\n"
-
-# 5. Install other apt dependencies
-printf "${BOLD}${MAGENTA}Installing dependencies...${NC}\n"
-sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
-    pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
-    daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
-    python3-toml numactl linux-generic llvm-dev libclang-dev clang libpmem1 \
-    libpmem-dev python3-pip unzip
-printf "${BOLD}${MAGENTA}Done installing dependencies!${NC}\n\n\n"
 
 # 6. Download Maven for YCSB
 printf "${BOLD}${MAGENTA}Downloading Maven...${NC}\n"
@@ -66,9 +67,10 @@ cd $PROJECT_DIR
 if [ -d maven ];
 then
     printf "${BOLD}${MAGENTA}Maven already exists here, skipping...${NC}\n"
-elif 
+else
     wget https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz
-    tar -xvf apache-maven-3.9.9-bin.tar.gz -s /^apache-maven-3.9.9/maven/
+    tar -xvf apache-maven-3.9.9-bin.tar.gz
+    mv apache-maven-3.9.9 maven
 fi
 PATH=$PATH:$PROJECT_DIR/maven/bin
 printf "${BOLD}${MAGENTA}Done downloading Maven${NC}\n\n\n"
