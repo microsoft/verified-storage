@@ -4,6 +4,7 @@ use crate::pmem::frac_v::*;
 use crate::pmem::power_t::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
+use std::sync::Arc;
 
 verus! {
 
@@ -48,14 +49,15 @@ trait PoWERApplication<PM> : Sized
     //
     // The application receives a permission `perm` that allows all crash
     // states specified by the application's valid() predicate.
-    exec fn run<Perm>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm): Tracked<&Perm>)
+    exec fn run<Perm, PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
         where
             Perm: CheckPermission<Seq<u8>>,
+            PermFactory: PermissionFactory<Seq<u8>, Perm>,
         requires
             pm.inv(),
             pm@.durable_state == pm@.read_state,
-            perm.valid(pm.id()),
-            forall |s| self.valid(s) ==> #[trigger] perm.check_permission(s),
+            perm_factory.valid(pm.id()),
+            forall |s1, s2| self.valid(s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
             self.valid(pm@.durable_state);
 }
 
@@ -91,30 +93,31 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         pm.flush();
     }
 
-    exec fn run<Perm>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm): Tracked<&Perm>)
+    exec fn run<Perm, PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
         where
             Perm: CheckPermission<Seq<u8>>,
+            PermFactory: PermissionFactory<Seq<u8>, Perm>,
     {
         let mut power_pm: PoWERPersistentMemoryRegion<Perm, PM> = PoWERPersistentMemoryRegion::new_atomic(pm);
 
         loop
             invariant
                 power_pm.inv(),
-                perm.valid(power_pm.id()),
+                perm_factory.valid(power_pm.id()),
                 self.addr < power_pm@.len(),
                 <Self as PoWERApplication<PM>>::valid(*self, power_pm@.durable_state),
-                forall |s| <Self as PoWERApplication<PM>>::valid(*self, s) ==> #[trigger] perm.check_permission(s),
+                forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
         {
-            assert forall |s| can_result_from_partial_write(s, power_pm@.durable_state, self.addr as int, seq![self.val0]) implies #[trigger] perm.check_permission(s) by {
+            assert forall |s| can_result_from_partial_write(s, power_pm@.durable_state, self.addr as int, seq![self.val0]) implies #[trigger] perm_factory.check_permission(power_pm@.durable_state, s) by {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s, power_pm@.durable_state, self.addr as int, seq![self.val0]);
             }
 
-            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm));
-            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm));
+            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
+            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
             power_pm.flush();
 
-            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm));
-            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm));
+            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
+            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
             power_pm.flush();
         }
     }
@@ -169,7 +172,7 @@ struct SoundPermission<PM, A>
         PM: PersistentMemoryRegion,
         A: PoWERApplication<PM>,
 {
-    inv: AtomicInvariant::<DurablePredicate<PM, A>, DurableResource, DurablePredicate<PM, A>>,
+    inv: Arc<AtomicInvariant::<DurablePredicate<PM, A>, DurableResource, DurablePredicate<PM, A>>>,
 }
 
 impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
@@ -177,18 +180,48 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         PM: PersistentMemoryRegion,
         A: PoWERApplication<PM>,
 {
-    closed spec fn check_permission(&self, state: Seq<u8>) -> bool {
-        self.inv.constant().app.valid(state)
+    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
+        self.inv.constant().app.valid(s2)
     }
 
     closed spec fn valid(&self, id: int) -> bool {
         self.inv.constant().id == id
     }
 
-    proof fn apply(tracked &self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>) {
+    proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self) {
+        self
+    }
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>) {
         open_atomic_invariant_in_proof!(credit => &self.inv => inner => {
             r.update_with(&mut inner.r, new_state);
         });
+    }
+}
+
+impl<PM, A> PermissionFactory<Seq<u8>, SoundPermission<PM, A>> for SoundPermission<PM, A>
+    where
+        PM: PersistentMemoryRegion,
+        A: PoWERApplication<PM>,
+{
+    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
+        CheckPermission::check_permission(self, s1, s2)
+    }
+
+    closed spec fn valid(&self, id: int) -> bool {
+        CheckPermission::valid(self, id)
+    }
+
+    proof fn grant_permission(tracked &self) -> (tracked perm: SoundPermission<PM, A>) {
+        Self{
+            inv: self.inv.clone(),
+        }
+    }
+
+    proof fn clone(tracked &self) -> (tracked other: Self) {
+        Self{
+            inv: self.inv.clone(),
+        }
     }
 }
 
@@ -225,12 +258,12 @@ exec fn main_first_time<PM, A>(mut pm: PM, app: A)
     pm_atomic.flush();
 
     // Construct a permission that captures the application predicate.
-    let tracked perm = SoundPermission{
-        inv: inv
+    let tracked perm_factory = SoundPermission{
+        inv: Arc::new(inv),
     };
 
     // Allow the application to run until the next crash.
-    app.run::<SoundPermission::<PM, A>>(pm_atomic, Tracked(&perm))
+    app.run::<_, SoundPermission::<PM, A>>(pm_atomic, Tracked(perm_factory))
 
     // Note that the atomic invariant continues to exist, and therefore
     // enforces that the durable state will still satisfy the application
@@ -277,12 +310,12 @@ exec fn main_after_crash<PM, A>(pm: PM, app: A)
     pm_atomic.flush();
 
     // Construct a permission that captures the application predicate.
-    let tracked perm = SoundPermission{
-        inv: inv
+    let tracked perm_factory = SoundPermission{
+        inv: Arc::new(inv),
     };
 
     // Allow the application to run until the next crash.
-    app.run::<SoundPermission::<PM, A>>(pm_atomic, Tracked(&perm))
+    app.run::<_, SoundPermission::<PM, A>>(pm_atomic, Tracked(perm_factory))
 
     // Note that the atomic invariant continues to exist, and therefore
     // enforces that the durable state will still satisfy the application

@@ -13,7 +13,7 @@ pub mod pmemspec_t;
 pub mod pmemutil_v;
 pub mod pmcopy_t;
 pub mod power_t;
-// pub mod power_sound_t;
+pub mod power_sound_t;
 pub mod power_v;
 // pub mod subregion_v;
 pub mod traits_t;
