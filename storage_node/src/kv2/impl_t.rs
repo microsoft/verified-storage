@@ -17,6 +17,7 @@ use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
+use crate::pmem::frac_v::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::inv_v::*;
@@ -39,6 +40,11 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
     closed spec fn valid(&self, id: int) -> bool
     {
         true
+    }
+
+    proof fn apply(&self, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    {
+        admit();
     }
 }
 
@@ -219,7 +225,7 @@ where
             }
         }),
     {
-        let mut powerpm = PoWERPersistentMemoryRegion::new(pm);
+        let (mut powerpm, _) = PoWERPersistentMemoryRegion::new(pm);
         powerpm.flush(); // ensure there are no outstanding writes
         let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(powerpm@.durable_state).unwrap();
         let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state.ps, state.kv);

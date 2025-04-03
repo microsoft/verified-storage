@@ -274,9 +274,6 @@ verus! {
     pub struct PersistentMemoryConstants {
         // Mask of corrupted bits on this persistent memory device.
         pub corruption: Seq<u8>,
-
-        // Identifier used to associate `Perm`s with persistent memory regions.
-        pub id: int,
     }
 
     impl PersistentMemoryConstants {

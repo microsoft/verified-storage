@@ -97,6 +97,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..*old(self)
             }),
             self.powerpm.constants() == old(self).powerpm.constants(),
+            self.powerpm.id() == old(self).powerpm.id(),
             next_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
             seqs_match_in_range(original_durable_state, self.powerpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
@@ -211,6 +212,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..*old(self)
             }),
             self.powerpm.constants() == old(self).powerpm.constants(),
+            self.powerpm.id() == old(self).powerpm.id(),
             seqs_match_in_range(old(self).powerpm@.durable_state, self.powerpm@.durable_state,
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
             seqs_match_in_range(old(self).powerpm@.read_state, self.powerpm@.read_state,
@@ -239,6 +241,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 self.inv(),
                 self.status@ is WritingJournal,
                 self.powerpm.constants() == old(self).powerpm.constants(),
+                self.powerpm.id() == old(self).powerpm.id(),
                 end_pos == self.sm.journal_entries_start + self.journal_length,
                 perm.valid(self@.powerpm_id),
                 forall|s: Seq<u8>| spec_recovery_equivalent_for_app(s, original_durable_state)
@@ -290,6 +293,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.inv(),
             self.powerpm.constants() == old(self).powerpm.constants(),
+            self.powerpm.id() == old(self).powerpm.id(),
             self == (Self{
                 powerpm: self.powerpm,
                 ..*old(self)
@@ -359,6 +363,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             self.inv(),
             self.powerpm.constants() == old(self).powerpm.constants(),
+            self.powerpm.id() == old(self).powerpm.id(),
             self == (Self{
                 status: Ghost(JournalStatus::Committed),
                 powerpm: self.powerpm,
@@ -469,6 +474,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..*old(self)
             }),
             self.powerpm.constants() == old(self).powerpm.constants(),
+            self.powerpm.id() == old(self).powerpm.id(),
             journal_entries_valid(self.entries@, self.sm),
             apply_journal_entries(original_read_state, self.entries@, self.sm) is Some,
             recover_version_metadata(self.powerpm@.durable_state) == Some(self.vm@),
@@ -561,6 +567,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 ..*old(self)
             }),
             self.powerpm.constants() == old(self).powerpm.constants(),
+            self.powerpm.id() == old(self).powerpm.id(),
             self.powerpm@.flush_predicted(),
             seqs_match_in_range(self.powerpm@.read_state, original_commit_state, self.sm.app_area_start as int,
                                 self.sm.app_area_end as int),
@@ -611,6 +618,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
                 self == (Self{ powerpm: self.powerpm, ..*old(self) }),
                 self.powerpm.constants() == old(self).powerpm.constants(),
+                self.powerpm.id() == old(self).powerpm.id(),
         {
             let ghost durable_state_at_start_of_loop = self.powerpm@.durable_state;
     

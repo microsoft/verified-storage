@@ -16,5 +16,3 @@ pub mod power_t;
 pub mod subregion_v;
 pub mod traits_t;
 pub mod frac_v;
-pub mod logatom_v;
-pub mod pmemspec_logatom_t;

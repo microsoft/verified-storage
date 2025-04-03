@@ -177,6 +177,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             powerpm.inv(),
             powerpm.constants() == old(powerpm).constants(),
+            powerpm.id() == old(powerpm).id(),
             powerpm@.len() == old(powerpm)@.len(),
             powerpm@.valid(),
             recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
@@ -247,6 +248,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             powerpm.inv(),
             powerpm.constants() == old(powerpm).constants(),
+            powerpm.id() == old(powerpm).id(),
             powerpm@.len() == old(powerpm)@.len(),
             powerpm@.flush_predicted(),
             recover_version_metadata(powerpm@.read_state) == Some(vm),
@@ -275,6 +277,7 @@ impl <Perm, PM> Journal<Perm, PM>
             invariant
                 powerpm.inv(),
                 powerpm.constants() == old(powerpm).constants(),
+                powerpm.id() == old(powerpm).id(),
                 powerpm@.valid(),
                 powerpm@.len() == old(powerpm)@.len(),
                 start <= end == entries_bytes.len(),
@@ -377,6 +380,7 @@ impl <Perm, PM> Journal<Perm, PM>
         ensures
             powerpm.inv(),
             powerpm.constants() == old(powerpm).constants(),
+            powerpm.id() == old(powerpm).id(),
             powerpm@.len() == old(powerpm)@.len(),
             powerpm@.flush_predicted(),
             recover_version_metadata(powerpm@.read_state) == Some(vm),

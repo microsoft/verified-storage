@@ -25,6 +25,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
+use crate::pmem::frac_v::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
 use std::hash::Hash;
@@ -737,6 +738,11 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
     {
         true
     }
+
+    proof fn apply(&self, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    {
+        admit();
+    }
 }
 
 impl TestKvPermission
@@ -925,7 +931,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
     }
 
-    let mut powerpm = PoWERPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
+    let (mut powerpm, _) = PoWERPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
     let ghost state = ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                           TestListElement>::recover(powerpm@.durable_state).unwrap();
     let tracked perm = TestKvPermission::new_one_possibility::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
