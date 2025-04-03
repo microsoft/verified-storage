@@ -179,10 +179,72 @@ trait SoundnessParam<PM> : Sized
         where
             Perm: CheckPermission<Seq<u8>>,
         requires
+            pm.inv(),
             pm@.durable_state == pm@.read_state,
             perm.valid(pm.id()),
             forall |s| self.valid(s) ==> #[trigger] perm.check_permission(s),
             self.valid(pm@.durable_state);
+}
+
+// An example toy application modeled as SoundnessParam, to validate that
+// it's possible to construct this trait.  The application enforces that
+// location `addr` in persistent memory is always either `val0` or `val1`.
+
+struct ExampleSoundnessApp {
+    addr: u64,
+    val0: u8,
+    val1: u8,
+}
+
+impl<PM> SoundnessParam<PM> for ExampleSoundnessApp
+    where
+        PM: PersistentMemoryRegion,
+{
+    spec fn valid(self, state: Seq<u8>) -> bool {
+        &&& self.addr < state.len()
+        &&& {
+            ||| state[self.addr as int] == self.val0
+            ||| state[self.addr as int] == self.val1
+        }
+    }
+
+    exec fn setup(&self, pm: &mut PM) {
+        let len = pm.get_region_size();
+        if self.addr >= len {
+            loop {}
+        }
+
+        pm.write(self.addr, vec![self.val0].as_slice());
+        pm.flush();
+    }
+
+    exec fn recover<Perm>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm): Tracked<&Perm>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+    {
+        let mut power_pm: PoWERPersistentMemoryRegion<Perm, PM> = PoWERPersistentMemoryRegion::new_atomic(pm);
+
+        loop
+            invariant
+                power_pm.inv(),
+                perm.valid(power_pm.id()),
+                self.addr < power_pm@.len(),
+                <Self as SoundnessParam<PM>>::valid(*self, power_pm@.durable_state),
+                forall |s| <Self as SoundnessParam<PM>>::valid(*self, s) ==> #[trigger] perm.check_permission(s),
+        {
+            assert forall |s| can_result_from_partial_write(s, power_pm@.durable_state, self.addr as int, seq![self.val0]) implies #[trigger] perm.check_permission(s) by {
+                crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s, power_pm@.durable_state, self.addr as int, seq![self.val0]);
+            }
+
+            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm));
+            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm));
+            power_pm.flush();
+
+            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm));
+            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm));
+            power_pm.flush();
+        }
+    }
 }
 
 struct DurableResource {

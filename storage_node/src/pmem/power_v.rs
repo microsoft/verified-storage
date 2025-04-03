@@ -79,6 +79,7 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
             result.inv(),
             result@ == pm_region@,
             result.constants() == pm_region.constants(),
+            result.id() == pm_region.id(),
     {
         Self {
             pm_region: pm_region,
