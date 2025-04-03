@@ -163,7 +163,7 @@ where
             powerpm.inv(),
             Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
-            perm.valid(powerpm.id()),
+            perm.id() == powerpm.id(),
             forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
         ({

@@ -725,6 +725,7 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
 struct TestKvPermission
 {
     ghost is_state_allowable: spec_fn(Seq<u8>) -> bool,
+    ghost powerpm_id: int,
 }
 
 impl CheckPermission<Seq<u8>> for TestKvPermission
@@ -734,9 +735,9 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
         (self.is_state_allowable)(state)
     }
 
-    closed spec fn valid(&self, id: int) -> bool
+    closed spec fn id(&self) -> int
     {
-        true
+        self.powerpm_id
     }
 
     proof fn apply(tracked &self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
@@ -747,23 +748,29 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
 
 impl TestKvPermission
 {
-    proof fn new<PM, K, I, L>() -> (tracked perm: Self)
-        where
-            PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-            I: PmCopy + std::fmt::Debug,
-            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-    {
-        Self { is_state_allowable: |s: Seq<u8>| false }
-    }
-
-    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
+    proof fn new<PM, K, I, L>(powerpm_id: int) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
+            perm.id() == powerpm_id,
+    {
+        Self {
+            is_state_allowable: |s: Seq<u8>| false,
+            powerpm_id: powerpm_id,
+        }
+    }
+
+    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>, powerpm_id: int) -> (tracked perm: Self)
+        where
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        ensures
+            perm.id() == powerpm_id,
             forall |s| #[trigger] perm.check_permission(s) <==
                 ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
                 Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
@@ -772,6 +779,7 @@ impl TestKvPermission
             is_state_allowable:
                 |s| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
                     Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
+            powerpm_id: powerpm_id,
         }
     }
 }
@@ -851,7 +859,10 @@ where
                    }
               }
         };
-        let tracked perm = TestKvPermission{ is_state_allowable };
+        let tracked perm = TestKvPermission{
+            is_state_allowable,
+            powerpm_id: self.powerpm_id,
+        };
         self.perm = perm;
         &self.perm
     }
@@ -935,7 +946,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let ghost state = ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                           TestListElement>::recover(powerpm@.durable_state).unwrap();
     let tracked perm = TestKvPermission::new_one_possibility::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
-                                                               TestListElement>(state.ps, state.kv);
+                                                               TestListElement>(state.ps, state.kv, powerpm.id());
     let (mut ckv, Tracked(app_resource)) =
         match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
                                   TestItem, TestListElement>::start(
@@ -952,7 +963,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item2 = TestItem { val: 0x66666666 };
 
     let tracked empty_perm =
-        TestKvPermission::new::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>();
+        TestKvPermission::new::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>(powerpm.id());
 
     let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem>>{
         r: app_resource,

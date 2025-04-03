@@ -174,7 +174,7 @@ where
             self.ready(*old(self), r.value()->Invariant_ckv, r.loc(), op),
             self.namespaces() == old(self).namespaces(),
             self.powerpm_id() == old(self).powerpm_id(),
-            perm.valid(self.powerpm_id()),
+            perm.id() == self.powerpm_id(),
             forall|s: Seq<u8>| {
                 &&& Kv::recover(s) matches Some(new_rkv)
                 &&& {

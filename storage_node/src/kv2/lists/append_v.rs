@@ -739,7 +739,7 @@ where
             prev_self.valid(old(journal)@),
             prev_self@.tentative is Some,
             old(journal).valid(),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| prev_self.state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             journal.valid(),
@@ -825,7 +825,7 @@ where
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),
@@ -993,7 +993,7 @@ where
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
             old(journal).valid(),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),

@@ -14,11 +14,11 @@ verus! {
 pub trait CheckPermission<State>
 {
     spec fn check_permission(&self, state: State) -> bool;
-    spec fn valid(&self, id: int) -> bool;
+    spec fn id(&self) -> int;
 
     proof fn apply(tracked &self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State)
         requires
-            self.valid(old(r).id()),
+            self.id() == old(r).id(),
             old(r).valid(old(r).id(), 1),
             self.check_permission(new_state),
         ensures
@@ -82,7 +82,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         requires
             old(self).inv(),
             addr + bytes@.len() <= old(self)@.len(),
-            perm.valid(old(self).id()),
+            perm.id() == old(self).id(),
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
                     ==> #[trigger] perm.check_permission(s),
         ensures
@@ -105,7 +105,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         requires
             old(self).inv(),
             addr + S::spec_size_of() <= old(self)@.len(),
-            perm.valid(old(self).id()),
+            perm.id() == old(self).id(),
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
                     ==> #[trigger] perm.check_permission(s),
         ensures

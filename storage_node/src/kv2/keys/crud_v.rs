@@ -236,7 +236,7 @@ where
             self@.tentative is Some,
             !self@.tentative.unwrap().key_info.contains_key(*k),
             !self@.tentative.unwrap().item_addrs().contains(item_addr),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| self.state_equivalent_for_me(s, old(journal)@) ==>
                 #[trigger] perm.check_permission(s),
             0 < self.free_list@.len(),
@@ -316,7 +316,7 @@ where
             old(self)@.tentative is Some,
             !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==>
                 #[trigger] perm.check_permission(s),
         ensures

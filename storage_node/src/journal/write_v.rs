@@ -21,7 +21,7 @@ impl <Perm, PM> Journal<Perm, PM>
         &&& self.valid()
         &&& self@.constants.app_area_start <= addr
         &&& addr + bytes_to_write.len() <= self@.constants.app_area_end
-        &&& perm.valid(self@.powerpm_id)
+        &&& perm.id() == self@.powerpm_id
         &&& forall|s: Seq<u8>| {
             &&& seqs_match_except_in_range(self@.durable_state, s, addr as int, addr + bytes_to_write.len())
             &&& Self::recover(s) matches Some(j)

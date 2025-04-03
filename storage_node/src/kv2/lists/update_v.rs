@@ -676,7 +676,7 @@ where
                 .push_to_free_list(new_row_addr)
                 .corresponds_to_journal(old(journal)@, self.sm),
             old(journal).valid(),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| self.state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
             idx == 0 || old(journal)@.remaining_capacity >= self.space_needed_to_journal_next,
             match entry {
@@ -975,7 +975,7 @@ where
             old(self).internal_view().add_entry(list_addr, entry@).corresponds_to_journal(old(journal)@, old(self).sm),
             !old(self).m@.contains_key(list_addr),
             old(journal).valid(),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
             idx == 0 || old(journal)@.remaining_capacity >= old(self).space_needed_to_journal_next,
             old(self).free_list.len() > 0,
@@ -1088,7 +1088,7 @@ where
             old(journal).valid(),
             old(self)@.tentative is Some,
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),

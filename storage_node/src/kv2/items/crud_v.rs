@@ -146,7 +146,7 @@ where
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
             old(journal).valid(),
-            perm.valid(old(journal)@.powerpm_id),
+            perm.id() == old(journal)@.powerpm_id,
             forall|s: Seq<u8>| old(self).state_equivalent_for_me(s, old(journal)@) ==> #[trigger] perm.check_permission(s),
         ensures
             self.valid(journal@),

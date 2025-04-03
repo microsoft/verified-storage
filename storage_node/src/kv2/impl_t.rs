@@ -28,6 +28,7 @@ verus! {
 pub struct TrustedKvPermission
 {
     ghost is_state_allowable: spec_fn(Seq<u8>) -> bool,
+    ghost powerpm_id: int,
 }
 
 impl CheckPermission<Seq<u8>> for TrustedKvPermission
@@ -37,9 +38,9 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
         (self.is_state_allowable)(state)
     }
 
-    closed spec fn valid(&self, id: int) -> bool
+    closed spec fn id(&self) -> int
     {
-        true
+        self.powerpm_id
     }
 
     proof fn apply(tracked &self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
@@ -59,6 +60,7 @@ where
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     untrusted_kv_impl: UntrustedKvStoreImpl<TrustedKvPermission, PM, K, I, L>,
+    powerpm_id: Ghost<int>,
 }
 
 impl TrustedKvPermission
@@ -67,13 +69,14 @@ impl TrustedKvPermission
     // It conveys permission to do any update as long as a
     // subsequent crash and recovery can only lead to given
     // abstract state `state`.
-    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>) -> (tracked perm: Self)
+    proof fn new_one_possibility<PM, K, I, L>(ps: SetupParameters, kv: AtomicKvStore<K, I, L>, powerpm_id: int) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
+            perm.id() == powerpm_id,
             forall |s| #[trigger] perm.check_permission(s) <==
                 UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
                 Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
@@ -82,6 +85,7 @@ impl TrustedKvPermission
             is_state_allowable:
                 |s| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
                     Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
+            powerpm_id: powerpm_id,
         }
     }
 
@@ -93,7 +97,8 @@ impl TrustedKvPermission
     proof fn new_two_possibilities<PM, K, I, L>(
         ps: SetupParameters,
         kv1: AtomicKvStore<K, I, L>,
-        kv2: AtomicKvStore<K, I, L>
+        kv2: AtomicKvStore<K, I, L>,
+        powerpm_id: int,
     ) -> (tracked perm: Self)
         where
             PM: PersistentMemoryRegion,
@@ -101,6 +106,7 @@ impl TrustedKvPermission
             I: PmCopy + std::fmt::Debug,
             L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
         ensures
+            perm.id() == powerpm_id,
             forall |s| #[trigger] perm.check_permission(s) <== {
                 ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
                    Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv1 })
@@ -115,6 +121,7 @@ impl TrustedKvPermission
                 ||| UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(s) ==
                    Some(RecoveredKvStore::<K, I, L>{ ps, kv: kv2 })
             },
+            powerpm_id: powerpm_id,
         }
     }
 }
@@ -136,14 +143,13 @@ where
 
 impl<PM, K, I, L> KvStore<PM, K, I, L>
 where
-    PM: PersistentMemoryRegion,
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+    PM: PersistentMemoryRegion, K: Hash + PmCopy + Sized +
+    std::fmt::Debug, I: PmCopy + Sized + std::fmt::Debug, L: PmCopy +
+    LogicalRange + std::fmt::Debug + Copy,
 {
-    pub closed spec fn valid(self) -> bool
-    {
-        &&& self.untrusted_kv_impl.valid()
+    pub closed spec fn valid(self) -> bool {
+        &&& self.untrusted_kv_impl.valid() &&& self.powerpm_id@ ==
+        self.untrusted_kv_impl@.powerpm_id
     }
 
     pub closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore::<K, I, L>>
@@ -228,11 +234,14 @@ where
         let (mut powerpm, _) = PoWERPersistentMemoryRegion::new(pm);
         powerpm.flush(); // ensure there are no outstanding writes
         let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::recover(powerpm@.durable_state).unwrap();
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state.ps, state.kv);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(state.ps, state.kv, powerpm.id());
         let untrusted_kv_impl = UntrustedKvStoreImpl::<TrustedKvPermission, PM, K, I, L>::start(
             powerpm, kvstore_id, Ghost(state), Tracked(&perm))?;
 
-        Ok(Self { untrusted_kv_impl })
+        Ok(Self {
+            untrusted_kv_impl,
+            powerpm_id: Ghost(powerpm.id()),
+        })
     }
 
     pub exec fn read_item(
@@ -295,7 +304,7 @@ where
                 },
             }
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_create(key, item, Tracked(&perm))
     }
 
@@ -337,7 +346,7 @@ where
                 },
             }
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_update_item(key, item, Tracked(&perm))
     }
 
@@ -374,7 +383,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_delete(key, Tracked(&perm))
     }
 
@@ -388,7 +397,7 @@ where
                 Err(_) => false,
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.abort(Tracked(&perm))
     }
 
@@ -403,7 +412,7 @@ where
             },
     {
         let tracked perm = TrustedKvPermission::new_two_possibilities::<PM, K, I, L>(self@.ps, self@.durable,
-                                                                                     self@.tentative);
+                                                                                     self@.tentative, self.powerpm_id@);
         self.untrusted_kv_impl.commit(Tracked(&perm))
     }
 
@@ -528,7 +537,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_append_to_list(key, new_list_element, Tracked(&perm))
     }
 
@@ -575,7 +584,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_append_to_list_and_update_item(key, new_list_element, new_item, Tracked(&perm))
     }
 
@@ -622,7 +631,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_update_list_element_at_index(key, idx, new_list_element, Tracked(&perm))
     }
 
@@ -670,7 +679,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_update_list_element_at_index_and_item(key, idx, new_list_element, new_item,
                                                                                Tracked(&perm))
     }
@@ -713,7 +722,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_trim_list(key, trim_length, Tracked(&perm))
     }
 
@@ -758,7 +767,7 @@ where
                 },
             },
     {
-        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable);
+        let tracked perm = TrustedKvPermission::new_one_possibility::<PM, K, I, L>(self@.ps, self@.durable, self.powerpm_id@);
         self.untrusted_kv_impl.tentatively_trim_list_and_update_item(key, trim_length, new_item, Tracked(&perm))
     }
 

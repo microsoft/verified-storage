@@ -54,7 +54,7 @@ trait PoWERApplication<PM> : Sized
         requires
             pm.inv(),
             pm@.durable_state == pm@.read_state,
-            perm.valid(pm.id()),
+            perm.id() == pm.id(),
             forall |s| self.valid(s) ==> #[trigger] perm.check_permission(s),
             self.valid(pm@.durable_state);
 }
@@ -100,7 +100,7 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         loop
             invariant
                 power_pm.inv(),
-                perm.valid(power_pm.id()),
+                perm.id() == power_pm.id(),
                 self.addr < power_pm@.len(),
                 <Self as PoWERApplication<PM>>::valid(*self, power_pm@.durable_state),
                 forall |s| <Self as PoWERApplication<PM>>::valid(*self, s) ==> #[trigger] perm.check_permission(s),
@@ -181,8 +181,8 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         self.inv.constant().app.valid(state)
     }
 
-    closed spec fn valid(&self, id: int) -> bool {
-        self.inv.constant().id == id
+    closed spec fn id(&self) -> int {
+        self.inv.constant().id
     }
 
     proof fn apply(tracked &self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>) {
