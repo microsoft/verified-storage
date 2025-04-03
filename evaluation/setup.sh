@@ -15,7 +15,7 @@ BOLD=$(tput bold)
 NC="\e[0m"
 
 LD_LIBRARY_PATH=$VERIF_STORAGE_DIR/evaluation/ycsb_ffi/target/release:$VERIF_STORAGE_DIR/evaluation/viper_wrapper:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/build/src:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/include:$VERIF_STORAGE_DIR/evaluation/viper/benchmark
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64/`
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64/
 
 # 1. Install apt dependencies
 # TODO: is valgrind necessary?
