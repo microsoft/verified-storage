@@ -192,5 +192,15 @@ pub exec fn exec_recover_bytes<PM>(pm: &PM, start: u64, num_bytes: u64, crc_addr
     }
 }
 
+pub open spec fn seq_option_to_option_seq<T>(s: Seq<Option<T>>) -> Option<Seq<T>>
+{
+    if forall|i: int| 0 <= i < s.len() ==> #[trigger] s[i] is Some {
+        Some(Seq::<T>::new(s.len(), |i: int| s[i].unwrap()))
+    }
+    else {
+        None
+    }
+}
+
 }
 
