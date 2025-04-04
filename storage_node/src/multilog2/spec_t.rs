@@ -11,19 +11,22 @@ verus! {
 // This enumeration represents the various errors that can be
 // returned from log operations. They're self-explanatory.
 #[derive(Debug)]
-pub enum LogErr {
+pub enum MultilogErr {
+    CantSetupWithFewerThanOneRegion { },
+    CantSetupWithMoreThanMaxRegions { max_num_regions: u32 },
     InsufficientSpaceForSetup { required_space: u64 },
-    StartFailedDueToLogIDMismatch { log_id_expected: u128, log_id_read: u128 },
-    StartFailedDueToRegionSizeMismatch { region_size_expected: u64, region_size_read: u64 },
-    StartFailedDueToProgramVersionNumberUnsupported { version_number: u64, max_supported: u64 },
-    StartFailedDueToInvalidMemoryContents,
+    StartFailedDueToMultilogIDMismatch { multilog_id_expected: u128, multilog_id_read: u128 },
+    StartFailedDueToProgramVersionNumberUnsupported { which_log: u32, version_number: u64, max_supported: u64 },
+    StartFailedDueToInvalidMemoryContents { which_log: u32 },
     CRCMismatch,
+    InvalidLogIndex,
     InsufficientSpaceForAppend { available_space: u64 },
     CantReadBeforeHead { head: u128 },
     CantReadPastTail { tail: u128 },
     CantAdvanceHeadPositionBeforeHead { head: u128 },
     CantAdvanceHeadPositionBeyondTail { tail: u128 },
-    PmemErr { err: PmemError } 
+    PmemErr { err: PmemError },
+    NotYetImplemented,
 }
 
 // An `AbstractLogState` is an abstraction of a single log, of
@@ -72,13 +75,18 @@ impl AtomicLogState
     {
         self.log.subrange(pos - self.head, pos - self.head + len)
     }
+
+    pub open spec fn tail(self) -> int
+    {
+        self.head + self.log.len()
+    }
 }
 
 #[verifier::ext_equal]
 pub struct MultilogConstants
 {
     pub id: u128,
-    pub capacities: Seq<nat>,
+    pub capacities: Seq<u64>,
 }
 
 // An `AbstractMultiLogState` is an abstraction of a collection of
@@ -159,6 +167,14 @@ impl RecoveredMultilogState
         &&& self.state.compatible_with_constants(self.c)
         &&& self.state.num_logs() == self.c.capacities.len()
     }
+
+    pub open spec fn initialize(id: u128, capacities: Seq<u64>) -> Self
+    {
+        Self{
+            c: MultilogConstants{ id, capacities },
+            state: AtomicMultilogState::initialize(capacities.len()),
+        }
+    }
 }
 
 #[verifier::ext_equal]
@@ -187,11 +203,9 @@ impl MultilogView
         Self{ tentative: self.durable, ..self }
     }
 
-    pub open spec fn corresponds_to_recovered(self, recovered: RecoveredMultilogState) -> bool
+    pub open spec fn recover(self) -> RecoveredMultilogState
     {
-        &&& self.c == recovered.c
-        &&& self.durable == recovered.state
-        &&& self.tentative == recovered.state
+        RecoveredMultilogState{ c: self.c, state: self.durable }
     }
 }
 

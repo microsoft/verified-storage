@@ -238,11 +238,11 @@ pub(super) open spec fn recover_single_log_given_metadata(
     }
 }
 
-pub(super) open spec fn recover_single_log_capacity(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata) -> Option<nat>
+pub(super) open spec fn recover_single_log_capacity(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata) -> Option<u64>
 {
     match recover_single_log_constants(s, which_log, sm) {
         None => None,
-        Some(c) => Some((c.log_area_end - c.log_area_start) as nat),
+        Some(c) => Some((c.log_area_end - c.log_area_start) as u64),
     }
 }
 
@@ -259,10 +259,10 @@ pub(super) open spec fn recover_single_log(s: Seq<u8>, which_log: int, sm: Multi
     }
 }
 
-pub(super) open spec fn recover_log_capacities(s: Seq<u8>, sm: MultilogStaticMetadata) -> Option<Seq<nat>>
+pub(super) open spec fn recover_log_capacities(s: Seq<u8>, sm: MultilogStaticMetadata) -> Option<Seq<u64>>
 {
-    seq_option_to_option_seq::<nat>(
-        Seq::<Option<nat>>::new(sm.num_logs as nat,
+    seq_option_to_option_seq::<u64>(
+        Seq::<Option<u64>>::new(sm.num_logs as nat,
                               |which_log: int| recover_single_log_capacity(s, which_log, sm)))
 }
 
@@ -277,7 +277,7 @@ pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata,
     }
 }
 
-pub(super) open spec fn recover(s: Seq<u8>) -> Option<RecoveredMultilogState>
+pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState>
 {
     match recover_version_metatata(s) {
         None => None,
