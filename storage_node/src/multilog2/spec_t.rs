@@ -14,6 +14,7 @@ verus! {
 pub enum MultilogErr {
     CantSetupWithFewerThanOneRegion { },
     CantSetupWithMoreThanMaxRegions { max_num_regions: u32 },
+    SpaceNeededForSetupExceedsMax,
     InsufficientSpaceForSetup { required_space: u64 },
     StartFailedDueToMultilogIDMismatch { multilog_id_expected: u128, multilog_id_read: u128 },
     StartFailedDueToProgramVersionNumberUnsupported { which_log: u32, version_number: u64, max_supported: u64 },
@@ -206,6 +207,27 @@ impl MultilogView
     pub open spec fn recover(self) -> RecoveredMultilogState
     {
         RecoveredMultilogState{ c: self.c, state: self.durable }
+    }
+}
+
+// This is the specification that `LogImpl` provides for data
+// bytes it reads. It says that those bytes are correct unless
+// there was corruption on the persistent memory between the last
+// write and this read.
+pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
+                                                pmc: PersistentMemoryConstants) -> bool
+{
+    // There must exist a sequence of distinct
+    // addresses `addrs` such that the nth byte of `bytes` is
+    // a possibly corrupted version of the nth byte of
+    // `true_bytes` read from the nth address in `addrs`.  We
+    // don't require the sequence of addresses to be
+    // contiguous because the data might not be contiguous on
+    // disk (e.g., if it wrapped around the log area).
+
+    exists |addrs: Seq<int>| {
+        &&& addrs.no_duplicates()
+        &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
     }
 }
 

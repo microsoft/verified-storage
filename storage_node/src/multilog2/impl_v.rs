@@ -39,7 +39,7 @@ impl UntrustedMultilogImpl
     pub proof fn lemma_inv_implies_powerpm_inv<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        log_id: u128
+        multilog_id: u128
     )
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -53,7 +53,7 @@ impl UntrustedMultilogImpl
     pub proof fn lemma_inv_implies_can_only_crash_as<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        log_id: u128
+        multilog_id: u128
     )
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -76,12 +76,25 @@ impl UntrustedMultilogImpl
         0
     }
 
+    pub exec fn space_needed_for_setup(capacities: &Vec<u64>) -> (result: Result<u64, MultilogErr>)
+        ensures
+            match result {
+                Ok(v) => v == Self::spec_space_needed_for_setup(capacities@),
+                Err(MultilogErr::SpaceNeededForSetupExceedsMax) =>
+                    Self::spec_space_needed_for_setup(capacities@) > u64::MAX,
+                Err(_) => false,
+            },
+    {
+        assume(false);
+        Err(MultilogErr::NotYetImplemented)
+    }
+
     // The `setup` method sets up persistent memory objects `pm_region`
     // to store an initial empty log. It returns the capacity of the log.
     // See `README.md` for more documentation.
     pub exec fn setup<PMRegion>(
         pm_region: &mut PMRegion,
-        log_id: u128,
+        multilog_id: u128,
         capacities: Vec<u64>,
     ) -> (result: Result<(), MultilogErr>)
         where
@@ -94,10 +107,14 @@ impl UntrustedMultilogImpl
             pm_region.constants() == old(pm_region).constants(),
             match result {
                 Ok(()) => {
-                    let state = RecoveredMultilogState::initialize(log_id, capacities@);
+                    let state = RecoveredMultilogState::initialize(multilog_id, capacities@);
                     &&& pm_region@.len() == old(pm_region)@.len()
                     &&& pm_region@.flush_predicted()
                     &&& Self::recover(pm_region@.durable_state) == Some(state)
+                },
+                Err(MultilogErr::SpaceNeededForSetupExceedsMax) => {
+                    &&& pm_region@ == old(pm_region)@
+                    &&& Self::spec_space_needed_for_setup(capacities@) > u64::MAX
                 },
                 Err(MultilogErr::InsufficientSpaceForSetup { required_space }) => {
                     &&& pm_region@ == old(pm_region)@
@@ -193,9 +210,10 @@ impl UntrustedMultilogImpl
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             match result {
                 Ok(offset) => {
-                    &&& which_log < self@.tentative.num_logs()
+                    &&& which_log < old(self)@.tentative.num_logs()
                     &&& offset == old(self)@.tentative[which_log as int].tail()
-                    &&& self@ == MultilogView{ tentative: old(self)@.tentative.append(which_log as int, bytes_to_append@), ..self@ }
+                    &&& self@ == MultilogView{ tentative: old(self)@.tentative.append(which_log as int, bytes_to_append@),
+                                              ..self@ }
                 },
                 Err(MultilogErr::InvalidLogIndex) => {
                     &&& self@ == old(self)@
@@ -240,9 +258,10 @@ impl UntrustedMultilogImpl
             match result {
                 Ok(()) => {
                     let state = old(self)@.tentative[which_log as int];
-                    &&& which_log < self@.tentative.num_logs()
+                    &&& which_log < old(self)@.tentative.num_logs()
                     &&& state.head <= new_head <= state.head + state.log.len()
-                    &&& self@ == MultilogView{ tentative: old(self)@.tentative.advance_head(which_log as int, new_head as int), ..self@ }
+                    &&& self@ == MultilogView{ tentative: old(self)@.tentative.advance_head(which_log as int,
+                                                                                         new_head as int), ..self@ }
                 },
                 Err(MultilogErr::InvalidLogIndex) => {
                     &&& self@ == old(self)@
@@ -310,6 +329,102 @@ impl UntrustedMultilogImpl
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             result is Ok,
             self@ == old(self)@.commit(),
+    {
+        assume(false);
+        Err(MultilogErr::NotYetImplemented)
+    }
+
+    // The `read` method reads part of one of the logs, returning a
+    // vector containing the read bytes. It doesn't guarantee that
+    // those bytes aren't corrupted by persistent memory corruption.
+    // See `README.md` for more documentation and examples of its use.
+    pub exec fn read<Perm, PMRegion>(
+        &self,
+        powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        which_log: u32,
+        pos: u128,
+        len: u64,
+    ) -> (result: Result<Vec<u8>, MultilogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(powerpm_region),
+            pos + len <= u128::MAX,
+        ensures
+            ({
+                let log = self@.tentative[which_log as int];
+                match result {
+                    Ok(bytes) => {
+                        let true_bytes = self@.tentative.read(which_log as int, pos as int, len as int);
+                        &&& which_log < self@.tentative.num_logs()
+                        &&& pos >= log.head
+                        &&& pos + len <= log.tail()
+                        &&& read_correct_modulo_corruption(bytes@, true_bytes, powerpm_region.constants())
+                    },
+                    Err(MultilogErr::InvalidLogIndex) => {
+                        which_log >= self@.tentative.num_logs()
+                    },
+                    Err(MultilogErr::CantReadBeforeHead{ head: head_pos }) => {
+                        &&& which_log < self@.tentative.num_logs()
+                        &&& pos < log.head
+                        &&& head_pos == log.head
+                    },
+                    Err(MultilogErr::CantReadPastTail{ tail }) => {
+                        &&& which_log < self@.tentative.num_logs()
+                        &&& pos + len > log.tail()
+                        &&& tail == log.tail()
+                    },
+                    _ => false,
+                }
+            })
+    {
+        assume(false);
+        Err(MultilogErr::NotYetImplemented)
+    }
+
+    pub exec fn get_num_logs<Perm, PMRegion>(
+        &self,
+        powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+    ) -> (result: Result<u32, MultilogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(powerpm_region),
+        ensures
+            result is Ok,
+            result.unwrap() == self@.tentative.num_logs(),
+    {
+        assume(false);
+        Err(MultilogErr::NotYetImplemented)
+    }
+
+    pub exec fn get_head_tail_and_capacity<Perm, PMRegion>(
+        &self,
+        powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        which_log: u32,
+    ) -> (result: Result<(u128, u128, u64), MultilogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(powerpm_region),
+        ensures
+            ({
+                let log = self@.tentative[which_log as int];
+                match result {
+                    Ok((result_head, result_tail, result_capacity)) => {
+                        &&& result_head == self@.tentative[which_log as int].head
+                        &&& result_tail == self@.tentative[which_log as int].tail()
+                        &&& result_capacity == self@.c.capacities[which_log as int]
+                    },
+                    Err(MultilogErr::InvalidLogIndex) => {
+                        which_log >= self@.tentative.num_logs()
+                    },
+                    _ => false,
+                }
+            })
     {
         assume(false);
         Err(MultilogErr::NotYetImplemented)
