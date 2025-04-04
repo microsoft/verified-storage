@@ -16,10 +16,9 @@ pub(super) enum JournalStatus {
     Committed,
 }
 
-impl <Perm, PM> Journal<Perm, PM>
+impl <PM> Journal<PM>
     where
         PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
 {
     pub(super) open spec fn inv_constants_match(self) -> bool
     {

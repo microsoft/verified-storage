@@ -23,14 +23,13 @@ use vstd::std_specs::hash::*;
 verus! {
 
 broadcast use group_hash_axioms;
-impl<Perm, PM, K> KeyTable<Perm, PM, K>
+impl<PM, K> KeyTable<PM, K>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn start(
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
         sm: &KeyTableStaticMetadata,
     ) -> (result: Result<(Self, HashSet<u64>, Vec<u64>), KvError>)
         requires
@@ -222,7 +221,6 @@ where
             pending_deallocations: Vec::<u64>::new(),
             memory_mapping: Ghost(memory_mapping),
             undo_records: Vec::<KeyUndoRecord<K>>::new(),
-            phantom_perm: Ghost(core::marker::PhantomData),
             phantom_pm: Ghost(core::marker::PhantomData),
         };
 

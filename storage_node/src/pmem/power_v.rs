@@ -10,18 +10,15 @@ use vstd::prelude::*;
 verus! {
 
 #[allow(dead_code)]
-pub struct PoWERPersistentMemoryRegion<Perm, PMRegion>
+pub struct PoWERPersistentMemoryRegion<PMRegion>
     where
-        Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion
 {
     pm_region: PersistentMemoryRegionAtomic<PMRegion>,
-    perm: core::marker::PhantomData<Perm>, // Needed to work around Rust limitation that Perm must be referenced
 }
 
-impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
+impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
     where
-        Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion
 {
     pub closed spec fn view(&self) -> PersistentMemoryRegionView
@@ -67,7 +64,6 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
         let (pm_region, Tracked(r)) = PersistentMemoryRegionAtomic::new(pm_region);
         let power_region = Self {
             pm_region: pm_region,
-            perm: core::marker::PhantomData,
         };
         (power_region, Tracked(r))
     }
@@ -83,7 +79,6 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     {
         Self {
             pm_region: pm_region,
-            perm: core::marker::PhantomData,
         }
     }
 
@@ -108,7 +103,9 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     // can crash and recover into, the permission authorizes that
     // state.
     #[allow(unused_variables)]
-    pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<&Perm>)
+    pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], perm: Tracked<&Perm>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             perm@.id() == old(self).id(),
@@ -127,8 +124,9 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     }
 
     #[allow(unused_variables)]
-    pub exec fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S, perm: Tracked<&Perm>)
+    pub exec fn serialize_and_write<Perm, S>(&mut self, addr: u64, to_write: &S, perm: Tracked<&Perm>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             S: PmCopy + Sized
         requires
             old(self).inv(),

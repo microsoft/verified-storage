@@ -12,18 +12,19 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn abort(
+    pub exec fn abort<Perm>(
         &mut self,
         Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(), KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires 
             old(self).valid(),
             forall |s| #[trigger] perm.check_permission(s) <==
@@ -36,14 +37,16 @@ where
             }
     {
         self.status = Ghost(KvStoreStatus::MustAbort);
-        self.internal_abort(Tracked(perm));
+        self.internal_abort::<Perm>(Tracked(perm));
         Ok(())
     }
 
-    pub(super) exec fn internal_abort(
+    pub(super) exec fn internal_abort<Perm>(
         &mut self,
         Tracked(perm): Tracked<&Perm>
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires 
             old(self).inv(),
             old(self).status@ is MustAbort,

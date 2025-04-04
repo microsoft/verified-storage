@@ -275,9 +275,8 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -285,7 +284,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: Result<(Vec<u64>, Vec<L>), KvError>)
         requires
@@ -384,7 +383,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
         num_addrs: usize,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: Result<(Vec<u64>, Vec<L>), KvError>)
@@ -516,7 +515,7 @@ where
         &mut self,
         list_addr: u64,
         entry: ListTableEntry<L>,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: (bool, ListTableEntry<L>))
         requires
@@ -656,16 +655,18 @@ where
         }
     }
 
-    exec fn update_normal_case_write_step(
+    exec fn update_normal_case_write_step<Perm>(
         &self,
         list_addr: u64,
         idx: usize,
         new_element: L,
         entry: &ListTableEntry<L>,
         new_row_addr: u64,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm): Tracked<&Perm>,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             self.inv(old(journal)@),
             self.status@ is PoppedEntry,
@@ -778,16 +779,16 @@ where
                 let element_crc_addr = new_row_addr + self.sm.row_element_crc_start;
                 let element_crc = calculate_crc(&new_element);
         
-                journal.write_object::<L>(element_addr, &new_element, Tracked(perm));
-                journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm));
+                journal.write_object::<L, Perm>(element_addr, &new_element, Tracked(perm));
+                journal.write_object::<u64, Perm>(element_crc_addr, &element_crc, Tracked(perm));
         
                 let next_addr = new_row_addr + self.sm.row_next_start;
                 let next_crc_addr = next_addr + size_of::<u64>() as u64;
                 let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
                 let next_crc = calculate_crc(&next);
         
-                journal.write_object::<u64>(next_addr, &next, Tracked(perm));
-                journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm));
+                journal.write_object::<u64, Perm>(next_addr, &next, Tracked(perm));
+                journal.write_object::<u64, Perm>(next_crc_addr, &next_crc, Tracked(perm));
         
                 // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
                 // to conclude that `self` is still consistent with both the durable and read state
@@ -959,15 +960,17 @@ where
         old_iv.lemma_update_works(list_addr, idx, new_element, sm);
     }
 
-    exec fn update_normal_case(
+    exec fn update_normal_case<Perm>(
         &mut self,
         list_addr: u64,
         idx: usize,
         new_element: L,
         entry: ListTableEntry<L>,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (new_list_addr: u64)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(old(journal)@),
             !old(self).must_abort@,
@@ -1033,7 +1036,7 @@ where
             broadcast use group_validate_row_addr;
         }
 
-        self.update_normal_case_write_step(list_addr, idx, new_element, &entry, new_row_addr, journal, Tracked(perm));
+        self.update_normal_case_write_step::<Perm>(list_addr, idx, new_element, &entry, new_row_addr, journal, Tracked(perm));
 
         self.tentative_mapping = Ghost(new_iv.tentative_mapping);
         self.row_info = Ghost(new_iv.row_info);
@@ -1075,14 +1078,16 @@ where
         new_head
     }
 
-    pub exec fn update(
+    pub exec fn update<Perm>(
         &mut self,
         list_addr: u64,
         idx: usize,
         new_element: L,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u64, KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),
@@ -1112,7 +1117,7 @@ where
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<Perm, PM>::spec_journal_entry_overhead() -
+                           Journal::<PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -1140,7 +1145,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<Perm, PM>::spec_journal_entry_overhead() +
+                                  Journal::<PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -1225,7 +1230,7 @@ where
         }
 
         self.status = Ghost(ListTableStatus::PoppedEntry);
-        Ok(self.update_normal_case(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
+        Ok(self.update_normal_case::<Perm>(list_addr, idx, new_element, new_entry, journal, Tracked(perm)))
     }
 }
 

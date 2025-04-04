@@ -66,9 +66,8 @@ pub(super) open spec fn recover_items<I>(
     )
 }
 
-impl<Perm, PM, I> ItemTable<Perm, PM, I>
+impl<PM, I> ItemTable<PM, I>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {

@@ -422,9 +422,8 @@ impl TrimAction
     }
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -433,7 +432,7 @@ where
         list_addr: u64,
         trim_length: usize,
         summary: &ListSummary,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
@@ -507,7 +506,7 @@ where
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         addrs: &Vec<u64>,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
@@ -585,7 +584,7 @@ where
         &self,
         list_addr: u64,
         num_durable_addrs: usize,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -669,7 +668,7 @@ where
         &self,
         list_addr: u64,
         trim_length: usize,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<TrimAction, KvError>)
         requires
             self.valid(journal@),
@@ -749,7 +748,7 @@ where
         trim_length: usize,
         pending_deallocations: Vec<u64>,
         new_head: u64,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -815,7 +814,7 @@ where
         trim_length: usize,
         pending_deallocations: Vec<u64>,
         new_head: u64,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -881,7 +880,7 @@ where
         list_addr: u64,
         trim_length: usize,
         pending_deallocations: Vec<u64>,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -952,13 +951,15 @@ where
         }
     }
 
-    pub exec fn trim(
+    pub exec fn trim<Perm>(
         &mut self,
         list_addr: u64,
         trim_length: usize,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u64, KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),
@@ -1029,7 +1030,7 @@ where
         let ghost new_iv = old_iv.trim(list_addr, trim_length as int);
         match action {
             TrimAction::Delete => {
-                match self.delete(list_addr, journal, Tracked(perm)) {
+                match self.delete::<Perm>(list_addr, journal, Tracked(perm)) {
                     Ok(()) => {
                         assert(old(self)@.tentative.unwrap().m[list_addr].len() == trim_length);
                         assert(old(self)@.tentative.unwrap().m[list_addr].skip(trim_length as int) =~= Seq::<L>::empty());

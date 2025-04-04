@@ -18,13 +18,12 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<Perm, PM, I> ItemTable<Perm, PM, I>
+impl<PM, I> ItemTable<PM, I>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read(&self, row_addr: u64, journal: &Journal<Perm, PM>) -> (result: Result<I, KvError>)
+    pub exec fn read(&self, row_addr: u64, journal: &Journal<PM>) -> (result: Result<I, KvError>)
         requires
             journal.valid(),
             self.valid(journal@),
@@ -80,7 +79,7 @@ where
                Self::recover(s1, iv.as_durable_snapshot().m.dom(), sm));
     }
 
-    proof fn lemma_writing_to_free_slot_has_permission_later_forall(
+    proof fn lemma_writing_to_free_slot_has_permission_later_forall<Perm>(
         iv: ItemTableInternalView<I>,
         initial_durable_state: Seq<u8>,
         sm: ItemTableStaticMetadata,
@@ -89,11 +88,13 @@ where
         row_addr: u64,
         tracked perm: &Perm,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             sm.valid::<I>(),
             iv.valid(sm),
             iv.consistent_with_durable_state(initial_durable_state, sm),
-            Journal::<Perm, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            Journal::<PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -108,7 +109,7 @@ where
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me_specific(s, iv.as_durable_snapshot().m.dom(),
                                                          initial_durable_state, constants, sm)
@@ -123,7 +124,7 @@ where
                                                          initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me_specific(s, item_addrs, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
@@ -136,12 +137,14 @@ where
         }
     }
 
-    pub exec fn create(
+    pub exec fn create<Perm>(
         &mut self,
         item: &I,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u64, KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative.is_some(),
@@ -209,8 +212,8 @@ where
         let item_crc_addr = row_addr + self.sm.row_item_crc_start;
         let item_crc = calculate_crc(item);
 
-        journal.write_object::<I>(item_addr, &item, Tracked(perm));
-        journal.write_object::<u64>(item_crc_addr, &item_crc, Tracked(perm));
+        journal.write_object::<I, Perm>(item_addr, &item, Tracked(perm));
+        journal.write_object::<u64, Perm>(item_crc_addr, &item_crc, Tracked(perm));
 
         let ghost disposition =
             ItemRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat, item: *item };
@@ -224,7 +227,7 @@ where
     pub exec fn delete(
         &mut self,
         row_addr: u64,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     )
         requires
             old(self).valid(journal@),

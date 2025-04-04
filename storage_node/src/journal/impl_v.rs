@@ -13,12 +13,11 @@ use super::spec_v::*;
 
 verus! {
 
-pub struct Journal<Perm, PM>
+pub struct Journal<PM>
     where
         PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
 {
-    pub(super) powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
+    pub(super) powerpm: PoWERPersistentMemoryRegion<PM>,
     pub(super) vm: Ghost<JournalVersionMetadata>,
     pub(super) sm: JournalStaticMetadata,
     pub(super) status: Ghost<JournalStatus>,
@@ -28,10 +27,9 @@ pub struct Journal<Perm, PM>
     pub(super) entries: ConcreteJournalEntries,
 }
 
-impl <Perm, PM> Journal<Perm, PM>
+impl <PM> Journal<PM>
     where
         PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
 {
     pub open(super) spec fn view(&self) -> JournalView
     {

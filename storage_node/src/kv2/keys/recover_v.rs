@@ -162,9 +162,8 @@ impl<K> KeyRecoveryMapping<K>
     }
 }
 
-impl<Perm, PM, K> KeyTable<Perm, PM, K>
+impl<PM, K> KeyTable<PM, K>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {

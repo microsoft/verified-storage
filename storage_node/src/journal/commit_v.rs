@@ -14,10 +14,9 @@ use super::recover_v::*;
 
 verus! {
 
-impl <Perm, PM> Journal<Perm, PM>
+impl <PM> Journal<PM>
     where
         PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
 {
     proof fn lemma_write_journal_entry_initial_conditions(
         self,
@@ -61,7 +60,7 @@ impl <Perm, PM> Journal<Perm, PM>
     }
 
     #[inline]
-    exec fn write_journal_entry(
+    exec fn write_journal_entry<Perm>(
         &mut self,
         Tracked(perm): Tracked<&Perm>,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
@@ -70,6 +69,8 @@ impl <Perm, PM> Journal<Perm, PM>
         current_pos: u64,
         crc_digest: &mut CrcDigest,
     ) -> (next_pos: u64)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
@@ -127,7 +128,7 @@ impl <Perm, PM> Journal<Perm, PM>
         // First, write the `start` field of the entry, which is the address that the entry
         // is referring to, to the next position in the journal.
     
-        self.powerpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
+        self.powerpm.serialize_and_write::<Perm, u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
         assert(crc_digest.bytes_in_digest() ==
                self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
@@ -139,7 +140,7 @@ impl <Perm, PM> Journal<Perm, PM>
         // Next, write the `num_bytes` field of the entry.
     
         let num_bytes_addr = current_pos + size_of::<u64>() as u64;
-        self.powerpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
+        self.powerpm.serialize_and_write::<Perm, u64>(num_bytes_addr, &num_bytes, Tracked(perm));
         crc_digest.write(&num_bytes);
         assert(crc_digest.bytes_in_digest() ==
                self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
@@ -152,7 +153,7 @@ impl <Perm, PM> Journal<Perm, PM>
     
         let bytes_to_write_addr = num_bytes_addr + size_of::<u64>() as u64;
         let bytes_to_write_as_slice = entry.bytes_to_write.as_slice();
-        self.powerpm.write(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
+        self.powerpm.write::<Perm>(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
         crc_digest.write_bytes(bytes_to_write_as_slice);
         assert(crc_digest.bytes_in_digest() ==
                   self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
@@ -192,12 +193,11 @@ impl <Perm, PM> Journal<Perm, PM>
     }
 
     #[inline]
-    exec fn write_journal_entries(
+    exec fn write_journal_entries<Perm>(
         &mut self,
         Tracked(perm): Tracked<&Perm>,
     ) -> (journal_entries_crc: u64)
         where
-            PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
@@ -263,7 +263,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 crc_digest.bytes_in_digest() ==
                     self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int),
         {
-            current_pos = self.write_journal_entry(Tracked(perm),
+            current_pos = self.write_journal_entry::<Perm>(Tracked(perm),
                                                    Ghost(original_durable_state), Ghost(original_read_state),
                                                    current_entry_index, current_pos,
                                                    &mut crc_digest);
@@ -277,12 +277,11 @@ impl <Perm, PM> Journal<Perm, PM>
     }
 
     #[inline]
-    exec fn write_journal_metadata(
+    exec fn write_journal_metadata<Perm>(
         &mut self,
         Tracked(perm): Tracked<&Perm>,
     )
         where
-            PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
@@ -315,10 +314,10 @@ impl <Perm, PM> Journal<Perm, PM>
             digest.sum64()
         };
 
-        let journal_entries_crc = self.write_journal_entries(Tracked(perm));
-        self.powerpm.serialize_and_write::<u64>(self.sm.journal_length_start, &self.journal_length, Tracked(perm));
-        self.powerpm.serialize_and_write::<u64>(self.sm.journal_length_crc_start, &journal_length_crc, Tracked(perm));
-        self.powerpm.serialize_and_write::<u64>(self.sm.journal_entries_crc_start, &journal_entries_crc, Tracked(perm));
+        let journal_entries_crc = self.write_journal_entries::<Perm>(Tracked(perm));
+        self.powerpm.serialize_and_write::<Perm, u64>(self.sm.journal_length_start, &self.journal_length, Tracked(perm));
+        self.powerpm.serialize_and_write::<Perm, u64>(self.sm.journal_length_crc_start, &journal_length_crc, Tracked(perm));
+        self.powerpm.serialize_and_write::<Perm, u64>(self.sm.journal_entries_crc_start, &journal_entries_crc, Tracked(perm));
         self.powerpm.flush();
 
         proof {
@@ -327,7 +326,7 @@ impl <Perm, PM> Journal<Perm, PM>
     }
 
     #[inline]
-    exec fn mark_journal_committed(
+    exec fn mark_journal_committed<Perm>(
         &mut self,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
         Ghost(original_read_state): Ghost<Seq<u8>>,
@@ -335,7 +334,6 @@ impl <Perm, PM> Journal<Perm, PM>
         Tracked(perm): Tracked<&Perm>,
     )
         where
-            PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
@@ -416,14 +414,14 @@ impl <Perm, PM> Journal<Perm, PM>
             }
         }
 
-        self.powerpm.serialize_and_write::<u64>(self.sm.committed_cdb_start, &cdb, Tracked(perm));
+        self.powerpm.serialize_and_write::<Perm, u64>(self.sm.committed_cdb_start, &cdb, Tracked(perm));
         self.powerpm.flush();
         assert(self.powerpm@.read_state == desired_state);
         self.status = Ghost(JournalStatus::Committed);
     }
 
     #[inline]
-    exec fn install_journal_entry_during_commit(
+    exec fn install_journal_entry_during_commit<Perm>(
         &mut self,
         num_entries_installed: usize,
         Ghost(original_read_state): Ghost<Seq<u8>>,
@@ -432,7 +430,6 @@ impl <Perm, PM> Journal<Perm, PM>
         Tracked(perm): Tracked<&Perm>,
     )
         where
-            PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
@@ -514,7 +511,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 assert(recover_journal(s) == recover_journal(self.powerpm@.durable_state));
             }
         }
-        self.powerpm.write(entry.start, entry.bytes_to_write.as_slice(), Tracked(perm));
+        self.powerpm.write::<Perm>(entry.start, entry.bytes_to_write.as_slice(), Tracked(perm));
         proof {
             assert(recover_journal(self.powerpm@.durable_state) == recover_journal(old(self).powerpm@.durable_state)) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
@@ -535,13 +532,12 @@ impl <Perm, PM> Journal<Perm, PM>
     }
 
     #[inline]
-    exec fn install_journal_entries_during_commit(
+    exec fn install_journal_entries_during_commit<Perm>(
         &mut self,
         Ghost(original_commit_state): Ghost<Seq<u8>>,
         Tracked(perm): Tracked<&Perm>,
     )
         where
-            PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
@@ -622,7 +618,7 @@ impl <Perm, PM> Journal<Perm, PM>
         {
             let ghost durable_state_at_start_of_loop = self.powerpm@.durable_state;
     
-            self.install_journal_entry_during_commit(num_entries_installed, Ghost(old(self).powerpm@.read_state),
+            self.install_journal_entry_during_commit::<Perm>(num_entries_installed, Ghost(old(self).powerpm@.read_state),
                                                      Ghost(original_commit_state), Ghost(desired_commit_state),
                                                      Tracked(perm));
             assert(self.entries@.skip(num_entries_installed as int)
@@ -669,7 +665,9 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
 
-    pub exec fn commit(&mut self, Tracked(perm): Tracked<&Perm>)
+    pub exec fn commit<Perm>(&mut self, Tracked(perm): Tracked<&Perm>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
             perm.id() == old(self)@.powerpm_id,
@@ -687,11 +685,11 @@ impl <Perm, PM> Journal<Perm, PM>
             self.lemma_commit_initial_conditions();
         }
         self.status = Ghost(JournalStatus::WritingJournal);
-        self.write_journal_metadata(Tracked(perm));
-        self.mark_journal_committed(Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
+        self.write_journal_metadata::<Perm>(Tracked(perm));
+        self.mark_journal_committed::<Perm>(Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
                                     Ghost(old(self)@.commit_state), Tracked(perm));
-        self.install_journal_entries_during_commit(Ghost(old(self)@.commit_state), Tracked(perm));
-        Self::clear_log(&mut self.powerpm, Tracked(perm), self.vm, &self.sm);
+        self.install_journal_entries_during_commit::<Perm>(Ghost(old(self)@.commit_state), Tracked(perm));
+        Self::clear_log::<Perm>(&mut self.powerpm, Tracked(perm), self.vm, &self.sm);
         self.status = Ghost(JournalStatus::Quiescent);
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());

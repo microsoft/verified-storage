@@ -81,9 +81,8 @@ impl ListTableStaticMetadata
 
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(L)]
-pub struct ListTable<Perm, PM, L>
+pub struct ListTable<PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -102,13 +101,11 @@ where
     pub(super) free_list: Vec<u64>,
     pub(super) pending_allocations: Vec<u64>,
     pub(super) pending_deallocations: Vec<u64>,
-    pub(super) phantom_perm: Ghost<core::marker::PhantomData<Perm>>,
     pub(super) phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -171,7 +168,7 @@ where
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<Perm, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, list_addrs, sm) == Self::recover(durable_state, list_addrs, sm)
     }
 

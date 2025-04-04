@@ -772,12 +772,12 @@ impl TestKvPermission
         ensures
             perm.id() == powerpm_id,
             forall |s| #[trigger] perm.check_permission(s) <==
-                ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                ConcurrentKvStore::<PM, K, I, L>::recover(s) ==
                 Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
     {
         Self {
             is_state_allowable:
-                |s| ConcurrentKvStore::<TestKvPermission, PM, K, I, L>::recover(s) ==
+                |s| ConcurrentKvStore::<PM, K, I, L>::recover(s) ==
                     Some(RecoveredKvStore::<K, I, L>{ ps, kv }),
             powerpm_id: powerpm_id,
         }
@@ -797,7 +797,7 @@ where
 }
 
 impl<Op> MutatingLinearizer<TestKvPermission, TestKey, TestItem, TestListElement, Op,
-                            ConcurrentKvStore<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+                            ConcurrentKvStore<FileBackedPersistentMemoryRegion, TestKey,
                                               TestItem, TestListElement>>
     for TestMutatingLinearizer<Op>
 where
@@ -847,7 +847,7 @@ where
         let old_ckv = r.value()->Invariant_ckv;
         self.old_ckv = Some(old_ckv);
         let ghost is_state_allowable = |s: Seq<u8>| {
-            &&& ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+            &&& ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey,
                                    TestItem, TestListElement>::recover(s) matches Some(new_rkv)
             &&& {
                    let old_ckv = r.value()->Invariant_ckv;
@@ -921,7 +921,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         max_list_elements,
         max_operations_per_transaction: 4,
     };
-   let region_size = match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+   let region_size = match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey,
                                                TestItem, TestListElement>
         ::space_needed_for_setup(&ps) {
         Ok(s) => s,
@@ -934,7 +934,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
-    match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
+    match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey,
                               TestItem, TestListElement>::setup(
         &mut pm, &ps
     ) {
@@ -942,14 +942,14 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
     }
 
-    let (mut powerpm, _) = PoWERPersistentMemoryRegion::<TestKvPermission, FileBackedPersistentMemoryRegion>::new(pm);
-    let ghost state = ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey, TestItem,
+    let (mut powerpm, _) = PoWERPersistentMemoryRegion::<FileBackedPersistentMemoryRegion>::new(pm);
+    let ghost state = ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                           TestListElement>::recover(powerpm@.durable_state).unwrap();
     let tracked perm = TestKvPermission::new_one_possibility::<FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                                                TestListElement>(state.ps, state.kv, powerpm.id());
     let (mut ckv, Tracked(app_resource)) =
-        match ConcurrentKvStore::<TestKvPermission, FileBackedPersistentMemoryRegion, TestKey,
-                                  TestItem, TestListElement>::start(
+        match ConcurrentKvStore::<FileBackedPersistentMemoryRegion, TestKey,
+                                  TestItem, TestListElement>::start::<TestKvPermission>(
             powerpm, kvstore_id, Ghost(state), Tracked(&perm)
         ) {
             Ok(tup) => tup,
@@ -974,7 +974,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         powerpm_id: powerpm.id(),
     };
 
-    match ckv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
+    match ckv.create::<TestKvPermission, TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
         &key1, &item1, Tracked(&mut create_linearizer)
     ) {
         Ok(()) => {},

@@ -136,9 +136,8 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<Perm, PM, L> ListTable<Perm, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -146,7 +145,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -220,7 +219,7 @@ where
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         addrs: &Vec<u64>,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -309,7 +308,7 @@ where
     exec fn get_row_addrs(
         &self,
         list_addr: u64,
-        journal: &Journal<Perm, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -339,12 +338,14 @@ where
         }
     }
 
-    pub exec fn delete(
+    pub exec fn delete<Perm>(
         &mut self,
         list_addr: u64,
-        journal: &mut Journal<Perm, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),

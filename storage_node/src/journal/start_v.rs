@@ -19,10 +19,9 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-impl <Perm, PM> Journal<Perm, PM>
+impl <PM> Journal<PM>
     where
         PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
 {
     exec fn read_version_metadata(pm: &PM) -> (result: Option<JournalVersionMetadata>)
         requires
@@ -139,8 +138,8 @@ impl <Perm, PM> Journal<Perm, PM>
         exec_recover_bytes(pm, sm.journal_entries_start, journal_length, sm.journal_entries_crc_start)
     }
     
-    exec fn install_journal_entry_during_start(
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
+    exec fn install_journal_entry_during_start<Perm>(
+        powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm): Tracked<&Perm>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
@@ -152,6 +151,8 @@ impl <Perm, PM> Journal<Perm, PM>
         Ghost(entries): Ghost<Seq<JournalEntry>>,
         Ghost(commit_state): Ghost<Seq<u8>>,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(powerpm).inv(),
             old(powerpm)@.valid(),
@@ -201,7 +202,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 assert(recover_journal(s) == recover_journal(powerpm@.durable_state));
             }
         }
-        powerpm.write(write_addr, bytes_to_write, Tracked(perm));
+        powerpm.write::<Perm>(write_addr, bytes_to_write, Tracked(perm));
         proof {
             broadcast use group_can_result_from_write_effect;
             assert(recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state)) by {
@@ -221,14 +222,16 @@ impl <Perm, PM> Journal<Perm, PM>
         }
     }
     
-    exec fn install_journal_entries_during_start(
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
+    exec fn install_journal_entries_during_start<Perm>(
+        powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm): Tracked<&Perm>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
         entries_bytes: &Vec<u8>,
         Ghost(entries): Ghost<Seq<JournalEntry>>,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(powerpm).inv(),
             old(powerpm)@.valid(),
@@ -342,7 +345,7 @@ impl <Perm, PM> Journal<Perm, PM>
                 lemma_parse_journal_entry_implications(entries_bytes@, entries, start as int, num_entries_installed);
                 assert(entries[num_entries_installed as int] == entry);
             }
-            Self::install_journal_entry_during_start(powerpm, Tracked(perm), Ghost(vm), sm, start, addr, bytes_to_write,
+            Self::install_journal_entry_during_start::<Perm>(powerpm, Tracked(perm), Ghost(vm), sm, start, addr, bytes_to_write,
                                                      Ghost(entries_bytes@), Ghost(num_entries_installed),
                                                      Ghost(entries), Ghost(commit_state));
             proof {
@@ -357,12 +360,14 @@ impl <Perm, PM> Journal<Perm, PM>
         powerpm.flush();
     }
     
-    pub(super) exec fn clear_log(
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
+    pub(super) exec fn clear_log<Perm>(
+        powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm): Tracked<&Perm>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(powerpm).inv(),
             old(powerpm)@.valid(),
@@ -404,15 +409,17 @@ impl <Perm, PM> Journal<Perm, PM>
             assert(spec_recovery_equivalent_for_app(new_state, old(powerpm)@.durable_state));
             lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write();
         }
-        powerpm.serialize_and_write::<u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
+        powerpm.serialize_and_write::<Perm, u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
         powerpm.flush();
         assert(powerpm@.read_state == new_state);
     }
 
-    pub exec fn start(
-        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
+    pub exec fn start<Perm>(
+        powerpm: PoWERPersistentMemoryRegion<PM>,
         Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<Self, JournalError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             powerpm.inv(),
             Self::recover(powerpm@.durable_state).is_some(),
@@ -469,9 +476,9 @@ impl <Perm, PM> Journal<Perm, PM>
                 implies #[trigger] perm.check_permission(s) by {
                 Self::lemma_recover_doesnt_change_size(powerpm@.durable_state);
             }
-            Self::install_journal_entries_during_start(&mut powerpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes,
+            Self::install_journal_entries_during_start::<Perm>(&mut powerpm, Tracked(perm), Ghost(vm), &sm, &entries_bytes,
                                                        Ghost(entries));
-            Self::clear_log(&mut powerpm, Tracked(perm), Ghost(vm), &sm);
+            Self::clear_log::<Perm>(&mut powerpm, Tracked(perm), Ghost(vm), &sm);
         }
         let j = Self {
             powerpm,

@@ -18,16 +18,15 @@ verus! {
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ConcurrentKvStoreInternal<Perm, PM, K, I, L>
+struct ConcurrentKvStoreInternal<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     invariant_resource: Tracked<Resource<OwnershipSplitter<K, I, L>>>,
-    kv: UntrustedKvStoreImpl<Perm, PM, K, I, L>,
+    kv: UntrustedKvStoreImpl<PM, K, I, L>,
 }
 
 struct ConcurrentKvStorePredicate
@@ -36,15 +35,14 @@ struct ConcurrentKvStorePredicate
     powerpm_id: int,
 }
 
-impl<Perm, PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<Perm, PM, K, I, L>> for ConcurrentKvStorePredicate
+impl<PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<PM, K, I, L>> for ConcurrentKvStorePredicate
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    closed spec fn inv(self, v: ConcurrentKvStoreInternal<Perm, PM, K, I, L>) -> bool
+    closed spec fn inv(self, v: ConcurrentKvStoreInternal<PM, K, I, L>) -> bool
     {
         &&& v.kv.valid()
         &&& v.kv@.ps.valid()
@@ -63,34 +61,31 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-pub struct ConcurrentKvStore<Perm, PM, K, I, L>
+pub struct ConcurrentKvStore<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     loc: Ghost<Loc>,
-    lock: RwLock<ConcurrentKvStoreInternal<Perm, PM, K, I, L>, ConcurrentKvStorePredicate>,
+    lock: RwLock<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>,
 }
 
-impl<Perm, PM, K, I, L> CanRecover<K, I, L> for ConcurrentKvStore<Perm, PM, K, I, L>
+impl<PM, K, I, L> CanRecover<K, I, L> for ConcurrentKvStore<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>> {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::recover(s)
+        UntrustedKvStoreImpl::<PM, K, I, L>::recover(s)
     }
 }
 
-impl<Perm, PM, K, I, L> ConcurrentKvStore<Perm, PM, K, I, L>
+impl<PM, K, I, L> ConcurrentKvStore<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -113,12 +108,12 @@ where
 
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
     pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::spec_space_needed_for_transaction_operation()
+        UntrustedKvStoreImpl::<PM, K, I, L>::spec_space_needed_for_transaction_operation()
     }
 
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
@@ -130,7 +125,7 @@ where
                 Err(_) => false,
             },
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<PM, K, I, L>::space_needed_for_setup(ps)
     }
 
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
@@ -150,15 +145,17 @@ where
                 Err(_) => false,
             }
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::setup(pm, ps)
+        UntrustedKvStoreImpl::<PM, K, I, L>::setup(pm, ps)
     }
 
-    pub exec fn start(
-        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
+    pub exec fn start<Perm>(
+        powerpm: PoWERPersistentMemoryRegion<PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
         Tracked(perm): Tracked<&Perm>
     ) -> (result: Result<(Self, Tracked<Resource<OwnershipSplitter::<K, I, L>>>), KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires 
             powerpm.inv(),
             Self::recover(powerpm@.durable_state) == Some(state),
@@ -192,7 +189,7 @@ where
             }
         }),
     {
-        let kv = match UntrustedKvStoreImpl::<Perm, PM, K, I, L>::start(powerpm, kvstore_id, Ghost(state), Tracked(perm)) {
+        let kv = match UntrustedKvStoreImpl::<PM, K, I, L>::start::<Perm>(powerpm, kvstore_id, Ghost(state), Tracked(perm)) {
             Ok(kv) => kv,
             Err(e) => { return Err(e); },
         };
@@ -208,12 +205,12 @@ where
         let tracked split_resources = both.split(application_value, invariant_value);
         let tracked application_resource = split_resources.0;
         let tracked invariant_resource = split_resources.1;
-        let kv_internal = ConcurrentKvStoreInternal::<Perm, PM, K, I, L>{
+        let kv_internal = ConcurrentKvStoreInternal::<PM, K, I, L>{
             invariant_resource: Tracked(invariant_resource),
             kv
         };
         assert(pred.inv(kv_internal));
-        let lock = RwLock::<ConcurrentKvStoreInternal<Perm, PM, K, I, L>, ConcurrentKvStorePredicate>::new(
+        let lock = RwLock::<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>::new(
             kv_internal, Ghost(pred)
         );
         let selfish = Self{ loc: Ghost(loc), lock };
@@ -341,13 +338,14 @@ where
         result
     }
 
-    pub exec fn create<CB>(
+    pub exec fn create<Perm, CB>(
         &mut self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, CreateOp<K, I>, Self>,
         requires
             old(self).valid(),
@@ -362,13 +360,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_create(key, item, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_create::<Perm>(key, item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -379,13 +377,14 @@ where
         result
     }
 
-    pub exec fn update_item<CB>(
+    pub exec fn update_item<Perm, CB>(
         &mut self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
@@ -400,13 +399,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_update_item(key, item, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_update_item::<Perm>(key, item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -417,12 +416,13 @@ where
         result
     }
 
-    pub exec fn delete<CB>(
+    pub exec fn delete<Perm, CB>(
         &mut self,
         key: &K,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, DeleteOp<K>, Self>,
         requires
             old(self).valid(),
@@ -437,13 +437,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = DeleteOp::<K>{ key: *key };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_delete(key, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_delete::<Perm>(key, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -454,13 +454,14 @@ where
         result
     }
 
-    pub exec fn append_to_list<CB>(
+    pub exec fn append_to_list<Perm, CB>(
         &mut self,
         key: &K,
         new_list_element: L,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, AppendToListOp<K, L>, Self>,
         requires
             old(self).valid(),
@@ -475,13 +476,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListOp::<K, L>{ key: *key, new_list_element };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_append_to_list(key, new_list_element, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_append_to_list::<Perm>(key, new_list_element, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -492,7 +493,7 @@ where
         result
     }
 
-    pub exec fn append_to_list_and_update_item<CB>(
+    pub exec fn append_to_list_and_update_item<Perm, CB>(
         &mut self,
         key: &K,
         new_list_element: L,
@@ -500,6 +501,7 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
@@ -514,13 +516,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_append_to_list_and_update_item::<Perm>(key, new_list_element, new_item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -531,7 +533,7 @@ where
         result
     }
 
-    pub exec fn update_list_element_at_index<CB>(
+    pub exec fn update_list_element_at_index<Perm, CB>(
         &mut self,
         key: &K,
         idx: usize,
@@ -539,6 +541,7 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
         requires
             old(self).valid(),
@@ -553,13 +556,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_update_list_element_at_index::<Perm>(key, idx, new_list_element, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -571,7 +574,7 @@ where
     }
 
     pub exec fn update_list_element_at_index_and_item
-        <CB>(
+        <Perm, CB>(
         &mut self,
         key: &K,
         idx: usize,
@@ -580,6 +583,7 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
         requires
             old(self).valid(),
@@ -595,7 +599,7 @@ where
         let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L>{ key: *key, idx, new_list_element,
                                                                      new_item: *new_item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
+        let result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item::<Perm>(
             key, idx, new_list_element, new_item, Tracked(perm)
         ) {
             Err(e) => Err(e),
@@ -603,7 +607,7 @@ where
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -614,13 +618,14 @@ where
         result
     }
 
-    pub exec fn trim_list<CB>(
+    pub exec fn trim_list<Perm, CB>(
         &mut self,
         key: &K,
         trim_length: usize,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, TrimListOp<K>, Self>,
         requires
             old(self).valid(),
@@ -635,13 +640,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListOp::<K>{ key: *key, trim_length };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_trim_list(key, trim_length, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_trim_list::<Perm>(key, trim_length, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -652,7 +657,7 @@ where
         result
     }
 
-    pub exec fn trim_list_and_update_item<CB>(
+    pub exec fn trim_list_and_update_item<Perm, CB>(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -660,6 +665,7 @@ where
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
         requires
             old(self).valid(),
@@ -674,13 +680,13 @@ where
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
         let tracked perm = cb.grant_permission(op, kv_internal.invariant_resource.borrow());
-        let result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item, Tracked(perm)) {
+        let result = match kv_internal.kv.tentatively_trim_list_and_update_item::<Perm>(key, trim_length, new_item, Tracked(perm)) {
             Err(e) => Err(e),
             Ok(()) => {
                 let ghost old_ckv = ConcurrentKvStoreView::from_kvstore_view(kv_internal.kv@);
                 let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{ kv: kv_internal.kv@.tentative, ..old_ckv };
                 assert(op.result_valid(old_ckv, new_ckv, Ok(())));
-                kv_internal.kv.commit(Tracked(perm))
+                kv_internal.kv.commit::<Perm>(Tracked(perm))
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);

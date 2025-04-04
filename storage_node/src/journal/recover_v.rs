@@ -326,10 +326,9 @@ pub(super) proof fn lemma_recovery_doesnt_depend_on_journal_contents_when_uncomm
     broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 }
 
-impl <Perm, PM> Journal<Perm, PM>
+impl <PM> Journal<PM>
     where
         PM: PersistentMemoryRegion,
-        Perm: CheckPermission<Seq<u8>>,
 {
     pub proof fn lemma_recover_doesnt_change_size(bytes: Seq<u8>)
         ensures

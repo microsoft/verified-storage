@@ -95,7 +95,7 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         where
             Perm: CheckPermission<Seq<u8>>,
     {
-        let mut power_pm: PoWERPersistentMemoryRegion<Perm, PM> = PoWERPersistentMemoryRegion::new_atomic(pm);
+        let mut power_pm: PoWERPersistentMemoryRegion<PM> = PoWERPersistentMemoryRegion::new_atomic(pm);
 
         loop
             invariant
@@ -109,12 +109,12 @@ impl<PM> PoWERApplication<PM> for ExampleApp
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s, power_pm@.durable_state, self.addr as int, seq![self.val0]);
             }
 
-            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm));
-            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm));
+            power_pm.write::<Perm>(self.addr, vec![self.val0].as_slice(), Tracked(perm));
+            power_pm.write::<Perm>(self.addr, vec![self.val1].as_slice(), Tracked(perm));
             power_pm.flush();
 
-            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm));
-            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm));
+            power_pm.write::<Perm>(self.addr, vec![self.val1].as_slice(), Tracked(perm));
+            power_pm.write::<Perm>(self.addr, vec![self.val0].as_slice(), Tracked(perm));
             power_pm.flush();
         }
     }
