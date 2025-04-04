@@ -10,11 +10,11 @@ use super::spec_t::*;
 
 verus! {
 
-pub struct UntrustedLogImpl {
+pub struct UntrustedMultilogImpl {
     state: Ghost<MultilogView>,
 }
 
-impl UntrustedLogImpl
+impl UntrustedMultilogImpl
 {
     // This static function specifies how multiple regions'
     // contents should be viewed upon recovery as an abstract
@@ -112,9 +112,9 @@ impl UntrustedLogImpl
     }
 
     // The `start` static method creates an
-    // `UntrustedLogImpl` out of a set of persistent memory
+    // `UntrustedMultilogImpl` out of a set of persistent memory
     // regions. It's assumed that those regions were initialized
-    // with `setup` and then only `UntrustedLogImpl` methods
+    // with `setup` and then only `UntrustedMultilogImpl` methods
     // were allowed to mutate them. See `README.md` for more
     // documentation and an example of its use.
     //
