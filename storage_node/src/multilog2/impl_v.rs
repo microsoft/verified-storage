@@ -71,24 +71,6 @@ impl UntrustedMultilogImpl
         self.state@
     }
 
-    pub closed spec fn spec_space_needed_for_setup(capacities: Seq<u64>) -> nat
-    {
-        0
-    }
-
-    pub exec fn space_needed_for_setup(capacities: &Vec<u64>) -> (result: Result<u64, MultilogErr>)
-        ensures
-            match result {
-                Ok(v) => v == Self::spec_space_needed_for_setup(capacities@),
-                Err(MultilogErr::SpaceNeededForSetupExceedsMax) =>
-                    Self::spec_space_needed_for_setup(capacities@) > u64::MAX,
-                Err(_) => false,
-            },
-    {
-        assume(false);
-        Err(MultilogErr::NotYetImplemented)
-    }
-
     // The `setup` method sets up persistent memory objects `pm_region`
     // to store an initial empty log. It returns the capacity of the log.
     // See `README.md` for more documentation.

@@ -141,18 +141,6 @@ impl <PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
         UntrustedMultilogImpl::spec_space_needed_for_setup(capacities)
     }
 
-    pub exec fn space_needed_for_setup(capacities: &Vec<u64>) -> (result: Result<u64, MultilogErr>)
-        ensures
-            match result {
-                Ok(v) => v == Self::spec_space_needed_for_setup(capacities@),
-                Err(MultilogErr::SpaceNeededForSetupExceedsMax) =>
-                    Self::spec_space_needed_for_setup(capacities@) > u64::MAX,
-                Err(_) => false,
-            },
-    {
-        UntrustedMultilogImpl::space_needed_for_setup(capacities)
-    }
-
     // The `setup` method sets up persistent memory regions
     // `pm_region` to store an initial empty log. It returns a
     // vector listing the capacity of the log as well as a
