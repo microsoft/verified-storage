@@ -344,7 +344,7 @@ where
     }
 
     pub exec fn create<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<&mut CB>,
@@ -353,13 +353,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, CreateOp<K, I>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), CreateOp{ key: *key, item: *item }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), CreateOp{ key: *key, item: *item }),
+        ensures 
             cb.post(*old(cb), self.loc(), CreateOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -383,7 +380,7 @@ where
     }
 
     pub exec fn update_item<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<&mut CB>,
@@ -392,13 +389,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, UpdateItemOp<K, I>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), UpdateItemOp{ key: *key, item: *item }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), UpdateItemOp{ key: *key, item: *item }),
+        ensures 
             cb.post(*old(cb), self.loc(), UpdateItemOp{ key: *key, item: *item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -422,7 +416,7 @@ where
     }
 
     pub exec fn delete<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         Tracked(cb): Tracked<&mut CB>,
     ) -> (result: Result<(), KvError>)
@@ -430,13 +424,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, DeleteOp<K>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), DeleteOp{ key: *key }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), DeleteOp{ key: *key }),
+        ensures 
             cb.post(*old(cb), self.loc(), DeleteOp{ key: *key }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -460,7 +451,7 @@ where
     }
 
     pub exec fn append_to_list<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         new_list_element: L,
         Tracked(cb): Tracked<&mut CB>,
@@ -469,13 +460,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, AppendToListOp<K, L>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), AppendToListOp{ key: *key, new_list_element }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), AppendToListOp{ key: *key, new_list_element }),
+        ensures 
             cb.post(*old(cb), self.loc(), AppendToListOp{ key: *key, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -499,7 +487,7 @@ where
     }
 
     pub exec fn append_to_list_and_update_item<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         new_list_element: L,
         new_item: &I,
@@ -509,13 +497,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
+        ensures 
             cb.post(*old(cb), self.loc(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -539,7 +524,7 @@ where
     }
 
     pub exec fn update_list_element_at_index<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         idx: usize,
         new_list_element: L,
@@ -549,13 +534,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
+        ensures 
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -580,7 +562,7 @@ where
 
     pub exec fn update_list_element_at_index_and_item
         <Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         idx: usize,
         new_list_element: L,
@@ -591,13 +573,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
+        ensures 
             cb.post(*old(cb), self.loc(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -624,7 +603,7 @@ where
     }
 
     pub exec fn trim_list<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         trim_length: usize,
         Tracked(cb): Tracked<&mut CB>,
@@ -633,13 +612,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, TrimListOp<K>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), TrimListOp{ key : *key, trim_length }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), TrimListOp{ key : *key, trim_length }),
+        ensures 
             cb.post(*old(cb), self.loc(), TrimListOp{ key: *key, trim_length }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
@@ -663,7 +639,7 @@ where
     }
 
     pub exec fn trim_list_and_update_item<Perm, CB>(
-        &mut self,
+        &self,
         key: &K,
         trim_length: usize,
         new_item: &I,
@@ -673,13 +649,10 @@ where
             Perm: CheckPermission<Seq<u8>>,
             CB: MutatingLinearizer<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
         requires
-            old(self).valid(),
-            old(cb).powerpm_id() == old(self).powerpm_id(),
-            old(cb).pre(old(self).loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
-        ensures 
             self.valid(),
-            self.loc() == old(self).loc(),
-            self.powerpm_id() == old(self).powerpm_id(),
+            old(cb).powerpm_id() == self.powerpm_id(),
+            old(cb).pre(self.loc(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
+        ensures 
             cb.post(*old(cb), self.loc(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
