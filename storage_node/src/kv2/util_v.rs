@@ -18,10 +18,9 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
+impl<PermFactory, PM, K, I, L> UntrustedKvStoreImpl<PermFactory, PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -33,17 +32,17 @@ where
                 #[trigger] perm_factory.check_permission(s1, s2)
         ensures
             forall|s1: Seq<u8>, s2: Seq<u8>|
-                Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s1, s2)
+                Journal::<PermFactory, PM>::recovery_equivalent_for_app(s1, s2)
             ==> #[trigger] perm_factory.check_permission(s1, s2),
     {
         assert forall|s1: Seq<u8>, s2: Seq<u8>|
-                   Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s1, s2)
+                   Journal::<PermFactory, PM>::recovery_equivalent_for_app(s1, s2)
                implies #[trigger] perm_factory.check_permission(s1, s2) by {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            let r1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap();
+            let r1 = Journal::<PermFactory, PM>::recover(s1).unwrap();
             let jc = r1.constants;
             let js1 = r1.state;
-            let r2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap();
+            let r2 = Journal::<PermFactory, PM>::recover(s2).unwrap();
             let js2 = r2.state;
             assert(r1.constants == r2.constants);
             if jc.app_program_guid != KVSTORE_PROGRAM_GUID || jc.app_version_number != KVSTORE_PROGRAM_VERSION_NUMBER {
@@ -65,27 +64,27 @@ where
                         if {
                                ||| jc.journal_capacity <
                                      sm.max_operations_per_transaction *
-                                     UntrustedKvStoreImpl::<Perm, PermFactory, PM, K, I, L>::
+                                     UntrustedKvStoreImpl::<PermFactory, PM, K, I, L>::
                                          spec_space_needed_for_transaction_operation()
                                ||| sm.setup_parameters() is None
                                ||| !sm.setup_parameters().unwrap().valid()
                            } {
                         }
                         else {
-                            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
+                            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
                                 js1, js2, sm.keys
                             );
-                            match KeyTable::<Perm, PermFactory, PM, K>::recover(js1, sm.keys) {
+                            match KeyTable::<PermFactory, PM, K>::recover(js1, sm.keys) {
                                 None => {},
                                 Some(keys) => {
-                                    ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+                                    ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                                         js1, js2, keys.item_addrs(), sm.items
                                     );
-                                    match ItemTable::<Perm, PermFactory, PM, I>::recover(js1, keys.item_addrs(),
+                                    match ItemTable::<PermFactory, PM, I>::recover(js1, keys.item_addrs(),
                                                                                          sm.items) {
                                         None => {},
                                         Some(items) => {
-                                            ListTable::<Perm, PermFactory, PM, L>::
+                                            ListTable::<PermFactory, PM, L>::
                                                 lemma_recover_depends_only_on_my_area(js1, js2, keys.list_addrs(),
                                                                                       sm.lists);
                                         },
@@ -99,7 +98,9 @@ where
         }
     }
 
-    pub(super) proof fn lemma_establish_recovery_equivalent_for_app_on_commit(self, perm: Perm)
+    pub(super) proof fn lemma_establish_recovery_equivalent_for_app_on_commit<Perm>(self, perm: Perm)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] perm.check_permission(s1, s2) <== {
@@ -108,8 +109,8 @@ where
             },
         ensures
             forall|s1: Seq<u8>, s2: Seq<u8>| {
-                &&& Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
-                &&& Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state)
+                &&& Journal::<PermFactory, PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
+                &&& Journal::<PermFactory, PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state)
             } ==> #[trigger] perm.check_permission(s1, s2),
     {
         self.journal.lemma_recover_from_commit_idempotent();
@@ -120,12 +121,12 @@ where
         let keys = self.keys@.tentative.unwrap();
 
         assert forall|s1: Seq<u8>, s2: Seq<u8>| {
-                &&& Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
-                &&& Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state)
+                &&& Journal::<PermFactory, PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
+                &&& Journal::<PermFactory, PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state)
             } implies #[trigger] perm.check_permission(s1, s2) by {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-            let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
-            let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
+            let js1 = Journal::<PermFactory, PM>::recover(s1).unwrap().state;
+            let js2 = Journal::<PermFactory, PM>::recover(s2).unwrap().state;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js1, jc);
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state,
                                                                               self.journal@.commit_state, jc);
@@ -133,22 +134,22 @@ where
             self.keys.lemma_valid_implications(self.journal@);
             self.items.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
                 self.journal@.durable_state, js1, sm.keys
             );
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
                 self.journal@.commit_state, js2, sm.keys
             );
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 self.journal@.durable_state, js1, self.items@.durable.m.dom(), sm.items
             );
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 self.journal@.commit_state, js2, keys.item_addrs(), sm.items
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 self.journal@.durable_state, js1, self.lists@.durable.m.dom(), sm.lists
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 self.journal@.commit_state, js2, keys.list_addrs(), sm.lists
             );
             assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
@@ -182,7 +183,7 @@ where
         let ghost js = self.journal@.durable_state;
         let ghost sm = self.sm@;
 
-        assert(KeyTable::<Perm, PermFactory, PM, K>::recover(js, sm.keys) == Some(self.keys@.durable)) by {
+        assert(KeyTable::<PermFactory, PM, K>::recover(js, sm.keys) == Some(self.keys@.durable)) by {
             self.keys.lemma_valid_implications(self.journal@);
         }
         assert(Self::recover(js) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })) by {
@@ -191,25 +192,25 @@ where
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         assert forall|s1: Seq<u8>, s2: Seq<u8>| {
-            &&& KeyTable::<Perm, PermFactory, PM, K>::state_equivalent_for_me(s1, js, jc, self.keys@.sm)
-            &&& KeyTable::<Perm, PermFactory, PM, K>::state_equivalent_for_me(s2, js, jc, self.keys@.sm)
+            &&& KeyTable::<PermFactory, PM, K>::state_equivalent_for_me(s1, js, jc, self.keys@.sm)
+            &&& KeyTable::<PermFactory, PM, K>::state_equivalent_for_me(s2, js, jc, self.keys@.sm)
         } implies #[trigger] self.perm_factory@.check_permission(s1, s2) by {
-            let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
-            let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
+            let js1 = Journal::<PermFactory, PM>::recover(s1).unwrap().state;
+            let js2 = Journal::<PermFactory, PM>::recover(s2).unwrap().state;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, jc);
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, jc);
             self.items.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 js, js1, self.items@.durable.m.dom(), sm.items
             );
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 js, js2, self.items@.durable.m.dom(), sm.items
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 js, js1, self.lists@.durable.m.dom(), sm.lists
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 js, js2, self.lists@.durable.m.dom(), sm.lists
             );
             assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
@@ -266,7 +267,7 @@ where
         let ghost js = self.journal@.durable_state;
         let ghost sm = self.sm@;
 
-        assert(ItemTable::<Perm, PermFactory, PM, I>::recover(js, self.items@.durable.m.dom(), sm.items) ==
+        assert(ItemTable::<PermFactory, PM, I>::recover(js, self.items@.durable.m.dom(), sm.items) ==
                Some(self.items@.durable)) by
         {
             self.items.lemma_valid_implications(self.journal@);
@@ -277,25 +278,25 @@ where
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         assert forall|s1: Seq<u8>, s2: Seq<u8>| {
-            &&& ItemTable::<Perm, PermFactory, PM, I>::state_equivalent_for_me(
+            &&& ItemTable::<PermFactory, PM, I>::state_equivalent_for_me(
                    s1, js, self.items@.durable.m.dom(), jc, self.items@.sm
                )
-            &&& ItemTable::<Perm, PermFactory, PM, I>::state_equivalent_for_me(
+            &&& ItemTable::<PermFactory, PM, I>::state_equivalent_for_me(
                    s2, js, self.items@.durable.m.dom(), jc, self.items@.sm
                )
         } implies #[trigger] self.perm_factory@.check_permission(s1, s2) by {
-            let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
-            let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
+            let js1 = Journal::<PermFactory, PM>::recover(s1).unwrap().state;
+            let js2 = Journal::<PermFactory, PM>::recover(s2).unwrap().state;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, jc);
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, jc);
             self.keys.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js1, sm.keys);
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js1, sm.keys);
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 js, js1, self.lists@.durable.m.dom(), sm.lists
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 js, js2, self.lists@.durable.m.dom(), sm.lists
             );
             assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
@@ -352,7 +353,7 @@ where
         let ghost js = self.journal@.durable_state;
         let ghost sm = self.sm@;
 
-        assert(ListTable::<Perm, PermFactory, PM, L>::recover(js, self.lists@.durable.m.dom(), sm.lists) ==
+        assert(ListTable::<PermFactory, PM, L>::recover(js, self.lists@.durable.m.dom(), sm.lists) ==
                Some(self.lists@.durable)) by
         {
             self.lists.lemma_valid_implications(self.journal@);
@@ -363,25 +364,25 @@ where
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         assert forall|s1: Seq<u8>, s2: Seq<u8>| {
-            &&& ListTable::<Perm, PermFactory, PM, L>::state_equivalent_for_me(
+            &&& ListTable::<PermFactory, PM, L>::state_equivalent_for_me(
                 s1, self.journal@.durable_state, self.lists@.durable.m.dom(), self.journal@.constants, self.lists@.sm
             )
-            &&& ListTable::<Perm, PermFactory, PM, L>::state_equivalent_for_me(
+            &&& ListTable::<PermFactory, PM, L>::state_equivalent_for_me(
                 s2, self.journal@.durable_state, self.lists@.durable.m.dom(), self.journal@.constants, self.lists@.sm
             )
         } implies #[trigger] self.perm_factory@.check_permission(s1, s2) by {
-            let js1 = Journal::<Perm, PermFactory, PM>::recover(s1).unwrap().state;
-            let js2 = Journal::<Perm, PermFactory, PM>::recover(s2).unwrap().state;
+            let js1 = Journal::<PermFactory, PM>::recover(s1).unwrap().state;
+            let js2 = Journal::<PermFactory, PM>::recover(s2).unwrap().state;
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js1, jc);
             lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(js, js2, jc);
             self.keys.lemma_valid_implications(self.journal@);
             self.lists.lemma_valid_implications(self.journal@);
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js1, sm.keys);
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js1, sm.keys);
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 js, js1, self.items@.durable.m.dom(), sm.items
             );
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 js, js2, self.items@.durable.m.dom(), sm.items
             );
             assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));

@@ -13,10 +13,9 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
+impl<PermFactory, PM, K, I, L> UntrustedKvStoreImpl<PermFactory, PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,

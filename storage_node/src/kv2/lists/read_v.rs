@@ -18,10 +18,9 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
+impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -29,7 +28,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -115,7 +114,7 @@ where
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         elements: &Vec<L>,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -237,7 +236,7 @@ where
     pub exec fn read(
         &self,
         list_addr: u64,
-        journal: &Journal<Perm, PermFactory, PM>
+        journal: &Journal<PermFactory, PM>
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -270,7 +269,7 @@ where
     pub exec fn get_list_length(
         &self,
         list_addr: u64,
-        journal: &Journal<Perm, PermFactory, PM>
+        journal: &Journal<PermFactory, PM>
     ) -> (result: Result<usize, KvError>)
         requires
             self.valid(journal@),

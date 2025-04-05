@@ -15,10 +15,9 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
+impl<PermFactory, PM, K, I, L> UntrustedKvStoreImpl<PermFactory, PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -184,7 +183,7 @@ where
                     &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
                                                             self.lists@.sm.end() as int)
                     &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
-                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() -
+                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                     &&& self.journal@.powerpm_id == old(self).journal@.powerpm_id
                 },

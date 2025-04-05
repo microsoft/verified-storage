@@ -6,17 +6,18 @@ use crate::pmem::frac_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::invariant::*;
 
 verus! {
 
-pub trait PermissionFactory<State, P>: Sized
-where
-    P: CheckPermission<State>,
+pub trait PermissionFactory<State>: Sized
 {
+    type Perm: CheckPermission<State>;
+
     spec fn check_permission(&self, s1: State, s2: State) -> bool;
     spec fn id(&self) -> int;
 
-    proof fn grant_permission(tracked &self) -> (tracked perm: P)
+    proof fn grant_permission(tracked &self) -> (tracked perm: Self::Perm)
         ensures
             self.id() == perm.id(),
             forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2);
@@ -27,19 +28,75 @@ where
             forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2);
 }
 
-#[allow(dead_code)]
-pub struct PoWERPersistentMemoryRegion<Perm, PMRegion>
+pub struct CombinedPermission<State, PermA, PermB>
     where
-        Perm: CheckPermission<Seq<u8>>,
+        PermA: CheckPermission<State>,
+        PermB: CheckPermission<State>,
+{
+    a: PermA,
+    b: PermB,
+    _s: core::marker::PhantomData<State>,
+}
+
+impl<State, PermA, PermB> CombinedPermission<State, PermA, PermB>
+    where
+        PermA: CheckPermission<State>,
+        PermB: CheckPermission<State>,
+{
+    #[verifier::type_invariant]
+    spec fn inv(self) -> bool {
+        self.a.id() == self.b.id()
+    }
+
+    pub proof fn new(tracked a: PermA, tracked b: PermB) -> (tracked combined: Self)
+        requires
+            a.id() == b.id(),
+        ensures
+            combined.id() == a.id(),
+            forall|s1: State, s2: State| #[trigger] combined.check_permission(s1, s2) <==>
+                a.check_permission(s1, s2) || b.check_permission(s1, s2)
+    {
+        Self{
+            a: a,
+            b: b,
+            _s: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, PermA, PermB>
+    where
+        PermA: CheckPermission<State>,
+        PermB: CheckPermission<State>,
+{
+    closed spec fn check_permission(&self, s1: State, s2: State) -> bool {
+        self.a.check_permission(s1, s2) || self.b.check_permission(s1, s2)
+    }
+
+    closed spec fn id(&self) -> int {
+        self.a.id()
+    }
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State) {
+        use_type_invariant(&self);
+        if self.a.check_permission(r@, new_state) {
+            self.a.apply(credit, r, new_state)
+        } else {
+            self.b.apply(credit, r, new_state)
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub struct PoWERPersistentMemoryRegion<PMRegion>
+    where
         PMRegion: PersistentMemoryRegion
 {
     pm_region: PersistentMemoryRegionAtomic<PMRegion>,
-    perm: core::marker::PhantomData<Perm>, // Needed to work around Rust limitation that Perm must be referenced
 }
 
-impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
+impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
     where
-        Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion
 {
     pub closed spec fn view(&self) -> PersistentMemoryRegionView
@@ -85,7 +142,6 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
         let (pm_region, Tracked(r)) = PersistentMemoryRegionAtomic::new(pm_region);
         let power_region = Self {
             pm_region: pm_region,
-            perm: core::marker::PhantomData,
         };
         (power_region, Tracked(r))
     }
@@ -101,7 +157,6 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     {
         Self {
             pm_region: pm_region,
-            perm: core::marker::PhantomData,
         }
     }
 
@@ -126,7 +181,9 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     // can crash and recover into, the permission authorizes that
     // state.
     #[allow(unused_variables)]
-    pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>)
+    pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             perm@.id() == old(self).id(),
@@ -145,8 +202,9 @@ impl<Perm, PMRegion> PoWERPersistentMemoryRegion<Perm, PMRegion>
     }
 
     #[allow(unused_variables)]
-    pub exec fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S, perm: Tracked<Perm>)
+    pub exec fn serialize_and_write<Perm, S>(&mut self, addr: u64, to_write: &S, perm: Tracked<Perm>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             S: PmCopy + Sized
         requires
             old(self).inv(),

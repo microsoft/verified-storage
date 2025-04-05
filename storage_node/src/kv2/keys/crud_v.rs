@@ -24,10 +24,9 @@ verus! {
 
 broadcast use vstd::std_specs::hash::group_hash_axioms;
 
-impl<Perm, PermFactory, PM, K> KeyTable<Perm, PermFactory, PM, K>
+impl<PermFactory, PM, K> KeyTable<PermFactory, PM, K>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
@@ -92,7 +91,7 @@ where
         requires
             sm.valid::<K>(),
             iv.consistent_with_state(initial_durable_state, sm),
-            Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            Journal::<PermFactory, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -107,7 +106,7 @@ where
                 &&& Self::state_equivalent_for_me(current_durable_state, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<PermFactory, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
@@ -119,7 +118,7 @@ where
                 &&& Self::state_equivalent_for_me(current_durable_state, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(current_durable_state, sm)
                 &&& row_addr + sm.row_metadata_start <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<PermFactory, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me(s, initial_durable_state, constants, sm)
                 &&& iv.consistent_with_state(s, sm)
@@ -137,7 +136,7 @@ where
         &mut self,
         k: &K,
         item_addr: u64,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
     ) -> (result: Result<u64, KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -163,7 +162,7 @@ where
                         Set::<int>::new(|i: int| row_addr + self.sm.row_cdb_start <= i
                                       < row_addr + self.sm.row_cdb_start + u64::spec_size_of())
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self.valid(journal@)
@@ -171,7 +170,7 @@ where
                     &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() +
+                                  Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -226,7 +225,7 @@ where
         &self,
         k: &K,
         item_addr: u64,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         row_addr: u64,
         Tracked(perm_factory): Tracked<&PermFactory>,
     )
@@ -291,27 +290,27 @@ where
 
         let key_addr = row_addr + self.sm.row_key_start;
         let tracked perm = perm_factory.grant_permission();
-        journal.write_object(key_addr, k, Tracked(perm));
+        journal.write_object::<_, PermFactory::Perm>(key_addr, k, Tracked(perm));
         let key_crc_addr = row_addr + self.sm.row_key_crc_start;
         let key_crc = calculate_crc(k);
         let tracked perm = perm_factory.grant_permission();
-        journal.write_object(key_crc_addr, &key_crc, Tracked(perm));
+        journal.write_object::<_, PermFactory::Perm>(key_crc_addr, &key_crc, Tracked(perm));
 
         let rm = KeyTableRowMetadata{ item_addr, list_addr: 0 };
         let metadata_addr = row_addr + self.sm.row_metadata_start;
         let tracked perm = perm_factory.grant_permission();
-        journal.write_object(metadata_addr, &rm, Tracked(perm));
+        journal.write_object::<_, PermFactory::Perm>(metadata_addr, &rm, Tracked(perm));
         let rm_crc_addr = row_addr + self.sm.row_metadata_crc_start;
         let rm_crc = calculate_crc(&rm);
         let tracked perm = perm_factory.grant_permission();
-        journal.write_object(rm_crc_addr, &rm_crc, Tracked(perm));
+        journal.write_object::<_, PermFactory::Perm>(rm_crc_addr, &rm_crc, Tracked(perm));
     }
 
     pub exec fn create(
         &mut self,
         k: &K,
         item_addr: u64,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
@@ -336,7 +335,7 @@ where
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -345,7 +344,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() +
+                                  Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -399,7 +398,7 @@ where
         k: &K,
         row_addr: u64,
         rm: KeyTableRowMetadata,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
@@ -422,7 +421,7 @@ where
                         ..old(self)@
                     })
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -430,7 +429,7 @@ where
                         ..old(self)@
                     })
                     &&& old(journal)@.remaining_capacity <
-                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() +
+                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
                            u64::spec_size_of()
                 },
                 _ => false,
@@ -497,7 +496,7 @@ where
         row_addr: u64,
         new_rm: KeyTableRowMetadata,
         former_rm: KeyTableRowMetadata,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
     ) -> (result: Result<(), KvError>)
         requires
             old(self).valid(old(journal)@),
@@ -530,9 +529,9 @@ where
                         row_addr + self.sm.row_metadata_crc_start
                     ) == Some(new_rm)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
-                          - Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          - Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
-                          - Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          - Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
@@ -540,9 +539,9 @@ where
                     &&& self.valid(journal@)
                     &&& self@ == KeyTableView { tentative: None, ..old(self)@ }
                     &&& old(journal)@.remaining_capacity <
-                          Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
-                          + Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          + Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           + u64::spec_size_of()
                 },
                 _ => false,
@@ -602,7 +601,7 @@ where
         row_addr: u64,
         new_rm: KeyTableRowMetadata,
         former_rm: KeyTableRowMetadata,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<(), KvError>)
         requires
@@ -636,9 +635,9 @@ where
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
-                          - Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          - Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
-                          - Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          - Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
@@ -647,9 +646,9 @@ where
                         ..old(self)@
                     })
                     &&& old(journal)@.remaining_capacity <
-                          Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
-                          + Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead()
+                          + Journal::<PermFactory, PM>::spec_journal_entry_overhead()
                           + u64::spec_size_of()
                 },
                 _ => false,
@@ -691,7 +690,7 @@ where
 
     pub exec fn get_keys(
         &self,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Vec<K>)
         requires
             self.valid(journal@),

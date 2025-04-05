@@ -49,10 +49,9 @@ trait PoWERApplication<PM> : Sized
     //
     // The application receives a permission `perm` that allows all crash
     // states specified by the application's valid() predicate.
-    exec fn run<Perm, PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
+    exec fn run<PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
         where
-            Perm: CheckPermission<Seq<u8>>,
-            PermFactory: PermissionFactory<Seq<u8>, Perm>,
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             pm.inv(),
             pm@.durable_state == pm@.read_state,
@@ -93,12 +92,11 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         pm.flush();
     }
 
-    exec fn run<Perm, PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
+    exec fn run<PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
         where
-            Perm: CheckPermission<Seq<u8>>,
-            PermFactory: PermissionFactory<Seq<u8>, Perm>,
+            PermFactory: PermissionFactory<Seq<u8>>,
     {
-        let mut power_pm: PoWERPersistentMemoryRegion<Perm, PM> = PoWERPersistentMemoryRegion::new_atomic(pm);
+        let mut power_pm: PoWERPersistentMemoryRegion<PM> = PoWERPersistentMemoryRegion::new_atomic(pm);
 
         loop
             invariant
@@ -118,13 +116,13 @@ impl<PM> PoWERApplication<PM> for ExampleApp
 
             let ghost durable_0 = power_pm@.durable_state;
 
-            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
+            power_pm.write::<PermFactory::Perm>(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
             let ghost durable_1 = power_pm@.durable_state;
             proof {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_1, durable_0, self.addr as int, seq![self.val0]);
             }
 
-            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
+            power_pm.write::<PermFactory::Perm>(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
             let ghost durable_2 = power_pm@.durable_state;
             proof {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_2, durable_1, self.addr as int, seq![self.val1]);
@@ -132,13 +130,13 @@ impl<PM> PoWERApplication<PM> for ExampleApp
 
             power_pm.flush();
 
-            power_pm.write(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
+            power_pm.write::<PermFactory::Perm>(self.addr, vec![self.val1].as_slice(), Tracked(perm_factory.grant_permission()));
             let ghost durable_3 = power_pm@.durable_state;
             proof {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_3, durable_2, self.addr as int, seq![self.val1]);
             }
 
-            power_pm.write(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
+            power_pm.write::<PermFactory::Perm>(self.addr, vec![self.val0].as_slice(), Tracked(perm_factory.grant_permission()));
             let ghost durable_4 = power_pm@.durable_state;
             proof {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(durable_4, durable_3, self.addr as int, seq![self.val0]);
@@ -214,12 +212,6 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         self.inv.constant().id
     }
 
-    // XXX complicated
-    #[verifier::external_body]
-    proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self) {
-        self
-    }
-
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>) {
         open_atomic_invariant_in_proof!(credit => &self.inv => inner => {
             r.update_with(&mut inner.r, new_state);
@@ -227,11 +219,13 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
     }
 }
 
-impl<PM, A> PermissionFactory<Seq<u8>, SoundPermission<PM, A>> for SoundPermission<PM, A>
+impl<PM, A> PermissionFactory<Seq<u8>> for SoundPermission<PM, A>
     where
         PM: PersistentMemoryRegion,
         A: PoWERApplication<PM>,
 {
+    type Perm = SoundPermission<PM, A>;
+
     closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
         CheckPermission::check_permission(self, s1, s2)
     }
@@ -291,7 +285,7 @@ exec fn main_first_time<PM, A>(mut pm: PM, app: A)
     };
 
     // Allow the application to run until the next crash.
-    app.run::<_, SoundPermission::<PM, A>>(pm_atomic, Tracked(perm_factory))
+    app.run::<SoundPermission::<PM, A>>(pm_atomic, Tracked(perm_factory))
 
     // Note that the atomic invariant continues to exist, and therefore
     // enforces that the durable state will still satisfy the application
@@ -343,7 +337,7 @@ exec fn main_after_crash<PM, A>(pm: PM, app: A)
     };
 
     // Allow the application to run until the next crash.
-    app.run::<_, SoundPermission::<PM, A>>(pm_atomic, Tracked(perm_factory))
+    app.run::<SoundPermission::<PM, A>>(pm_atomic, Tracked(perm_factory))
 
     // Note that the atomic invariant continues to exist, and therefore
     // enforces that the durable state will still satisfy the application

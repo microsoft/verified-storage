@@ -284,9 +284,9 @@ fn main() {
     }
 
     // full setup works differently so that we don't have to rebuild the full KV every iteration
-    run_full_setup::<RedisClient<BigTestKey, BigTestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<RocksDbClient<BigTestKey, BigTestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<CapybaraKvClient<BigTestKey, BigTestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+    run_full_setup::<RedisClient<TestKey, TestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
+    run_full_setup::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
+    run_full_setup::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
     run_full_setup::<ViperClient>(&viper_output_dir, NUM_KEYS).unwrap();
 }
 

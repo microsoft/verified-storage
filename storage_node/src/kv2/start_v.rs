@@ -20,17 +20,16 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
+impl<PermFactory, PM, K, I, L> UntrustedKvStoreImpl<PermFactory, PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub fn start(
-        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
+        powerpm: PoWERPersistentMemoryRegion<PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<RecoveredKvStore<K, I, L>>,
         Tracked(perm_factory): Tracked<PermFactory>,
@@ -68,28 +67,28 @@ where
     {
         reveal(recover_static_metadata);
         let ghost old_state = powerpm@.durable_state;
-        let ghost journal_recovered = Journal::<Perm, PermFactory, PM>::recover(old_state).unwrap();
+        let ghost journal_recovered = Journal::<PermFactory, PM>::recover(old_state).unwrap();
         let ghost jc = journal_recovered.constants;
         let ghost js = journal_recovered.state;
         let ghost sm = recover_static_metadata::<K, I, L>(js, jc).unwrap();
-        let ghost recovered_keys = KeyTable::<Perm, PermFactory, PM, K>::recover(js, sm.keys).unwrap();
-        let ghost recovered_items = ItemTable::<Perm, PermFactory, PM, I>::recover(js, recovered_keys.item_addrs(),
+        let ghost recovered_keys = KeyTable::<PermFactory, PM, K>::recover(js, sm.keys).unwrap();
+        let ghost recovered_items = ItemTable::<PermFactory, PM, I>::recover(js, recovered_keys.item_addrs(),
                                                                       sm.items).unwrap();
-        let ghost recovered_lists = ListTable::<Perm, PermFactory, PM, L>::recover(js, recovered_keys.list_addrs(),
+        let ghost recovered_lists = ListTable::<PermFactory, PM, L>::recover(js, recovered_keys.list_addrs(),
                                                                       sm.lists).unwrap();
 
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         }
 
-        assert forall|s: Seq<u8>| Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(s, old_state)
+        assert forall|s: Seq<u8>| Journal::<PermFactory, PM>::recovery_equivalent_for_app(s, old_state)
                    implies #[trigger] perm_factory.check_permission(old_state, s) by {
-            let js2 = Journal::<Perm, PermFactory, PM>::recover(s).unwrap().state;
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            let js2 = Journal::<PermFactory, PM>::recover(s).unwrap().state;
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 js, js2, recovered_keys.item_addrs(), sm.items
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 js, js2, recovered_keys.list_addrs(), sm.lists
             );
         }
@@ -98,7 +97,7 @@ where
         proof {
             Self::lemma_establish_recovery_equivalent_for_app(journal_perm_factory);
         }
-        let journal = match Journal::<Perm, PermFactory, PM>::start(powerpm, Tracked(journal_perm_factory)) {
+        let journal = match Journal::<PermFactory, PM>::start(powerpm, Tracked(journal_perm_factory)) {
             Ok(j) => j,
             Err(JournalError::CRCError) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
@@ -116,7 +115,7 @@ where
         }
 
         assert(journal.recover_idempotent());
-        assert(Journal::<Perm, PermFactory, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));
+        assert(Journal::<PermFactory, PM>::recovery_equivalent_for_app(journal@.read_state, old_state));
         assert(seqs_match_in_range(journal@.read_state, js, jc.app_area_start as int, jc.app_area_end as int));
 
         let sm = match exec_recover_object::<PM, KvStaticMetadata>(
@@ -135,30 +134,30 @@ where
         };
 
         proof {
-            KeyTable::<Perm, PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
+            KeyTable::<PermFactory, PM, K>::lemma_recover_depends_only_on_my_area(
                 js, journal@.read_state, sm.keys
             );
-            ItemTable::<Perm, PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
+            ItemTable::<PermFactory, PM, I>::lemma_recover_depends_only_on_my_area(
                 js, journal@.read_state, recovered_keys.item_addrs(), sm.items
             );
-            ListTable::<Perm, PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
+            ListTable::<PermFactory, PM, L>::lemma_recover_depends_only_on_my_area(
                 js, journal@.read_state, recovered_keys.list_addrs(), sm.lists
             );
         }
 
-        let (keys, item_addrs, list_addrs) = match KeyTable::<Perm, PermFactory, PM, K>::start(&journal, &sm.keys) {
+        let (keys, item_addrs, list_addrs) = match KeyTable::<PermFactory, PM, K>::start(&journal, &sm.keys) {
             Ok((k, i, l)) => (k, i, l),
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let items = match ItemTable::<Perm, PermFactory, PM, I>::start(&journal, &item_addrs, &sm.items) {
+        let items = match ItemTable::<PermFactory, PM, I>::start(&journal, &item_addrs, &sm.items) {
             Ok(i) => i,
             Err(KvError::CRCMismatch) => { return Err(KvError::CRCMismatch); },
             _ => { assert(false); return Err(KvError::InternalError); },
         };
 
-        let lists = match ListTable::<Perm, PermFactory, PM, L>::start(
+        let lists = match ListTable::<PermFactory, PM, L>::start(
             &journal, logical_range_gaps_policy, &list_addrs, &sm.lists
         ) {
             Ok(i) => i,

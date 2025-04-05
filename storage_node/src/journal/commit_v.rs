@@ -6,6 +6,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::power_t::*;
+use crate::pmem::power_v::*;
 use crate::common::subrange_v::*;
 use super::entry_v::*;
 use super::impl_v::*;
@@ -14,11 +15,10 @@ use super::recover_v::*;
 
 verus! {
 
-impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+impl <PermFactory, PM> Journal<PermFactory, PM>
 where
     PM: PersistentMemoryRegion,
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
 {
     proof fn lemma_write_journal_entry_initial_conditions(
         self,
@@ -62,7 +62,7 @@ where
     }
 
     #[inline]
-    exec fn write_journal_entry(
+    exec fn write_journal_entry<Perm>(
         &mut self,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
         Ghost(original_read_state): Ghost<Seq<u8>>,
@@ -70,6 +70,8 @@ where
         current_pos: u64,
         crc_digest: &mut CrcDigest,
     ) -> (next_pos: u64)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
@@ -125,7 +127,7 @@ where
         // is referring to, to the next position in the journal.
 
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.serialize_and_write::<u64>(current_pos, &entry.start, Tracked(perm));
+        self.powerpm.serialize_and_write::<PermFactory::Perm, u64>(current_pos, &entry.start, Tracked(perm));
         crc_digest.write(&entry.start);
         assert(crc_digest.bytes_in_digest() ==
                self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
@@ -138,7 +140,7 @@ where
     
         let num_bytes_addr = current_pos + size_of::<u64>() as u64;
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.serialize_and_write::<u64>(num_bytes_addr, &num_bytes, Tracked(perm));
+        self.powerpm.serialize_and_write::<PermFactory::Perm, u64>(num_bytes_addr, &num_bytes, Tracked(perm));
         crc_digest.write(&num_bytes);
         assert(crc_digest.bytes_in_digest() ==
                self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
@@ -152,7 +154,7 @@ where
         let bytes_to_write_addr = num_bytes_addr + size_of::<u64>() as u64;
         let bytes_to_write_as_slice = entry.bytes_to_write.as_slice();
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.write(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
+        self.powerpm.write::<PermFactory::Perm>(bytes_to_write_addr, bytes_to_write_as_slice, Tracked(perm));
         crc_digest.write_bytes(bytes_to_write_as_slice);
         assert(crc_digest.bytes_in_digest() ==
                   self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
@@ -195,9 +197,6 @@ where
     exec fn write_journal_entries(
         &mut self,
     ) -> (journal_entries_crc: u64)
-        where
-            PM: PersistentMemoryRegion,
-            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
@@ -256,8 +255,7 @@ where
                 crc_digest.bytes_in_digest() ==
                     self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int),
         {
-            let tracked perm = self.perm_factory.borrow().grant_permission();
-            current_pos = self.write_journal_entry(Ghost(original_durable_state), Ghost(original_read_state),
+            current_pos = self.write_journal_entry::<PermFactory::Perm>(Ghost(original_durable_state), Ghost(original_read_state),
                                                    current_entry_index, current_pos,
                                                    &mut crc_digest);
             assert(current_entry_index < u64::MAX) by {
@@ -301,11 +299,11 @@ where
 
         let journal_entries_crc = self.write_journal_entries();
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.serialize_and_write::<u64>(self.sm.journal_length_start, &self.journal_length, Tracked(perm));
+        self.powerpm.serialize_and_write::<PermFactory::Perm, u64>(self.sm.journal_length_start, &self.journal_length, Tracked(perm));
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.serialize_and_write::<u64>(self.sm.journal_length_crc_start, &journal_length_crc, Tracked(perm));
+        self.powerpm.serialize_and_write::<PermFactory::Perm, u64>(self.sm.journal_length_crc_start, &journal_length_crc, Tracked(perm));
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.serialize_and_write::<u64>(self.sm.journal_entries_crc_start, &journal_entries_crc, Tracked(perm));
+        self.powerpm.serialize_and_write::<PermFactory::Perm, u64>(self.sm.journal_entries_crc_start, &journal_entries_crc, Tracked(perm));
         self.powerpm.flush();
 
         proof {
@@ -314,13 +312,15 @@ where
     }
 
     #[inline]
-    exec fn mark_journal_committed(
+    exec fn mark_journal_committed<Perm>(
         &mut self,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
         Ghost(original_read_state): Ghost<Seq<u8>>,
         Ghost(original_commit_state): Ghost<Seq<u8>>,
         Tracked(perm): Tracked<Perm>,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
             old(self).status@ is WritingJournal,
@@ -389,7 +389,7 @@ where
         }
 
         let tracked unchanged_perm = self.perm_factory.borrow().grant_permission();
-        let tracked combined_perm = unchanged_perm.combine(perm);
+        let tracked combined_perm = CombinedPermission::new(unchanged_perm, perm);
         assert forall |s| #[trigger] can_result_from_partial_write(s, self.powerpm@.durable_state,
                                                               self.sm.committed_cdb_start as int,
                                                               cdb.spec_to_bytes())
@@ -402,7 +402,7 @@ where
             }
         }
 
-        self.powerpm.serialize_and_write::<u64>(self.sm.committed_cdb_start, &cdb, Tracked(combined_perm));
+        self.powerpm.serialize_and_write::<CombinedPermission<Seq<u8>, PermFactory::Perm, Perm>, u64>(self.sm.committed_cdb_start, &cdb, Tracked(combined_perm));
         self.powerpm.flush();
         assert(self.powerpm@.read_state == desired_state);
         self.status = Ghost(JournalStatus::Committed);
@@ -494,7 +494,7 @@ where
             }
         }
         let tracked perm = self.perm_factory.borrow().grant_permission();
-        self.powerpm.write(entry.start, entry.bytes_to_write.as_slice(), Tracked(perm));
+        self.powerpm.write::<PermFactory::Perm>(entry.start, entry.bytes_to_write.as_slice(), Tracked(perm));
         proof {
             assert(recover_journal(self.powerpm@.durable_state) == recover_journal(old(self).powerpm@.durable_state)) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
@@ -638,7 +638,9 @@ where
         }
     }
 
-    pub exec fn commit(&mut self, Tracked(perm): Tracked<Perm>)
+    pub exec fn commit<Perm>(&mut self, Tracked(perm): Tracked<Perm>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
             perm.id() == old(self)@.powerpm_id,
@@ -658,7 +660,7 @@ where
         self.status = Ghost(JournalStatus::WritingJournal);
         assert(self.perm_factory == old(self).perm_factory);
         self.write_journal_metadata();
-        self.mark_journal_committed(Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
+        self.mark_journal_committed::<Perm>(Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
                                     Ghost(old(self)@.commit_state), Tracked(perm));
         self.install_journal_entries_during_commit(Ghost(old(self)@.commit_state));
         assert(self.perm_factory == old(self).perm_factory);

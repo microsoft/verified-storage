@@ -19,11 +19,10 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+impl <PermFactory, PM> Journal<PermFactory, PM>
 where
     PM: PersistentMemoryRegion,
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
 {
     exec fn read_version_metadata(pm: &PM) -> (result: Option<JournalVersionMetadata>)
         requires
@@ -141,7 +140,7 @@ where
     }
     
     exec fn install_journal_entry_during_start(
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
@@ -204,7 +203,7 @@ where
             }
         }
         let tracked perm = perm_factory.grant_permission();
-        powerpm.write(write_addr, bytes_to_write, Tracked(perm));
+        powerpm.write::<PermFactory::Perm>(write_addr, bytes_to_write, Tracked(perm));
         proof {
             broadcast use group_can_result_from_write_effect;
             assert(recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state)) by {
@@ -225,7 +224,7 @@ where
     }
     
     exec fn install_journal_entries_during_start(
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
@@ -362,7 +361,7 @@ where
     }
     
     pub(super) exec fn clear_log(
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PM>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
@@ -409,13 +408,13 @@ where
             lemma_auto_only_two_crash_states_introduced_by_aligned_chunk_write();
         }
         let tracked perm = perm_factory.grant_permission();
-        powerpm.serialize_and_write::<u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
+        powerpm.serialize_and_write::<PermFactory::Perm, u64>(sm.committed_cdb_start, &new_cdb, Tracked(perm));
         powerpm.flush();
         assert(powerpm@.read_state == new_state);
     }
 
     pub exec fn start(
-        powerpm: PoWERPersistentMemoryRegion<Perm, PM>,
+        powerpm: PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<PermFactory>
     ) -> (result: Result<Self, JournalError>)
         requires

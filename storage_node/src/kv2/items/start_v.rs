@@ -16,15 +16,14 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, I> ItemTable<Perm, PermFactory, PM, I>
+impl<PermFactory, PM, I> ItemTable<PermFactory, PM, I>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {
     pub exec fn start(
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
         item_addrs: &HashSet<u64>,
         sm: &ItemTableStaticMetadata,
     ) -> (result: Result<Self, KvError>)
@@ -143,7 +142,6 @@ where
             pending_allocations: Vec::new(),
             pending_deallocations: Vec::new(),
             phantom_perm_factory: Ghost(core::marker::PhantomData),
-            phantom_perm: Ghost(core::marker::PhantomData),
             phantom_pm: Ghost(core::marker::PhantomData),
         };
         

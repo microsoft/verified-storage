@@ -11,13 +11,14 @@ use super::spec_v::*;
 
 verus! {
 
-impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+impl <PermFactory, PM> Journal<PermFactory, PM>
 where
     PM: PersistentMemoryRegion,
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
 {
-    pub open spec fn write_preconditions(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
+    pub open spec fn write_preconditions<Perm>(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
+        where
+            Perm: CheckPermission<Seq<u8>>,
     {
         &&& self.valid()
         &&& self@.constants.app_area_start <= addr
@@ -50,12 +51,14 @@ where
     }
 
     #[inline]
-    pub exec fn write_slice(
+    pub exec fn write_slice<Perm>(
         &mut self,
         addr: u64,
         bytes_to_write: &[u8],
         Tracked(perm): Tracked<Perm>,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).write_preconditions(addr, bytes_to_write@, perm),
         ensures
@@ -72,7 +75,7 @@ where
                                                   addr + bytes_to_write@.len()));
             }
         }
-        self.powerpm.write(addr, bytes_to_write, Tracked(perm));
+        self.powerpm.write::<Perm>(addr, bytes_to_write, Tracked(perm));
         assert({
             &&& apply_journal_entries(self.powerpm@.read_state, self.entries@, self.sm) == Some(self@.commit_state)
             &&& self@.commit_state == update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@)
@@ -91,22 +94,24 @@ where
     }
 
     #[inline]
-    pub exec fn write_vec(
+    pub exec fn write_vec<Perm>(
         &mut self,
         addr: u64,
         bytes_to_write: Vec<u8>,
         Tracked(perm): Tracked<Perm>,
     )
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).write_preconditions(addr, bytes_to_write@, perm),
         ensures
             self.write_postconditions(*old(self), addr, bytes_to_write@),
     {
-        self.write_slice(addr, bytes_to_write.as_slice(), Tracked(perm))
+        self.write_slice::<Perm>(addr, bytes_to_write.as_slice(), Tracked(perm))
     }
 
     #[inline]
-    pub exec fn write_object<S>(
+    pub exec fn write_object<S, Perm>(
         &mut self,
         addr: u64,
         object: &S,
@@ -114,13 +119,14 @@ where
     )
         where
             S: PmCopy,
+            Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).write_preconditions(addr, object.spec_to_bytes(), perm),
         ensures
             self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
     {
         broadcast use pmcopy_axioms;
-        self.write_slice(addr, object.as_byte_slice(), Tracked(perm))
+        self.write_slice::<Perm>(addr, object.as_byte_slice(), Tracked(perm))
     }
 
     pub exec fn journal_write(

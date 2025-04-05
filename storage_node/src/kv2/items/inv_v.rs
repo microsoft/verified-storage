@@ -247,10 +247,9 @@ impl<I> ItemTableInternalView<I>
     }
 }
 
-impl<Perm, PermFactory, PM, I> ItemTable<Perm, PermFactory, PM, I>
+impl<PermFactory, PM, I> ItemTable<PermFactory, PM, I>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {

@@ -19,15 +19,14 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
+impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
     exec fn read_list(
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
         sm: &ListTableStaticMetadata,
         Ghost(list_addrs): Ghost<Set<u64>>,
         Ghost(mapping): Ghost<ListRecoveryMapping<L>>,
@@ -138,7 +137,7 @@ where
     }
 
     exec fn read_all_lists(
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
         sm: &ListTableStaticMetadata,
         list_addrs: &Vec<u64>,
         Ghost(mapping): Ghost<ListRecoveryMapping<L>>,
@@ -328,7 +327,7 @@ where
     }
 
     pub exec fn start(
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
         list_addrs: &Vec<u64>,
         sm: &ListTableStaticMetadata,
@@ -375,7 +374,7 @@ where
         };
         let (free_list, Ghost(row_info)) = Self::build_free_list(&row_addrs_used, sm);
 
-        let journal_entry_overhead = Journal::<Perm, PermFactory, PM>::journal_entry_overhead();
+        let journal_entry_overhead = Journal::<PermFactory, PM>::journal_entry_overhead();
         let sizeof_u64 = size_of::<u64>() as u64;
         let space_needed_to_journal_next = journal_entry_overhead + sizeof_u64 + sizeof_u64;
 
@@ -396,7 +395,6 @@ where
             pending_allocations: Vec::<u64>::new(),
             pending_deallocations: Vec::<u64>::new(),
             phantom_perm_factory: Ghost(core::marker::PhantomData),
-            phantom_perm: Ghost(core::marker::PhantomData),
             phantom_pm: Ghost(core::marker::PhantomData),
         };
 

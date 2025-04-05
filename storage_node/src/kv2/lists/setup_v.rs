@@ -18,10 +18,9 @@ use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
-impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
+impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {

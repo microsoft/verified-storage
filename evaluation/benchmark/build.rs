@@ -73,7 +73,7 @@ fn main() {
             "-I../viper/include", 
             "-I/usr/include/c++/14", 
             "-I/usr/include/x86_64-linux-gnu/c++/14",
-            "-I../concurrentqueue",
+            "-I../viper_deps/concurrentqueue",
             "-I../viper_wrapper",
             "-I../viper/benchmark",
             "-I../viper_deps/libpmemobj-cpp/include",

@@ -16,14 +16,6 @@ pub trait CheckPermission<State> : Sized
     spec fn check_permission(&self, s1: State, s2: State) -> bool;
     spec fn id(&self) -> int;
 
-    proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
-        requires
-            self.id() == other.id(),
-        ensures
-            self.id() == combined.id(),
-            forall|s1: State, s2: State| #[trigger] combined.check_permission(s1, s2) <==>
-                self.check_permission(s1, s2) || other.check_permission(s1, s2);
-
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State)
         requires
             self.id() == old(r).id(),

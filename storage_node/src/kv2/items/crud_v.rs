@@ -18,14 +18,13 @@ use super::super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, I> ItemTable<Perm, PermFactory, PM, I>
+impl<PermFactory, PM, I> ItemTable<PermFactory, PM, I>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {
-    pub exec fn read(&self, row_addr: u64, journal: &Journal<Perm, PermFactory, PM>) -> (result: Result<I, KvError>)
+    pub exec fn read(&self, row_addr: u64, journal: &Journal<PermFactory, PM>) -> (result: Result<I, KvError>)
         requires
             journal.valid(),
             self.valid(journal@),
@@ -94,7 +93,7 @@ where
             sm.valid::<I>(),
             iv.valid(sm),
             iv.consistent_with_durable_state(initial_durable_state, sm),
-            Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(initial_durable_state, constants),
+            Journal::<PermFactory, PM>::state_recovery_idempotent(initial_durable_state, constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -112,7 +111,7 @@ where
                                                 iv.as_durable_snapshot().m.dom(), constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<PermFactory, PM>::state_recovery_idempotent(s, constants)
             } ==> {
                 &&& Self::state_equivalent_for_me(s, initial_durable_state, iv.as_durable_snapshot().m.dom(),
                                                  constants, sm)
@@ -127,7 +126,7 @@ where
                                                 constants, sm)
                 &&& iv.consistent_with_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<Perm, PermFactory, PM>::state_recovery_idempotent(s, constants)
+                &&& Journal::<PermFactory, PM>::state_recovery_idempotent(s, constants)
             } implies {
                 &&& Self::state_equivalent_for_me(s, initial_durable_state, item_addrs, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
@@ -143,7 +142,7 @@ where
     pub exec fn create(
         &mut self,
         item: &I,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires
@@ -213,8 +212,8 @@ where
         let item_crc_addr = row_addr + self.sm.row_item_crc_start;
         let item_crc = calculate_crc(item);
 
-        journal.write_object::<I>(item_addr, &item, Tracked(perm_factory.grant_permission()));
-        journal.write_object::<u64>(item_crc_addr, &item_crc, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<I, PermFactory::Perm>(item_addr, &item, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64, PermFactory::Perm>(item_crc_addr, &item_crc, Tracked(perm_factory.grant_permission()));
 
         let ghost disposition =
             ItemRowDisposition::InPendingAllocationList{ pos: self.pending_allocations.len() as nat, item: *item };
@@ -228,7 +227,7 @@ where
     pub exec fn delete(
         &mut self,
         row_addr: u64,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     )
         requires
             old(self).valid(journal@),

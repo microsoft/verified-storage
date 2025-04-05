@@ -422,10 +422,9 @@ impl TrimAction
     }
 }
 
-impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
+impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -434,7 +433,7 @@ where
         list_addr: u64,
         trim_length: usize,
         summary: &ListSummary,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
@@ -508,7 +507,7 @@ where
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         addrs: &Vec<u64>,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Result<(Vec<u64>, u64), KvError>)
         requires
             self.valid(journal@),
@@ -586,7 +585,7 @@ where
         &self,
         list_addr: u64,
         num_durable_addrs: usize,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Result<Vec<u64>, KvError>)
         requires
             self.valid(journal@),
@@ -670,7 +669,7 @@ where
         &self,
         list_addr: u64,
         trim_length: usize,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (result: Result<TrimAction, KvError>)
         requires
             self.valid(journal@),
@@ -750,7 +749,7 @@ where
         trim_length: usize,
         pending_deallocations: Vec<u64>,
         new_head: u64,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -816,7 +815,7 @@ where
         trim_length: usize,
         pending_deallocations: Vec<u64>,
         new_head: u64,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -882,7 +881,7 @@ where
         list_addr: u64,
         trim_length: usize,
         pending_deallocations: Vec<u64>,
-        journal: &Journal<Perm, PermFactory, PM>,
+        journal: &Journal<PermFactory, PM>,
     ) -> (new_list_addr: u64)
         requires
             old(self).valid(journal@),
@@ -957,7 +956,7 @@ where
         &mut self,
         list_addr: u64,
         trim_length: usize,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires

@@ -43,18 +43,6 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
         self.powerpm_id
     }
 
-    proof fn combine(tracked self, tracked other: Self) -> (tracked combined: Self)
-        ensures
-            forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] combined.check_permission(s1, s2) <==>
-                self.check_permission(s1, s2) || other.check_permission(s1, s2)
-    {
-        Self{
-            is_transition_allowable:
-                |s1: Seq<u8>, s2: Seq<u8>| self.check_permission(s1, s2) || other.check_permission(s1, s2),
-            powerpm_id: self.powerpm_id,
-        }
-    }
-
     proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
     {
         admit();
@@ -67,8 +55,10 @@ pub struct TrustedKvPermissionFactory
     ghost powerpm_id: int
 }
 
-impl PermissionFactory<Seq<u8>, TrustedKvPermission> for TrustedKvPermissionFactory
+impl PermissionFactory<Seq<u8>> for TrustedKvPermissionFactory
 {
+    type Perm = TrustedKvPermission;
+
     closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
     {
         (self.is_transition_allowable)(s1, s2)
@@ -110,7 +100,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    untrusted_kv_impl: UntrustedKvStoreImpl<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<TrustedKvPermissionFactory, PM, K, I, L>,
     powerpm_id: Ghost<int>,
 }
 
@@ -142,17 +132,17 @@ where
 
     pub closed spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore::<K, I, L>>
     {
-        UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s)
+        UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s)
     }
 
     pub closed spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
     {
-        UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(ps)
     }
 
     pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::spec_space_needed_for_transaction_operation()
+        UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::spec_space_needed_for_transaction_operation()
     }
 
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)
@@ -164,7 +154,7 @@ where
                 Err(_) => false,
             },
     {
-        UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::space_needed_for_setup(ps)
+        UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::space_needed_for_setup(ps)
     }
 
     pub exec fn setup(pm: &mut PM, ps: &SetupParameters) -> (result: Result<(), KvError>)
@@ -185,7 +175,7 @@ where
                 Err(_) => false,
             }
     {
-        UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::setup(pm, ps)
+        UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::setup(pm, ps)
     }
 
     pub exec fn start(pm: PM, kvstore_id: u128) -> (result: Result<Self, KvError>)
@@ -221,18 +211,18 @@ where
     {
         let (mut powerpm, _) = PoWERPersistentMemoryRegion::new(pm);
         powerpm.flush(); // ensure there are no outstanding writes
-        let ghost state = UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory,
+        let ghost state = UntrustedKvStoreImpl::<TrustedKvPermissionFactory,
                                                  PM, K, I, L>::recover(powerpm@.durable_state).unwrap();
         let ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool = |s1: Seq<u8>, s2: Seq<u8>| {
-            UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
-            UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s2)
+            UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
+            UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s2)
         };
         let tracked perm_factory = TrustedKvPermissionFactory{
             is_transition_allowable,
             powerpm_id: powerpm.id(),
         };
         let untrusted_kv_impl =
-            UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::start(
+            UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::start(
                 powerpm, kvstore_id, Ghost(state), Tracked(perm_factory)
             )?;
 
@@ -406,16 +396,16 @@ where
             },
     {
         let ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool = |s1: Seq<u8>, s2: Seq<u8>| {
-            &&& UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
+            &&& UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
                 Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
-            &&& UntrustedKvStoreImpl::<TrustedKvPermission, TrustedKvPermissionFactory, PM, K, I, L>::recover(s2) ==
+            &&& UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s2) ==
                Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative })
         };
         let tracked perm = TrustedKvPermission{
             is_transition_allowable,
             powerpm_id: self.powerpm_id@
         };
-        self.untrusted_kv_impl.commit(Tracked(perm))
+        self.untrusted_kv_impl.commit::<TrustedKvPermission>(Tracked(perm))
     }
 
     pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError>)

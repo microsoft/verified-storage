@@ -63,11 +63,10 @@ impl AddressesForSetup
     }
 }
 
-impl <Perm, PermFactory, PM> Journal<Perm, PermFactory, PM>
+impl <PermFactory, PM> Journal<PermFactory, PM>
 where
     PM: PersistentMemoryRegion,
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
 {
     pub closed spec fn spec_space_needed_for_setup(journal_capacity: nat) -> nat
     {

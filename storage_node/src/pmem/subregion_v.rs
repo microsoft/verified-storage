@@ -273,7 +273,7 @@ pub struct PoWERPersistentMemorySubregion
 impl PoWERPersistentMemorySubregion
 {
     pub exec fn new<Perm, PMRegion>(
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
         Tracked(perm): Tracked<&Perm>,
         start: u64,
         Ghost(len): Ghost<nat>,
@@ -313,7 +313,7 @@ impl PoWERPersistentMemorySubregion
     }
 
     pub exec fn new_with_condition<Perm, PMRegion>(
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
         Tracked(perm): Tracked<&Perm>,
         start: u64,
         Ghost(len): Ghost<nat>,
@@ -394,23 +394,21 @@ impl PoWERPersistentMemorySubregion
         get_subregion_view(self.initial_region_view(), self.start(), self.len())
     }
 
-    pub open spec fn view<Perm, PMRegion>(
+    pub open spec fn view<PMRegion>(
         self,
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>
     ) -> PersistentMemoryRegionView
         where
-            Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
     {
         get_subregion_view(powerpm@, self.start(), self.len())
     }
 
-    pub closed spec fn opaque_relation_with_powerpm<Perm, PMRegion>(
+    pub closed spec fn opaque_relation_with_powerpm<PMRegion>(
         self,
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
     ) -> bool
         where
-            Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
     {
         &&& powerpm.inv()
@@ -436,7 +434,7 @@ impl PoWERPersistentMemorySubregion
 
     pub open spec fn inv<Perm, PMRegion>(
         self,
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
         perm: &Perm
     ) -> bool
         where
@@ -574,7 +572,7 @@ impl PoWERPersistentMemorySubregion
 
     pub exec fn read_relative_unaligned<Perm, PMRegion>(
         self: &Self,
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
         relative_addr: u64,
         num_bytes: u64,
         Tracked(perm): Tracked<&Perm>,
@@ -600,12 +598,12 @@ impl PoWERPersistentMemorySubregion
                 Err(_) => false,
             }
     {
-        self.read_absolute_unaligned(powerpm, relative_addr + self.start_, num_bytes, Tracked(perm))
+        self.read_absolute_unaligned::<Perm, _>(powerpm, relative_addr + self.start_, num_bytes, Tracked(perm))
     }
 
     pub exec fn read_absolute_unaligned<Perm, PMRegion>(
         self: &Self,
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
         absolute_addr: u64,
         num_bytes: u64,
         Tracked(perm): Tracked<&Perm>,
@@ -644,7 +642,7 @@ impl PoWERPersistentMemorySubregion
 
     pub exec fn read_relative_aligned<'a, S, Perm, PMRegion>(
         self: &Self,
-        powerpm: &'a PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &'a PoWERPersistentMemoryRegion<PMRegion>,
         relative_addr: u64,
         Ghost(true_val): Ghost<S>,
         Tracked(perm): Tracked<&Perm>,
@@ -671,12 +669,12 @@ impl PoWERPersistentMemorySubregion
                 Err(_) => false,
             }
     {
-        self.read_absolute_aligned(powerpm, relative_addr + self.start_, Ghost(true_val), Tracked(perm))
+        self.read_absolute_aligned::<_, Perm, _>(powerpm, relative_addr + self.start_, Ghost(true_val), Tracked(perm))
     }
 
     pub exec fn read_absolute_aligned<'a, S, Perm, PMRegion>(
         self: &Self,
-        powerpm: &'a PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &'a PoWERPersistentMemoryRegion<PMRegion>,
         absolute_addr: u64,
         Ghost(true_val): Ghost<S>,
         Tracked(perm): Tracked<&Perm>,
@@ -718,7 +716,7 @@ impl PoWERPersistentMemorySubregion
 
     pub exec fn write_relative<Perm, PMRegion>(
         self: &Self,
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PMRegion>,
         relative_addr: u64,
         bytes: &[u8],
         Tracked(perm): Tracked<&Perm>,
@@ -740,12 +738,12 @@ impl PoWERPersistentMemorySubregion
             self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows_always();
             self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write_always();
         }
-        powerpm.write(relative_addr + self.start_, bytes, Tracked(perm));
+        powerpm.write::<Perm>(relative_addr + self.start_, bytes, Tracked(perm));
     }
 
     pub exec fn write_absolute<Perm, PMRegion>(
         self: &Self,
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PMRegion>,
         absolute_addr: u64,
         bytes: &[u8],
         Tracked(perm): Tracked<&Perm>,
@@ -767,12 +765,12 @@ impl PoWERPersistentMemorySubregion
             self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write_always();
             self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows_always();
         }
-        powerpm.write(absolute_addr, bytes, Tracked(perm));
+        powerpm.write::<Perm>(absolute_addr, bytes, Tracked(perm));
     }
 
     pub exec fn serialize_and_write_relative<S, Perm, PMRegion>(
         self: &Self,
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PMRegion>,
         relative_addr: u64,
         to_write: &S,
         Tracked(perm): Tracked<&Perm>,
@@ -802,12 +800,12 @@ impl PoWERPersistentMemorySubregion
             self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows_always();
             broadcast use lemma_update_then_subrange_is_updated_bytes;
         }
-        powerpm.serialize_and_write(relative_addr + self.start_, to_write, Tracked(perm));
+        powerpm.serialize_and_write::<Perm, _>(relative_addr + self.start_, to_write, Tracked(perm));
     }
 
     pub exec fn serialize_and_write_absolute<S, Perm, PMRegion>(
         self: &Self,
-        powerpm: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &mut PoWERPersistentMemoryRegion<PMRegion>,
         absolute_addr: u64,
         to_write: &S,
         Tracked(perm): Tracked<&Perm>,
@@ -835,12 +833,12 @@ impl PoWERPersistentMemorySubregion
             self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows_always();
             broadcast use lemma_update_then_subrange_is_updated_bytes;
         }
-        powerpm.serialize_and_write(absolute_addr, to_write, Tracked(perm));
+        powerpm.serialize_and_write::<Perm, _>(absolute_addr, to_write, Tracked(perm));
     }
 
     pub proof fn lemma_reveal_opaque_inv<Perm, PMRegion>(
         self,
-        powerpm: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
+        powerpm: &PoWERPersistentMemoryRegion<PMRegion>,
     )
         where
             Perm: CheckPermission<Seq<u8>>,

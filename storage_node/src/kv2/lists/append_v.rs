@@ -408,10 +408,9 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<Perm, PermFactory, PM, L> ListTable<Perm, PermFactory, PM, L>
+impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -420,7 +419,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
@@ -577,7 +576,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
@@ -728,7 +727,7 @@ where
         &self,
         new_element: L,
         row_addr: u64,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(prev_self): Ghost<Self>,
     )
@@ -790,16 +789,16 @@ where
         let element_crc_addr = row_addr + self.sm.row_element_crc_start;
         let element_crc = calculate_crc(&new_element);
 
-        journal.write_object::<L>(element_addr, &new_element, Tracked(perm_factory.grant_permission()));
-        journal.write_object::<u64>(element_crc_addr, &element_crc, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<L, PermFactory::Perm>(element_addr, &new_element, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64, PermFactory::Perm>(element_crc_addr, &element_crc, Tracked(perm_factory.grant_permission()));
 
         let next_addr = row_addr + self.sm.row_next_start;
         let next_crc_addr = next_addr + size_of::<u64>() as u64;
         let next: u64 = 0;
         let next_crc = calculate_crc(&next);
 
-        journal.write_object::<u64>(next_addr, &next, Tracked(perm_factory.grant_permission()));
-        journal.write_object::<u64>(next_crc_addr, &next_crc, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64, PermFactory::Perm>(next_addr, &next, Tracked(perm_factory.grant_permission()));
+        journal.write_object::<u64, PermFactory::Perm>(next_crc_addr, &next_crc, Tracked(perm_factory.grant_permission()));
 
         // Leverage postcondition of `lemma_writing_to_free_slot_has_permission_later_forall`
         // to conclude that `self` is still consistent with both the durable and read state
@@ -818,7 +817,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires
@@ -853,7 +852,7 @@ where
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() -
+                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::ListLengthWouldExceedUsizeMax) => {
@@ -883,7 +882,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<Perm, PermFactory, PM>::spec_journal_entry_overhead() +
+                                  Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -987,7 +986,7 @@ where
     pub exec fn create_singleton(
         &mut self,
         new_element: L,
-        journal: &mut Journal<Perm, PermFactory, PM>,
+        journal: &mut Journal<PermFactory, PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
         requires

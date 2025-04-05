@@ -14,19 +14,20 @@ use super::spec_t::*;
 
 verus! {
 
-impl<Perm, PermFactory, PM, K, I, L> UntrustedKvStoreImpl<Perm, PermFactory, PM, K, I, L>
+impl<PermFactory, PM, K, I, L> UntrustedKvStoreImpl<PermFactory, PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
-    PermFactory: PermissionFactory<Seq<u8>, Perm>,
+    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn commit(
+    pub exec fn commit<Perm>(
         &mut self, 
         Tracked(perm): Tracked<Perm>
     ) -> (result: Result<(), KvError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
         requires 
             old(self).valid(),
             perm.id() == old(self)@.powerpm_id,
@@ -47,7 +48,7 @@ where
             self.lemma_establish_recovery_equivalent_for_app_on_commit(perm);
         }
 
-        self.journal.commit(Tracked(perm));
+        self.journal.commit::<Perm>(Tracked(perm));
 
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
