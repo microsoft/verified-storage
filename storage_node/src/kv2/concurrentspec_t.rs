@@ -109,25 +109,27 @@ pub trait ReadOnlyOperation<K, I, L>: Sized
 
 pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 {
+    type Completion;
+
     spec fn namespaces(self) -> Set<int>;
 
     spec fn pre(self, loc: Loc, op: Op) -> bool;
 
-    spec fn post(self, orig_self: Self, loc: Loc, op: Op, result: Op::ExecResult) -> bool;
+    spec fn post(self, apply: Self::Completion, loc: Loc, op: Op, result: Op::ExecResult) -> bool;
 
     proof fn apply(
-        tracked &mut self,
+        tracked self,
         op: Op,
         result: Op::ExecResult,
         tracked r: &Resource<OwnershipSplitter<K, I, L>>,
-    )
+    ) -> (tracked complete: Self::Completion)
         requires
-            old(self).pre(r.loc(), op),
+            self.pre(r.loc(), op),
             r.value() is Invariant,
             op.result_valid(r.value()->Invariant_ckv, result),
         ensures
-            self.post(*old(self), r.loc(), op, result),
-        opens_invariants old(self).namespaces()
+            self.post(complete, r.loc(), op, result),
+        opens_invariants self.namespaces()
     ;
 }
 
