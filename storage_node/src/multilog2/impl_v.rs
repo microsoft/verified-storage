@@ -71,45 +71,6 @@ impl UntrustedMultilogImpl
         self.state@
     }
 
-    // The `setup` method sets up persistent memory objects `pm_region`
-    // to store an initial empty log. It returns the capacity of the log.
-    // See `README.md` for more documentation.
-    pub exec fn setup<PMRegion>(
-        pm_region: &mut PMRegion,
-        multilog_id: u128,
-        capacities: Vec<u64>,
-    ) -> (result: Result<(), MultilogErr>)
-        where
-            PMRegion: PersistentMemoryRegion
-        requires
-            old(pm_region).inv(),
-            old(pm_region)@.valid(),
-        ensures
-            pm_region.inv(),
-            pm_region.constants() == old(pm_region).constants(),
-            match result {
-                Ok(()) => {
-                    let state = RecoveredMultilogState::initialize(multilog_id, capacities@);
-                    &&& pm_region@.len() == old(pm_region)@.len()
-                    &&& pm_region@.flush_predicted()
-                    &&& Self::recover(pm_region@.durable_state) == Some(state)
-                },
-                Err(MultilogErr::SpaceNeededForSetupExceedsMax) => {
-                    &&& pm_region@ == old(pm_region)@
-                    &&& Self::spec_space_needed_for_setup(capacities@) > u64::MAX
-                },
-                Err(MultilogErr::InsufficientSpaceForSetup { required_space }) => {
-                    &&& pm_region@ == old(pm_region)@
-                    &&& pm_region@.len() < required_space
-                    &&& required_space == Self::spec_space_needed_for_setup(capacities@)
-                },
-                _ => false
-            }
-    {
-        assume(false);
-        Err(MultilogErr::NotYetImplemented)
-    }
-
     // The `start` static method creates an
     // `UntrustedMultilogImpl` out of a set of persistent memory
     // regions. It's assumed that those regions were initialized
@@ -175,7 +136,7 @@ impl UntrustedMultilogImpl
     pub exec fn tentatively_append<Perm, PMRegion>(
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: u32,
+        which_log: usize,
         bytes_to_append: &[u8],
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u128, MultilogErr>)
@@ -222,7 +183,7 @@ impl UntrustedMultilogImpl
     pub exec fn tentatively_advance_head<Perm, PMRegion>(
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: u32,
+        which_log: usize,
         new_head: u128,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), MultilogErr>)
@@ -323,7 +284,7 @@ impl UntrustedMultilogImpl
     pub exec fn read<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: u32,
+        which_log: usize,
         pos: u128,
         len: u64,
     ) -> (result: Result<Vec<u8>, MultilogErr>)
@@ -385,7 +346,7 @@ impl UntrustedMultilogImpl
     pub exec fn get_head_tail_and_capacity<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: u32,
+        which_log: usize,
     ) -> (result: Result<(u128, u128, u64), MultilogErr>)
         where
             Perm: CheckPermission<Seq<u8>>,

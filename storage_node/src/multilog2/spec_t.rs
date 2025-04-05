@@ -12,13 +12,11 @@ verus! {
 // returned from log operations. They're self-explanatory.
 #[derive(Debug)]
 pub enum MultilogErr {
-    CantSetupWithFewerThanOneRegion { },
-    CantSetupWithMoreThanMaxRegions { max_num_regions: u32 },
+    CantSetupWithFewerThanOneRegion,
+    CantSetupWithMoreThanMaxRegions { max_num_regions: usize },
     SpaceNeededForSetupExceedsMax,
     InsufficientSpaceForSetup { required_space: u64 },
     StartFailedDueToMultilogIDMismatch { multilog_id_expected: u128, multilog_id_read: u128 },
-    StartFailedDueToProgramVersionNumberUnsupported { which_log: u32, version_number: u64, max_supported: u64 },
-    StartFailedDueToInvalidMemoryContents { which_log: u32 },
     CRCMismatch,
     InvalidLogIndex,
     InsufficientSpaceForAppend { available_space: u64 },

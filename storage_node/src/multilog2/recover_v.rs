@@ -30,7 +30,7 @@ pub const MULTILOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 // The maximum number of logs supported, limited by the number of
 // bits in the mask.
 
-pub const MAX_NUM_LOGS: u64 = 64;
+pub const MAX_NUM_LOGS: usize = 64;
 
 #[repr(C)]
 #[derive(PmCopy, Copy)]
@@ -62,7 +62,7 @@ pub(super) struct SingleLogDynamicMetadata {
 #[verifier::ext_equal]
 pub(super) struct MultilogStaticMetadata {
     pub id: u128,
-    pub num_logs: u64,
+    pub num_logs: u32,
     pub mask_cdb_addr: u64,
     pub mask0_addr: u64,
     pub mask0_crc_addr: u64,
@@ -84,7 +84,7 @@ pub(super) open spec fn validate_version_metadata(vm: MultilogVersionMetadata) -
     &&& vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of()
 }
 
-pub(super) open spec fn recover_version_metatata(s: Seq<u8>) -> Option<MultilogVersionMetadata>
+pub(super) open spec fn recover_version_metadata(s: Seq<u8>) -> Option<MultilogVersionMetadata>
 {
     if s.len() < MultilogVersionMetadata::spec_size_of() + u64::spec_size_of() {
         None
@@ -132,6 +132,9 @@ pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionM
             None => None,
             Some(sm) => {
                 if !validate_static_metadata(sm) {
+                    None
+                }
+                else if sm.log_metadata_table.end > s.len() {
                     None
                 }
                 else {
@@ -279,7 +282,7 @@ pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata,
 
 pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState>
 {
-    match recover_version_metatata(s) {
+    match recover_version_metadata(s) {
         None => None,
         Some(vm) =>
             match recover_static_metadata(s, vm) {
