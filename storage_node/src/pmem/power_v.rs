@@ -10,6 +10,65 @@ use vstd::invariant::*;
 
 verus! {
 
+pub trait SimpleCheckPermission<State> : Sized
+{
+    spec fn check_permission(&self, s: State) -> bool;
+    spec fn id(&self) -> int;
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State)
+        requires
+            self.id() == old(r).id(),
+            old(r).valid(old(r).id(), 1),
+            self.check_permission(new_state),
+        ensures
+            r.id() == old(r).id(),
+            r.valid(r.id(), 1),
+            r@ == new_state
+        opens_invariants
+            any;
+}
+
+pub struct SimplePermissionAdapter<State, SimplePerm>
+    where
+        SimplePerm: SimpleCheckPermission<State>
+{
+    perm: SimplePerm,
+    _state: core::marker::PhantomData<State>,
+}
+
+impl<State, SimplePerm> SimplePermissionAdapter<State, SimplePerm>
+    where
+        SimplePerm: SimpleCheckPermission<State>
+{
+    proof fn new(tracked perm: SimplePerm) -> (tracked result: Self)
+        ensures
+            result.id() == perm.id(),
+            forall |s1, s2| perm.check_permission(s2) <==> result.check_permission(s1, s2),
+    {
+        Self{
+            perm: perm,
+            _state: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<State, SimplePerm> CheckPermission<State> for SimplePermissionAdapter<State, SimplePerm>
+    where
+        SimplePerm: SimpleCheckPermission<State>
+{
+    closed spec fn check_permission(&self, s1: State, s2: State) -> bool {
+        self.perm.check_permission(s2)
+    }
+
+    closed spec fn id(&self) -> int {
+        self.perm.id()
+    }
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State) {
+        self.perm.apply(credit, r, new_state)
+    }
+}
+
 pub trait PermissionFactory<State>: Sized
 {
     type Perm: CheckPermission<State>;
