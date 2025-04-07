@@ -154,7 +154,7 @@ impl UntrustedMultilogImpl
                     &&& Self::recover(pm_region@.durable_state) == Some(state)
                 },
                 _ => false
-            }
+            },
     {
         broadcast use pmcopy_axioms;
         broadcast use group_update_bytes_effect;

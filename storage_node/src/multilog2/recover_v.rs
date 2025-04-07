@@ -116,19 +116,24 @@ pub(super) open spec fn validate_static_metadata(sm: MultilogStaticMetadata) -> 
     &&& sm.log_metadata_table.num_rows == sm.num_logs
     &&& sm.log_metadata_row_constants_crc_addr >= sm.log_metadata_row_constants_addr + SingleLogConstants::spec_size_of()
     &&& sm.log_metadata_row_dynamic_metadata0_addr >= sm.log_metadata_row_constants_crc_addr + u64::spec_size_of()
-    &&& sm.log_metadata_row_dynamic_metadata0_crc_addr >= sm.log_metadata_row_dynamic_metadata0_addr + SingleLogDynamicMetadata::spec_size_of()
+    &&& sm.log_metadata_row_dynamic_metadata0_crc_addr >=
+        sm.log_metadata_row_dynamic_metadata0_addr + SingleLogDynamicMetadata::spec_size_of()
     &&& sm.log_metadata_row_dynamic_metadata1_addr >= sm.log_metadata_row_dynamic_metadata0_crc_addr + u64::spec_size_of()
-    &&& sm.log_metadata_row_dynamic_metadata1_crc_addr >= sm.log_metadata_row_dynamic_metadata1_addr + SingleLogDynamicMetadata::spec_size_of()
+    &&& sm.log_metadata_row_dynamic_metadata1_crc_addr >=
+        sm.log_metadata_row_dynamic_metadata1_addr + SingleLogDynamicMetadata::spec_size_of()
     &&& sm.log_metadata_table.row_size >= sm.log_metadata_row_dynamic_metadata1_crc_addr + u64::spec_size_of()
 }
 
-pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionMetadata) -> Option<MultilogStaticMetadata>
+pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionMetadata)
+                                                -> Option<MultilogStaticMetadata>
 {
     if s.len() < vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() {
         None
     }
     else {
-        match recover_object::<MultilogStaticMetadata>(s, vm.static_metadata_addr as int, vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of()) {
+        match recover_object::<MultilogStaticMetadata>(
+            s, vm.static_metadata_addr as int, vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of()
+        ) {
             None => None,
             Some(sm) => {
                 if !validate_static_metadata(sm) {
@@ -145,7 +150,8 @@ pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionM
     }
 }
 
-pub(super) open spec fn recover_single_log_constants(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata) -> Option<SingleLogConstants>
+pub(super) open spec fn recover_single_log_constants(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata)
+                                                     -> Option<SingleLogConstants>
 {
     let row_addr = sm.log_metadata_table.spec_row_index_to_addr(which_log);
     let constants_addr = row_addr + sm.log_metadata_row_constants_addr;
@@ -162,7 +168,12 @@ pub(super) open spec fn recover_single_log_constants(s: Seq<u8>, which_log: int,
     }
 }
 
-pub(super) open spec fn recover_single_log_dynamic_metadata(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata, which_dynamic_metadata: int) -> Option<SingleLogDynamicMetadata>
+pub(super) open spec fn recover_single_log_dynamic_metadata(
+    s: Seq<u8>,
+    which_log: int,
+    sm: MultilogStaticMetadata,
+    which_dynamic_metadata: int
+) -> Option<SingleLogDynamicMetadata>
 {
     let row_addr = sm.log_metadata_table.spec_row_index_to_addr(which_log);
     let dynamic_metadata_addr =
@@ -249,7 +260,8 @@ pub(super) open spec fn recover_single_log_capacity(s: Seq<u8>, which_log: int, 
     }
 }
 
-pub(super) open spec fn recover_single_log(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata, mask: u64) -> Option<AtomicLogState>
+pub(super) open spec fn recover_single_log(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata, mask: u64)
+                                           -> Option<AtomicLogState>
 {
     let which_dynamic_metadata = if mask & (1u64 << which_log as u64) != 0 { 1 } else { 0 };
     match recover_single_log_constants(s, which_log, sm) {
@@ -269,7 +281,8 @@ pub(super) open spec fn recover_log_capacities(s: Seq<u8>, sm: MultilogStaticMet
                               |which_log: int| recover_single_log_capacity(s, which_log, sm)))
 }
 
-pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata, mask: u64) -> Option<AtomicMultilogState>
+pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata, mask: u64)
+                                         -> Option<AtomicMultilogState>
 {
     let logs = seq_option_to_option_seq::<AtomicLogState>(
         Seq::<Option<AtomicLogState>>::new(sm.num_logs as nat,
