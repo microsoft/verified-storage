@@ -168,6 +168,25 @@ pub(super) open spec fn recover_single_log_constants(s: Seq<u8>, which_log: int,
     }
 }
 
+pub(super) open spec fn validate_all_log_constants(
+    cs: Seq<SingleLogConstants>,
+    sm: MultilogStaticMetadata
+) -> bool
+{
+    &&& 0 < cs.len()
+    &&& sm.log_metadata_table.end <= cs[0].log_area_start
+    &&& forall|i: int, j: int| 0 <= i < j < cs.len() ==> #[trigger] cs[i].log_area_end <= #[trigger] cs[j].log_area_start
+}
+
+pub(super) open spec fn recover_all_log_constants(s: Seq<u8>, sm: MultilogStaticMetadata)
+                                                  -> Option<Seq<SingleLogConstants>>
+{
+    match new_option_seq(sm.num_logs as nat, |which_log: int| recover_single_log_constants(s, which_log, sm)) {
+        None => None,
+        Some(cs) => if validate_all_log_constants(cs, sm) { Some(cs) } else { None },
+    }
+}
+
 pub(super) open spec fn recover_single_log_dynamic_metadata(
     s: Seq<u8>,
     which_log: int,
@@ -252,42 +271,30 @@ pub(super) open spec fn recover_single_log_given_metadata(
     }
 }
 
-pub(super) open spec fn recover_single_log_capacity(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata) -> Option<u64>
-{
-    match recover_single_log_constants(s, which_log, sm) {
-        None => None,
-        Some(c) => Some((c.log_area_end - c.log_area_start) as u64),
-    }
-}
-
-pub(super) open spec fn recover_single_log(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata, mask: u64)
-                                           -> Option<AtomicLogState>
+pub(super) open spec fn recover_single_log(
+    s: Seq<u8>,
+    which_log: int,
+    sm: MultilogStaticMetadata,
+    cs: Seq<SingleLogConstants>,
+    mask: u64
+) -> Option<AtomicLogState>
 {
     let which_dynamic_metadata = if mask & (1u64 << which_log as u64) != 0 { 1 } else { 0 };
-    match recover_single_log_constants(s, which_log, sm) {
+    match recover_single_log_dynamic_metadata(s, which_log, sm, which_dynamic_metadata) {
         None => None,
-        Some(c) =>
-            match recover_single_log_dynamic_metadata(s, which_log, sm, which_dynamic_metadata) {
-                None => None,
-                Some(d) => recover_single_log_given_metadata(s, c, d),
-            },
+        Some(d) => recover_single_log_given_metadata(s, cs[which_log], d),
     }
 }
 
-pub(super) open spec fn recover_log_capacities(s: Seq<u8>, sm: MultilogStaticMetadata) -> Option<Seq<u64>>
+pub(super) open spec fn compute_capacities(cs: Seq<SingleLogConstants>) -> Seq<u64>
 {
-    seq_option_to_option_seq::<u64>(
-        Seq::<Option<u64>>::new(sm.num_logs as nat,
-                              |which_log: int| recover_single_log_capacity(s, which_log, sm)))
+    cs.map(|_i, c: SingleLogConstants| (c.log_area_end - c.log_area_start) as u64)
 }
 
-pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata, mask: u64)
+pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata, cs: Seq<SingleLogConstants>, mask: u64)
                                          -> Option<AtomicMultilogState>
 {
-    let logs = seq_option_to_option_seq::<AtomicLogState>(
-        Seq::<Option<AtomicLogState>>::new(sm.num_logs as nat,
-                                        |which_log: int| recover_single_log(s, which_log, sm, mask)));
-    match logs {
+    match new_option_seq(sm.num_logs as nat, |which_log: int| recover_single_log(s, which_log, sm, cs, mask)) {
         None => None,
         Some(logs) => Some(AtomicMultilogState{ logs }),
     }
@@ -301,15 +308,19 @@ pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogSta
             match recover_static_metadata(s, vm) {
                 None => None,
                 Some(sm) =>
-                    match recover_mask(s, sm) {
+                    match recover_all_log_constants(s, sm) {
                         None => None,
-                        Some(mask) =>
-                            match (recover_log_capacities(s, sm), recover_multilog(s, sm, mask)) {
-                                (Some(capacities), Some(state)) => {
-                                    let c = MultilogConstants{ id: sm.id, capacities };
-                                    Some(RecoveredMultilogState{ c, state })
-                                },
-                                _ => None,
+                        Some(cs) =>
+                            match recover_mask(s, sm) {
+                                None => None,
+                                Some(mask) =>
+                                    match recover_multilog(s, sm, cs, mask) {
+                                        None => None,
+                                        Some(state) => {
+                                            let c = MultilogConstants{ id: sm.id, capacities: compute_capacities(cs) };
+                                            Some(RecoveredMultilogState{ c, state })
+                                        },
+                                    },
                             },
                     },
             },
