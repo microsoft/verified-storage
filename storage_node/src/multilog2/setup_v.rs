@@ -169,6 +169,28 @@ impl UntrustedMultilogImpl
         pm_region.serialize_and_write::<u64>(vm.static_metadata_addr + size_of::<MultilogStaticMetadata>() as u64, &sm_crc);
         assert(recover_static_metadata(pm_region@.read_state, *vm) == Some(*sm));
 
+        let num_logs = capacities.len();
+        let ghost cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::empty();
+        let mut current_offset = sm.log_metadata_table.end;
+        for which_log in 0..num_logs
+            invariant
+                Some(cs) == new_option_seq(which_log as nat, |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)),
+                0 < cs.len() ==> validate_all_log_constants(cs, *sm),
+                forall|i: int| 0 <= i < cs.len() ==> cs[i].log_area_end - cs[i].log_area_start == capacities[i],
+                current_offset == sm.log_metadata_table.end + spec_sum_u64s(capacities@.take(which_log as int)),
+        {
+            broadcast use group_validate_row_addr;
+            let row_addr = sm.log_metadata_table.row_index_to_addr(which_log as u64);
+            let c = SingleLogConstants {
+                log_area_start: current_offset,
+                log_area_end: current_offset + capacities[which_log],
+            };
+            current_offset = current_offset + capacities[which_log];
+            pm_region.serialize_and_write::<SingleLogConstants>(row_addr + sm.log_metadata_row_constants_addr, &c);
+            let c_crc = calculate_crc(&c);
+            pm_region.serialize_and_write::<u64>(row_addr + sm.log_metadata_row_constants_crc_addr, &c_crc);
+        }
+
         assume(false);
         Err(MultilogErr::NotYetImplemented)
     }
