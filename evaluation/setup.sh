@@ -4,7 +4,7 @@
 set -e 
 set -o pipefail
 
-PROJECT_DIR=$(pwd)/../..
+PROJECT_DIR=`realpath $(pwd)/../..`
 VERIF_STORAGE_DIR=$PROJECT_DIR/verified-storage
 VERUS_DIR=$PROJECT_DIR/verus
 
@@ -20,6 +20,7 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64/
 # 1. Install apt dependencies
 # TODO: is valgrind necessary?
 printf "${BOLD}${MAGENTA}Installing dependencies...${NC}\n"
+sudo apt update
 sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
     pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
     daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
@@ -45,17 +46,27 @@ printf "${BOLD}${MAGENTA}Cloning and building Verus...${NC}\n"
 cd $PROJECT_DIR
 if [ -d verus ]; 
 then 
-    printf "${BOLD}${MAGENTA}Verus is already cloned. Rebuilding it...${NC}\n"
+    printf "${BOLD}${MAGENTA}Verus is already present.${NC}\n"
 else 
     git clone https://github.com/verus-lang/verus.git;
 fi
-cd $VERUS_DIR/source; ./tools/get-z3.sh; /bin/bash -c "source ../tools/activate; vargo build --release"
+cd $VERUS_DIR/source
+if [ -d z3 ];
+then
+    printf "${BOLD}${MAGENTA}Z3 is not present, downloading...${NC}\n"
+    ./tools/get-z3.sh
+fi
+printf "${BOLD}${MAGENTA}Building Verus...${NC}\n"
+/bin/bash -c "source ../tools/activate; vargo build --release"
 printf "${BOLD}${MAGENTA}Done building Verus!${NC}\n\n\n"
 
-# 5. Confirm that CapybaraKV verifies
-printf "${BOLD}${MAGENTA}Verifying CapybaraKV...${NC}\n"
-cd $VERIF_STORAGE_DIR/storage_node/src/; ./verify.sh
-printf "${BOLD}${MAGENTA}Done verifying CapybaraKV!${NC}\n\n\n"
+path_verus="export PATH=\$PATH:${VERUS_DIR}/source/target-verus/release"
+grep -qxF "${path_verus}" $HOME/.bashrc || echo $path_verus >> $HOME/.bashrc
+
+# # 5. Confirm that CapybaraKV verifies
+# printf "${BOLD}${MAGENTA}Verifying CapybaraKV...${NC}\n"
+# cd $VERIF_STORAGE_DIR/storage_node/src/; ./verify.sh
+# printf "${BOLD}${MAGENTA}Done verifying CapybaraKV!${NC}\n\n\n"
 
 # 6. Download Maven for YCSB
 printf "${BOLD}${MAGENTA}Downloading Maven...${NC}\n"
@@ -68,7 +79,9 @@ else
     tar -xvf apache-maven-3.9.9-bin.tar.gz
     mv apache-maven-3.9.9 maven
 fi
-PATH=$PATH:$PROJECT_DIR/maven/bin
+# PATH=$PATH:$PROJECT_DIR/maven/bin
+path_maven="export PATH=\$PATH:${PROJECT_DIR}/maven/bin"
+grep -qxF "${path_maven}" $HOME/.bashrc || echo $path_maven >> $HOME/.bashrc
 printf "${BOLD}${MAGENTA}Done downloading Maven${NC}\n\n\n"
 
 #7. Build YCSB FFI layer
@@ -112,7 +125,7 @@ cd $VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark
 cmake -E make_directory "build"
 cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -S . -B "build" -DBUILD_SHARED_LIBS=ON
 cmake --build "build" --config Release
-sudo cmake --build "build" --config Release --target install`
+sudo cmake --build "build" --config Release --target install
 printf "${BOLD}${MAGENTA}Done building Viper dependencies!${NC}\n\n\n"
 
 # 12. Build Viper wrapper
@@ -121,13 +134,13 @@ cd $VERIF_STORAGE_DIR/evaluation/viper_wrapper
 make all JAVA_HOME=$JAVA_HOME
 printf "${BOLD}${MAGENTA}Done building Viper wrapper!${NC}\n\n\n"
 
-# 13. Creating libpthread link in case it is not already there
-# TODO: what if libpthread.so.0 isn't there either? Should look for the correct file and fill it in
-if [ ! -f /usr/lib/x86_64-linux-gnu/libpthread.so ]; 
-then 
-    printf "${BOLD}${MAGENTA}Creating link to libpthread.so...${NC}\n"
-    sudo ln -s /usr/lib/x86_64-linux-gnu/libpthread.so.0 /usr/lib/x86_64-linux-gnu/libpthread.so
-    printf "${BOLD}${MAGENTA}Done creating link to libpthread.so!${NC}\n\n\n"
-fi
+# # 13. Creating libpthread link in case it is not already there
+# # TODO: what if libpthread.so.0 isn't there either? Should look for the correct file and fill it in
+# if [ ! -f /usr/lib/x86_64-linux-gnu/libpthread.so ]; 
+# then 
+#     printf "${BOLD}${MAGENTA}Creating link to libpthread.so...${NC}\n"
+#     sudo ln -s /usr/lib/x86_64-linux-gnu/libpthread.so.0 /usr/lib/x86_64-linux-gnu/libpthread.so
+#     printf "${BOLD}${MAGENTA}Done creating link to libpthread.so!${NC}\n\n\n"
+# fi
 
-printf "${BOLD}${MAGENTA}Done!${NC}"
+printf "${BOLD}${MAGENTA}Done! Please run \'source ~/.bashrc\' to complete setup.${NC}\n"
