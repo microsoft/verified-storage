@@ -230,6 +230,14 @@ impl UntrustedMultilogImpl
                                              &sm_crc);
         assert(recover_static_metadata(pm_region@.read_state, *vm) == Some(*sm));
 
+        let mask_cdb = CDB_FALSE;
+        pm_region.serialize_and_write::<u64>(sm.mask_cdb_addr, &mask_cdb);
+        let mask = 0u64;
+        pm_region.serialize_and_write::<u64>(sm.mask0_addr, &mask);
+        let mask_crc = calculate_crc(&mask);
+        pm_region.serialize_and_write::<u64>(sm.mask0_crc_addr, &mask_crc);
+        assert(recover_mask(pm_region@.read_state, *sm) == Some(0u64));
+
         let num_logs = capacities.len();
         let ghost mut cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::empty();
         let mut current_offset = sm.log_metadata_table.end;
@@ -255,6 +263,7 @@ impl UntrustedMultilogImpl
                 validate_static_metadata(*sm, *vm),
                 recover_version_metadata(pm_region@.read_state) == Some(*vm),
                 recover_static_metadata(pm_region@.read_state, *vm) == Some(*sm),
+                recover_mask(pm_region@.read_state, *sm) == Some(0u64),
                 Some(cs) == new_option_seq(which_log as nat,
                                            |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)),
                 0 < cs.len() ==> validate_all_log_constants(cs, *sm),
