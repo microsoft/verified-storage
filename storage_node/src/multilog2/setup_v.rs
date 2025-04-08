@@ -201,6 +201,7 @@ impl UntrustedMultilogImpl
             validate_version_metadata(*vm),
             validate_static_metadata(*sm),
             sm.num_logs == capacities.len(),
+            forall|i: int| 0 <= i < capacities@.len() ==> #[trigger] capacities@[i] > 0,
         ensures
             pm_region.inv(),
             pm_region.constants() == old(pm_region).constants(),
@@ -260,7 +261,9 @@ impl UntrustedMultilogImpl
                 num_logs == capacities.len() == sm.num_logs,
                 d == (SingleLogDynamicMetadata{ length: 0, head: 0 }),
                 d_crc == spec_crc_u64(d.spec_to_bytes()),
-                forall|i: int| 0 <= i < which_log ==> recover_single_log_dynamic_metadata(pm_region@.read_state, i, *sm, 0) == Some(d),
+                forall|i: int| 0 <= i < which_log ==>
+                    recover_single_log_dynamic_metadata(pm_region@.read_state, i, *sm, 0) == Some(d),
+                forall|i: int| 0 <= i < capacities@.len() ==> #[trigger] capacities@[i] > 0,
         {
             broadcast use group_update_bytes_effect;
             broadcast use group_validate_row_addr;
@@ -355,6 +358,11 @@ impl UntrustedMultilogImpl
                     &&& pm_region@ == old(pm_region)@
                     &&& capacities@.len() > max_num_regions
                 },
+                Err(MultilogErr::CapacityMustBePositive{ which_log }) => {
+                    &&& pm_region@ == old(pm_region)@
+                    &&& 0 <= which_log < capacities@.len()
+                    &&& capacities@[which_log as int] == 0
+                },
                 Err(MultilogErr::SpaceNeededForSetupExceedsMax) => {
                     &&& pm_region@ == old(pm_region)@
                     &&& Self::spec_space_needed_for_setup(capacities@) > u64::MAX
@@ -373,6 +381,18 @@ impl UntrustedMultilogImpl
         }
         if num_logs > MAX_NUM_LOGS {
             return Err(MultilogErr::CantSetupWithMoreThanMaxRegions { max_num_regions: MAX_NUM_LOGS });
+        }
+
+        for which_log in 0..num_logs
+            invariant
+                num_logs == capacities@.len(),
+                forall|i: int| 0 <= i < which_log ==> capacities@[i] > 0,
+                pm_region == old(pm_region),
+                pm_region.inv(),
+        {
+            if capacities[which_log] == 0 {
+                return Err(MultilogErr::CapacityMustBePositive{ which_log });
+            }
         }
 
         // First calculate the size of the log metadata table.        

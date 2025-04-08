@@ -172,6 +172,11 @@ impl <PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
                     &&& pm_region@ == old(pm_region)@
                     &&& capacities@.len() > max_num_regions
                 },
+                Err(MultilogErr::CapacityMustBePositive{ which_log }) => {
+                    &&& pm_region@ == old(pm_region)@
+                    &&& 0 <= which_log < capacities@.len()
+                    &&& capacities@[which_log as int] == 0
+                },
                 Err(MultilogErr::SpaceNeededForSetupExceedsMax) => {
                     &&& pm_region@ == old(pm_region)@
                     &&& Self::spec_space_needed_for_setup(capacities@) > u64::MAX
@@ -362,7 +367,7 @@ impl <PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
     {
         // For crash safety, we must restrict the untrusted code's
         // writes to persistent memory. We must only let it write
-        // such that, if a crash happens in the middle of a write,
+        // such that, if a crash happens in the middle of a write,
         // the view of the persistent state is either the current
         // state with all pending appends dropped or the current
         // state with all uncommitted appends committed.
