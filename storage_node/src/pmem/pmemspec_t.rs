@@ -42,7 +42,7 @@
 //! in terms of a Hamming bound (i.e., total number of bits that could
 //! be corrupted on read).
 
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::hamming_t::*;
 use crate::pmem::hamming_v::*;

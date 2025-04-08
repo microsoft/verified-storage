@@ -25,7 +25,7 @@ sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
     pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
     daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
     python3-toml numactl llvm-dev libclang-dev clang libpmem1 libpmem-dev \
-    python3-pip unzip
+    python3-pip python3-prettytable unzip
 printf "${BOLD}${MAGENTA}Done installing dependencies!${NC}\n\n\n"
 
 # 2. Install Rust and automatically select default installation

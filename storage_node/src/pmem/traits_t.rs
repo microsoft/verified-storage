@@ -21,7 +21,7 @@
 //! that the calculated size is correct, which helps us ensure 
 //! that proofs use the correct size for structures. 
 
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use builtin_macros::*;
 use builtin::*;
 use vstd::prelude::*;

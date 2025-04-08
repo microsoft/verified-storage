@@ -1,4 +1,4 @@
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 // This file defines the Hamming distance between two byte sequences
 // as the count of the number of bits that differ between the two. We
 // use this for modeling patterns of expected bit corruption.

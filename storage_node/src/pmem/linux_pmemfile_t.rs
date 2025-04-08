@@ -1,4 +1,4 @@
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 // This file implements, for Linux, the `FileBackedPersistentMemoryRegion` type, which
 // represents a persistent memory region backed by a file. The type implements the
 // `PersistentMemoryRegion` trait, allowing operations like reading, writing, and flushing.

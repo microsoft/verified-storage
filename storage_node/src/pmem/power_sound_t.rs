@@ -1,4 +1,4 @@
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::frac_v::*;
 use crate::pmem::power_t::*;

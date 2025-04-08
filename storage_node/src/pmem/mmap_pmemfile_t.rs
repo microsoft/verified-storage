@@ -1,4 +1,4 @@
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 //
 // MacOSX does not support PMDK, so we simply support mmap-based
 // memory-mapped files, for development purposes.

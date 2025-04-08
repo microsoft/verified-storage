@@ -7,7 +7,7 @@
 // it relies on the unverified `crc64fast` crate and makes assumptions about its behavior.
 // As such, it needs to be audited manually to have confidence in its correctness.
 
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use builtin::*;

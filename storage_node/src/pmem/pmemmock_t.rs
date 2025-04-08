@@ -6,7 +6,7 @@
 //! THIS IS ONLY INTENDED FOR USE IN TESTING! In practice, one should
 //! use actually persistent memory to implement persistent memory!
 
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use builtin::*;

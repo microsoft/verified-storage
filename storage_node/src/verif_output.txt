@@ -1,0 +1,28 @@
+verification results:: 638 verified, 0 errors
+(use --output-json for machine-readable output)
+verus-build-info
+Verus
+  Version: 0.2025.04.07.1c9ff07.dirty
+  Profile: release
+  Platform: linux_x86_64
+  Toolchain: 1.82.0-x86_64-unknown-linux-gnu
+
+total-time:           28014 ms    (estimated total cpu time 99311 ms)
+    rust-time:                5552 ms
+        init-and-types:           2407 ms
+        lifetime-time:             642 ms
+        compile-time:             2503 ms
+    verification-time:       22052 ms
+        vir-time:                 2284 ms
+            hir-time:                  854 ms
+            import-time:                79 ms
+            rust-to-vir:               605 ms
+        verify-crate-time:       19768 ms
+    unaccounted-time:          409 ms
+
+verify-crate-time-breakdown
+    total verify-time:          90793 ms   (8 threads)
+        total air-time:              7529 ms   (8 threads)
+        total smt-time:             72556 ms   (8 threads)
+            total smt-init:              2107 ms   (8 threads)
+            total smt-run:              70449 ms, 281586229 rlimit (8 threads)

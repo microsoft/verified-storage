@@ -17,7 +17,7 @@
 //! This file is unverified and should be tested/audited for correctness.
 
 #![allow(unused_imports)]
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;

@@ -1,4 +1,4 @@
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 //
 // This file implements, for Windows, the `FileBackedPersistentMemoryRegion` type, which
 // represents a persistent memory region backed by a file. The type implements the
@@ -7,7 +7,7 @@
 // a new file with unknown contents; `restore` opens an existing file, so named because
 // it's typically used after a crash and restart to restore system state.
 
-// #![verus::trusted]
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmemspec_t::{
