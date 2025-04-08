@@ -184,6 +184,42 @@ impl UntrustedMultilogImpl
         }
     }
 
+    proof fn lemma_setup_successful(
+        s: Seq<u8>,
+        capacities: Seq<u64>,
+        vm: MultilogVersionMetadata,
+        sm: MultilogStaticMetadata,
+    )
+        requires
+            s.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities),
+            s.len() >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
+            s.len() >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
+            s.len() <= u64::MAX,
+            validate_version_metadata(vm),
+            validate_static_metadata(sm, vm),
+            recover_version_metadata(s) == Some(vm),
+            recover_static_metadata(s, vm) == Some(sm),
+            recover_mask(s, sm) == Some(0u64),
+            match new_option_seq(capacities.len(), |i: int| recover_single_log_constants(s, i, sm)) {
+                None => false,
+                Some(cs) => {
+                    &&& 0 < cs.len()
+                    &&& validate_all_log_constants(cs, sm)
+                    &&& forall|i: int| 0 <= i < cs.len() ==> #[trigger] cs[i].log_area_start == sm.log_metadata_table.end + spec_sum_u64s(capacities.take(i))
+                    &&& forall|i: int| 0 <= i < cs.len() ==> #[trigger] cs[i].log_area_end == sm.log_metadata_table.end + spec_sum_u64s(capacities.take(i + 1))
+                },
+            },
+            sm.num_logs == capacities.len(),
+            0 < capacities.len() <= MAX_NUM_LOGS,
+            forall|i: int| 0 <= i < capacities.len() ==>
+                recover_single_log_dynamic_metadata(s, i, sm, 0) == Some(SingleLogDynamicMetadata{ length: 0, head: 0 }),
+            forall|i: int| 0 <= i < capacities.len() ==> #[trigger] capacities[i] > 0,
+        ensures
+            Self::recover(s) == Some(RecoveredMultilogState::initialize(sm.id, capacities)),
+    {
+        assume(false);
+    }
+
     exec fn setup_given_metadata<PMRegion>(
         pm_region: &mut PMRegion,
         capacities: &Vec<u64>,
@@ -196,12 +232,13 @@ impl UntrustedMultilogImpl
             old(pm_region).inv(),
             old(pm_region)@.valid(),
             old(pm_region)@.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities@),
-            old(pm_region)@.len() >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
             old(pm_region)@.len() >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
             old(pm_region)@.len() <= u64::MAX,
+            vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
             validate_version_metadata(*vm),
             validate_static_metadata(*sm, *vm),
             sm.num_logs == capacities.len(),
+            0 < capacities.len() <= MAX_NUM_LOGS,
             forall|i: int| 0 <= i < capacities@.len() ==> #[trigger] capacities@[i] > 0,
         ensures
             pm_region.inv(),
@@ -255,10 +292,12 @@ impl UntrustedMultilogImpl
                 pm_region.inv(),
                 pm_region@.valid(),
                 pm_region@.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities@),
-                pm_region@.len() >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
+                vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
                 pm_region@.len() >=
                     vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
                 pm_region@.len() <= u64::MAX,
+                pm_region@.len() == old(pm_region)@.len(),
+                pm_region.constants() == old(pm_region).constants(),
                 validate_version_metadata(*vm),
                 validate_static_metadata(*sm, *vm),
                 recover_version_metadata(pm_region@.read_state) == Some(*vm),
@@ -337,8 +376,12 @@ impl UntrustedMultilogImpl
             }
         }
 
-        assume(false);
-        Err(MultilogErr::NotYetImplemented)
+        proof {
+            Self::lemma_setup_successful(pm_region@.read_state, capacities@, *vm, *sm);
+        }
+
+        pm_region.flush();
+        Ok(())
     }
     
     // The `setup` method sets up persistent memory objects `pm_region`
