@@ -234,11 +234,10 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
         &self.pm_region.pm
     }
 
-    // This executable function is the only way to perform a write, and
-    // it requires the caller to supply permission authorizing the
-    // write. The caller must prove that for every state this memory
-    // can crash and recover into, the permission authorizes that
-    // state.
+    // This executable function performs a write, and it requires the
+    // caller to supply permission authorizing that write. The caller
+    // must prove that for every state this memory can crash and
+    // recover into, the permission authorizes that state.
     #[allow(unused_variables)]
     pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>)
         where
@@ -256,10 +255,14 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             self.id() == old(self).id(),
             self@.can_result_from_write(old(self)@, addr as int, bytes@),
     {
-        let ghost pmr = self.pm_region;
         self.pm_region.write(addr, bytes, perm);
     }
 
+    // This executable function performs a write that serializes an
+    // object of type `S`, and it requires the caller to supply
+    // permission authorizing that write. The caller must prove that
+    // for every state this memory can crash and recover into, the
+    // permission authorizes that state.
     #[allow(unused_variables)]
     pub exec fn serialize_and_write<Perm, S>(&mut self, addr: u64, to_write: &S, perm: Tracked<Perm>)
         where
