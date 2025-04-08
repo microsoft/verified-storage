@@ -13,6 +13,11 @@ verus! {
 
 pub struct UntrustedMultilogImpl {
     pub(super) status: Ghost<MultilogStatus>,
+    pub(super) vm: Ghost<MultilogVersionMetadata>,
+    pub(super) sm: MultilogStaticMetadata,
+    pub(super) log_infos: Vec<LogInfo>,
+    pub(super) logs_modified: Vec<usize>,
+    pub(super) durable_mask: u64,
     pub(super) state: Ghost<MultilogView>,
 }
 

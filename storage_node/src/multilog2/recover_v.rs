@@ -248,9 +248,8 @@ pub open spec fn extract_log(s: Seq<u8>, log_area_start: int, log_area_end: int,
     let log_area_len = log_area_end - log_area_start;
     let head_addr = log_area_start + (head % log_area_len);
     Seq::<u8>::new(log_length as nat,
-                |pos_relative_to_head: int|
-                   s[log_area_start +
-                     relative_log_pos_to_addr(pos_relative_to_head, head_addr, log_area_start, log_area_end)])
+                   |pos_relative_to_head: int|
+                       s[relative_log_pos_to_addr(pos_relative_to_head, head_addr, log_area_start, log_area_end)])
 }
 
 pub(super) open spec fn recover_single_log_given_metadata(
