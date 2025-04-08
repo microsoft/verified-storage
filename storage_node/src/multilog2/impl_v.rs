@@ -11,7 +11,7 @@ use super::spec_t::*;
 verus! {
 
 pub struct UntrustedMultilogImpl {
-    state: Ghost<MultilogView>,
+    pub(super) state: Ghost<MultilogView>,
 }
 
 impl UntrustedMultilogImpl
@@ -19,12 +19,12 @@ impl UntrustedMultilogImpl
     // This static function specifies how multiple regions'
     // contents should be viewed upon recovery as an abstract
     // log state.
-    pub closed spec fn recover(mem: Seq<u8>) -> Option<RecoveredMultilogState>
+    pub open(super) spec fn recover(mem: Seq<u8>) -> Option<RecoveredMultilogState>
     {
         recover_state(mem)
     }
 
-    pub closed spec fn inv<Perm, PMRegion>(
+    pub open(super) spec fn inv<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
     ) -> bool
@@ -66,7 +66,7 @@ impl UntrustedMultilogImpl
 
     // This function specifies how to view the in-memory state of
     // `self` as an abstract log state.
-    pub closed spec fn view(&self) -> MultilogView
+    pub open(super) spec fn view(&self) -> MultilogView
     {
         self.state@
     }
