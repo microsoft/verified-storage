@@ -5,3 +5,6 @@ liblib.rlib
 Cargo.lock
 .vscode/
 rmeta*
+lib.d
+verif_output.txt
+line_count.txt
