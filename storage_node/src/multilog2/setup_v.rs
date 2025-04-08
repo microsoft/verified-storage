@@ -192,8 +192,6 @@ impl UntrustedMultilogImpl
     )
         requires
             s.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities),
-            s.len() >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
-            s.len() >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
             s.len() <= u64::MAX,
             validate_version_metadata(vm),
             validate_static_metadata(sm, vm),
@@ -232,9 +230,7 @@ impl UntrustedMultilogImpl
             old(pm_region).inv(),
             old(pm_region)@.valid(),
             old(pm_region)@.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities@),
-            old(pm_region)@.len() >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
             old(pm_region)@.len() <= u64::MAX,
-            vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
             validate_version_metadata(*vm),
             validate_static_metadata(*sm, *vm),
             sm.num_logs == capacities.len(),
@@ -292,9 +288,6 @@ impl UntrustedMultilogImpl
                 pm_region.inv(),
                 pm_region@.valid(),
                 pm_region@.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities@),
-                vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
-                pm_region@.len() >=
-                    vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
                 pm_region@.len() <= u64::MAX,
                 pm_region@.len() == old(pm_region)@.len(),
                 pm_region.constants() == old(pm_region).constants(),
