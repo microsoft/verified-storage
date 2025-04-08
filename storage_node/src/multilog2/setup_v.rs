@@ -15,6 +15,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use super::impl_v::UntrustedMultilogImpl;
+use super::recover_v;
 use super::recover_v::*;
 use super::spec_t::*;
 use vstd::arithmetic::overflow::CheckedU64;
@@ -199,7 +200,7 @@ impl UntrustedMultilogImpl
             old(pm_region)@.len() >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
             old(pm_region)@.len() <= u64::MAX,
             validate_version_metadata(*vm),
-            validate_static_metadata(*sm),
+            validate_static_metadata(*sm, *vm),
             sm.num_logs == capacities.len(),
             forall|i: int| 0 <= i < capacities@.len() ==> #[trigger] capacities@[i] > 0,
         ensures
@@ -232,6 +233,8 @@ impl UntrustedMultilogImpl
         let num_logs = capacities.len();
         let ghost mut cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::empty();
         let mut current_offset = sm.log_metadata_table.end;
+        assert(current_offset >= sm.log_metadata_table.start);
+        assert(sm.log_metadata_table.start >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of());
         assert(new_option_seq(0, |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)) =~=
                Some(Seq::<SingleLogConstants>::empty()));
         let d = SingleLogDynamicMetadata {
@@ -249,7 +252,9 @@ impl UntrustedMultilogImpl
                     vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
                 pm_region@.len() <= u64::MAX,
                 validate_version_metadata(*vm),
-                validate_static_metadata(*sm),
+                validate_static_metadata(*sm, *vm),
+                recover_version_metadata(pm_region@.read_state) == Some(*vm),
+                recover_static_metadata(pm_region@.read_state, *vm) == Some(*sm),
                 Some(cs) == new_option_seq(which_log as nat,
                                            |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)),
                 0 < cs.len() ==> validate_all_log_constants(cs, *sm),
@@ -473,7 +478,7 @@ impl UntrustedMultilogImpl
             log_metadata_row_dynamic_metadata1_addr: log_metadata_row_dynamic_metadata0_crc_end.unwrap(),
             log_metadata_row_dynamic_metadata1_crc_addr: log_metadata_row_dynamic_metadata1_end.unwrap(),
         };
-        assert(validate_static_metadata(sm));
+        assert(validate_static_metadata(sm, vm));
 
         Self::setup_given_metadata(pm_region, capacities, &vm, &sm)
     }

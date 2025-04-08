@@ -103,7 +103,7 @@ pub(super) open spec fn recover_version_metadata(s: Seq<u8>) -> Option<MultilogV
     }
 }
 
-pub(super) open spec fn validate_static_metadata(sm: MultilogStaticMetadata) -> bool
+pub(super) open spec fn validate_static_metadata(sm: MultilogStaticMetadata, vm: MultilogVersionMetadata) -> bool
 {
     &&& sm.num_logs <= MAX_NUM_LOGS    
     &&& sm.mask_cdb_addr >= MultilogStaticMetadata::spec_size_of() + u64::spec_size_of()
@@ -111,8 +111,10 @@ pub(super) open spec fn validate_static_metadata(sm: MultilogStaticMetadata) -> 
     &&& sm.mask0_crc_addr >= sm.mask0_addr + u64::spec_size_of()
     &&& sm.mask1_addr >= sm.mask0_crc_addr + u64::spec_size_of()
     &&& sm.mask1_crc_addr >= sm.mask1_addr + u64::spec_size_of()
-    &&& sm.log_metadata_table.start >= sm.mask1_crc_addr + u64::spec_size_of()
+    &&& sm.log_metadata_table.start >=
+        vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of()
     &&& sm.log_metadata_table.valid()
+    &&& sm.log_metadata_table.end >= sm.log_metadata_table.start
     &&& sm.log_metadata_table.num_rows == sm.num_logs
     &&& sm.log_metadata_row_constants_crc_addr >= sm.log_metadata_row_constants_addr + SingleLogConstants::spec_size_of()
     &&& sm.log_metadata_row_dynamic_metadata0_addr >= sm.log_metadata_row_constants_crc_addr + u64::spec_size_of()
@@ -136,7 +138,7 @@ pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionM
         ) {
             None => None,
             Some(sm) => {
-                if !validate_static_metadata(sm) {
+                if !validate_static_metadata(sm, vm) {
                     None
                 }
                 else if sm.log_metadata_table.end > s.len() {
