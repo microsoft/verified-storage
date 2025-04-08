@@ -183,7 +183,7 @@ where
                     &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
                                                             self.lists@.sm.end() as int)
                     &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
-                           Journal::<PM>::spec_journal_entry_overhead() -
+                           spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                     &&& self.journal@.powerpm_id == old(self).journal@.powerpm_id
                 },

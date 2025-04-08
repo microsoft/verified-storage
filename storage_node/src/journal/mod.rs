@@ -14,3 +14,5 @@ pub use spec_v::{broadcast_journal_view_matches_in_range_can_narrow_range,
 pub use spec_v::{JournalConstants, JournalError, JournalView, RecoveredJournal};
 pub use impl_v::Journal;
 
+#[cfg(verus_keep_ghost)]
+pub use impl_v::spec_journal_entry_overhead;

@@ -1118,7 +1118,7 @@ where
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<PM>::spec_journal_entry_overhead() -
+                           spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -1146,7 +1146,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<PM>::spec_journal_entry_overhead() +
+                                  spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }

@@ -94,14 +94,9 @@ where
     {
     }
 
-    pub open(super) spec fn spec_journal_entry_overhead() -> nat
-    {
-        (u64::spec_size_of() + u64::spec_size_of()) as nat
-    }
-
     pub exec fn journal_entry_overhead() -> (result: u64)
         ensures
-            result == Self::spec_journal_entry_overhead(),
+            result == spec_journal_entry_overhead(),
             result <= 100,
     {
         broadcast use pmcopy_axioms;
@@ -156,6 +151,11 @@ where
     {
         self.powerpm.flush();
     }
+}
+
+pub open(super) spec fn spec_journal_entry_overhead() -> nat
+{
+    (u64::spec_size_of() + u64::spec_size_of()) as nat
 }
 
 }

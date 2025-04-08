@@ -124,7 +124,7 @@ where
 
     pub closed spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-        UntrustedKvStoreImpl::<PermFactory, PM, K, I, L>::spec_space_needed_for_transaction_operation()
+        spec_space_needed_for_transaction_operation()
     }
 
     pub exec fn space_needed_for_setup(ps: &SetupParameters) -> (result: Result<u64, KvError>)

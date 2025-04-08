@@ -142,7 +142,7 @@ where
             self@.valid(),
             self.recover_idempotent(),
             ({
-                let space_needed = Self::spec_journal_entry_overhead() + bytes_to_write@.len();
+                let space_needed = spec_journal_entry_overhead() + bytes_to_write@.len();
                 match result {
                     Ok(_) => {
                         &&& space_needed <= old(self)@.remaining_capacity

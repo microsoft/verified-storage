@@ -63,9 +63,7 @@ where
                         }
                         if {
                                ||| jc.journal_capacity <
-                                     sm.max_operations_per_transaction *
-                                     UntrustedKvStoreImpl::<PermFactory, PM, K, I, L>::
-                                         spec_space_needed_for_transaction_operation()
+                                     sm.max_operations_per_transaction * spec_space_needed_for_transaction_operation()
                                ||| sm.setup_parameters() is None
                                ||| !sm.setup_parameters().unwrap().valid()
                            } {

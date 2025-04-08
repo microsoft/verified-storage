@@ -42,7 +42,7 @@ where
 {
     pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: CheckedU64)
         ensures
-            result@ == ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation(),
+            result@ == ps.max_operations_per_transaction * spec_space_needed_for_transaction_operation(),
     {
         let overhead = CheckedU64::new(Journal::<PM>::journal_entry_overhead());
         let rm_size = size_of::<KeyTableRowMetadata>() as u64;
@@ -242,7 +242,7 @@ where
             );
         }
     
-        assert(recover_kv::<PermFactory, PM, K, I, L>(pm@.read_state, jc) =~= Some(RecoveredKvStore::<K, I, L>::init(*ps)));
+        assert(recover_kv::<PM, K, I, L>(pm@.read_state, jc) =~= Some(RecoveredKvStore::<K, I, L>::init(*ps)));
         Ok(())
     }
 }

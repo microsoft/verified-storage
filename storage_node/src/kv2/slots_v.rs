@@ -220,17 +220,17 @@ where
             self.used_transaction_operation_slots@ == old_self.used_transaction_operation_slots@ + 1,
             old_self.journal@.remaining_capacity >=
                 (old_self.sm@.max_operations_per_transaction - old_self.used_transaction_operation_slots@) *
-                Self::spec_space_needed_for_transaction_operation(),
+                spec_space_needed_for_transaction_operation(),
             self.journal@.remaining_capacity >=
-                old_self.journal@.remaining_capacity - Self::spec_space_needed_for_transaction_operation(),
+                old_self.journal@.remaining_capacity - spec_space_needed_for_transaction_operation(),
         ensures
             self.journal@.remaining_capacity >=
                 (self.sm@.max_operations_per_transaction - self.used_transaction_operation_slots@) *
-                Self::spec_space_needed_for_transaction_operation(),
+                spec_space_needed_for_transaction_operation(),
     {
         let a = old_self.sm@.max_operations_per_transaction;
         let b = old_self.used_transaction_operation_slots@;
-        let c = Self::spec_space_needed_for_transaction_operation();
+        let c = spec_space_needed_for_transaction_operation();
         assert((a - b) * c - c == (a - (b + 1)) * c) by {
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(c as int, a - b, 1);
         }
@@ -241,14 +241,14 @@ where
             self.sm@.valid::<K, I, L>(),
             self.journal@.remaining_capacity >=
                 (self.sm@.max_operations_per_transaction - self.used_transaction_operation_slots@) *
-                Self::spec_space_needed_for_transaction_operation(),
+                spec_space_needed_for_transaction_operation(),
         ensures
-            self.journal@.remaining_capacity < Self::spec_space_needed_for_transaction_operation() ==>
+            self.journal@.remaining_capacity < spec_space_needed_for_transaction_operation() ==>
                 self.used_transaction_operation_slots@ >= self.sm@.max_operations_per_transaction,
     {
         let a = self.sm@.max_operations_per_transaction;
         let b = self.used_transaction_operation_slots@;
-        let c = Self::spec_space_needed_for_transaction_operation();
+        let c = spec_space_needed_for_transaction_operation();
         if b < a {
             assert((a - b) * c >= c) by {
                 vstd::arithmetic::mul::lemma_mul_inequality(1, a - b, c as int);

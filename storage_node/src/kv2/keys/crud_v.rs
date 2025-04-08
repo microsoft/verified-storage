@@ -6,7 +6,7 @@ use vstd::prelude::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
-use crate::journal::{Journal, JournalConstants, JournalError, JournalView};
+use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
@@ -163,7 +163,7 @@ where
                         Set::<int>::new(|i: int| row_addr + self.sm.row_cdb_start <= i
                                       < row_addr + self.sm.row_cdb_start + u64::spec_size_of())
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self.valid(journal@)
@@ -171,7 +171,7 @@ where
                     &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<PM>::spec_journal_entry_overhead() +
+                                  spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -340,7 +340,7 @@ where
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -349,7 +349,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<PM>::spec_journal_entry_overhead() +
+                                  spec_journal_entry_overhead() +
                                   u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -428,7 +428,7 @@ where
                         ..old(self)@
                     })
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<PM>::spec_journal_entry_overhead() - u64::spec_size_of()
+                           spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == (KeyTableView {
@@ -436,7 +436,7 @@ where
                         ..old(self)@
                     })
                     &&& old(journal)@.remaining_capacity <
-                           Journal::<PM>::spec_journal_entry_overhead() +
+                           spec_journal_entry_overhead() +
                            u64::spec_size_of()
                 },
                 _ => false,
@@ -536,9 +536,9 @@ where
                         row_addr + self.sm.row_metadata_crc_start
                     ) == Some(new_rm)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
-                          - Journal::<PM>::spec_journal_entry_overhead()
+                          - spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
-                          - Journal::<PM>::spec_journal_entry_overhead()
+                          - spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
@@ -546,9 +546,9 @@ where
                     &&& self.valid(journal@)
                     &&& self@ == KeyTableView { tentative: None, ..old(self)@ }
                     &&& old(journal)@.remaining_capacity <
-                          Journal::<PM>::spec_journal_entry_overhead()
+                          spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
-                          + Journal::<PM>::spec_journal_entry_overhead()
+                          + spec_journal_entry_overhead()
                           + u64::spec_size_of()
                 },
                 _ => false,
@@ -644,9 +644,9 @@ where
                     })
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
-                          - Journal::<PM>::spec_journal_entry_overhead()
+                          - spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
-                          - Journal::<PM>::spec_journal_entry_overhead()
+                          - spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
@@ -655,9 +655,9 @@ where
                         ..old(self)@
                     })
                     &&& old(journal)@.remaining_capacity <
-                          Journal::<PM>::spec_journal_entry_overhead()
+                          spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
-                          + Journal::<PM>::spec_journal_entry_overhead()
+                          + spec_journal_entry_overhead()
                           + u64::spec_size_of()
                 },
                 _ => false,

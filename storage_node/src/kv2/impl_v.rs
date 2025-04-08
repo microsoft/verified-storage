@@ -97,7 +97,7 @@ where
 
     pub open(super) spec fn recover(bytes: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>
     {
-        recover_journal_then_kv::<PermFactory, PM, K, I, L>(bytes)
+        recover_journal_then_kv::<PM, K, I, L>(bytes)
     }
 
     pub open(super) spec fn valid(self) -> bool
@@ -106,23 +106,12 @@ where
         &&& self.inv()
     }
 
-    pub open(super) spec fn spec_space_needed_for_transaction_operation() -> nat
-    {
-          Journal::<PM>::spec_journal_entry_overhead()
-        + Journal::<PM>::spec_journal_entry_overhead()
-        + Journal::<PM>::spec_journal_entry_overhead()
-        + KeyTableRowMetadata::spec_size_of()
-        + u64::spec_size_of()
-        + u64::spec_size_of()
-        + u64::spec_size_of()
-    }
-
     pub open(super) spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat
         recommends
             ps.valid(),
     {
         let journal_capacity =
-            (ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation()) as nat;
+            (ps.max_operations_per_transaction * spec_space_needed_for_transaction_operation()) as nat;
         let journal_end = Journal::<PM>::spec_space_needed_for_setup(journal_capacity);
         let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
         let sm_end = sm_start + KvStaticMetadata::spec_size_of();
@@ -152,6 +141,17 @@ where
         Ok(self.keys.get_keys(&self.journal))
     }
 
+}
+
+pub open(super) spec fn spec_space_needed_for_transaction_operation() -> nat
+{
+      spec_journal_entry_overhead()
+    + spec_journal_entry_overhead()
+    + spec_journal_entry_overhead()
+    + KeyTableRowMetadata::spec_size_of()
+    + u64::spec_size_of()
+    + u64::spec_size_of()
+    + u64::spec_size_of()
 }
 
 }
