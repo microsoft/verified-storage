@@ -159,7 +159,7 @@ pub(super) open spec fn recover_single_log_constants(s: Seq<u8>, which_log: int,
     match recover_object::<SingleLogConstants>(s, constants_addr, constants_crc_addr) {
         None => None,
         Some(c) =>
-            if c.log_area_end <= c.log_area_start {
+            if c.log_area_end < c.log_area_start {
                 None
             }
             else {

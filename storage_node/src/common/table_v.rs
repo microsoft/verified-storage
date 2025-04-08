@@ -63,7 +63,8 @@ impl TableMetadata
             self.valid(),
             0 <= row_index < self.num_rows,
         ensures
-            out == self.spec_row_index_to_addr(row_index as int)
+            out == self.spec_row_index_to_addr(row_index as int),
+            self.validate_row_addr(out),
     {
         proof { lemma_row_index_to_addr_is_valid(self, row_index as int); }
         self.start + row_index * self.row_size

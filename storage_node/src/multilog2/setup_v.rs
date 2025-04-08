@@ -43,6 +43,63 @@ exec fn sum_u64s(v: &Vec<u64>) -> (result: CheckedU64)
     result
 }
 
+proof fn lemma_sum_u64s_step(s: Seq<u64>, i: int)
+    requires
+        0 <= i < s.len(),
+    ensures
+        spec_sum_u64s(s.take(i + 1)) == spec_sum_u64s(s.take(i)) + s[i]
+{
+    assert(s.take(i + 1).drop_last() =~= s.take(i));
+    assert(s.take(i + 1).last() == s[i]);
+}
+
+proof fn lemma_sum_u64s_increases(s: Seq<u64>, i: int, j: int)
+    requires
+        0 <= i <= j <= s.len(),
+    ensures
+        spec_sum_u64s(s.take(i)) <= spec_sum_u64s(s.take(j)),
+    decreases
+        j - i,
+{
+    if i < j {
+        lemma_sum_u64s_step(s, i);
+        lemma_sum_u64s_increases(s, i + 1, j);
+    }
+}
+
+proof fn lemma_sum_u64s_bound(s: Seq<u64>, i: int)
+    requires
+        0 <= i <= s.len(),
+    ensures
+        spec_sum_u64s(s.take(i)) <= spec_sum_u64s(s),
+    decreases
+        s.len() - i,
+{
+    if i < s.len() {
+        lemma_sum_u64s_bound(s, i + 1);
+        lemma_sum_u64s_step(s, i);
+    }
+    else {
+        assert(s.take(i) =~= s);
+    }
+}
+
+proof fn lemma_sum_u64s_forall(s: Seq<u64>)
+    ensures
+        forall|i: int| 0 <= i < s.len() ==> 
+            spec_sum_u64s(s.take(i + 1)) == spec_sum_u64s(s.take(i)) + #[trigger] s[i],
+        forall|i: int| 0 <= i <= s.len() ==>
+            #[trigger] spec_sum_u64s(s.take(i)) <= spec_sum_u64s(s),
+{
+    assert forall|i: int| 0 <= i < s.len() implies
+            spec_sum_u64s(s.take(i + 1)) == spec_sum_u64s(s.take(i)) + #[trigger] s[i] by {
+        lemma_sum_u64s_step(s, i);
+    }
+    assert forall|i: int| 0 <= i <= s.len() implies #[trigger] spec_sum_u64s(s.take(i)) <= spec_sum_u64s(s) by {
+        lemma_sum_u64s_bound(s, i);
+    }
+}
+
 impl UntrustedMultilogImpl
 {
     pub open(super) spec fn spec_space_needed_for_setup(capacities: Seq<u64>) -> nat
@@ -143,6 +200,7 @@ impl UntrustedMultilogImpl
             old(pm_region)@.len() <= u64::MAX,
             validate_version_metadata(*vm),
             validate_static_metadata(*sm),
+            sm.num_logs == capacities.len(),
         ensures
             pm_region.inv(),
             pm_region.constants() == old(pm_region).constants(),
@@ -166,29 +224,100 @@ impl UntrustedMultilogImpl
 
         pm_region.serialize_and_write::<MultilogStaticMetadata>(vm.static_metadata_addr, sm);
         let sm_crc = calculate_crc(sm);
-        pm_region.serialize_and_write::<u64>(vm.static_metadata_addr + size_of::<MultilogStaticMetadata>() as u64, &sm_crc);
+        pm_region.serialize_and_write::<u64>(vm.static_metadata_addr + size_of::<MultilogStaticMetadata>() as u64,
+                                             &sm_crc);
         assert(recover_static_metadata(pm_region@.read_state, *vm) == Some(*sm));
 
         let num_logs = capacities.len();
-        let ghost cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::empty();
+        let ghost mut cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::empty();
         let mut current_offset = sm.log_metadata_table.end;
+        assert(new_option_seq(0, |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)) =~=
+               Some(Seq::<SingleLogConstants>::empty()));
+        let d = SingleLogDynamicMetadata {
+            length: 0,
+            head: 0,
+        };
+        let d_crc = calculate_crc(&d);
         for which_log in 0..num_logs
             invariant
-                Some(cs) == new_option_seq(which_log as nat, |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)),
+                pm_region.inv(),
+                pm_region@.valid(),
+                pm_region@.len() >= sm.log_metadata_table.end + spec_sum_u64s(capacities@),
+                pm_region@.len() >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of(),
+                pm_region@.len() >=
+                    vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of(),
+                pm_region@.len() <= u64::MAX,
+                validate_version_metadata(*vm),
+                validate_static_metadata(*sm),
+                Some(cs) == new_option_seq(which_log as nat,
+                                           |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)),
                 0 < cs.len() ==> validate_all_log_constants(cs, *sm),
-                forall|i: int| 0 <= i < cs.len() ==> cs[i].log_area_end - cs[i].log_area_start == capacities[i],
                 current_offset == sm.log_metadata_table.end + spec_sum_u64s(capacities@.take(which_log as int)),
+                forall|i: int| 0 <= i < cs.len() ==> #[trigger] cs[i].log_area_start ==
+                                             sm.log_metadata_table.end + spec_sum_u64s(capacities@.take(i)),
+                forall|i: int| 0 <= i < cs.len() ==> #[trigger] cs[i].log_area_end ==
+                                             sm.log_metadata_table.end + spec_sum_u64s(capacities@.take(i + 1)),
+                num_logs == capacities.len() == sm.num_logs,
+                d == (SingleLogDynamicMetadata{ length: 0, head: 0 }),
+                d_crc == spec_crc_u64(d.spec_to_bytes()),
+                forall|i: int| 0 <= i < which_log ==> recover_single_log_dynamic_metadata(pm_region@.read_state, i, *sm, 0) == Some(d),
         {
+            broadcast use group_update_bytes_effect;
             broadcast use group_validate_row_addr;
+            broadcast use lemma_row_index_to_addr_is_valid;
+            broadcast use pmcopy_axioms;
+
+            let ghost old_pm_region = pm_region@.read_state;
+
             let row_addr = sm.log_metadata_table.row_index_to_addr(which_log as u64);
+            assert(row_addr == sm.log_metadata_table.spec_row_index_to_addr(which_log as int));
+            assert(spec_sum_u64s(capacities@.take(which_log + 1)) ==
+                   spec_sum_u64s(capacities@.take(which_log as int)) + capacities[which_log as int]) by {
+                lemma_sum_u64s_step(capacities@, which_log as int);
+            }
+            assert(spec_sum_u64s(capacities@.take(which_log + 1)) <= spec_sum_u64s(capacities@)) by {
+                lemma_sum_u64s_bound(capacities@, which_log + 1);
+            }
             let c = SingleLogConstants {
                 log_area_start: current_offset,
                 log_area_end: current_offset + capacities[which_log],
             };
             current_offset = current_offset + capacities[which_log];
+            assert(current_offset == sm.log_metadata_table.end + spec_sum_u64s(capacities@.take(which_log + 1)));
             pm_region.serialize_and_write::<SingleLogConstants>(row_addr + sm.log_metadata_row_constants_addr, &c);
             let c_crc = calculate_crc(&c);
             pm_region.serialize_and_write::<u64>(row_addr + sm.log_metadata_row_constants_crc_addr, &c_crc);
+
+            pm_region.serialize_and_write::<SingleLogDynamicMetadata>(row_addr + sm.log_metadata_row_dynamic_metadata0_addr, &d);
+            pm_region.serialize_and_write::<u64>(row_addr + sm.log_metadata_row_dynamic_metadata0_crc_addr, &d_crc);
+
+            assert(recover_single_log_constants(pm_region@.read_state, which_log as int, *sm) =~= Some(c));
+            assert(recover_single_log_dynamic_metadata(pm_region@.read_state, which_log as int, *sm, 0) =~= Some(d));
+            proof {
+                cs = cs.push(c);
+            }
+
+            assert forall|i: int| 0 <= i <= which_log implies
+                   #[trigger] recover_single_log_constants(pm_region@.read_state, i, *sm) == Some(cs[i]) by {
+                if i < which_log {
+                    assert(recover_single_log_constants(pm_region@.read_state, i, *sm) ==
+                           recover_single_log_constants(old_pm_region, i, *sm));
+                }
+            }
+            assert forall|i: int| 0 <= i <= which_log implies
+                    #[trigger] recover_single_log_dynamic_metadata(pm_region@.read_state, i, *sm, 0) == Some(d) by {
+                if i < which_log {
+                    assert(recover_single_log_dynamic_metadata(pm_region@.read_state, i, *sm, 0) ==
+                           recover_single_log_dynamic_metadata(old_pm_region, i, *sm, 0));
+                }
+            }
+            assert(new_option_seq((which_log + 1) as nat,
+                                  |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)) == Some(cs));
+            assert(sm.log_metadata_table.end <= cs[0].log_area_start);
+            assert forall|i: int, j: int| 0 <= i < j <= which_log implies
+                    #[trigger] cs[i].log_area_end <= #[trigger] cs[j].log_area_start by {
+                lemma_sum_u64s_increases(capacities@, i + 1, j);
+            }
         }
 
         assume(false);
