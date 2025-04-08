@@ -18,9 +18,8 @@ use vstd::std_specs::hash::*;
 
 verus! {
 
-impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -28,7 +27,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<PermFactory, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -114,7 +113,7 @@ where
         Ghost(durable_head): Ghost<u64>,
         summary: &ListSummary,
         elements: &Vec<L>,
-        journal: &Journal<PermFactory, PM>,
+        journal: &Journal<PM>,
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -236,7 +235,7 @@ where
     pub exec fn read(
         &self,
         list_addr: u64,
-        journal: &Journal<PermFactory, PM>
+        journal: &Journal<PM>
     ) -> (result: Result<Vec<L>, KvError>)
         requires
             self.valid(journal@),
@@ -269,7 +268,7 @@ where
     pub exec fn get_list_length(
         &self,
         list_addr: u64,
-        journal: &Journal<PermFactory, PM>
+        journal: &Journal<PM>
     ) -> (result: Result<usize, KvError>)
         requires
             self.valid(journal@),

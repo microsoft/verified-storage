@@ -416,9 +416,8 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -428,7 +427,7 @@ where
         &&& 0 < self.sm.start()
         &&& self.sm.corresponds_to_journal(jv)
         &&& self.space_needed_to_journal_next ==
-            Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
+            Journal::<PM>::spec_journal_entry_overhead() +
             u64::spec_size_of() + u64::spec_size_of()
         &&& self.status@ is Quiescent ==> self.internal_view().corresponds_to_journal(jv, self.sm)
     }

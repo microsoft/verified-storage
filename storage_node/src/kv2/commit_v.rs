@@ -45,10 +45,11 @@ where
         let ghost jv_before_commit = self.journal@;
 
         proof {
+            Self::lemma_establish_recovery_equivalent_for_app(self.perm_factory@);
             self.lemma_establish_recovery_equivalent_for_app_on_commit(perm);
         }
 
-        self.journal.commit::<Perm>(Tracked(perm));
+        self.journal.commit::<PermFactory, Perm>(Tracked(self.perm_factory.borrow()), Tracked(perm));
 
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;

@@ -408,9 +408,8 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -419,7 +418,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
@@ -576,7 +575,7 @@ where
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         new_row_addr: u64,
         entry: ListTableEntry<L>,
         Ghost(prev_self): Ghost<Self>,
@@ -723,14 +722,16 @@ where
     }
 
     #[inline]
-    exec fn write_tail_to_free_slot(
+    exec fn write_tail_to_free_slot<PermFactory>(
         &self,
         new_element: L,
         row_addr: u64,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(prev_self): Ghost<Self>,
     )
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             self == (Self{ free_list: self.free_list, m: self.m, ..prev_self }),
             prev_self.free_list@.len() > 0,
@@ -813,13 +814,15 @@ where
         }
     }
 
-    pub exec fn append(
+    pub exec fn append<PermFactory>(
         &mut self,
         list_addr: u64,
         new_element: L,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),
@@ -852,7 +855,7 @@ where
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() -
+                           Journal::<PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::ListLengthWouldExceedUsizeMax) => {
@@ -882,7 +885,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
+                                  Journal::<PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -971,7 +974,7 @@ where
 
         assert(row_addr == old(self).free_list@[old(self).free_list@.len() - 1]);
 
-        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
+        self.write_tail_to_free_slot::<PermFactory>(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
 
         match entry {
             ListTableEntry::<L>::Durable{ .. } =>
@@ -983,12 +986,14 @@ where
         }
     }
 
-    pub exec fn create_singleton(
+    pub exec fn create_singleton<PermFactory>(
         &mut self,
         new_element: L,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(self)@.tentative is Some,
@@ -1065,7 +1070,7 @@ where
         };
         assert(old(self).free_list@[self.free_list@.len() as int] == row_addr);
 
-        self.write_tail_to_free_slot(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
+        self.write_tail_to_free_slot::<PermFactory>(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
 
         self.tentative_mapping = Ghost(self.tentative_mapping@.create_singleton(row_addr, new_element));
 

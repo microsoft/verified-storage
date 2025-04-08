@@ -19,10 +19,9 @@ use vstd::slice::slice_subrange;
 
 verus! {
 
-impl <PermFactory, PM> Journal<PermFactory, PM>
+impl <PM> Journal<PM>
 where
     PM: PersistentMemoryRegion,
-    PermFactory: PermissionFactory<Seq<u8>>,
 {
     exec fn read_version_metadata(pm: &PM) -> (result: Option<JournalVersionMetadata>)
         requires
@@ -139,7 +138,7 @@ where
         exec_recover_bytes(pm, sm.journal_entries_start, journal_length, sm.journal_entries_crc_start)
     }
     
-    exec fn install_journal_entry_during_start(
+    exec fn install_journal_entry_during_start<PermFactory>(
         powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
@@ -152,6 +151,8 @@ where
         Ghost(entries): Ghost<Seq<JournalEntry>>,
         Ghost(commit_state): Ghost<Seq<u8>>,
     )
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(powerpm).inv(),
             old(powerpm)@.valid(),
@@ -223,7 +224,7 @@ where
         }
     }
     
-    exec fn install_journal_entries_during_start(
+    exec fn install_journal_entries_during_start<PermFactory>(
         powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
@@ -231,6 +232,8 @@ where
         entries_bytes: &Vec<u8>,
         Ghost(entries): Ghost<Seq<JournalEntry>>,
     )
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(powerpm).inv(),
             old(powerpm)@.valid(),
@@ -344,10 +347,10 @@ where
                 lemma_parse_journal_entry_implications(entries_bytes@, entries, start as int, num_entries_installed);
                 assert(entries[num_entries_installed as int] == entry);
             }
-            Self::install_journal_entry_during_start(powerpm, Tracked(&perm_factory), Ghost(vm), sm, start,
-                                                     addr, bytes_to_write,
-                                                     Ghost(entries_bytes@), Ghost(num_entries_installed),
-                                                     Ghost(entries), Ghost(commit_state));
+            Self::install_journal_entry_during_start::<PermFactory>(powerpm, Tracked(&perm_factory), Ghost(vm), sm, start,
+                                                                    addr, bytes_to_write,
+                                                                    Ghost(entries_bytes@), Ghost(num_entries_installed),
+                                                                    Ghost(entries), Ghost(commit_state));
             proof {
                 assert(entries.skip(num_entries_installed) =~= seq![entries[num_entries_installed as int]] +
                        entries.skip(num_entries_installed + 1));
@@ -360,12 +363,14 @@ where
         powerpm.flush();
     }
     
-    pub(super) exec fn clear_log(
+    pub(super) exec fn clear_log<PermFactory>(
         powerpm: &mut PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
         Ghost(vm): Ghost<JournalVersionMetadata>,
         sm: &JournalStaticMetadata,
     )
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(powerpm).inv(),
             old(powerpm)@.valid(),
@@ -413,10 +418,12 @@ where
         assert(powerpm@.read_state == new_state);
     }
 
-    pub exec fn start(
+    pub exec fn start<PermFactory>(
         powerpm: PoWERPersistentMemoryRegion<PM>,
         Tracked(perm_factory): Tracked<PermFactory>
     ) -> (result: Result<Self, JournalError>)
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             powerpm.inv(),
             Self::recover(powerpm@.durable_state).is_some(),
@@ -469,17 +476,16 @@ where
             let entries_bytes =
                 Self::read_journal_entries_bytes(pm, Ghost(vm), &sm, journal_length).ok_or(JournalError::CRCError)?;
             let ghost entries = parse_journal_entries(entries_bytes@).unwrap();
-            Self::install_journal_entries_during_start(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm,
-                                                       &entries_bytes, Ghost(entries));
+            Self::install_journal_entries_during_start::<PermFactory>(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm,
+                                                                      &entries_bytes, Ghost(entries));
             assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                        implies #[trigger] perm_factory.check_permission(s1, s2) by {
                 Self::lemma_recover_doesnt_change_size(s1);
             }
-            Self::clear_log(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm);
+            Self::clear_log::<PermFactory>(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm);
         }
         let j = Self {
             powerpm,
-            perm_factory: Tracked(perm_factory),
             vm: Ghost(vm),
             sm,
             status: Ghost(JournalStatus::Quiescent),

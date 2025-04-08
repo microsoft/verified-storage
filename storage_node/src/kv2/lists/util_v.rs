@@ -117,9 +117,8 @@ pub(super) proof fn lemma_writing_next_and_crc_together_effect_on_recovery<L>(
     assert(recover_object::<u64>(s2, next_addr, next_addr + u64::spec_size_of()) =~= Some(next));
 }
 
-impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -159,7 +158,7 @@ where
         assert(Self::recover(s2, list_addrs, sm) =~= Self::recover(s1, list_addrs, sm));
     }
 
-    pub(super) proof fn lemma_writing_to_free_slot_has_permission_later_forall(
+    pub(super) proof fn lemma_writing_to_free_slot_has_permission_later_forall<PermFactory>(
         iv: ListTableInternalView<L>,
         initial_jv: JournalView,
         sm: ListTableStaticMetadata,
@@ -167,12 +166,14 @@ where
         row_addr: u64,
         perm_factory: PermFactory,
     )
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             sm.valid::<L>(),
             iv.valid(sm),
             iv.corresponds_to_durable_state(initial_jv.durable_state, sm),
             iv.corresponds_to_durable_state(initial_jv.read_state, sm),
-            Journal::<PermFactory, PM>::state_recovery_idempotent(initial_jv.durable_state, initial_jv.constants),
+            Journal::<PM>::state_recovery_idempotent(initial_jv.durable_state, initial_jv.constants),
             0 <= free_list_pos < iv.free_list.len(),
             iv.free_list[free_list_pos] == row_addr,
             sm.table.validate_row_addr(row_addr),
@@ -192,7 +193,7 @@ where
                                                 iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<PermFactory, PM>::state_recovery_idempotent(new_durable_state, initial_jv.constants)
+                &&& Journal::<PM>::state_recovery_idempotent(new_durable_state, initial_jv.constants)
             } ==> {
                 &&& Self::state_equivalent_for_me(new_durable_state, initial_jv.durable_state,
                                                 iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
@@ -223,7 +224,7 @@ where
                                                 iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(current_durable_state, sm)
                 &&& row_addr <= start <= end <= row_addr + sm.table.row_size
-                &&& Journal::<PermFactory, PM>::state_recovery_idempotent(new_durable_state, initial_jv.constants)
+                &&& Journal::<PM>::state_recovery_idempotent(new_durable_state, initial_jv.constants)
             } implies {
                 &&& Self::state_equivalent_for_me(new_durable_state, initial_jv.durable_state,
                                                 iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)

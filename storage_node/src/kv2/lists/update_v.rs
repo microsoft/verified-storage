@@ -275,9 +275,8 @@ impl<L> ListTableInternalView<L>
     }
 }
 
-impl<PermFactory, PM, L> ListTable<PermFactory, PM, L>
+impl<PM, L> ListTable<PM, L>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
@@ -285,7 +284,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<PermFactory, PM>,
+        journal: &Journal<PM>,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: Result<(Vec<u64>, Vec<L>), KvError>)
         requires
@@ -384,7 +383,7 @@ where
         &self,
         list_addr: u64,
         summary: &ListSummary,
-        journal: &Journal<PermFactory, PM>,
+        journal: &Journal<PM>,
         num_addrs: usize,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: Result<(Vec<u64>, Vec<L>), KvError>)
@@ -516,7 +515,7 @@ where
         &mut self,
         list_addr: u64,
         entry: ListTableEntry<L>,
-        journal: &Journal<PermFactory, PM>,
+        journal: &Journal<PM>,
         Ghost(prev_self): Ghost<Self>,
     ) -> (result: (bool, ListTableEntry<L>))
         requires
@@ -656,16 +655,18 @@ where
         }
     }
 
-    exec fn update_normal_case_write_step(
+    exec fn update_normal_case_write_step<PermFactory>(
         &self,
         list_addr: u64,
         idx: usize,
         new_element: L,
         entry: &ListTableEntry<L>,
         new_row_addr: u64,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     )
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             self.inv(old(journal)@),
             self.status@ is PoppedEntry,
@@ -959,15 +960,17 @@ where
         old_iv.lemma_update_works(list_addr, idx, new_element, sm);
     }
 
-    exec fn update_normal_case(
+    exec fn update_normal_case<PermFactory>(
         &mut self,
         list_addr: u64,
         idx: usize,
         new_element: L,
         entry: ListTableEntry<L>,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (new_list_addr: u64)
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(self).inv(old(journal)@),
             !old(self).must_abort@,
@@ -1033,7 +1036,7 @@ where
             broadcast use group_validate_row_addr;
         }
 
-        self.update_normal_case_write_step(list_addr, idx, new_element, &entry, new_row_addr, journal,
+        self.update_normal_case_write_step::<PermFactory>(list_addr, idx, new_element, &entry, new_row_addr, journal,
                                            Tracked(perm_factory));
 
         self.tentative_mapping = Ghost(new_iv.tentative_mapping);
@@ -1076,14 +1079,16 @@ where
         new_head
     }
 
-    pub exec fn update(
+    pub exec fn update<PermFactory>(
         &mut self,
         list_addr: u64,
         idx: usize,
         new_element: L,
-        journal: &mut Journal<PermFactory, PM>,
+        journal: &mut Journal<PM>,
         Tracked(perm_factory): Tracked<&PermFactory>,
     ) -> (result: Result<u64, KvError>)
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
         requires
             old(self).valid(old(journal)@),
             old(journal).valid(),
@@ -1113,7 +1118,7 @@ where
                     &&& self@.used_slots <= old(self)@.used_slots + 1
                     &&& self.validate_list_addr(new_list_addr)
                     &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
-                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() -
+                           Journal::<PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
@@ -1141,7 +1146,7 @@ where
                     })
                     &&& {
                            ||| old(journal)@.remaining_capacity <
-                                  Journal::<PermFactory, PM>::spec_journal_entry_overhead() +
+                                  Journal::<PM>::spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
                            ||| self@.used_slots == self@.sm.num_rows()
                     }
@@ -1226,7 +1231,7 @@ where
         }
 
         self.status = Ghost(ListTableStatus::PoppedEntry);
-        Ok(self.update_normal_case(list_addr, idx, new_element, new_entry, journal, Tracked(perm_factory)))
+        Ok(self.update_normal_case::<PermFactory>(list_addr, idx, new_element, new_entry, journal, Tracked(perm_factory)))
     }
 }
 

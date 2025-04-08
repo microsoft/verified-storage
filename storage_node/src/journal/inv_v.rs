@@ -16,10 +16,9 @@ pub(super) enum JournalStatus {
     Committed,
 }
 
-impl <PermFactory, PM> Journal<PermFactory, PM>
+impl <PM> Journal<PM>
 where
     PM: PersistentMemoryRegion,
-    PermFactory: PermissionFactory<Seq<u8>>,
 {
     pub(super) open spec fn inv_constants_match(self) -> bool
     {
@@ -30,13 +29,6 @@ where
         &&& self.constants.app_area_end == self.sm.app_area_end
     }
 
-    pub(super) open spec fn inv_perm_factory_allows_app_equivalent_changes(self) -> bool
-    {
-        &&& self.perm_factory@.id() == self.powerpm.id()
-        &&& forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==>
-            #[trigger] self.perm_factory@.check_permission(s1, s2)
-    }
-
     pub(super) open spec fn inv(self) -> bool
     {
         let pmv = self.powerpm.view();
@@ -44,7 +36,6 @@ where
         &&& self@.valid()
         &&& pmv.valid()
         &&& self.inv_constants_match()
-        &&& self.inv_perm_factory_allows_app_equivalent_changes()
         &&& self.constants.app_area_end == pmv.len()
         &&& recover_version_metadata(pmv.durable_state) == Some(self.vm@)
         &&& recover_static_metadata(pmv.durable_state, self.vm@) == Some(self.sm)

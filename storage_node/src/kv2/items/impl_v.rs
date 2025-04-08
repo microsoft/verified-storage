@@ -80,9 +80,8 @@ impl ItemTableStaticMetadata
 
 #[verifier::ext_equal]
 #[verifier::reject_recursive_types(I)]
-pub struct ItemTable<PermFactory, PM, I>
+pub struct ItemTable<PM, I>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {
@@ -93,13 +92,11 @@ where
     pub(super) free_list: Vec<u64>,
     pub(super) pending_allocations: Vec<u64>,
     pub(super) pending_deallocations: Vec<u64>,
-    pub(super) phantom_perm_factory: Ghost<core::marker::PhantomData<PermFactory>>,
     pub(super) phantom_pm: Ghost<core::marker::PhantomData<PM>>,
 }
 
-impl<PermFactory, PM, I> ItemTable<PermFactory, PM, I>
+impl<PM, I> ItemTable<PM, I>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     I: PmCopy + Sized + std::fmt::Debug,
 {
@@ -161,15 +158,17 @@ where
     ) -> bool
     {
         &&& seqs_match_except_in_range(durable_state, s, sm.start() as int, sm.end() as int)
-        &&& Journal::<PermFactory, PM>::state_recovery_idempotent(s, constants)
+        &&& Journal::<PM>::state_recovery_idempotent(s, constants)
         &&& Self::recover(s, item_addrs, sm) == Self::recover(durable_state, item_addrs, sm)
     }
 
-    pub open spec fn perm_factory_permits_states_equivalent_for_me(
+    pub open spec fn perm_factory_permits_states_equivalent_for_me<PermFactory>(
         &self,
         jv: JournalView,
         perm_factory: PermFactory
     ) -> bool
+        where
+            PermFactory: PermissionFactory<Seq<u8>>,
     {
         forall|s1: Seq<u8>, s2: Seq<u8>| {
             &&& Self::state_equivalent_for_me(s1, jv.durable_state, self@.durable.m.dom(), jv.constants, self@.sm)

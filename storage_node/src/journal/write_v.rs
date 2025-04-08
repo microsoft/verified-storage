@@ -11,10 +11,9 @@ use super::spec_v::*;
 
 verus! {
 
-impl <PermFactory, PM> Journal<PermFactory, PM>
+impl <PM> Journal<PM>
 where
     PM: PersistentMemoryRegion,
-    PermFactory: PermissionFactory<Seq<u8>>,
 {
     pub open spec fn write_preconditions<Perm>(self, addr: u64, bytes_to_write: Seq<u8>, perm: Perm) -> bool
         where
@@ -221,7 +220,6 @@ where
 
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
 
-        assert(self.perm_factory == old(self).perm_factory);
         Ok(())
     }
 }

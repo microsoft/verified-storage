@@ -20,9 +20,8 @@ use vstd::arithmetic::overflow::CheckedU64;
 
 verus! {
 
-impl<PermFactory, PM, K> KeyTable<PermFactory, PM, K>
+impl<PM, K> KeyTable<PM, K>
 where
-    PermFactory: PermissionFactory<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {

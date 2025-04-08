@@ -183,7 +183,7 @@ where
                     &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
                                                             self.lists@.sm.end() as int)
                     &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
-                           Journal::<PermFactory, PM>::spec_journal_entry_overhead() -
+                           Journal::<PM>::spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                     &&& self.journal@.powerpm_id == old(self).journal@.powerpm_id
                 },
@@ -219,10 +219,10 @@ where
         let result =
             if former_rm.list_addr == 0 {
                 assert(end_of_range(Seq::<L>::empty()) == 0);
-                self.lists.create_singleton(new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()))
+                self.lists.create_singleton::<PermFactory>(new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()))
             }
             else {
-                self.lists.append(former_rm.list_addr, new_list_element, &mut self.journal,
+                self.lists.append::<PermFactory>(former_rm.list_addr, new_list_element, &mut self.journal,
                                   Tracked(self.perm_factory.borrow()))
             };
         proof { self.lemma_reflect_list_table_update(self_before_list_append); }
@@ -317,7 +317,7 @@ where
         if list_addr != former_rm.list_addr {
             let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
             let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
-            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+            let result = self.keys.update::<PermFactory>(key, key_addr, new_rm, former_rm, &mut self.journal,
                                           Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
@@ -407,7 +407,7 @@ where
         };
 
         let ghost self_before_item_create = self.lemma_prepare_for_item_table_update();
-        let result = self.items.create(&new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
+        let result = self.items.create::<PermFactory>(&new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
@@ -425,7 +425,7 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+        let result = self.keys.update::<PermFactory>(key, key_addr, new_rm, former_rm, &mut self.journal,
                                       Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
@@ -522,7 +522,7 @@ where
 
         assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_update = self.lemma_prepare_for_list_table_update();
-        let result = self.lists.update(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()));
+        let result = self.lists.update::<PermFactory>(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_list_table_update(self_before_list_update); }
 
         let list_addr = match result {
@@ -554,7 +554,7 @@ where
         if list_addr != former_rm.list_addr {
             let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
             let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
-            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+            let result = self.keys.update::<PermFactory>(key, key_addr, new_rm, former_rm, &mut self.journal,
                                           Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
@@ -648,7 +648,7 @@ where
 
         assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_update = self.lemma_prepare_for_list_table_update();
-        let result = self.lists.update(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()));
+        let result = self.lists.update::<PermFactory>(former_rm.list_addr, idx, new_list_element, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_list_table_update(self_before_list_update); }
 
         let list_addr = match result {
@@ -678,7 +678,7 @@ where
         };
 
         let ghost self_before_item_create = self.lemma_prepare_for_item_table_update();
-        let result = self.items.create(&new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
+        let result = self.items.create::<PermFactory>(&new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
@@ -696,7 +696,7 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+        let result = self.keys.update::<PermFactory>(key, key_addr, new_rm, former_rm, &mut self.journal,
                                       Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
@@ -802,7 +802,7 @@ where
 
         assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_trim = self.lemma_prepare_for_list_table_update();
-        let result = self.lists.trim(former_rm.list_addr, trim_length, &mut self.journal,
+        let result = self.lists.trim::<PermFactory>(former_rm.list_addr, trim_length, &mut self.journal,
                                      Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_list_table_update(self_before_list_trim); }
 
@@ -831,7 +831,7 @@ where
         if list_addr != former_rm.list_addr {
             let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
             let new_rm = KeyTableRowMetadata{ list_addr, ..former_rm };
-            let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+            let result = self.keys.update::<PermFactory>(key, key_addr, new_rm, former_rm, &mut self.journal,
                                           Tracked(self.perm_factory.borrow()));
             proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 
@@ -927,7 +927,7 @@ where
 
         assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_list_trim = self.lemma_prepare_for_list_table_update();
-        let result = self.lists.trim(former_rm.list_addr, trim_length, &mut self.journal,
+        let result = self.lists.trim::<PermFactory>(former_rm.list_addr, trim_length, &mut self.journal,
                                      Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_list_table_update(self_before_list_trim); }
 
@@ -954,7 +954,7 @@ where
         };
 
         let ghost self_before_item_create = self.lemma_prepare_for_item_table_update();
-        let result = self.items.create(&new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
+        let result = self.items.create::<PermFactory>(&new_item, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
@@ -972,7 +972,7 @@ where
 
         let ghost self_before_key_update = self.lemma_prepare_for_key_table_update();
         let new_rm = KeyTableRowMetadata{ item_addr, list_addr };
-        let result = self.keys.update(key, key_addr, new_rm, former_rm, &mut self.journal,
+        let result = self.keys.update::<PermFactory>(key, key_addr, new_rm, former_rm, &mut self.journal,
                                       Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_key_table_update(self_before_key_update); }
 

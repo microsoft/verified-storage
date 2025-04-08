@@ -205,13 +205,13 @@ where
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    match KeyTable::<PermFactory, PM, K>::recover(bytes, sm.keys) {
+    match KeyTable::<PM, K>::recover(bytes, sm.keys) {
         None => None,
         Some(keys) => {
-            match ItemTable::<PermFactory, PM, I>::recover(bytes, keys.item_addrs(), sm.items) {
+            match ItemTable::<PM, I>::recover(bytes, keys.item_addrs(), sm.items) {
                 None => None,
                 Some(items) =>
-                    match ListTable::<PermFactory, PM, L>::recover(bytes, keys.list_addrs(), sm.lists) {
+                    match ListTable::<PM, L>::recover(bytes, keys.list_addrs(), sm.lists) {
                         None => None,
                         Some(lists) =>
                             recover_kv_from_keys_items_and_lists::<K, I, L>(sm, keys.key_info, items.m, lists.m),
@@ -266,7 +266,7 @@ where
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    match Journal::<PermFactory, PM>::recover(bytes) {
+    match Journal::<PM>::recover(bytes) {
         None => None,
         Some(RecoveredJournal{ constants, state }) => recover_kv::<PermFactory, PM, K, I, L>(state, constants),
     }

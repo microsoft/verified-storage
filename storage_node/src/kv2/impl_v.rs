@@ -40,10 +40,10 @@ where
     pub(super) used_key_slots: Ghost<int>,
     pub(super) used_list_element_slots: Ghost<int>,
     pub(super) used_transaction_operation_slots: Ghost<int>,
-    pub(super) journal: Journal<PermFactory, PM>,
-    pub(super) keys: KeyTable<PermFactory, PM, K>,
-    pub(super) items: ItemTable<PermFactory, PM, I>,
-    pub(super) lists: ListTable<PermFactory, PM, L>,
+    pub(super) journal: Journal<PM>,
+    pub(super) keys: KeyTable<PM, K>,
+    pub(super) items: ItemTable<PM, I>,
+    pub(super) lists: ListTable<PM, L>,
     pub(super) perm_factory: Tracked<PermFactory>,
 }
 
@@ -108,9 +108,9 @@ where
 
     pub open(super) spec fn spec_space_needed_for_transaction_operation() -> nat
     {
-          Journal::<PermFactory, PM>::spec_journal_entry_overhead()
-        + Journal::<PermFactory, PM>::spec_journal_entry_overhead()
-        + Journal::<PermFactory, PM>::spec_journal_entry_overhead()
+          Journal::<PM>::spec_journal_entry_overhead()
+        + Journal::<PM>::spec_journal_entry_overhead()
+        + Journal::<PM>::spec_journal_entry_overhead()
         + KeyTableRowMetadata::spec_size_of()
         + u64::spec_size_of()
         + u64::spec_size_of()
@@ -123,15 +123,15 @@ where
     {
         let journal_capacity =
             (ps.max_operations_per_transaction * Self::spec_space_needed_for_transaction_operation()) as nat;
-        let journal_end = Journal::<PermFactory, PM>::spec_space_needed_for_setup(journal_capacity);
+        let journal_end = Journal::<PM>::spec_space_needed_for_setup(journal_capacity);
         let sm_start = round_up_to_alignment(journal_end as int, KvStaticMetadata::spec_align_of() as int);
         let sm_end = sm_start + KvStaticMetadata::spec_size_of();
         let sm_crc_end = sm_end + u64::spec_size_of();
-        let key_table_end = sm_crc_end + KeyTable::<PermFactory, PM, K>::spec_space_needed_for_setup(ps, sm_crc_end as nat);
+        let key_table_end = sm_crc_end + KeyTable::<PM, K>::spec_space_needed_for_setup(ps, sm_crc_end as nat);
         let item_table_end = key_table_end +
-                             ItemTable::<PermFactory, PM, I>::spec_space_needed_for_setup(ps, key_table_end as nat);
+                             ItemTable::<PM, I>::spec_space_needed_for_setup(ps, key_table_end as nat);
         let list_table_end = item_table_end +
-                             ListTable::<PermFactory, PM, L>::spec_space_needed_for_setup(ps, item_table_end as nat);
+                             ListTable::<PM, L>::spec_space_needed_for_setup(ps, item_table_end as nat);
         list_table_end as nat
     }
 
