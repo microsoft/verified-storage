@@ -5,12 +5,14 @@ use vstd::prelude::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
+use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
 
 verus! {
 
 pub struct UntrustedMultilogImpl {
+    pub(super) status: Ghost<MultilogStatus>,
     pub(super) state: Ghost<MultilogView>,
 }
 
@@ -23,46 +25,6 @@ impl UntrustedMultilogImpl
     {
         recover_state(mem)
     }
-
-    pub open(super) spec fn inv<Perm, PMRegion>(
-        &self,
-        powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-    ) -> bool
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion
-    {
-        &&& powerpm_region.inv()
-        &&& Self::recover(powerpm_region@.durable_state) == Some(self@.recover())
-    }
-
-    pub proof fn lemma_inv_implies_powerpm_inv<Perm, PMRegion>(
-        &self,
-        powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        multilog_id: u128
-    )
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion
-        requires
-            self.inv(powerpm_region)
-        ensures
-            powerpm_region.inv()
-    {}
-
-    pub proof fn lemma_inv_implies_can_only_crash_as<Perm, PMRegion>(
-        &self,
-        powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        multilog_id: u128
-    )
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion
-        requires
-            self.inv(powerpm_region),
-        ensures
-            Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
-    {}
 
     // This function specifies how to view the in-memory state of
     // `self` as an abstract log state.
@@ -102,7 +64,7 @@ impl UntrustedMultilogImpl
             powerpm_region.constants() == old(powerpm_region).constants(),
             match result {
                 Ok(log_impl) => {
-                    &&& log_impl.inv(powerpm_region)
+                    &&& log_impl.valid(powerpm_region)
                     &&& log_impl@.c.id == multilog_id
                     &&& log_impl@.recover() == state
                     &&& log_impl@.tentative == log_impl@.durable
@@ -144,11 +106,11 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            old(self).inv(&*old(powerpm_region)),
+            old(self).valid(&*old(powerpm_region)),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(old(self)@.recover()),
         ensures
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             match result {
@@ -191,11 +153,11 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            old(self).inv(&*old(powerpm_region)),
+            old(self).valid(&*old(powerpm_region)),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(old(self)@.recover()),
         ensures
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             match result {
@@ -238,11 +200,11 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            old(self).inv(&*old(powerpm_region)),
+            old(self).valid(&*old(powerpm_region)),
             forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s) == Some(old(self)@.recover()),
         ensures
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             result is Ok,
@@ -261,13 +223,13 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            old(self).inv(&*old(powerpm_region)),
+            old(self).valid(&*old(powerpm_region)),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 ||| Self::recover(s) == Some(old(self)@.recover())
                 ||| Self::recover(s) == Some(old(self)@.commit().recover())
             },
         ensures
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             result is Ok,
@@ -292,7 +254,7 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
             pos + len <= u128::MAX,
         ensures
             ({
@@ -334,7 +296,7 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
         ensures
             result is Ok,
             result.unwrap() == self@.tentative.num_logs(),
@@ -352,7 +314,7 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(powerpm_region),
+            self.valid(powerpm_region),
         ensures
             ({
                 let log = self@.tentative[which_log as int];

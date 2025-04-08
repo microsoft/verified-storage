@@ -15,7 +15,6 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
 use super::impl_v::UntrustedMultilogImpl;
-use super::recover_v;
 use super::recover_v::*;
 use super::spec_t::*;
 use vstd::arithmetic::overflow::CheckedU64;
