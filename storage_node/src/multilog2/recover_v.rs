@@ -62,7 +62,7 @@ pub(super) struct SingleLogDynamicMetadata {
 #[verifier::ext_equal]
 pub(super) struct MultilogStaticMetadata {
     pub id: u128,
-    pub num_logs: u32,
+    pub num_logs: u64,
     pub mask_cdb_addr: u64,
     pub mask0_addr: u64,
     pub mask0_crc_addr: u64,

@@ -547,7 +547,7 @@ impl UntrustedMultilogImpl
 
         let sm = MultilogStaticMetadata {
             id: multilog_id,
-            num_logs: num_logs as u32,
+            num_logs: num_logs as u64,
             mask_cdb_addr: static_metadata_crc_end.unwrap(),
             mask0_addr: mask_cdb_end.unwrap(),
             mask0_crc_addr: mask0_end.unwrap(),
