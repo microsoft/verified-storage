@@ -24,7 +24,9 @@ step() {
     current_step=$((current_step+1))
 }
 
-LD_LIBRARY_PATH=$VERIF_STORAGE_DIR/evaluation/ycsb_ffi/target/release:$VERIF_STORAGE_DIR/evaluation/viper_wrapper:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/build/src:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/include:$VERIF_STORAGE_DIR/evaluation/viper/benchmark
+LD_LIBRARY_PATH=$VERIF_STORAGE_DIR/evaluation/ycsb_ffi/target/release:$VERIF_STORAGE_DIR/evaluation/viper_wrapper:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/build/src:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/include:$VERIF_STORAGE_DIR/evaluation/viper/benchmark:/usr/local/lib
+ld_lib_path="export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+grep -qxF "${ld_lib_path}" $HOME/.bashrc || echo $ld_lib_path >> $HOME/.bashrc
 
 # 1. Install apt dependencies
 # TODO: is valgrind necessary?
@@ -72,6 +74,8 @@ if [ -z $JAVA_HOME ]; then
 else 
     printf "${MAGENTA}JAVA_HOME is already set to ${JAVA_HOME}${NC}\n"
 fi
+set_java_home="export JAVA_HOME=${JAVA_HOME}"
+grep -qxF "${set_java_home}" $HOME/.bashrc || echo $set_java_home >> $HOME/.bashrc
 printf "${BOLD}${MAGENTA}Done finding Java!${NC}\n\n\n"
 
 

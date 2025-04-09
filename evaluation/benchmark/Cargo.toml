@@ -25,3 +25,7 @@ bindgen = "0.69.1"
 
 [build]
 rustflags = "-Clink-arg=-Wl,--undefined-version"
+
+[features]
+
+mini = [] # feature has no explicit dependencies

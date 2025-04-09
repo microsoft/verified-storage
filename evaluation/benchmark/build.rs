@@ -34,6 +34,7 @@ fn main() {
         .arg("-I../viper_deps/concurrentqueue")
         .arg("-I../viper_deps/benchmark/include")
         .arg("-I../viper_deps/libpmemobj-cpp/include")
+        .arg("-L/usr/local/lib")
         .arg(format!("-I{java_home}/include"))
         .arg(format!("-I{java_home}/include/linux"))
         .arg("-O3")
@@ -61,6 +62,7 @@ fn main() {
     { panic!("could not emit library file"); }
 
     println!("cargo:rustc-link-search={}", viper_wrapper_path.to_str().unwrap());
+    println!("cargo:rustc-link-search=/usr/local/lib");
     println!("cargo:rustc-link-lib=static=viper_wrapper");
     println!("cargo:rustc-link-lib=benchmark");
     println!("cargo:rustc-link-lib=pmem");

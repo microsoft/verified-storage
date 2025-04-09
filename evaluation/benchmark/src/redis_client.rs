@@ -46,10 +46,8 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
 {
     type E = RedisError;
 
-    fn start() -> Result<Self, Self::E> {
-        // TODO @hayley don't hardcode paths in this function
-
-        crate::init_and_mount_pm_fs();
+    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
+        crate::init_and_mount_pm_fs(mount_point, pm_dev);
 
         // Start the redis instance
         println!("Starting redis server");
@@ -77,10 +75,8 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
         })
     }
 
-    fn timed_start() -> Result<(Self, Duration), Self::E> {
-        // TODO @hayley don't hardcode paths in this function
-
-        crate::init_and_mount_pm_fs();
+    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E> {
+        crate::init_and_mount_pm_fs(mount_point, pm_dev);
 
         // Start the redis instance
         let t0 = Instant::now();
@@ -159,7 +155,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
 
     fn flush(&mut self) {}
 
-    fn cleanup() {}
+    fn cleanup(pm_dev: &str) {}
     
 }
 
@@ -173,12 +169,12 @@ impl<K, V> Drop for RedisClient<K, V>
     // connection when the Connection is dropped
     fn drop(&mut self) {
         self.server.kill().expect("redis-server could not be killed");
-        println!("Stopped redis server, unmounting...");
+        println!("Stopped redis server.");
 
-        sleep(Duration::from_secs(2));
+        // sleep(Duration::from_secs(2));
 
-        crate::unmount_pm_fs();
+        // crate::unmount_pm_fs();
 
-        println!("Finished cleaning up redis");
+        // println!("Finished cleaning up redis");
     }
 }

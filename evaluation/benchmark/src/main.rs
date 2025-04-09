@@ -65,7 +65,9 @@ const BIG_VALUE_LEN: usize = 1024 * 512;
 const PM_DEV: &str = "/dev/pmem0";
 const MOUNT_POINT: &str = "/mnt/pmem";
 
-// TODO: read these from a config file?
+#[cfg(feature="mini")]
+const NUM_KEYS: u64 = 25000;
+#[cfg(not(feature="mini"))]
 const NUM_KEYS: u64 = 25000000;
 const ITERATIONS: u64 = 1;
 const START_ITERATIONS: u64 = 5;
@@ -263,6 +265,21 @@ fn main() {
     } else {
         panic!("Please provide output dir path");
     };
+    let mount_point = if args.len() > 2 {
+        args[2].clone()
+    } else {
+        panic!("Please provide a mount point");
+    };
+    let pm_dev = if args.len() > 3 {
+        args[3].clone()
+    } else {
+        panic!("Please provide a PM device");
+    };
+
+    #[cfg(feature="mini")]
+    println!("RUNNING MINI EXPERIMENT");
+    #[cfg(not(feature="mini"))]
+    println!("RUNNING FULL EXPERIMENT");
 
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
@@ -277,72 +294,62 @@ fn main() {
 
 
     for i in 1..ITERATIONS+1 {
-        run_experiments::<RedisClient<TestKey, TestValue>>(&redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, i).unwrap();
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, i).unwrap();
-        run_experiments::<ViperClient>(&viper_output_dir, i).unwrap();
+        run_experiments::<RedisClient<TestKey, TestValue>>(&mount_point, &pm_dev, &redis_output_dir, i).unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, i).unwrap();
+        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&mount_point, &pm_dev, &capybara_output_dir, i).unwrap();
+        run_experiments::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, i).unwrap();
     }
 
-    // full setup works differently so that we don't have to rebuild the full KV every iteration
-    run_full_setup::<RedisClient<TestKey, TestValue>>(&redis_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<RocksDbClient<TestKey, TestValue>>(&rocksdb_output_dir, NUM_KEYS).unwrap();
-    run_full_setup::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
-    run_full_setup::<ViperClient>(&viper_output_dir, NUM_KEYS).unwrap();
+    #[cfg(not(feature="mini"))]
+    {
+        // full setup works differently so that we don't have to rebuild the full KV every iteration
+        run_full_setup::<RedisClient<TestKey, TestValue>>(&mount_point, &pm_dev, &redis_output_dir, NUM_KEYS).unwrap();
+        run_full_setup::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, NUM_KEYS).unwrap();
+        run_full_setup::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&mount_point, &pm_dev, &capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+        run_full_setup::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, NUM_KEYS).unwrap();
+    }
+    
 }
 
-fn test_setup<KV>(output_dir: &str) -> Result<(), KV::E> 
-    where 
-        KV: KvInterface<TestKey, TestValue>,
-{
-    let mut client = KV::start()?;
-
-    Ok(())
-}
-
-fn run_experiments<KV>(output_dir: &str, i: u64) -> Result<(), KV::E>
+fn run_experiments<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, i: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
     // sequential access operations
     {
-        KV::setup(NUM_KEYS)?;
-        let mut client = KV::start()?;
+        KV::setup(mount_point, pm_dev, NUM_KEYS)?;
+        let mut client = KV::start(mount_point, pm_dev)?;
         run_sequential_put(&mut client, &output_dir, i)?;
         client.flush();
         run_sequential_get(&mut client, &output_dir, i)?;
         run_sequential_update(&mut client, &output_dir, i)?;
         run_sequential_delete(&mut client, &output_dir, i)?;
     }
-    KV::cleanup();
+    KV::cleanup(pm_dev);
 
     println!("sequential done");
 
     // random access operations
     {
-        KV::setup(NUM_KEYS)?;
-        let mut client = KV::start()?;
+        KV::setup(mount_point, pm_dev, NUM_KEYS)?;
+        let mut client = KV::start(mount_point, pm_dev)?;
         run_rand_put(&mut client, &output_dir, i)?;
         client.flush();
         run_rand_get(&mut client, &output_dir, i)?;
         run_rand_update(&mut client, &output_dir, i)?;
         run_rand_delete(&mut client, &output_dir, i)?;
     }
-    KV::cleanup();
+    KV::cleanup(pm_dev);
 
-    // // mimic run d from YCSB
-    // {
-    //     KV::setup(NUM_KEYS)?;
-    //     let mut client = KV::start()?;
-    //     run_rand_latest_access_pattern(&mut client, &output_dir, i)?;
-    // }
-    // KV::cleanup();
-
-    // startup measurements
-    for j in 0..START_ITERATIONS {
-        {
-            run_empty_start::<KV>(&output_dir, j, CAPYBARAKV_MAX_KEYS)?;
+    #[cfg(not(feature="mini"))]
+    {
+        // startup measurements
+        for j in 0..START_ITERATIONS {
+            {
+                run_empty_start::<KV>(&mount_point, &pm_dev, &output_dir, j, CAPYBARAKV_MAX_KEYS)?;
+            }
+            KV::cleanup(pm_dev);
         }
-        KV::cleanup();
     }
     
 
@@ -651,7 +658,7 @@ fn run_rand_latest_access_pattern<KV>(kv: &mut KV, output_dir: &str, i: u64) -> 
 }
 
 
-fn run_empty_start<KV>(output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV::E>
+fn run_empty_start<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
 {
@@ -661,21 +668,21 @@ fn run_empty_start<KV>(output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("EMPTY SETUP");
-    KV::setup(num_keys)?;
+    KV::setup(mount_point, pm_dev, num_keys)?;
     {
-        let (_kv, dur) = KV::timed_start()?;
+        let (_kv, dur) = KV::timed_start(mount_point, pm_dev)?;
         let elapsed = format!("{:?}\n", dur.as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
         out_stream.flush().unwrap();
         println!("EMPTY SETUP DONE");
     }
     
-    KV::cleanup();
+    KV::cleanup(pm_dev);
 
     Ok(())
 }
 
-fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
+fn run_full_setup<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, num_keys: u64) -> Result<(), KV::E>
     where 
         KV: KvInterface<TestKey, TestValue>,
         KV::E: std::fmt::Debug,
@@ -685,8 +692,8 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
     println!("FULL SETUP");
 
     {
-        KV::setup(num_keys)?;
-        let mut kv = KV::start()?;
+        KV::setup(mount_point, pm_dev, num_keys)?;
+        let mut kv = KV::start(mount_point, pm_dev)?;
     
         // let value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
         let value = TestValue { value: [0u8; VALUE_LEN] };
@@ -715,7 +722,7 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
         }
         println!("Maxed out at {:?} keys", i);
     }
-    KV::cleanup();
+    KV::cleanup(pm_dev);
 
     println!("Done setting up, running timed start");
 
@@ -723,7 +730,7 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
         let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
         fs::create_dir_all(&exp_output_dir).unwrap();
         let mut out_stream = create_file_and_build_output_stream(&output_file);
-        let (_kv, dur) = KV::timed_start()?;
+        let (_kv, dur) = KV::timed_start(mount_point, pm_dev)?;
         let elapsed = format!("{:?}\n", dur.as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
         out_stream.flush().unwrap();
@@ -733,50 +740,50 @@ fn run_full_setup<KV>(output_dir: &str, num_keys: u64) -> Result<(), KV::E>
     Ok(())
 }
 
-pub fn init_and_mount_pm_fs() {
+pub fn init_and_mount_pm_fs(mount_point: &str, pm_dev: &str) {
     println!("Mounting PM FS...");
 
-    unmount_pm_fs();
+    unmount_pm_fs(pm_dev);
 
     println!("Unmounted");
 
     // Set up PM with a fresh file system instance
     Command::new("sudo")
-        .args(["mkfs.ext4", PM_DEV, "-F"])
+        .args(["mkfs.ext4", pm_dev, "-F"])
         .status()
         .expect("mkfs.ext4 failed");
 
     Command::new("sudo")
-        .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
+        .args(["mount", "-o", "dax", pm_dev, mount_point])
         .status()
         .expect("mount failed");
 
     Command::new("sudo")
-        .args(["chmod", "777", MOUNT_POINT])
+        .args(["chmod", "777", mount_point])
         .status()
         .expect("chmod failed");
     println!("Mounted");
 }
 
-pub fn remount_pm_fs() {
+pub fn remount_pm_fs(mount_point: &str, pm_dev: &str) {
     println!("Remounting existing FS...");
 
-    unmount_pm_fs();
+    unmount_pm_fs(pm_dev);
 
     println!("Unmounted");
 
     Command::new("sudo")
-        .args(["mount", "-o", "dax", PM_DEV, MOUNT_POINT])
+        .args(["mount", "-o", "dax", pm_dev, mount_point])
         .status()
         .expect("mount failed");
 
     println!("Mounted");
 }
 
-pub fn unmount_pm_fs() {
+pub fn unmount_pm_fs(pm_dev: &str) {
     // sleep(Duration::from_secs(5));
     let status = Command::new("sudo")
-        .args(["umount", PM_DEV, "-f"])
+        .args(["umount", pm_dev, "-f"])
         .status();
     if let Err(e) = status {
         println!("{:?}", e);

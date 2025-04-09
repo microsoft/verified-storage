@@ -23,8 +23,8 @@ impl KvInterface<TestKey, TestValue> for ViperClient
 {
     type E = bool;
 
-    fn setup(num_keys: u64) -> Result<(), Self::E> { 
-        init_and_mount_pm_fs();
+    fn setup(mount_point: &str, pm_dev: &str, num_keys: u64) -> Result<(), Self::E> { 
+        init_and_mount_pm_fs(mount_point, pm_dev);
         
         let file = crate::MOUNT_POINT.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
@@ -42,7 +42,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
                 crate::viperdb_cleanup(kv); 
             }
         }
-        ViperClient::cleanup();
+        ViperClient::cleanup(pm_dev);
         
         // let client = unsafe { crate::viperdb_get_client(kv) };
 
@@ -53,7 +53,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         Ok(())
     }
 
-    fn start() -> Result<Self, Self::E> {
+    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
         // init_and_mount_pm_fs();
         
         let file = crate::MOUNT_POINT.to_owned() + "/viper";
@@ -72,7 +72,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
 
         // sleep(Duration::from_secs(10));
 
-        remount_pm_fs();
+        remount_pm_fs(mount_point, pm_dev);
 
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
         let client = unsafe { crate::viperdb_get_client(kv) };
@@ -80,7 +80,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         Ok(Self { kv, client } )
     }
 
-    fn timed_start() -> Result<(Self, Duration), Self::E> {
+    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E> {
         
         println!("running timed start");
 
@@ -89,7 +89,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let file_ptr = file_cstring.as_ptr();
         let init_size = 53687091200;
 
-        remount_pm_fs();
+        remount_pm_fs(mount_point, pm_dev);
 
         let t0 = Instant::now();
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
@@ -142,9 +142,9 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         }
     }
 
-    fn cleanup() {
+    fn cleanup(pm_dev: &str) {
         sleep(Duration::from_secs(1));
-        unmount_pm_fs();
+        unmount_pm_fs(pm_dev);
     }
 
     fn flush(&mut self) {}

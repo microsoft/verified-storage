@@ -52,8 +52,8 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
 {
     type E = rocksdb::Error;
 
-    fn start() -> Result<Self, Self::E> {
-        init_and_mount_pm_fs();
+    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
+        init_and_mount_pm_fs(mount_point, pm_dev);
 
         let options = rocksdb_options();
 
@@ -67,8 +67,8 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         })
     }
 
-    fn timed_start() -> Result<(Self, Duration), Self::E> {
-        init_and_mount_pm_fs();
+    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E> {
+        init_and_mount_pm_fs(mount_point, pm_dev);
 
         let t0 = Instant::now();
         let mut options = rocksdb_options();
@@ -122,9 +122,9 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         self.db.flush().unwrap();
     }
 
-    fn cleanup() {
+    fn cleanup(pm_dev: &str) {
         let _ = DB::destroy(&Options::default(), ROCKSDB_PATH);
         sleep(Duration::from_secs(1));
-        unmount_pm_fs();
+        unmount_pm_fs(pm_dev);
     }
 }

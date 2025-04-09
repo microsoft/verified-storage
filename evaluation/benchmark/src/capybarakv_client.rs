@@ -36,8 +36,8 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
 {
     type E = KvError;
 
-    fn setup(num_keys: u64) -> Result<(), Self::E> {
-        init_and_mount_pm_fs();
+    fn setup(mount_point: &str, pm_dev: &str, num_keys: u64) -> Result<(), Self::E> {
+        init_and_mount_pm_fs(mount_point, pm_dev);
 
         let setup_parameters = SetupParameters {
             kvstore_id: KVSTORE_ID,
@@ -55,7 +55,7 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
         Ok(())
     }
 
-    fn start() -> Result<Self, Self::E> {
+    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
         let region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
         let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
             region, KVSTORE_ID)?;
@@ -63,9 +63,9 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
         Ok(Self { kv })
     }
 
-    fn timed_start() -> Result<(Self, Duration), Self::E> {
+    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E> {
         // init_and_mount_pm_fs();
-        remount_pm_fs();
+        remount_pm_fs(mount_point, pm_dev);
 
         let t0 = Instant::now();
         // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
@@ -105,9 +105,9 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
         self.kv.commit()
     }
 
-    fn cleanup() {
+    fn cleanup(pm_dev: &str) {
         sleep(Duration::from_secs(1));
-        unmount_pm_fs();
+        unmount_pm_fs(pm_dev);
     }
 
     fn flush(&mut self) {}
