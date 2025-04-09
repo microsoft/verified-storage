@@ -8,14 +8,16 @@ PROJECT_DIR=`realpath $(pwd)/../..`
 VERIF_STORAGE_DIR=$PROJECT_DIR/verified-storage
 VERUS_DIR=$PROJECT_DIR/verus
 
-RED="\e[32m"
+RED="\e[31m"
 GREEN="\e[32m"
 MAGENTA="\e[35m"
 BOLD=$(tput bold)
 NC="\e[0m"
 
-total_steps=11
+total_steps=13
 current_step=0
+
+JAVA_HOME=""
 
 step() {
     printf "${MAGENTA}[${current_step}/${total_steps}]${NC} "
@@ -23,7 +25,6 @@ step() {
 }
 
 LD_LIBRARY_PATH=$VERIF_STORAGE_DIR/evaluation/ycsb_ffi/target/release:$VERIF_STORAGE_DIR/evaluation/viper_wrapper:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/build/src:$VERIF_STORAGE_DIR/evaluation/viper_deps/benchmark/include:$VERIF_STORAGE_DIR/evaluation/viper/benchmark
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64/
 
 # 1. Install apt dependencies
 # TODO: is valgrind necessary?
@@ -33,38 +34,85 @@ sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
     pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
     daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
     python3-toml numactl llvm-dev libclang-dev clang libpmem1 libpmem-dev \
-    python3-pip python3-prettytable unzip tokei
+    python3-pip python3-prettytable unzip curl wget
 printf "${BOLD}${MAGENTA}Done installing dependencies!${NC}\n\n\n"
 
-# 2. Install Rust and automatically select default installation
+# 2. Find java installation and set JAVA_HOME
+step; printf "${BOLD}${MAGENTA}Finding JAVA_HOME...${NC}\n"
+if [ -z $JAVA_HOME ]; then
+    if type -p java; then
+        echo found java executable in PATH
+        _java=java
+    elif [[ -n "$JAVA_HOME" ]] && [[ -x "$JAVA_HOME/bin/java" ]];  then
+        echo found java executable in JAVA_HOME     
+        _java="$JAVA_HOME/bin/java"
+    else
+        printf "${BOLD}${RED}Unable to find Java. Please check that it has been successfully installed.${NC}\n"
+        exit
+    fi
+
+    if [[ "$_java" ]]; then
+        version=$("$_java" -version 2>&1 | awk -F '"' '/version/ {print $2}')
+        major_version=$(echo $version | awk -F '.' '{print $1}')
+        JAVA_HOME="/usr/lib/jvm/java-${major_version}-openjdk-amd64/"
+    fi
+
+    if [ -n $JAVA_HOME ]; then 
+        # check that the directory we set JAVA_HOME to actually exists
+        if [ ! -d $JAVA_HOME ]; then 
+            printf "${BOLD}${RED}Automatically-obtained JAVA_HOME ${JAVA_HOME} does not exist. Please manually set JAVA_HOME in the setup.sh script.${NC}\n"
+            exit
+        else 
+            printf "${MAGENTA}JAVA_HOME is set to ${JAVA_HOME}${NC}\n"
+        fi 
+    else 
+        printf "${BOLD}${RED}Unable to set JAVA_HOME. Please confirm that Java has been successfully installed.${NC}\n"
+        exit
+    fi
+else 
+    printf "${MAGENTA}JAVA_HOME is already set to ${JAVA_HOME}${NC}\n"
+fi
+printf "${BOLD}${MAGENTA}Done finding Java!${NC}\n\n\n"
+
+
+# 3. Install Rust and automatically select default installation
 step; printf "${BOLD}${MAGENTA}Installing Rust...${NC}\n"
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 . "$HOME/.cargo/env"
 printf "${BOLD}${MAGENTA}Done installing Rust!${NC}\n\n\n"
 
+# 4. Install tokei for line counting
+step; printf "${BOLD}${MAGENTA}Installing cargo dependencies...${NC}\n"
+cargo install tokei
+printf "${BOLD}${MAGENTA}Done installing cargo dependencies!${NC}\n\n\n"
 
-# 3. Confirm that verified-storage crates build successfully
+# 5. Confirm that verified-storage crates build successfully
 step; printf "${BOLD}${MAGENTA}Building verified-storage crates...${NC}\n"
 cd $VERIF_STORAGE_DIR/deps_hack; cargo build --release
 cd $VERIF_STORAGE_DIR/pmsafe; cargo build --release
 cd $VERIF_STORAGE_DIR/storage_node/src; cargo build --release
 printf "${BOLD}${MAGENTA}Done building verified-storage crates!${NC}\n\n\n"
 
-# 4. Clone and build Verus
-step; printf "${BOLD}${MAGENTA}Cloning and building Verus...${NC}\n"
+# 6. Clone and build Verus
+step; printf "${BOLD}${MAGENTA}Cloning Verus and dependencies...${NC}\n"
 cd $PROJECT_DIR
 if [ -d verus ]; 
 then 
-    printf "${BOLD}${MAGENTA}Verus is already present.${NC}\n"
+    printf "${MAGENTA}Verus is already present.${NC}\n"
 else 
+    printf "${MAGENTA}Verus is not present, cloning...${NC}\n"
     git clone https://github.com/verus-lang/verus.git;
 fi
 cd $VERUS_DIR/source
-if [ -d z3 ];
+if [ ! -f z3 ];
 then
-    printf "${BOLD}${MAGENTA}Z3 is not present, downloading...${NC}\n"
+    printf "${MAGENTA}Z3 is not present, downloading...${NC}\n"
     ./tools/get-z3.sh
+else 
+    printf "${MAGENTA}Z3 is already present.${NC}\n"
 fi
+printf "${BOLD}${MAGENTA}Done cloning Verus and dependencies!${NC}\n\n\n"
+
 step; printf "${BOLD}${MAGENTA}Building Verus...${NC}\n"
 /bin/bash -c "source ../tools/activate; vargo build --release"
 printf "${BOLD}${MAGENTA}Done building Verus!${NC}\n\n\n"
@@ -72,12 +120,12 @@ printf "${BOLD}${MAGENTA}Done building Verus!${NC}\n\n\n"
 path_verus="export PATH=\$PATH:${VERUS_DIR}/source/target-verus/release"
 grep -qxF "${path_verus}" $HOME/.bashrc || echo $path_verus >> $HOME/.bashrc
 
-# # 5. Confirm that CapybaraKV verifies
+# # 7. Confirm that CapybaraKV verifies
 # printf "${BOLD}${MAGENTA}Verifying CapybaraKV...${NC}\n"
 # cd $VERIF_STORAGE_DIR/storage_node/src/; ./verify.sh
 # printf "${BOLD}${MAGENTA}Done verifying CapybaraKV!${NC}\n\n\n"
 
-# 6. Download Maven for YCSB
+# 8. Download Maven for YCSB
 step; printf "${BOLD}${MAGENTA}Downloading Maven...${NC}\n"
 cd $PROJECT_DIR
 if [ -d maven ];
@@ -87,32 +135,32 @@ else
     wget https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz
     tar -xvf apache-maven-3.9.9-bin.tar.gz
     mv apache-maven-3.9.9 maven
+    rm apache-maven-3.9.9-bin.tar.gz
 fi
-# PATH=$PATH:$PROJECT_DIR/maven/bin
 path_maven="export PATH=\$PATH:${PROJECT_DIR}/maven/bin"
 grep -qxF "${path_maven}" $HOME/.bashrc || echo $path_maven >> $HOME/.bashrc
 printf "${BOLD}${MAGENTA}Done downloading Maven${NC}\n\n\n"
 source ~/.bashrc
 
-#7. Build YCSB FFI layer
+# 9. Build YCSB FFI layer
 step; printf "${BOLD}${MAGENTA}Building YCSB FFI layer for CapybaraKV...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/ycsb_ffi
 cargo build --release
 printf "${BOLD}${MAGENTA}Done building YCSB FFI layer for CapybaraKV!${NC}\n\n\n"
 
-# 8. Building pmem-RocksDB
+# 10. Building pmem-RocksDB
 step; printf "${BOLD}${MAGENTA}Building pmem-RocksDB...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/pmem-rocksdb
 make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true JAVA_HOME=$JAVA_HOME
 printf "${BOLD}${MAGENTA}Done building pmem-RocksDB!${NC}\n\n\n"
 
-# 9. Building pmem-Redis
+# 11. Building pmem-Redis
 step; printf "${BOLD}${MAGENTA}Building pmem-redis...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/pmem-redis
 make USE_NVM=yes
 printf "${BOLD}${MAGENTA}Done building pmem-redis!${NC}\n\n\n"
 
-# 10. Build YCSB bindings
+# 12. Build YCSB bindings
 step; printf "${BOLD}${MAGENTA}Building YCSB bindings...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/YCSB
 mvn -pl site.ycsb:capybarakv-binding -am clean package
@@ -121,7 +169,7 @@ mvn -pl site.ycsb:pmemrocksdb-binding -am clean package
 mvn -pl site.ycsb:viper-binding -am clean package
 printf "${BOLD}${MAGENTA}Done building YCSB bindings!${NC}\n\n\n"
 
-#11. Build Viper dependencies
+# 13. Build Viper dependencies
 step; printf "${BOLD}${MAGENTA}Building Viper dependencies...${NC}\n"
 printf "Building libpmemobj-cpp\n"
 cd $VERIF_STORAGE_DIR/evaluation/viper_deps/libpmemobj-cpp
@@ -138,19 +186,10 @@ cmake --build "build" --config Release
 sudo cmake --build "build" --config Release --target install
 printf "${BOLD}${MAGENTA}Done building Viper dependencies!${NC}\n\n\n"
 
-# 12. Build Viper wrapper
+# 14. Build Viper wrapper
 step; printf "${BOLD}${MAGENTA}Building Viper wrapper...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/viper_wrapper
 make all JAVA_HOME=$JAVA_HOME
 printf "${BOLD}${MAGENTA}Done building Viper wrapper!${NC}\n\n\n"
-
-# # 13. Creating libpthread link in case it is not already there
-# # TODO: what if libpthread.so.0 isn't there either? Should look for the correct file and fill it in
-# if [ ! -f /usr/lib/x86_64-linux-gnu/libpthread.so ]; 
-# then 
-#     printf "${BOLD}${MAGENTA}Creating link to libpthread.so...${NC}\n"
-#     sudo ln -s /usr/lib/x86_64-linux-gnu/libpthread.so.0 /usr/lib/x86_64-linux-gnu/libpthread.so
-#     printf "${BOLD}${MAGENTA}Done creating link to libpthread.so!${NC}\n\n\n"
-# fi
 
 printf "${BOLD}${MAGENTA}Done! Please run \'source ~/.bashrc\' to complete setup.${NC}\n"
