@@ -200,19 +200,19 @@ impl UntrustedMultilogImpl
             recover_version_metadata(s) == Some(vm),
             recover_static_metadata(s, vm) == Some(sm),
             recover_mask(s, sm) == Some(0u64),
-            match new_option_seq(capacities.len(), |i: int| recover_single_log_constants(s, i, sm)) {
-                None => false,
-                Some(cs) => {
-                    &&& 0 < cs.len()
-                    &&& validate_all_log_constants(cs, sm)
-                    &&& forall|i: int| 0 <= i < cs.len() ==>
-                          #[trigger] cs[i].log_area_start ==
-                          sm.log_metadata_table.end + spec_sum_u64s(capacities.take(i))
-                    &&& forall|i: int| 0 <= i < cs.len() ==>
-                          #[trigger] cs[i].log_area_end ==
-                          sm.log_metadata_table.end + spec_sum_u64s(capacities.take(i + 1))
-                },
-            },
+            forall|i: int| 0 <= i < sm.num_logs ==> #[trigger] recover_single_log_constants(s, i, sm) is Some,
+            ({
+                let cs = Seq::<SingleLogConstants>::new(sm.num_logs as nat,
+                                                        |i: int| recover_single_log_constants(s, i, sm).unwrap());
+                &&& 0 < cs.len()
+                &&& validate_all_log_constants(cs, sm)
+                &&& forall|i: int| 0 <= i < cs.len() ==>
+                      #[trigger] cs[i].log_area_start ==
+                      sm.log_metadata_table.end + spec_sum_u64s(capacities.take(i))
+                &&& forall|i: int| 0 <= i < cs.len() ==>
+                      #[trigger] cs[i].log_area_end ==
+                      sm.log_metadata_table.end + spec_sum_u64s(capacities.take(i + 1))
+            }),
             sm.num_logs == capacities.len(),
             0 < capacities.len() <= MAX_NUM_LOGS,
             forall|i: int| 0 <= i < capacities.len() ==>
@@ -241,8 +241,10 @@ impl UntrustedMultilogImpl
             assert(log =~= Seq::<u8>::empty());
         }
 
-        let logs = new_option_seq(sm.num_logs as nat,
-                                   |which_log: int| recover_single_log(s, which_log, sm, cs, mask)).unwrap();
+        let logs = Seq::<AtomicLogState>::new(
+            sm.num_logs as nat,
+            |which_log: int| recover_single_log(s, which_log, sm, cs, mask).unwrap()
+        );
         assert(logs =~= Seq::<AtomicLogState>::new(sm.num_logs as nat, |i| AtomicLogState::initialize()));
         assert(recover_multilog(s, sm, cs, mask) == Some(AtomicMultilogState::initialize(sm.num_logs as nat)));
 
@@ -311,9 +313,11 @@ impl UntrustedMultilogImpl
         let ghost mut cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::empty();
         let mut current_offset = sm.log_metadata_table.end;
         assert(current_offset >= sm.log_metadata_table.start);
-        assert(sm.log_metadata_table.start >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of());
-        assert(new_option_seq(0, |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)) =~=
-               Some(Seq::<SingleLogConstants>::empty()));
+        assert(sm.log_metadata_table.start >=
+               vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of());
+        assert(Seq::<SingleLogConstants>::new(
+            0, |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm).unwrap()
+        ) =~= Seq::<SingleLogConstants>::empty());
         let d = SingleLogDynamicMetadata {
             length: 0,
             head: 0,
@@ -332,8 +336,9 @@ impl UntrustedMultilogImpl
                 recover_version_metadata(pm_region@.read_state) == Some(*vm),
                 recover_static_metadata(pm_region@.read_state, *vm) == Some(*sm),
                 recover_mask(pm_region@.read_state, *sm) == Some(0u64),
-                Some(cs) == new_option_seq(which_log as nat,
-                                           |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)),
+                cs.len() == which_log,
+                forall|i: int| 0 <= i < which_log ==>
+                    #[trigger] recover_single_log_constants(pm_region@.read_state, i, *sm) == Some(cs[i]),
                 0 < cs.len() ==> validate_all_log_constants(cs, *sm),
                 current_offset == sm.log_metadata_table.end + spec_sum_u64s(capacities@.take(which_log as int)),
                 forall|i: int| 0 <= i < cs.len() ==> #[trigger] cs[i].log_area_start ==
@@ -391,6 +396,7 @@ impl UntrustedMultilogImpl
                            recover_single_log_constants(old_pm_region, i, *sm));
                 }
             }
+
             assert forall|i: int| 0 <= i <= which_log implies
                     #[trigger] recover_single_log_dynamic_metadata(pm_region@.read_state, i, *sm, 0) == Some(d) by {
                 if i < which_log {
@@ -398,8 +404,7 @@ impl UntrustedMultilogImpl
                            recover_single_log_dynamic_metadata(old_pm_region, i, *sm, 0));
                 }
             }
-            assert(new_option_seq((which_log + 1) as nat,
-                                  |i: int| recover_single_log_constants(pm_region@.read_state, i, *sm)) == Some(cs));
+
             assert(sm.log_metadata_table.end <= cs[0].log_area_start);
             assert forall|i: int, j: int| 0 <= i < j <= which_log implies
                     #[trigger] cs[i].log_area_end <= #[trigger] cs[j].log_area_start by {

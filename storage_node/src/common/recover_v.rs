@@ -202,15 +202,5 @@ pub open spec fn seq_option_to_option_seq<T>(s: Seq<Option<T>>) -> Option<Seq<T>
     }
 }
 
-pub open spec fn new_option_seq<T>(len: nat, f: spec_fn(int) -> Option<T>) -> Option<Seq<T>>
-{
-    if forall|i: int| 0 <= i < len ==> #[trigger] f(i) is Some {
-        Some(Seq::<T>::new(len, |i: int| f(i).unwrap()))
-    }
-    else {
-        None
-    }
-}
-
 }
 

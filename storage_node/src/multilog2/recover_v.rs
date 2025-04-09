@@ -182,9 +182,16 @@ pub(super) open spec fn validate_all_log_constants(
 pub(super) open spec fn recover_all_log_constants(s: Seq<u8>, sm: MultilogStaticMetadata)
                                                   -> Option<Seq<SingleLogConstants>>
 {
-    match new_option_seq(sm.num_logs as nat, |which_log: int| recover_single_log_constants(s, which_log, sm)) {
-        None => None,
-        Some(cs) => if validate_all_log_constants(cs, sm) { Some(cs) } else { None },
+    if forall|which_log: int| 0 <= which_log < sm.num_logs ==>
+        #[trigger] recover_single_log_constants(s, which_log, sm) is Some {
+        let cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::new(
+            sm.num_logs as nat,
+            |which_log: int| recover_single_log_constants(s, which_log, sm).unwrap()
+        );
+        if validate_all_log_constants(cs, sm) { Some(cs) } else { None }
+    }
+    else {
+        None
     }
 }
 
@@ -294,9 +301,16 @@ pub(super) open spec fn compute_capacities(cs: Seq<SingleLogConstants>) -> Seq<u
 pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata, cs: Seq<SingleLogConstants>, mask: u64)
                                          -> Option<AtomicMultilogState>
 {
-    match new_option_seq(sm.num_logs as nat, |which_log: int| recover_single_log(s, which_log, sm, cs, mask)) {
-        None => None,
-        Some(logs) => Some(AtomicMultilogState{ logs }),
+    if forall|which_log: int| 0 <= which_log < sm.num_logs ==>
+        #[trigger] recover_single_log(s, which_log, sm, cs, mask) is Some {
+        let logs = Seq::<AtomicLogState>::new(
+            sm.num_logs as nat,
+            |which_log: int| recover_single_log(s, which_log, sm, cs, mask).unwrap()
+        );
+        Some(AtomicMultilogState{ logs })
+    }
+    else {
+        None
     }
 }
 
