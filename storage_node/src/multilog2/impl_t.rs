@@ -193,7 +193,7 @@ impl <PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
     }
 
     // The `start` method creates an `UntrustedMultilogImpl` out of a
-    // persistent memory region. It's assumed that the region was
+    // persistent memory region. It's an assumption that the region was
     // initialized with `setup` and then only log operations were
     // allowed to mutate them. See `README.md` for more
     // documentation and an example of use.

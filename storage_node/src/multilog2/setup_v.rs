@@ -517,7 +517,7 @@ impl UntrustedMultilogImpl
         for which_log in 0..num_logs
             invariant
                 num_logs == capacities@.len(),
-                forall|i: int| 0 <= i < which_log ==> capacities@[i] > 0,
+                forall|i: int| 0 <= i < which_log ==> #[trigger] capacities@[i] > 0,
                 pm_region == old(pm_region),
                 pm_region.inv(),
         {
@@ -644,12 +644,16 @@ impl UntrustedMultilogImpl
                #[trigger] rm.all_log_constants[i].log_area_end <= #[trigger] rm.all_log_constants[j].log_area_start by {
             lemma_sum_u64s_increases(capacities@, i + 1, j);
         }
-        assert forall|i: int| 0 <= i < sm.num_logs implies
-                   #[trigger] rm.c.capacities[i] ==
-                   rm.all_log_constants[i].log_area_end - rm.all_log_constants[i].log_area_start by {
+        assert forall|i: int| #![trigger rm.c.capacities[i]] #![trigger rm.all_log_constants[i]]
+               0 <= i < sm.num_logs implies {
+                   &&& rm.c.capacities[i] ==
+                          rm.all_log_constants[i].log_area_end - rm.all_log_constants[i].log_area_start
+                   &&& rm.c.capacities[i] > 0
+               } by {
             lemma_sum_u64s_step(capacities@, i);
         }
 
+        assert(rm.state_corresponds_to_dynamic_metadata());
         Self::setup_given_metadata(pm_region, capacities, &vm, &sm, Ghost(rm))
     }
 

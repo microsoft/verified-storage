@@ -20,7 +20,7 @@ pub struct UntrustedMultilogImpl {
     pub(super) durable_mask_cdb: bool,
     pub(super) durable_mask: u64,
     pub(super) rm: Ghost<MultilogRecoveryMapping>,
-    pub(super) state: Ghost<MultilogView>,
+    pub(super) mv: Ghost<MultilogView>,
 }
 
 impl UntrustedMultilogImpl
@@ -37,58 +37,9 @@ impl UntrustedMultilogImpl
     // `self` as an abstract log state.
     pub open(super) spec fn view(&self) -> MultilogView
     {
-        self.state@
+        self.mv@
     }
 
-    // The `start` static method creates an
-    // `UntrustedMultilogImpl` out of a set of persistent memory
-    // regions. It's assumed that those regions were initialized
-    // with `setup` and then only `UntrustedMultilogImpl` methods
-    // were allowed to mutate them. See `README.md` for more
-    // documentation and an example of its use.
-    //
-    // This method is passed a write-restricted collection of
-    // persistent memory regions `powerpm_region`. This restricts
-    // how we can write `powerpm_region`. This is moot, though,
-    // because we don't ever write to the memory.
-    pub exec fn start<Perm, PMRegion>(
-        powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        multilog_id: u128,
-        Tracked(perm): Tracked<&Perm>,
-        Ghost(state): Ghost<RecoveredMultilogState>,
-    ) -> (result: Result<Self, MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
-        requires
-            old(powerpm_region).inv(),
-            old(powerpm_region)@.valid(),
-            old(powerpm_region)@.flush_predicted(),
-            Self::recover(old(powerpm_region)@.durable_state) == Some(state),
-            forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
-        ensures
-            powerpm_region.inv(),
-            powerpm_region.constants() == old(powerpm_region).constants(),
-            match result {
-                Ok(log_impl) => {
-                    &&& log_impl.valid(powerpm_region)
-                    &&& log_impl@.c.id == multilog_id
-                    &&& log_impl@.recover() == state
-                    &&& log_impl@.tentative == log_impl@.durable
-                    &&& Self::recover(powerpm_region@.durable_state) == Some(state)
-                },
-                Err(MultilogErr::StartFailedDueToMultilogIDMismatch{ multilog_id_expected, multilog_id_read }) => {
-                    &&& multilog_id_expected == multilog_id
-                    &&& multilog_id_read == state.c.id
-                },
-                Err(MultilogErr::CRCMismatch) => !powerpm_region.constants().impervious_to_corruption(),
-                _ => false,
-            }
-    {
-        assume(false);
-        Err(MultilogErr::NotYetImplemented)
-    }
-    
     // The `tentatively_append` method tentatively appends
     // `bytes_to_append` to the end of the log. It's tentative in
     // that crashes will undo the appends, and reads aren't
