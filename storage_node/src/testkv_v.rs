@@ -685,7 +685,7 @@ pub fn test_kv_on_memory_mapped_file() -> Result<(), ()>
 }
 
 impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
-    for Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+    for GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>
 {
     type Completion = Self;
 
@@ -694,35 +694,32 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
         Set::empty()
     }
 
-    open spec fn pre(self, loc: Loc, op: ReadItemOp<TestKey>) -> bool
+    open spec fn pre(self, id: int, op: ReadItemOp<TestKey>) -> bool
     {
-        &&& self.loc() == loc
-        &&& self.value() is Application
+        &&& self.id() == id
     }
 
     open spec fn post(
         self,
         completion: Self,
-        loc: Loc,
+        id: int,
         op: ReadItemOp<TestKey>,
         result: Result<TestItem, KvError>,
     ) -> bool
     {
         &&& completion == self
-        &&& self.value() is Application
-        &&& op.result_valid(self.value()->Application_ckv, result)
+        &&& op.result_valid(self@, result)
     }
 
     proof fn apply(
         tracked self,
         op: ReadItemOp<TestKey>,
         result: Result<TestItem, KvError>,
-        tracked r: &Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+        tracked r: &GhostVarAuth<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>
     ) -> tracked Self::Completion
     {
-        let tracked mut mself = self;
-        mself.validate_2(r);
-        mself
+        r.agree(&self);
+        self
     }
 }
 
@@ -816,7 +813,7 @@ struct TestMutatingLinearizer<Op>
 where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
-    r: Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>,
+    r: GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
@@ -866,10 +863,9 @@ where
         Set::empty()
     }
 
-    closed spec fn pre(self, loc: Loc, op: Op) -> bool
+    closed spec fn pre(self, id: int, op: Op) -> bool
     {
-        &&& self.r.loc() == loc
-        &&& self.r.value() is Application
+        &&& self.r.id() == id
         &&& self.op == op
         &&& self.old_ckv is None
         &&& self.new_ckv is None
@@ -878,14 +874,13 @@ where
     closed spec fn post(
         self,
         complete: Self::Completion,
-        loc: Loc,
+        id: int,
         op: Op,
         exec_result: Op::ExecResult,
     ) -> bool
     {
-        &&& complete.r.value() is Application
-        &&& complete.r.loc() == self.r.loc()
-        &&& complete.r.loc() == loc
+        &&& complete.r.id() == self.r.id()
+        &&& complete.r.id() == id
         &&& self.op == op
         &&& complete.old_ckv matches Some(old_ckv)
         &&& complete.new_ckv matches Some(new_ckv)
@@ -897,15 +892,13 @@ where
         op: Op,
         new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
         exec_result: Op::ExecResult,
-        tracked r: &mut Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>
+        tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>
     ) -> (tracked complete: Self::Completion)
     {
         let tracked mut mself = self;
-        mself.old_ckv = Some(old(r).value()->Invariant_ckv);
-        vstd::pcm_lib::update_and_redistribute(&mut mself.r, r,
-                                               OwnershipSplitter::Application{ckv: new_ckv},
-                                               OwnershipSplitter::Invariant{ckv: new_ckv});
+        mself.old_ckv = Some(r@);
         mself.new_ckv = Some(new_ckv);
+        r.update(&mut mself.r, new_ckv);
         mself
     }
 }
@@ -1002,7 +995,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let tracked app_resource = create_linearizer.r;
 
     // read the item of the record we just created
-    let (read_item_result, Tracked(app_resource)) = ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(
+    let (read_item_result, Tracked(app_resource)) = ckv.read_item::<GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>>(
         &key1, Tracked(app_resource)
     );
     let read_item1 = match read_item_result {
@@ -1017,7 +1010,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
 
     print_message("SUCCESS: Read correct value");
 
-    let (read_item_result, Tracked(app_resource)) = ckv.read_item::<Resource<OwnershipSplitter<TestKey, TestItem, TestListElement>>>(
+    let (read_item_result, Tracked(app_resource)) = ckv.read_item::<GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>>(
         &key2, Tracked(app_resource)
     );
     match read_item_result {

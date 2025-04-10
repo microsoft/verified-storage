@@ -9,7 +9,7 @@ use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::spec_t::*;
-use vstd::pcm::*;
+use vstd::pcm::frac::*;
 
 verus! {
 
@@ -42,64 +42,6 @@ where
     }
 }
 
-#[verifier::reject_recursive_types(K)]
-pub enum OwnershipSplitter<K, I, L>
-{
-    Neither,
-    Application{ ckv: ConcurrentKvStoreView<K, I, L> },
-    Invariant{ ckv: ConcurrentKvStoreView<K, I, L> },
-    Both{ ckv: ConcurrentKvStoreView<K, I, L> },
-    Invalid,
-}
-
-impl<K, I, L> PCM for OwnershipSplitter<K, I, L>
-{
-    open spec fn unit() -> Self
-    {
-        Self::Neither
-    }
-
-    open spec fn valid(self) -> bool
-    {
-        !(self is Invalid)
-    }
-
-    open spec fn op(self, other: Self) -> Self
-    {
-        match (self, other) {
-            (Self::Invalid, _) => Self::Invalid,
-            (_, Self::Invalid) => Self::Invalid,
-            (Self::Neither, _) => other,
-            (_, Self::Neither) => self,
-            (Self::Application{ ckv: ckv1 }, Self::Invariant{ ckv: ckv2 }) =>
-                if ckv1 == ckv2 { Self::Both{ ckv: ckv1 } } else { Self::Invalid },
-            (Self::Invariant{ ckv: ckv1 }, Self::Application{ ckv: ckv2 }) =>
-                if ckv1 == ckv2 { Self::Both{ ckv: ckv1 } } else { Self::Invalid },
-            (_, _) => Self::Invalid,
-        }
-    }
-
-    proof fn closed_under_incl(a: Self, b: Self)
-    {
-    }
-
-    proof fn commutative(a: Self, b: Self)
-    {
-    }
-
-    proof fn associative(a: Self, b: Self, c: Self)
-    {
-    }
-
-    proof fn op_unit(a: Self)
-    {
-    }
-
-    proof fn unit_valid()
-    {
-    }
-}
-
 pub trait ReadOnlyOperation<K, I, L>: Sized
 {
     type ExecResult;
@@ -113,22 +55,21 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 
     spec fn namespaces(self) -> Set<int>;
 
-    spec fn pre(self, loc: Loc, op: Op) -> bool;
+    spec fn pre(self, id: int, op: Op) -> bool;
 
-    spec fn post(self, apply: Self::Completion, loc: Loc, op: Op, result: Op::ExecResult) -> bool;
+    spec fn post(self, apply: Self::Completion, id: int, op: Op, result: Op::ExecResult) -> bool;
 
     proof fn apply(
         tracked self,
         op: Op,
         result: Op::ExecResult,
-        tracked r: &Resource<OwnershipSplitter<K, I, L>>,
+        tracked r: &GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
     ) -> (tracked complete: Self::Completion)
         requires
-            self.pre(r.loc(), op),
-            r.value() is Invariant,
-            op.result_valid(r.value()->Invariant_ckv, result),
+            self.pre(r.id(), op),
+            op.result_valid(r@, result),
         ensures
-            self.post(complete, r.loc(), op, result),
+            self.post(complete, r.id(), op, result),
         opens_invariants self.namespaces()
     ;
 }
@@ -180,25 +121,24 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
 
     spec fn namespaces(self) -> Set<int>;
 
-    spec fn pre(self, loc: Loc, op: Op) -> bool;
+    spec fn pre(self, id: int, op: Op) -> bool;
 
-    spec fn post(self, complete: Self::Completion, loc: Loc, op: Op, exec_result: Op::ExecResult) -> bool;
+    spec fn post(self, complete: Self::Completion, id: int, op: Op, exec_result: Op::ExecResult) -> bool;
 
     proof fn apply(
         tracked self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
         exec_result: Op::ExecResult,
-        tracked r: &mut Resource<OwnershipSplitter<K, I, L>>
+        tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
     ) -> (tracked complete: Self::Completion)
         requires
-            old(r).value() is Invariant,
-            self.pre(old(r).loc(), op),
-            op.result_valid(old(r).value()->Invariant_ckv, new_ckv, exec_result),
+            self.pre(old(r).id(), op),
+            op.result_valid(old(r)@, new_ckv, exec_result),
         ensures
-            r.loc() == old(r).loc(),
-            r.value() == (OwnershipSplitter::Invariant{ ckv: new_ckv }),
-            self.post(complete, r.loc(), op, exec_result),
+            r.id() == old(r).id(),
+            r@ == new_ckv,
+            self.post(complete, r.id(), op, exec_result),
         opens_invariants self.namespaces()
     ;
 }
