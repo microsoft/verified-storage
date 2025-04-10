@@ -74,6 +74,7 @@ pub(super) struct MultilogStaticMetadata {
     pub log_metadata_row_dynamic_metadata1_crc_addr: u64,
 }
 
+#[verifier::ext_equal]
 pub(super) struct MultilogRecoveryMapping {
     pub vm: MultilogVersionMetadata,
     pub sm: MultilogStaticMetadata,
@@ -197,11 +198,9 @@ pub open spec fn relative_log_pos_to_addr(
 }
 
 pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState> {
-    if exists|rm: MultilogRecoveryMapping| rm.corresponds(s) {
-        let rm = choose|rm: MultilogRecoveryMapping| rm.corresponds(s);
-        Some(rm@)
-    } else {
-        None
+    match MultilogRecoveryMapping::new(s) {
+        Some(rm) => Some(rm@),
+        None => None,
     }
 }
 

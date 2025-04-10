@@ -153,29 +153,6 @@ impl UntrustedMultilogImpl {
         Err(MultilogErr::NotYetImplemented)
     }
 
-    pub exec fn abort<Perm, PMRegion>(
-        &mut self,
-        powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<(), MultilogErr>) where
-        Perm: CheckPermission<Seq<u8>>,
-        PMRegion: PersistentMemoryRegion,
-
-        requires
-            old(self).valid(&*old(powerpm_region)),
-            forall|s| #[trigger]
-                perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
-        ensures
-            self.valid(powerpm_region),
-            powerpm_region.constants() == old(powerpm_region).constants(),
-            Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
-            result is Ok,
-            self@ == old(self)@.abort(),
-    {
-        assume(false);
-        Err(MultilogErr::NotYetImplemented)
-    }
-
     pub exec fn commit<Perm, PMRegion>(
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
@@ -238,8 +215,7 @@ impl UntrustedMultilogImpl {
                             powerpm_region.constants(),
                         )
                     },
-                    Err(MultilogErr::InvalidLogIndex) => { which_log >= self@.tentative.num_logs()
-                    },
+                    Err(MultilogErr::InvalidLogIndex) => which_log >= self@.tentative.num_logs(),
                     Err(MultilogErr::CantReadBeforeHead { head: head_pos }) => {
                         &&& which_log < self@.tentative.num_logs()
                         &&& pos < log.head

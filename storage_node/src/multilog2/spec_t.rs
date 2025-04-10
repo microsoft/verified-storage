@@ -169,11 +169,11 @@ impl MultilogView {
     }
 
     pub open spec fn abort(self) -> Self {
-        Self { durable: self.tentative, ..self }
+        Self { tentative: self.durable, ..self }
     }
 
     pub open spec fn commit(self) -> Self {
-        Self { tentative: self.durable, ..self }
+        Self { durable: self.tentative, ..self }
     }
 
     pub open spec fn recover(self) -> RecoveredMultilogState {

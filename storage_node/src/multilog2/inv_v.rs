@@ -12,10 +12,12 @@ use crate::pmem::power_t::*;
 
 verus! {
 
+#[verifier::ext_equal]
 pub(super) enum MultilogStatus {
     Quiescent,
 }
 
+#[verifier::ext_equal]
 pub(super) struct LogInfo {
     pub log_area_start: u64,
     pub log_area_len: u64,
