@@ -57,7 +57,7 @@ impl UntrustedMultilogImpl
         &&& log_info.log_area_len == log_constants.log_area_end - log_constants.log_area_start
     }
 
-    pub(super) open(super) spec fn inv_log_constants_recoverable<Perm, PMRegion>(
+    pub(super) open(super) spec fn inv_recovery_mapping_corresponds<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
     ) -> bool
@@ -65,13 +65,13 @@ impl UntrustedMultilogImpl
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion
     {
-        match recover_all_log_constants(powerpm_region@.durable_state, self.sm) {
-            Some(log_constants) =>
-                forall|i: int| #[trigger] is_valid_log_index(i, self.sm.num_logs as int) ==>
-                        self.inv_single_log_constants_corresponds(i, self.log_infos@[i],
-                                                                  log_constants[i]),
-            None => false,
-        }
+        &&& self.rm@.corresponds(powerpm_region@.durable_state)
+        &&& self.rm@.c == self.state@.c
+        &&& self.rm@.state == self.state@.durable
+        &&& self.rm@.vm == self.vm@
+        &&& self.rm@.sm == self.sm
+        &&& self.rm@.mask_cdb == self.durable_mask_cdb
+        &&& self.rm@.mask == self.durable_mask
     }
 
     pub(super) open(super) spec fn inv_logs_unmodified(&self) -> bool
@@ -151,12 +151,9 @@ impl UntrustedMultilogImpl
     {
         &&& powerpm_region.inv()
         &&& Self::recover(powerpm_region@.durable_state) == Some(self@.recover())
-        &&& recover_version_metadata(powerpm_region@.durable_state) == Some(self.vm@)
-        &&& recover_static_metadata(powerpm_region@.durable_state, self.vm@) == Some(self.sm)
-        &&& recover_mask(powerpm_region@.durable_state, self.sm) == Some(self.durable_mask)
-        &&& self.inv_log_constants_recoverable(powerpm_region)
         &&& self.log_infos.len() == self.sm.num_logs
         &&& self.inv_logs_unmodified()
+        &&& self.inv_recovery_mapping_corresponds(powerpm_region)
         &&& self.inv_state_correspondence(powerpm_region@.durable_state, powerpm_region@.read_state)
     }
 
@@ -172,7 +169,8 @@ impl UntrustedMultilogImpl
             self.inv(powerpm_region),
         ensures
             Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
-    {}
+    {
+    }
 
     pub proof fn lemma_inv_implies_powerpm_inv<Perm, PMRegion>(
         &self,
@@ -186,7 +184,8 @@ impl UntrustedMultilogImpl
             self.inv(powerpm_region)
         ensures
             powerpm_region.inv()
-    {}
+    {
+    }
 }
 
 }

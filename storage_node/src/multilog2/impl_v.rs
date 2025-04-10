@@ -17,7 +17,9 @@ pub struct UntrustedMultilogImpl {
     pub(super) sm: MultilogStaticMetadata,
     pub(super) log_infos: Vec<LogInfo>,
     pub(super) logs_modified: Vec<usize>,
+    pub(super) durable_mask_cdb: bool,
     pub(super) durable_mask: u64,
+    pub(super) rm: Ghost<MultilogRecoveryMapping>,
     pub(super) state: Ghost<MultilogView>,
 }
 

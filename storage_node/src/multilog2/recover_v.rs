@@ -77,43 +77,39 @@ pub(super) struct MultilogStaticMetadata {
     pub log_metadata_row_dynamic_metadata1_crc_addr: u64,
 }
 
-pub(super) open spec fn validate_version_metadata(vm: MultilogVersionMetadata) -> bool
-{
-    &&& vm.program_guid == MULTILOG_PROGRAM_GUID
-    &&& vm.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
-    &&& vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of()
+pub(super) struct MultilogRecoveryMapping {
+    pub vm: MultilogVersionMetadata,
+    pub sm: MultilogStaticMetadata,
+    pub mask_cdb: bool,
+    pub mask: u64,
+    pub all_log_constants: Seq<SingleLogConstants>,
+    pub all_log_dynamic_metadata: Seq<SingleLogDynamicMetadata>,
+    pub c: MultilogConstants,
+    pub state: AtomicMultilogState,
 }
 
 pub(super) open spec fn recover_version_metadata(s: Seq<u8>) -> Option<MultilogVersionMetadata>
 {
-    if s.len() < MultilogVersionMetadata::spec_size_of() + u64::spec_size_of() {
-        None
-    }
-    else {
-        match recover_object::<MultilogVersionMetadata>(s, 0, MultilogVersionMetadata::spec_size_of() as int) {
-            None => None,
-            Some(vm) =>
-                if validate_version_metadata(vm) {
-                    Some(vm)
-                }
-                else {
-                    None
-                },
-        }
-    }
+    recover_object::<MultilogVersionMetadata>(s, 0, MultilogVersionMetadata::spec_size_of() as int)
+}
+
+pub(super) open spec fn validate_version_metadata(vm: MultilogVersionMetadata) -> bool
+{
+    &&& vm.program_guid == MULTILOG_PROGRAM_GUID
+    &&& vm.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
+}
+
+pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionMetadata)
+                                                -> Option<MultilogStaticMetadata>
+{
+    recover_object::<MultilogStaticMetadata>(s, vm.static_metadata_addr as int,
+                                             vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of())
 }
 
 pub(super) open spec fn validate_static_metadata(sm: MultilogStaticMetadata, vm: MultilogVersionMetadata) -> bool
 {
-    &&& sm.num_logs <= MAX_NUM_LOGS    
-    &&& sm.mask_cdb_addr >= vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of()
-    &&& sm.mask0_addr >= sm.mask_cdb_addr + u64::spec_size_of()
-    &&& sm.mask0_crc_addr >= sm.mask0_addr + u64::spec_size_of()
-    &&& sm.mask1_addr >= sm.mask0_crc_addr + u64::spec_size_of()
-    &&& sm.mask1_crc_addr >= sm.mask1_addr + u64::spec_size_of()
-    &&& sm.log_metadata_table.start >= sm.mask1_crc_addr + u64::spec_size_of()
+    &&& 0 < sm.num_logs <= MAX_NUM_LOGS
     &&& sm.log_metadata_table.valid()
-    &&& sm.log_metadata_table.end >= sm.log_metadata_table.start
     &&& sm.log_metadata_table.num_rows == sm.num_logs
     &&& sm.log_metadata_row_constants_crc_addr >= sm.log_metadata_row_constants_addr + SingleLogConstants::spec_size_of()
     &&& sm.log_metadata_row_dynamic_metadata0_addr >= sm.log_metadata_row_constants_crc_addr + u64::spec_size_of()
@@ -125,99 +121,49 @@ pub(super) open spec fn validate_static_metadata(sm: MultilogStaticMetadata, vm:
     &&& sm.log_metadata_table.row_size >= sm.log_metadata_row_dynamic_metadata1_crc_addr + u64::spec_size_of()
 }
 
-pub(super) open spec fn recover_static_metadata(s: Seq<u8>, vm: MultilogVersionMetadata)
-                                                -> Option<MultilogStaticMetadata>
-{
-    if s.len() < vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() {
-        None
-    }
-    else {
-        match recover_object::<MultilogStaticMetadata>(
-            s, vm.static_metadata_addr as int, vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of()
-        ) {
-            None => None,
-            Some(sm) => {
-                if !validate_static_metadata(sm, vm) {
-                    None
-                }
-                else if sm.log_metadata_table.end > s.len() {
-                    None
-                }
-                else {
-                    Some(sm)
-                }
-            },
-        }
-    }
-}
-
 pub(super) open spec fn recover_single_log_constants(s: Seq<u8>, which_log: int, sm: MultilogStaticMetadata)
                                                      -> Option<SingleLogConstants>
 {
     let row_addr = sm.log_metadata_table.spec_row_index_to_addr(which_log);
     let constants_addr = row_addr + sm.log_metadata_row_constants_addr;
     let constants_crc_addr = row_addr + sm.log_metadata_row_constants_crc_addr;
-    match recover_object::<SingleLogConstants>(s, constants_addr, constants_crc_addr) {
-        None => None,
-        Some(c) =>
-            if c.log_area_end <= c.log_area_start {
-                None
-            }
-            else {
-                Some(c)
-            },
-    }
+    recover_object::<SingleLogConstants>(s, constants_addr, constants_crc_addr)
 }
 
-pub(super) open spec fn validate_all_log_constants(
-    cs: Seq<SingleLogConstants>,
-    sm: MultilogStaticMetadata
-) -> bool
-{
-    &&& 0 < cs.len()
-    &&& sm.log_metadata_table.end <= cs[0].log_area_start
-    &&& forall|i: int, j: int| 0 <= i < j < cs.len() ==> #[trigger] cs[i].log_area_end <= #[trigger] cs[j].log_area_start
-}
-
-pub(super) open spec fn recover_all_log_constants(s: Seq<u8>, sm: MultilogStaticMetadata)
-                                                  -> Option<Seq<SingleLogConstants>>
-{
-    if forall|which_log: int| 0 <= which_log < sm.num_logs ==>
-        #[trigger] recover_single_log_constants(s, which_log, sm) is Some {
-        let cs: Seq<SingleLogConstants> = Seq::<SingleLogConstants>::new(
-            sm.num_logs as nat,
-            |which_log: int| recover_single_log_constants(s, which_log, sm).unwrap()
-        );
-        if validate_all_log_constants(cs, sm) { Some(cs) } else { None }
-    }
-    else {
-        None
-    }
-}
-
-pub(super) open spec fn recover_single_log_dynamic_metadata(
+pub(super) open spec fn recover_single_log_dynamic_metadata_given_version(
     s: Seq<u8>,
     which_log: int,
     sm: MultilogStaticMetadata,
-    which_dynamic_metadata: int
+    which_dynamic_metadata: bool,
 ) -> Option<SingleLogDynamicMetadata>
 {
     let row_addr = sm.log_metadata_table.spec_row_index_to_addr(which_log);
     let dynamic_metadata_addr =
-         if which_dynamic_metadata == 0 {
-            row_addr + sm.log_metadata_row_dynamic_metadata0_addr
+        if which_dynamic_metadata {
+            row_addr + sm.log_metadata_row_dynamic_metadata1_addr
         }
         else {
-            row_addr + sm.log_metadata_row_dynamic_metadata1_addr
+            row_addr + sm.log_metadata_row_dynamic_metadata0_addr
         };
     let dynamic_metadata_crc_addr =
-         if which_dynamic_metadata == 0 {
-            row_addr + sm.log_metadata_row_dynamic_metadata0_crc_addr
+        if which_dynamic_metadata {
+            row_addr + sm.log_metadata_row_dynamic_metadata1_crc_addr
         }
         else {
-            row_addr + sm.log_metadata_row_dynamic_metadata1_crc_addr
+            row_addr + sm.log_metadata_row_dynamic_metadata0_crc_addr
         };
     recover_object::<SingleLogDynamicMetadata>(s, dynamic_metadata_addr, dynamic_metadata_crc_addr)
+}
+
+pub(super) open spec fn recover_single_log_dynamic_metadata_given_mask(
+    s: Seq<u8>,
+    which_log: int,
+    sm: MultilogStaticMetadata,
+    mask: u64,
+) -> Option<SingleLogDynamicMetadata>
+{
+    let version = (mask & (1u64 << which_log as u64)) != 0;
+    recover_single_log_dynamic_metadata_given_version(s, which_log, sm, version)
 }
 
 pub(super) open spec fn recover_mask_cdb(s: Seq<u8>, sm: MultilogStaticMetadata) -> Option<bool>
@@ -225,12 +171,13 @@ pub(super) open spec fn recover_mask_cdb(s: Seq<u8>, sm: MultilogStaticMetadata)
     recover_cdb(s, sm.mask_cdb_addr as int)
 }
 
-pub(super) open spec fn recover_mask(s: Seq<u8>, sm: MultilogStaticMetadata) -> Option<u64>
+pub(super) open spec fn recover_mask_given_cdb(s: Seq<u8>, sm: MultilogStaticMetadata, cdb: bool) -> Option<u64>
 {
-    match recover_mask_cdb(s, sm) {
-        None => None,
-        Some(false) => recover_object::<u64>(s, sm.mask0_addr as int, sm.mask0_crc_addr as int),
-        Some(true) => recover_object::<u64>(s, sm.mask1_addr as int, sm.mask1_crc_addr as int),
+    if cdb {
+        recover_object::<u64>(s, sm.mask1_addr as int, sm.mask1_crc_addr as int)
+    }
+    else {
+        recover_object::<u64>(s, sm.mask0_addr as int, sm.mask0_crc_addr as int)
     }
 }
 
@@ -250,94 +197,141 @@ pub open spec fn relative_log_pos_to_addr(
     }
 }
 
-pub open spec fn extract_log(s: Seq<u8>, log_area_start: int, log_area_end: int, head: int, log_length: int) -> Seq<u8>
-{
-    let log_area_len = log_area_end - log_area_start;
-    let head_addr = log_area_start + (head % log_area_len);
-    Seq::<u8>::new(log_length as nat,
-                   |pos_relative_to_head: int|
-                       s[relative_log_pos_to_addr(pos_relative_to_head, head_addr, log_area_start, log_area_end)])
-}
-
-pub(super) open spec fn recover_single_log_given_metadata(
-    s: Seq<u8>,
-    c: SingleLogConstants,
-    d: SingleLogDynamicMetadata,
-) -> Option<AtomicLogState>
-{
-    if {
-        &&& c.log_area_start < c.log_area_end
-        &&& d.length <= c.log_area_end - c.log_area_start
-        &&& c.log_area_end <= s.len()
-    } {
-        let log = extract_log(s, c.log_area_start as int, c.log_area_end as int, d.head as int, d.length as int);
-        Some(AtomicLogState{ head: d.head as int, log })
-    }
-    else {
-        None
-    }
-}
-
-pub(super) open spec fn recover_single_log(
-    s: Seq<u8>,
-    which_log: int,
-    sm: MultilogStaticMetadata,
-    cs: Seq<SingleLogConstants>,
-    mask: u64
-) -> Option<AtomicLogState>
-{
-    let which_dynamic_metadata = if mask & (1u64 << which_log as u64) != 0 { 1 } else { 0 };
-    match recover_single_log_dynamic_metadata(s, which_log, sm, which_dynamic_metadata) {
-        None => None,
-        Some(d) => recover_single_log_given_metadata(s, cs[which_log], d),
-    }
-}
-
-pub(super) open spec fn compute_capacities(cs: Seq<SingleLogConstants>) -> Seq<u64>
-{
-    cs.map(|_i, c: SingleLogConstants| (c.log_area_end - c.log_area_start) as u64)
-}
-
-pub(super) open spec fn recover_multilog(s: Seq<u8>, sm: MultilogStaticMetadata, cs: Seq<SingleLogConstants>, mask: u64)
-                                         -> Option<AtomicMultilogState>
-{
-    if forall|which_log: int| 0 <= which_log < sm.num_logs ==>
-        #[trigger] recover_single_log(s, which_log, sm, cs, mask) is Some {
-        let logs = Seq::<AtomicLogState>::new(
-            sm.num_logs as nat,
-            |which_log: int| recover_single_log(s, which_log, sm, cs, mask).unwrap()
-        );
-        Some(AtomicMultilogState{ logs })
-    }
-    else {
-        None
-    }
-}
-
 pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState>
 {
-    match recover_version_metadata(s) {
-        None => None,
-        Some(vm) =>
-            match recover_static_metadata(s, vm) {
-                None => None,
-                Some(sm) =>
-                    match recover_all_log_constants(s, sm) {
-                        None => None,
-                        Some(cs) =>
-                            match recover_mask(s, sm) {
-                                None => None,
-                                Some(mask) =>
-                                    match recover_multilog(s, sm, cs, mask) {
-                                        None => None,
-                                        Some(state) => {
-                                            let c = MultilogConstants{ id: sm.id, capacities: compute_capacities(cs) };
-                                            Some(RecoveredMultilogState{ c, state })
-                                        },
-                                    },
-                            },
-                    },
-            },
+    if exists|rm: MultilogRecoveryMapping| rm.corresponds(s) {
+        let rm = choose|rm: MultilogRecoveryMapping| rm.corresponds(s);
+        Some(rm@)
+    }
+    else {
+        None
+    }
+}
+
+impl View for MultilogRecoveryMapping
+{
+    type V = RecoveredMultilogState;
+
+    open(super) spec fn view(&self) -> RecoveredMultilogState
+    {
+        RecoveredMultilogState {
+            c: self.c,
+            state: self.state,
+        }
+    }
+}
+
+impl MultilogRecoveryMapping
+{
+    pub(super) open spec fn new(s: Seq<u8>) -> Option<Self>
+    {
+        if exists|rm: MultilogRecoveryMapping| rm.corresponds(s) {
+            let rm = choose|rm: MultilogRecoveryMapping| rm.corresponds(s);
+            Some(rm)
+        }
+        else {
+            None
+        }
+    }
+
+    pub(super) open spec fn parts_dont_overlap(self) -> bool
+    {
+        &&& self.vm.static_metadata_addr >= MultilogVersionMetadata::spec_size_of() + u64::spec_size_of()
+        &&& self.sm.mask_cdb_addr >=
+                self.vm.static_metadata_addr + MultilogStaticMetadata::spec_size_of() + u64::spec_size_of()
+        &&& self.sm.mask0_addr >= self.sm.mask_cdb_addr + u64::spec_size_of()
+        &&& self.sm.mask0_crc_addr >= self.sm.mask0_addr + u64::spec_size_of()
+        &&& self.sm.mask1_addr >= self.sm.mask0_crc_addr + u64::spec_size_of()
+        &&& self.sm.mask1_crc_addr >= self.sm.mask1_addr + u64::spec_size_of()
+        &&& self.sm.log_metadata_table.start >= self.sm.mask1_crc_addr + u64::spec_size_of()
+        &&& self.sm.log_metadata_table.end >= self.sm.log_metadata_table.start
+        &&& self.all_log_constants[0].log_area_start >= self.sm.log_metadata_table.end
+        &&& forall|i: int, j: int| 0 <= i < j < self.sm.num_logs ==>
+                #[trigger] self.all_log_constants[i].log_area_end <= #[trigger] self.all_log_constants[j].log_area_start
+    }
+
+    pub(super) open spec fn constants_correspond(self) -> bool
+    {
+        &&& self.c.id == self.sm.id
+        &&& self.c.capacities.len() == self.sm.num_logs
+        &&& forall|i: int| #![trigger self.c.capacities[i]] #![trigger self.all_log_constants[i]]
+                0 <= i < self.sm.num_logs ==>
+                self.c.capacities[i] ==
+                self.all_log_constants[i].log_area_end - self.all_log_constants[i].log_area_start
+    }
+
+    pub(super) open spec fn log_state_corresponds(self, s: Seq<u8>, which_log: int) -> bool
+    {
+        let log_constants = self.all_log_constants[which_log];
+        let log_area_start = log_constants.log_area_start;
+        let log_area_end = log_constants.log_area_end;
+        let log_dynamic_metadata = self.all_log_dynamic_metadata[which_log];
+        let log_area_len = log_area_end - log_area_start;
+        let head = self.state.logs[which_log].head;
+        let head_addr = log_area_start + (head % log_area_len);
+        let log = self.state.logs[which_log].log;
+        &&& head == log_dynamic_metadata.head
+        &&& log.len() == log_dynamic_metadata.length
+        &&& log.len() <= log_area_len
+        &&& forall|pos: int| 0 <= pos < log.len() ==> #[trigger] log[pos] ==
+                s[relative_log_pos_to_addr(pos, head_addr, log_area_start as int, log_area_end as int)]
+    }
+
+    pub(super) open spec fn valid(self) -> bool
+    {
+        &&& self.parts_dont_overlap()
+        &&& validate_version_metadata(self.vm)
+        &&& validate_static_metadata(self.sm, self.vm)
+        &&& self.sm.num_logs == self.all_log_constants.len() ==
+            self.all_log_dynamic_metadata.len() == self.state.logs.len()
+        &&& self.constants_correspond()
+    }
+
+    pub(super) open spec fn corresponds(self, s: Seq<u8>) -> bool
+    {
+        &&& self.valid()
+        &&& self.all_log_constants.last().log_area_end <= s.len()
+        &&& recover_version_metadata(s) == Some(self.vm)
+        &&& recover_static_metadata(s, self.vm) == Some(self.sm)
+        &&& recover_mask_cdb(s, self.sm) == Some(self.mask_cdb)
+        &&& recover_mask_given_cdb(s, self.sm, self.mask_cdb) == Some(self.mask)
+        &&& forall|i: int| 0 <= i < self.sm.num_logs ==>
+                recover_single_log_constants(s, i, self.sm) == Some(#[trigger] self.all_log_constants[i])
+        &&& forall|i: int| 0 <= i < self.sm.num_logs ==>
+                recover_single_log_dynamic_metadata_given_mask(s, i, self.sm, self.mask) ==
+                Some(#[trigger] self.all_log_dynamic_metadata[i])
+        &&& forall|i: int| 0 <= i < self.sm.num_logs ==> #[trigger] self.log_state_corresponds(s, i)
+    }
+
+    pub(super) proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>)
+        requires
+            self.corresponds(s),
+            other.corresponds(s),
+        ensures
+            self == other,
+    {
+        assert(self.all_log_constants =~= other.all_log_constants);
+        assert(self.all_log_dynamic_metadata =~= other.all_log_dynamic_metadata);
+        assert(self.c =~= other.c);
+        assert(self.state =~= other.state) by {
+            assert forall|i: int| 0 <= i < self.sm.num_logs implies self.state.logs[i] == other.state.logs[i] by {
+                assert(self.all_log_constants[i] == other.all_log_constants[i]);
+                assert(self.all_log_dynamic_metadata[i] == other.all_log_dynamic_metadata[i]);
+                assert(self.log_state_corresponds(s, i));
+                assert(other.log_state_corresponds(s, i));
+                assert(self.state.logs[i] =~= other.state.logs[i]);
+            }
+        }
+        assert(self =~= other);
+    }
+
+    pub(super) proof fn lemma_corresponds_implies_equals_new(self, s: Seq<u8>)
+        requires
+            self.corresponds(s),
+        ensures
+            Self::new(s) == Some(self),
+    {
+        self.lemma_uniqueness(Self::new(s).unwrap(), s);
     }
 }
 
