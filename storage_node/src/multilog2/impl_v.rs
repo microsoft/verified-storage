@@ -2,12 +2,12 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::power_t::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::power_t::*;
 
 verus! {
 
@@ -23,20 +23,17 @@ pub struct UntrustedMultilogImpl {
     pub(super) mv: Ghost<MultilogView>,
 }
 
-impl UntrustedMultilogImpl
-{
+impl UntrustedMultilogImpl {
     // This static function specifies how multiple regions'
     // contents should be viewed upon recovery as an abstract
     // log state.
-    pub open(super) spec fn recover(mem: Seq<u8>) -> Option<RecoveredMultilogState>
-    {
+    pub open(super) spec fn recover(mem: Seq<u8>) -> Option<RecoveredMultilogState> {
         recover_state(mem)
     }
 
     // This function specifies how to view the in-memory state of
     // `self` as an abstract log state.
-    pub open(super) spec fn view(&self) -> MultilogView
-    {
+    pub open(super) spec fn view(&self) -> MultilogView {
         self.mv@
     }
 
@@ -59,14 +56,14 @@ impl UntrustedMultilogImpl
         which_log: usize,
         bytes_to_append: &[u8],
         Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<u128, MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<u128, MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             old(self).valid(&*old(powerpm_region)),
-            forall |s| #[trigger] perm.check_permission(s) <==
-                Self::recover(s) == Some(old(self)@.recover()),
+            forall|s| #[trigger]
+                perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
         ensures
             self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
@@ -75,8 +72,10 @@ impl UntrustedMultilogImpl
                 Ok(offset) => {
                     &&& which_log < old(self)@.tentative.num_logs()
                     &&& offset == old(self)@.tentative[which_log as int].tail()
-                    &&& self@ == MultilogView{ tentative: old(self)@.tentative.append(which_log as int, bytes_to_append@),
-                                              ..self@ }
+                    &&& self@ == MultilogView {
+                        tentative: old(self)@.tentative.append(which_log as int, bytes_to_append@),
+                        ..self@
+                    }
                 },
                 Err(MultilogErr::InvalidLogIndex) => {
                     &&& self@ == old(self)@
@@ -87,13 +86,13 @@ impl UntrustedMultilogImpl
                     &&& which_log < self@.tentative.num_logs()
                     &&& available_space < bytes_to_append@.len()
                     &&& {
-                           let capacity = self@.c.capacities[which_log as int];
-                           let state = self@.tentative[which_log as int];
-                           ||| available_space == capacity - state.log.len()
-                           ||| available_space == u128::MAX - state.head - state.log.len()
-                       }
+                        let capacity = self@.c.capacities[which_log as int];
+                        let state = self@.tentative[which_log as int];
+                        ||| available_space == capacity - state.log.len()
+                        ||| available_space == u128::MAX - state.head - state.log.len()
+                    }
                 },
-                _ => false
+                _ => false,
             },
     {
         assume(false);
@@ -106,14 +105,14 @@ impl UntrustedMultilogImpl
         which_log: usize,
         new_head: u128,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<(), MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<(), MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             old(self).valid(&*old(powerpm_region)),
-            forall |s| #[trigger] perm.check_permission(s) <==
-                Self::recover(s) == Some(old(self)@.recover()),
+            forall|s| #[trigger]
+                perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
         ensures
             self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
@@ -123,8 +122,13 @@ impl UntrustedMultilogImpl
                     let state = old(self)@.tentative[which_log as int];
                     &&& which_log < old(self)@.tentative.num_logs()
                     &&& state.head <= new_head <= state.head + state.log.len()
-                    &&& self@ == MultilogView{ tentative: old(self)@.tentative.advance_head(which_log as int,
-                                                                                         new_head as int), ..self@ }
+                    &&& self@ == MultilogView {
+                        tentative: old(self)@.tentative.advance_head(
+                            which_log as int,
+                            new_head as int,
+                        ),
+                        ..self@
+                    }
                 },
                 Err(MultilogErr::InvalidLogIndex) => {
                     &&& self@ == old(self)@
@@ -142,7 +146,7 @@ impl UntrustedMultilogImpl
                     &&& tail == self@.tentative[which_log as int].tail()
                     &&& new_head > tail
                 },
-                _ => false
+                _ => false,
             },
     {
         assume(false);
@@ -153,14 +157,14 @@ impl UntrustedMultilogImpl
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<(), MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<(), MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             old(self).valid(&*old(powerpm_region)),
-            forall |s| #[trigger] perm.check_permission(s) <==
-                Self::recover(s) == Some(old(self)@.recover()),
+            forall|s| #[trigger]
+                perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
         ensures
             self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
@@ -176,16 +180,17 @@ impl UntrustedMultilogImpl
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<(), MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<(), MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             old(self).valid(&*old(powerpm_region)),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| Self::recover(s) == Some(old(self)@.recover())
-                ||| Self::recover(s) == Some(old(self)@.commit().recover())
-            },
+            forall|s| #[trigger]
+                perm.check_permission(s) <==> {
+                    ||| Self::recover(s) == Some(old(self)@.recover())
+                    ||| Self::recover(s) == Some(old(self)@.commit().recover())
+                },
         ensures
             self.valid(powerpm_region),
             powerpm_region.constants() == old(powerpm_region).constants(),
@@ -207,10 +212,10 @@ impl UntrustedMultilogImpl
         which_log: usize,
         pos: u128,
         len: u64,
-    ) -> (result: Result<Vec<u8>, MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<Vec<u8>, MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             self.valid(powerpm_region),
             pos + len <= u128::MAX,
@@ -219,28 +224,35 @@ impl UntrustedMultilogImpl
                 let log = self@.tentative[which_log as int];
                 match result {
                     Ok(bytes) => {
-                        let true_bytes = self@.tentative.read(which_log as int, pos as int, len as int);
+                        let true_bytes = self@.tentative.read(
+                            which_log as int,
+                            pos as int,
+                            len as int,
+                        );
                         &&& which_log < self@.tentative.num_logs()
                         &&& pos >= log.head
                         &&& pos + len <= log.tail()
-                        &&& read_correct_modulo_corruption(bytes@, true_bytes, powerpm_region.constants())
+                        &&& read_correct_modulo_corruption(
+                            bytes@,
+                            true_bytes,
+                            powerpm_region.constants(),
+                        )
                     },
-                    Err(MultilogErr::InvalidLogIndex) => {
-                        which_log >= self@.tentative.num_logs()
+                    Err(MultilogErr::InvalidLogIndex) => { which_log >= self@.tentative.num_logs()
                     },
-                    Err(MultilogErr::CantReadBeforeHead{ head: head_pos }) => {
+                    Err(MultilogErr::CantReadBeforeHead { head: head_pos }) => {
                         &&& which_log < self@.tentative.num_logs()
                         &&& pos < log.head
                         &&& head_pos == log.head
                     },
-                    Err(MultilogErr::CantReadPastTail{ tail }) => {
+                    Err(MultilogErr::CantReadPastTail { tail }) => {
                         &&& which_log < self@.tentative.num_logs()
                         &&& pos + len > log.tail()
                         &&& tail == log.tail()
                     },
                     _ => false,
                 }
-            })
+            }),
     {
         assume(false);
         Err(MultilogErr::NotYetImplemented)
@@ -249,10 +261,10 @@ impl UntrustedMultilogImpl
     pub exec fn get_num_logs<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-    ) -> (result: Result<u32, MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<u32, MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             self.valid(powerpm_region),
         ensures
@@ -267,10 +279,10 @@ impl UntrustedMultilogImpl
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
         which_log: usize,
-    ) -> (result: Result<(u128, u128, u64), MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<(u128, u128, u64), MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             self.valid(powerpm_region),
         ensures
@@ -282,17 +294,15 @@ impl UntrustedMultilogImpl
                         &&& result_tail == self@.tentative[which_log as int].tail()
                         &&& result_capacity == self@.c.capacities[which_log as int]
                     },
-                    Err(MultilogErr::InvalidLogIndex) => {
-                        which_log >= self@.tentative.num_logs()
+                    Err(MultilogErr::InvalidLogIndex) => { which_log >= self@.tentative.num_logs()
                     },
                     _ => false,
                 }
-            })
+            }),
     {
         assume(false);
         Err(MultilogErr::NotYetImplemented)
     }
-
 }
 
-}
+} // verus!

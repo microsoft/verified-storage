@@ -14,7 +14,7 @@ verus! {
 pub enum MultilogErr {
     CantSetupWithFewerThanOneRegion,
     CantSetupWithMoreThanMaxRegions { max_num_regions: usize },
-    CapacityMustBePositive{ which_log: usize },
+    CapacityMustBePositive { which_log: usize },
     SpaceNeededForSetupExceedsMax,
     InsufficientSpaceForSetup { required_space: u64 },
     StartFailedDueToMultilogIDMismatch { multilog_id_expected: u128, multilog_id_read: u128 },
@@ -43,15 +43,11 @@ pub struct AtomicLogState {
     pub log: Seq<u8>,
 }
 
-impl AtomicLogState
-{
+impl AtomicLogState {
     // This is the specification for the initial state of an
     // abstract log.
     pub open spec fn initialize() -> Self {
-        Self {
-            head: 0int,
-            log: Seq::<u8>::empty(),
-        }
+        Self { head: 0int, log: Seq::<u8>::empty() }
     }
 
     // This is the specification for what it means to append to a log.
@@ -62,8 +58,7 @@ impl AtomicLogState
 
     // This is the specification for what it means to advance the
     // head to a given new value `new_value`.
-    pub open spec fn advance_head(self, new_head: int) -> Self
-    {
+    pub open spec fn advance_head(self, new_head: int) -> Self {
         let new_log = self.log.subrange(new_head - self.head, self.log.len() as int);
         Self { head: new_head, log: new_log, ..self }
     }
@@ -71,20 +66,17 @@ impl AtomicLogState
     // This is the specification for what it means to read `len`
     // bytes from a certain virtual position `pos` in the abstract
     // log.
-    pub open spec fn read(self, pos: int, len: int) -> Seq<u8>
-    {
+    pub open spec fn read(self, pos: int, len: int) -> Seq<u8> {
         self.log.subrange(pos - self.head, pos - self.head + len)
     }
 
-    pub open spec fn tail(self) -> int
-    {
+    pub open spec fn tail(self) -> int {
         self.head + self.log.len()
     }
 }
 
 #[verifier::ext_equal]
-pub struct MultilogConstants
-{
+pub struct MultilogConstants {
     pub id: u128,
     pub capacities: Seq<u64>,
 }
@@ -94,12 +86,11 @@ pub struct MultilogConstants
 // consists of a sequence of logs of type `AtomicLogState`.
 #[verifier::ext_equal]
 pub struct AtomicMultilogState {
-    pub logs: Seq<AtomicLogState>
+    pub logs: Seq<AtomicLogState>,
 }
 
 #[verifier::ext_equal]
-impl AtomicMultilogState
-{
+impl AtomicMultilogState {
     // This is the specification for the number of logs in a
     // multilog.
     pub open spec fn num_logs(self) -> nat {
@@ -117,95 +108,76 @@ impl AtomicMultilogState
     // This is the specification for the initial state of an
     // abstract multilog.
     pub open spec fn initialize(num_logs: nat) -> Self {
-        Self {
-            logs: Seq::<AtomicLogState>::new(num_logs, |i| AtomicLogState::initialize())
-        }
+        Self { logs: Seq::<AtomicLogState>::new(num_logs, |i| AtomicLogState::initialize()) }
     }
 
     // This is the specification for the operation of appending to an
     // abstract multilog.
     pub open spec fn append(self, which_log: int, bytes_to_append: Seq<u8>) -> Self {
-        Self {
-            logs: self.logs.update(which_log, self.logs[which_log].append(bytes_to_append))
-        }
+        Self { logs: self.logs.update(which_log, self.logs[which_log].append(bytes_to_append)) }
     }
 
     // This is the specification for the operation of advancing
     // the head of one of the logs in a multilog.
     pub open spec fn advance_head(self, which_log: int, new_head: int) -> Self {
-        Self {
-            logs: self.logs.update(which_log, self.logs[which_log].advance_head(new_head))
-        }
+        Self { logs: self.logs.update(which_log, self.logs[which_log].advance_head(new_head)) }
     }
 
     // This is the specification for what it means to read `len`
     // bytes from a certain virtual position `pos` in the log
     // with a certain index `which_log`:
-    pub open spec fn read(self, which_log: int, pos: int, len: int) -> Seq<u8>
-    {
+    pub open spec fn read(self, which_log: int, pos: int, len: int) -> Seq<u8> {
         self.logs[which_log].read(pos, len)
     }
 
-    pub open spec fn compatible_with_constants(self, c: MultilogConstants) -> bool
-    {
+    pub open spec fn compatible_with_constants(self, c: MultilogConstants) -> bool {
         self.num_logs() == c.capacities.len()
     }
-
 }
 
 #[verifier::ext_equal]
-pub struct RecoveredMultilogState
-{
+pub struct RecoveredMultilogState {
     pub c: MultilogConstants,
     pub state: AtomicMultilogState,
 }
 
-impl RecoveredMultilogState
-{
-    pub open spec fn valid(self) -> bool
-    {
+impl RecoveredMultilogState {
+    pub open spec fn valid(self) -> bool {
         &&& self.state.compatible_with_constants(self.c)
         &&& self.state.num_logs() == self.c.capacities.len()
     }
 
-    pub open spec fn initialize(id: u128, capacities: Seq<u64>) -> Self
-    {
-        Self{
-            c: MultilogConstants{ id, capacities },
+    pub open spec fn initialize(id: u128, capacities: Seq<u64>) -> Self {
+        Self {
+            c: MultilogConstants { id, capacities },
             state: AtomicMultilogState::initialize(capacities.len()),
         }
     }
 }
 
 #[verifier::ext_equal]
-pub struct MultilogView
-{
+pub struct MultilogView {
     pub c: MultilogConstants,
     pub durable: AtomicMultilogState,
     pub tentative: AtomicMultilogState,
 }
 
-impl MultilogView
-{
-    pub open spec fn valid(self) -> bool
-    {
+impl MultilogView {
+    pub open spec fn valid(self) -> bool {
         &&& self.durable.compatible_with_constants(self.c)
         &&& self.tentative.compatible_with_constants(self.c)
     }
 
-    pub open spec fn abort(self) -> Self
-    {
-        Self{ durable: self.tentative, ..self }
+    pub open spec fn abort(self) -> Self {
+        Self { durable: self.tentative, ..self }
     }
 
-    pub open spec fn commit(self) -> Self
-    {
-        Self{ tentative: self.durable, ..self }
+    pub open spec fn commit(self) -> Self {
+        Self { tentative: self.durable, ..self }
     }
 
-    pub open spec fn recover(self) -> RecoveredMultilogState
-    {
-        RecoveredMultilogState{ c: self.c, state: self.durable }
+    pub open spec fn recover(self) -> RecoveredMultilogState {
+        RecoveredMultilogState { c: self.c, state: self.durable }
     }
 }
 
@@ -213,9 +185,11 @@ impl MultilogView
 // bytes it reads. It says that those bytes are correct unless
 // there was corruption on the persistent memory between the last
 // write and this read.
-pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
-                                                pmc: PersistentMemoryConstants) -> bool
-{
+pub open spec fn read_correct_modulo_corruption(
+    bytes: Seq<u8>,
+    true_bytes: Seq<u8>,
+    pmc: PersistentMemoryConstants,
+) -> bool {
     // There must exist a sequence of distinct
     // addresses `addrs` such that the nth byte of `bytes` is
     // a possibly corrupted version of the nth byte of
@@ -223,11 +197,11 @@ pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<
     // don't require the sequence of addresses to be
     // contiguous because the data might not be contiguous on
     // disk (e.g., if it wrapped around the log area).
-
-    exists |addrs: Seq<int>| {
-        &&& addrs.no_duplicates()
-        &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
-    }
+    exists|addrs: Seq<int>|
+        {
+            &&& addrs.no_duplicates()
+            &&& #[trigger] pmc.maybe_corrupted(bytes, true_bytes, addrs)
+        }
 }
 
-}
+} // verus!

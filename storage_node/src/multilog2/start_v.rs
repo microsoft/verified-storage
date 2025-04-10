@@ -4,26 +4,25 @@ use builtin_macros::*;
 use vstd::invariant;
 use vstd::prelude::*;
 
+use super::impl_v::UntrustedMultilogImpl;
+use super::inv_v::*;
+use super::recover_v::*;
+use super::spec_t::*;
 use crate::common::align_v::*;
 use crate::common::recover_v::*;
 use crate::common::subrange_v::*;
 use crate::common::table_v::*;
 use crate::common::util_v::*;
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::power_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::PmCopy;
-use super::impl_v::UntrustedMultilogImpl;
-use super::inv_v::*;
-use super::recover_v::*;
-use super::spec_t::*;
 
 verus! {
 
-impl UntrustedMultilogImpl
-{
+impl UntrustedMultilogImpl {
     // The `start` static method creates an
     // `UntrustedMultilogImpl` out of a set of persistent memory
     // regions. An assumption is that those regions were initialized
@@ -40,16 +39,16 @@ impl UntrustedMultilogImpl
         multilog_id: u128,
         Tracked(perm): Tracked<&Perm>,
         Ghost(state): Ghost<RecoveredMultilogState>,
-    ) -> (result: Result<Self, MultilogErr>)
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
+    ) -> (result: Result<Self, MultilogErr>) where
+        Perm: CheckPermission<Seq<u8>>,
+        PMRegion: PersistentMemoryRegion,
+
         requires
             old(powerpm_region).inv(),
             old(powerpm_region)@.valid(),
             old(powerpm_region)@.flush_predicted(),
             Self::recover(old(powerpm_region)@.durable_state) == Some(state),
-            forall |s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
+            forall|s| #[trigger] perm.check_permission(s) <== Self::recover(s) == Some(state),
         ensures
             powerpm_region.inv(),
             powerpm_region.constants() == old(powerpm_region).constants(),
@@ -61,13 +60,20 @@ impl UntrustedMultilogImpl
                     &&& log_impl@.tentative == log_impl@.durable
                     &&& Self::recover(powerpm_region@.durable_state) == Some(state)
                 },
-                Err(MultilogErr::StartFailedDueToMultilogIDMismatch{ multilog_id_expected, multilog_id_read }) => {
+                Err(
+                    MultilogErr::StartFailedDueToMultilogIDMismatch {
+                        multilog_id_expected,
+                        multilog_id_read,
+                    },
+                ) => {
                     &&& multilog_id_expected == multilog_id
                     &&& multilog_id_read == state.c.id
                 },
-                Err(MultilogErr::CRCMismatch) => !powerpm_region.constants().impervious_to_corruption(),
+                Err(
+                    MultilogErr::CRCMismatch,
+                ) => !powerpm_region.constants().impervious_to_corruption(),
                 _ => false,
-            }
+            },
     {
         broadcast use pmcopy_axioms;
 
@@ -75,35 +81,62 @@ impl UntrustedMultilogImpl
         assert(rm.corresponds(powerpm_region@.durable_state));
 
         let pm_region = powerpm_region.get_pm_region_ref();
-        let vm = match exec_recover_object::<PMRegion, MultilogVersionMetadata>(pm_region, 0, size_of::<MultilogVersionMetadata>() as u64) {
+        let vm = match exec_recover_object::<PMRegion, MultilogVersionMetadata>(
+            pm_region,
+            0,
+            size_of::<MultilogVersionMetadata>() as u64,
+        ) {
             Some(vm) => vm,
-            None => { return Err(MultilogErr::CRCMismatch); },
+            None => {
+                return Err(MultilogErr::CRCMismatch);
+            },
         };
         assert(recover_version_metadata(pm_region@.durable_state) == Some(vm));
         assert(vm == rm.vm);
 
-        let sm = match exec_recover_object::<PMRegion, MultilogStaticMetadata>(pm_region, vm.static_metadata_addr,
-                                                                               vm.static_metadata_addr + size_of::<MultilogStaticMetadata>() as u64) {
+        let sm = match exec_recover_object::<PMRegion, MultilogStaticMetadata>(
+            pm_region,
+            vm.static_metadata_addr,
+            vm.static_metadata_addr + size_of::<MultilogStaticMetadata>() as u64,
+        ) {
             Some(sm) => sm,
-            None => { return Err(MultilogErr::CRCMismatch); },
+            None => {
+                return Err(MultilogErr::CRCMismatch);
+            },
         };
         assert(recover_static_metadata(pm_region@.durable_state, vm) == Some(sm));
         assert(sm == rm.sm);
 
         if sm.id != multilog_id {
-            return Err(MultilogErr::StartFailedDueToMultilogIDMismatch{ multilog_id_expected: multilog_id, multilog_id_read: sm.id });
+            return Err(
+                MultilogErr::StartFailedDueToMultilogIDMismatch {
+                    multilog_id_expected: multilog_id,
+                    multilog_id_read: sm.id,
+                },
+            );
         }
-
         let mask_cdb = match exec_recover_cdb::<PMRegion>(pm_region, sm.mask_cdb_addr) {
             Some(b) => b,
-            None => { return Err(MultilogErr::CRCMismatch); },
+            None => {
+                return Err(MultilogErr::CRCMismatch);
+            },
         };
         assert(mask_cdb == rm.mask_cdb);
-        let mask_addr = if mask_cdb { sm.mask1_addr } else { sm.mask0_addr };
-        let mask_crc_addr = if mask_cdb { sm.mask1_crc_addr } else { sm.mask0_crc_addr };
+        let mask_addr = if mask_cdb {
+            sm.mask1_addr
+        } else {
+            sm.mask0_addr
+        };
+        let mask_crc_addr = if mask_cdb {
+            sm.mask1_crc_addr
+        } else {
+            sm.mask0_crc_addr
+        };
         let mask = match exec_recover_object::<PMRegion, u64>(pm_region, mask_addr, mask_crc_addr) {
             Some(mask) => mask,
-            None => { return Err(MultilogErr::CRCMismatch); },
+            None => {
+                return Err(MultilogErr::CRCMismatch);
+            },
         };
         assert(recover_mask_given_cdb(pm_region@.durable_state, sm, mask_cdb) == Some(mask));
         assert(mask == rm.mask);
@@ -124,19 +157,24 @@ impl UntrustedMultilogImpl
                 powerpm_region.constants() == old(powerpm_region).constants(),
                 powerpm_region.constants() == pm_region.constants(),
                 0 <= which_log <= sm.num_logs,
-                forall|i: int| #![trigger log_infos@[i]] #![trigger state.state.logs[i]]
+                forall|i: int|
+                    #![trigger log_infos@[i]]
+                    #![trigger state.state.logs[i]]
                     0 <= i < which_log ==> {
-                    let info = log_infos@[i];
-                    let durable = state.state.logs[i];
-                    &&& info.log_area_start == rm.all_log_constants[i].log_area_start
-                    &&& info.log_area_len == rm.all_log_constants[i].log_area_end - rm.all_log_constants[i].log_area_start
-                    &&& info.durable_head == durable.head
-                    &&& info.durable_log_length == durable.log.len()
-                    &&& info.durable_head_addr == info.log_area_start + (durable.head % (info.log_area_len as int))
-                    &&& info.tentative_head == durable.head
-                    &&& info.tentative_log_length == durable.log.len()
-                    &&& info.tentative_head_addr == info.log_area_start + (durable.head % (info.log_area_len as int))
-                },
+                        let info = log_infos@[i];
+                        let durable = state.state.logs[i];
+                        &&& info.log_area_start == rm.all_log_constants[i].log_area_start
+                        &&& info.log_area_len == rm.all_log_constants[i].log_area_end
+                            - rm.all_log_constants[i].log_area_start
+                        &&& info.durable_head == durable.head
+                        &&& info.durable_log_length == durable.log.len()
+                        &&& info.durable_head_addr == info.log_area_start + (durable.head % (
+                        info.log_area_len as int))
+                        &&& info.tentative_head == durable.head
+                        &&& info.tentative_log_length == durable.log.len()
+                        &&& info.tentative_head_addr == info.log_area_start + (durable.head % (
+                        info.log_area_len as int))
+                    },
                 rm.corresponds(pm_region@.durable_state),
                 rm.vm == vm,
                 rm.sm == sm,
@@ -146,18 +184,21 @@ impl UntrustedMultilogImpl
             proof {
                 broadcast use group_validate_row_addr;
                 broadcast use pmcopy_axioms;
+
             }
 
             let row_addr = sm.log_metadata_table.row_index_to_addr(which_log as u64);
-            assert(recover_single_log_constants(pm_region@.durable_state, which_log as int, sm) ==
-                   Some(rm.all_log_constants[which_log as int]));
+            assert(recover_single_log_constants(pm_region@.durable_state, which_log as int, sm)
+                == Some(rm.all_log_constants[which_log as int]));
             let c = match exec_recover_object::<PMRegion, SingleLogConstants>(
                 pm_region,
                 row_addr + sm.log_metadata_row_constants_addr,
-                row_addr + sm.log_metadata_row_constants_crc_addr
+                row_addr + sm.log_metadata_row_constants_crc_addr,
             ) {
                 Some(c) => c,
-                None => { return Err(MultilogErr::CRCMismatch); },
+                None => {
+                    return Err(MultilogErr::CRCMismatch);
+                },
             };
             assert(c == rm.all_log_constants[which_log as int]);
 
@@ -172,15 +213,21 @@ impl UntrustedMultilogImpl
             } else {
                 sm.log_metadata_row_dynamic_metadata0_crc_addr
             };
-            assert(recover_single_log_dynamic_metadata_given_mask(pm_region@.durable_state, which_log as int, sm, mask) ==
-                   Some(rm.all_log_dynamic_metadata[which_log as int]));
+            assert(recover_single_log_dynamic_metadata_given_mask(
+                pm_region@.durable_state,
+                which_log as int,
+                sm,
+                mask,
+            ) == Some(rm.all_log_dynamic_metadata[which_log as int]));
             let d = match exec_recover_object::<PMRegion, SingleLogDynamicMetadata>(
                 pm_region,
                 row_addr + dynamic_metadata_addr,
-                row_addr + dynamic_metadata_crc_addr
+                row_addr + dynamic_metadata_crc_addr,
             ) {
                 Some(d) => d,
-                None => { return Err(MultilogErr::CRCMismatch); },
+                None => {
+                    return Err(MultilogErr::CRCMismatch);
+                },
             };
             assert(d == rm.all_log_dynamic_metadata[which_log as int]);
 
@@ -199,25 +246,25 @@ impl UntrustedMultilogImpl
             };
 
             let ghost durable = state.state.logs[which_log as int];
-            assert(log_info.log_area_start == rm.all_log_constants[which_log as int].log_area_start);
-            assert(log_info.log_area_len == rm.all_log_constants[which_log as int].log_area_end - rm.all_log_constants[which_log as int].log_area_start);
+            assert(log_info.log_area_start
+                == rm.all_log_constants[which_log as int].log_area_start);
+            assert(log_info.log_area_len == rm.all_log_constants[which_log as int].log_area_end
+                - rm.all_log_constants[which_log as int].log_area_start);
             assert(log_info.durable_head == durable.head);
             assert(log_info.durable_log_length == durable.log.len());
-            assert(log_info.durable_head_addr == log_info.log_area_start + (durable.head % (log_info.log_area_len as int)));
+            assert(log_info.durable_head_addr == log_info.log_area_start + (durable.head % (
+            log_info.log_area_len as int)));
             assert(log_info.tentative_head == durable.head);
             assert(log_info.tentative_log_length == durable.log.len());
-            assert(log_info.tentative_head_addr == log_info.log_area_start + (durable.head % (log_info.log_area_len as int)));
+            assert(log_info.tentative_head_addr == log_info.log_area_start + (durable.head % (
+            log_info.log_area_len as int)));
 
             log_infos.push(log_info);
             which_log = which_log + 1;
         }
 
-        let ghost mv = MultilogView{
-            c: rm@.c,
-            durable: rm@.state,
-            tentative: rm@.state,
-        };
-        let result = Self{
+        let ghost mv = MultilogView { c: rm@.c, durable: rm@.state, tentative: rm@.state };
+        let result = Self {
             status: Ghost(MultilogStatus::Quiescent),
             vm: Ghost(vm),
             sm,
@@ -229,17 +276,17 @@ impl UntrustedMultilogImpl
             mv: Ghost(mv),
         };
 
-        assert forall|i: int| #![trigger result.log_infos@[i]]
-            0 <= i < result.sm.num_logs && !result.logs_modified@.contains(i as usize) implies  {
-                let info = result.log_infos@[i];
-                &&& info.durable_head == info.tentative_head
-                &&& info.durable_head_addr == info.tentative_head_addr
-                &&& info.durable_log_length == info.tentative_log_length
-            } by {
-        }
+        assert forall|i: int|
+            #![trigger result.log_infos@[i]]
+            0 <= i < result.sm.num_logs && !result.logs_modified@.contains(i as usize) implies {
+            let info = result.log_infos@[i];
+            &&& info.durable_head == info.tentative_head
+            &&& info.durable_head_addr == info.tentative_head_addr
+            &&& info.durable_log_length == info.tentative_log_length
+        } by {}
 
         Ok(result)
     }
 }
 
-}
+} // verus!
