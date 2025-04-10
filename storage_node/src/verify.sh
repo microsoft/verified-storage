@@ -4,8 +4,8 @@
 cd ../../deps_hack
 echo "Building deps_hack"
 cargo build
-cd ../pmsafe
-echo "Building pmsafe"
+cd ../pmcopy
+echo "Building pmcopy"
 cargo build
 cd ../storage_node/src
 echo "Verifying"

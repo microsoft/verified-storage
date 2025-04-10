@@ -59,13 +59,13 @@ fn generate_impls_for_named_struct(
     types: &Vec<syn::Type>, 
     names: &Vec<syn::Ident>
 ) -> proc_macro2::TokenStream {
-    let pmsafe = check_pmsafe(&name, &types);
-    match pmsafe {
-        Ok(pmsafe) => {
+    let pmcopy = check_pmcopy(&name, &types);
+    match pmcopy {
+        Ok(pmcopy) => {
             let pmsized = generate_pmsized_for_structs(name, &types);
             let cloneproof = generate_clone_proof_for_named_structs(name, &names);
             let gen = quote!{
-                #pmsafe
+                #pmcopy
 
                 #pmsized
 
@@ -83,13 +83,13 @@ fn generate_impls_for_unnamed_struct(
     name: &syn::Ident,
     types: &Vec<syn::Type>,
 ) -> proc_macro2::TokenStream {
-    let pmsafe = check_pmsafe(&name, &types);
-    match pmsafe {
-        Ok(pmsafe) => {
+    let pmcopy = check_pmcopy(&name, &types);
+    match pmcopy {
+        Ok(pmcopy) => {
             let pmsized = generate_pmsized_for_structs(name, &types);
             let cloneproof = generate_clone_proof_for_unnamed_structs(name, &types);
             let gen = quote!{
-                #pmsafe
+                #pmcopy
 
                 #pmsized
 
@@ -402,12 +402,12 @@ fn generate_impls_for_enum_with_fields(
             }
         }
     }
-    let pmsafe = check_pmsafe(&name, &types);
-    match pmsafe {
-        Ok(pmsafe) => {
+    let pmcopy = check_pmcopy(&name, &types);
+    match pmcopy {
+        Ok(pmcopy) => {
             let pmsized = generate_pmsized_for_enums_with_fields(name, variants, fields);
             let gen = quote! {
-                #pmsafe
+                #pmcopy
 
                 #pmsized
 
@@ -427,13 +427,13 @@ fn generate_impls_for_union(
 ) -> proc_macro2::TokenStream {
     // Like structs, unions are only PmSafe if all of their fields
     // are PmSafe.
-    let pmsafe = check_pmsafe(&name, &types);
-    match pmsafe {
-        Ok(pmsafe) => {
+    let pmcopy = check_pmcopy(&name, &types);
+    match pmcopy {
+        Ok(pmcopy) => {
             let pmsized = generate_pmsized_for_unions(name, types);
             let cloneproof = generate_clone_and_eq_proofs_for_union(name, names);
             let gen = quote! {
-                #pmsafe 
+                #pmcopy 
 
                 #pmsized 
 
@@ -470,7 +470,7 @@ fn generate_impls_for_union(
 // These trait bounds are easily checkable by the compiler. Compilation will
 // fail if we attempt to derive PmSafe on a struct with a field of type, e.g., 
 // *const u8, as the bound `const *u8: PmSafe` is not met.
-pub fn check_pmsafe(name: &syn::Ident, types: &Vec<syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
+pub fn check_pmcopy(name: &syn::Ident, types: &Vec<syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
     let gen = quote! {
         unsafe impl PmSafe for #name 
             where 

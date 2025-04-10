@@ -41,7 +41,7 @@ pub exec fn generate_fresh_id() -> (out: u128)
 }
 
 // TODO @hayley
-// - move PmCopy and related trait defs in to pmsafe crate
+// - move PmCopy and related trait defs in to pmcopy crate
 
 // These definitions test PmCopy-generated static assertions for various different types
 #[repr(C)]

@@ -2,10 +2,10 @@
 #![allow(non_upper_case_globals)]
 
 use crate::{Key, Value, TestKey, TestValue, KEY_LEN, VALUE_LEN, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
-use storage_node::kv2::spec_t::*;
-use pmsafe::PmCopy;
+// use storage_node::pmem::pmcopy_t::*;
+// use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, pmcopy};
+// use storage_node::kv2::spec_t::*;
+// use pmcopy::PmCopy;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;

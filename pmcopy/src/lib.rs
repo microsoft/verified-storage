@@ -5,14 +5,14 @@
 //!   about cloning PmCopy objects. 
 //! - pmcopy_primitive, a function-like macro that generates PmCopy-related
 //!   code for primitive types (since PmCopy cannot be derived for these types)
-//! The macros themselves are documented in pmsafe_macros.rs.
+//! The macros themselves are documented in pmcopy_macros.rs.
 
 extern crate proc_macro;
 use proc_macro::TokenStream;
 
-use crate::pmsafe_macros::*;
+use crate::pmcopy_macros::*;
 
-mod pmsafe_macros;
+mod pmcopy_macros;
 
 #[proc_macro_derive(PmCopy)]
 pub fn pmcopy(input: TokenStream) -> TokenStream {

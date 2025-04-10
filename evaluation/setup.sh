@@ -93,7 +93,7 @@ printf "${BOLD}${MAGENTA}Done installing cargo dependencies!${NC}\n\n\n"
 # 5. Confirm that verified-storage crates build successfully
 step; printf "${BOLD}${MAGENTA}Building verified-storage crates...${NC}\n"
 cd $VERIF_STORAGE_DIR/deps_hack; cargo build --release
-cd $VERIF_STORAGE_DIR/pmsafe; cargo build --release
+cd $VERIF_STORAGE_DIR/pmcopy; cargo build --release
 cd $VERIF_STORAGE_DIR/storage_node/src; cargo build --release
 printf "${BOLD}${MAGENTA}Done building verified-storage crates!${NC}\n\n\n"
 

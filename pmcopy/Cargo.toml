@@ -1,5 +1,5 @@
 [package]
-name = "pmsafe"
+name = "pmcopy"
 version = "0.1.0"
 edition = "2021"
 

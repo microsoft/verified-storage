@@ -14,9 +14,9 @@ To verify, build, and run the code, follow the following steps.
 
 1. Install [Verus](https://github.com/verus-lang/verus) if you don't already have it.
 
-2. Build the `pmsafe` crate if you haven't yet done so, with:
+2. Build the `pmcopy` crate if you haven't yet done so, with:
 ```
-cd pmsafe
+cd pmcopy
 cargo build
 ```
 
@@ -36,7 +36,7 @@ cd storage_node
 verus --crate-type=lib --compile -L dependency=../deps_hack/target/debug/deps --extern=deps_hack=../deps_hack/target/debug/libdeps_hack.rlib src/lib.rs
 ```
 Alternatively, set the `VERUS_PATH` variable in `verify.sh` to point to your local Verus installation, and run `./verify.sh`. 
-This script also builds `pmsafe` and `deps_hack`.
+This script also builds `pmcopy` and `deps_hack`.
 The `--compile` flag is necessary to perform some non-Verus compile time checks that are part of the verification process. 
 Specifically, compile-time assertions, which help check that we use the correct size for structures in proofs, are run by the Rust compiler, not by Verus.
 

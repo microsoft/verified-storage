@@ -1,6 +1,6 @@
 //! This file contains the trusted specification of several traits that 
 //! help us prove that reading from PM is safe. Some of the traits in this 
-//! file correspond to macros defined in the `pmsafe` crate in this repository.
+//! file correspond to macros defined in the `pmcopy` crate in this repository.
 //! It is also related to some external traits defined and specified 
 //! in pmem/traits_t.rs.
 //! 
@@ -401,7 +401,7 @@ verus! {
     // PmSized, which provides methods for calculating the size 
     // of a user-defined structure that needs to be stored on PM. 
     // PmSized can only be derived via a trusted macro (defined in the
-    // pmsafe crate) and uses compile-time assertions to check that
+    // pmcopy crate) and uses compile-time assertions to check that
     // the calculated size is the same as the true size. This helps
     // us check that we are using the correct size for PM-resident
     // structures in ghost code, where their size is not usually
@@ -420,7 +420,7 @@ verus! {
     // User-defined structures that derive PmSized have their 
     // size calculated based on the size and alignment of the
     // struct's fields. The size and alignment of safe primitives
-    // are hardcoded in pmsafe/pmsafe_macros.rs and implementations
+    // are hardcoded in pmcopy/pmcopy_macros.rs and implementations
     // for primitive types based on these values are generated
     // by the pmcopy_primitive! macro. The macro also generates
     // compile-time assertions to check that the hardcoded sizes

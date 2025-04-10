@@ -2,7 +2,7 @@
 //! and PmSafe that are used to prove that accesses to PM
 //! are safe. Aside from the hardcoded unsafe implementations
 //! in this file, these traits should *ONLY* be implemented
-//! via derive macros, which are defined in the pmsafe crate.
+//! via derive macros, which are defined in the pmcopy crate.
 //! 
 //! Both reading and writing to PM are potentially dangerous
 //! operations. It is not crash-safe to write a structure with

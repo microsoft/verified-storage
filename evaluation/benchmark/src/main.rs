@@ -16,8 +16,8 @@ include!("./bindings.rs");
 // use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::kv2::spec_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
-use pmsafe::PmCopy;
+use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, pmcopy};
+use pmcopy::PmCopy;
 use std::time::Duration;
 use std::thread::sleep;
 

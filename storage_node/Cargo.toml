@@ -10,7 +10,7 @@ builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 deps_hack = { path = "../deps_hack" }
-pmsafe = { path = "../pmsafe" }
+pmcopy = { path = "../pmcopy" }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }

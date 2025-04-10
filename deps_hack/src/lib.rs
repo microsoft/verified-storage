@@ -29,7 +29,7 @@ pub use winapi::um::winnt::{
 #[cfg(target_family = "unix")]
 pub use memmap;
 
-pub use pmsafe::{PmCopy, pmcopy_primitive};
+pub use pmcopy::{PmCopy, pmcopy_primitive};
 
 #[cfg(target_os = "linux")]
 pub mod pmem;
