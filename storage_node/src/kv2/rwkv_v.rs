@@ -379,7 +379,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -426,7 +427,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -472,7 +474,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -519,7 +522,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -567,7 +571,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -615,7 +620,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -668,7 +674,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -715,7 +722,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
@@ -763,7 +771,8 @@ where
                    ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
                    Ok(())
                 ));
-                kv_internal.kv.commit::<Perm>(Tracked(perm))
+                let _ = kv_internal.kv.commit::<Perm>(Tracked(perm));
+                Ok(())
             },
         };
         let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);

@@ -33,6 +33,8 @@ pub struct TrustedKvPermission
 
 impl CheckPermission<Seq<u8>> for TrustedKvPermission
 {
+    type Completion = ();
+
     closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
     {
         (self.is_transition_allowable)(s1, s2)
@@ -43,9 +45,15 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
         self.powerpm_id
     }
 
-    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>)
+    closed spec fn completed(&self, c: Self::Completion) -> bool
+    {
+        true
+    }
+
+    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>) -> (tracked result: Self::Completion)
     {
         admit();
+        ()
     }
 }
 
@@ -395,17 +403,23 @@ where
                 Err(_) => false,
             },
     {
-        let ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool = |s1: Seq<u8>, s2: Seq<u8>| {
+        let ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool = |s1: Seq<u8>, s2: Seq<u8>| ({
             &&& UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
                 Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
             &&& UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s2) ==
-               Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative })
-        };
+                Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative })
+        } || {
+            &&& UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s1) ==
+                Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+            &&& UntrustedKvStoreImpl::<TrustedKvPermissionFactory, PM, K, I, L>::recover(s2) ==
+                Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+        });
         let tracked perm = TrustedKvPermission{
             is_transition_allowable,
             powerpm_id: self.powerpm_id@
         };
-        self.untrusted_kv_impl.commit::<TrustedKvPermission>(Tracked(perm))
+        self.untrusted_kv_impl.commit::<TrustedKvPermission>(Tracked(perm))?;
+        Ok(())
     }
 
     pub exec fn get_keys(&self) -> (result: Result<Vec<K>, KvError>)

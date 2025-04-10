@@ -204,6 +204,8 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         PM: PersistentMemoryRegion,
         A: PoWERApplication<PM>,
 {
+    type Completion = ();
+
     closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
         self.inv.constant().app.valid(s2)
     }
@@ -212,10 +214,15 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         self.inv.constant().id
     }
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>) {
+    closed spec fn completed(&self, c: Self::Completion) -> bool {
+        true
+    }
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>) -> (tracked result: Self::Completion) {
         open_atomic_invariant_in_proof!(credit => &self.inv => inner => {
             r.update(&mut inner.r, new_state);
         });
+        ()
     }
 }
 

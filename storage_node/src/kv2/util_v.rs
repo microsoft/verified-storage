@@ -101,15 +101,21 @@ where
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
-            forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] perm.check_permission(s1, s2) <== {
+            forall|s1: Seq<u8>, s2: Seq<u8>| #[trigger] perm.check_permission(s1, s2) <== ({
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative })
-            },
+            } || {
+                &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+                &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+            }),
         ensures
-            forall|s1: Seq<u8>, s2: Seq<u8>| {
+            forall|s1: Seq<u8>, s2: Seq<u8>| ({
                 &&& Journal::<PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
                 &&& Journal::<PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state)
-            } ==> #[trigger] perm.check_permission(s1, s2),
+            } || {
+                &&& Journal::<PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
+                &&& Journal::<PM>::recovery_equivalent_for_app(s2, self.journal@.durable_state)
+            }) ==> #[trigger] perm.check_permission(s1, s2),
     {
         self.journal.lemma_recover_from_commit_idempotent();
 
@@ -118,40 +124,74 @@ where
         let sm = self.sm@;
         let keys = self.keys@.tentative.unwrap();
 
-        assert forall|s1: Seq<u8>, s2: Seq<u8>| {
+        assert forall|s1: Seq<u8>, s2: Seq<u8>| ({
                 &&& Journal::<PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
                 &&& Journal::<PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state)
-            } implies #[trigger] perm.check_permission(s1, s2) by {
+            } || {
+                &&& Journal::<PM>::recovery_equivalent_for_app(s1, self.journal@.durable_state)
+                &&& Journal::<PM>::recovery_equivalent_for_app(s2, self.journal@.durable_state)
+            }) implies #[trigger] perm.check_permission(s1, s2) by {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             let js1 = Journal::<PM>::recover(s1).unwrap().state;
             let js2 = Journal::<PM>::recover(s2).unwrap().state;
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js1, jc);
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state,
-                                                                              self.journal@.commit_state, jc);
-            lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.commit_state, js2, jc);
-            self.keys.lemma_valid_implications(self.journal@);
-            self.items.lemma_valid_implications(self.journal@);
-            self.lists.lemma_valid_implications(self.journal@);
-            KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
-                self.journal@.durable_state, js1, sm.keys
-            );
-            KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
-                self.journal@.commit_state, js2, sm.keys
-            );
-            ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
-                self.journal@.durable_state, js1, self.items@.durable.m.dom(), sm.items
-            );
-            ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
-                self.journal@.commit_state, js2, keys.item_addrs(), sm.items
-            );
-            ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
-                self.journal@.durable_state, js1, self.lists@.durable.m.dom(), sm.lists
-            );
-            ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
-                self.journal@.commit_state, js2, keys.list_addrs(), sm.lists
-            );
-            assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
-            assert(Self::recover(s2) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative }));
+
+            if Journal::<PM>::recovery_equivalent_for_app(s2, self.journal@.commit_state) {
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js1, jc);
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state,
+                                                                                  self.journal@.commit_state, jc);
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.commit_state, js2, jc);
+                self.keys.lemma_valid_implications(self.journal@);
+                self.items.lemma_valid_implications(self.journal@);
+                self.lists.lemma_valid_implications(self.journal@);
+                KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js1, sm.keys
+                );
+                KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.commit_state, js2, sm.keys
+                );
+                ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js1, self.items@.durable.m.dom(), sm.items
+                );
+                ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.commit_state, js2, keys.item_addrs(), sm.items
+                );
+                ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js1, self.lists@.durable.m.dom(), sm.lists
+                );
+                ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.commit_state, js2, keys.list_addrs(), sm.lists
+                );
+                assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
+                assert(Self::recover(s2) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.tentative }));
+            } else {
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js1, jc);
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state,
+                                                                                  self.journal@.durable_state, jc);
+                lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js2, jc);
+                self.keys.lemma_valid_implications(self.journal@);
+                self.items.lemma_valid_implications(self.journal@);
+                self.lists.lemma_valid_implications(self.journal@);
+                KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js1, sm.keys
+                );
+                KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js2, sm.keys
+                );
+                ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js1, self.items@.durable.m.dom(), sm.items
+                );
+                ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js2, self.items@.durable.m.dom(), sm.items
+                );
+                ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js1, self.lists@.durable.m.dom(), sm.lists
+                );
+                ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
+                    self.journal@.durable_state, js2, self.lists@.durable.m.dom(), sm.lists
+                );
+                assert(Self::recover(s1) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
+                assert(Self::recover(s2) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
+            }
         }
     }
 

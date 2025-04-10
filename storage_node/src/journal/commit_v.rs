@@ -326,16 +326,14 @@ where
     }
 
     #[inline]
-    exec fn mark_journal_committed<PermFactory, Perm>(
+    exec fn mark_journal_committed<Perm>(
         &mut self,
         Ghost(original_durable_state): Ghost<Seq<u8>>,
         Ghost(original_read_state): Ghost<Seq<u8>>,
         Ghost(original_commit_state): Ghost<Seq<u8>>,
-        Tracked(perm_factory): Tracked<&PermFactory>,
         Tracked(perm): Tracked<Perm>,
-    )
+    ) -> (result: Tracked<Perm::Completion>)
         where
-            PermFactory: PermissionFactory<Seq<u8>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).inv(),
@@ -355,13 +353,15 @@ where
             recover_journal_entries(old(self).powerpm@.read_state, old(self).sm, old(self).journal_length) ==
                 Some(old(self).entries@),
             perm.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| {
-                &&& spec_recovery_equivalent_for_app(s1, original_durable_state)
-                &&& spec_recovery_equivalent_for_app(s2, original_commit_state)
-            } ==> #[trigger] perm.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| ({
+                    &&& spec_recovery_equivalent_for_app(s1, original_durable_state)
+                    &&& spec_recovery_equivalent_for_app(s2, original_commit_state)
+                } || {
+                    &&& spec_recovery_equivalent_for_app(s1, original_durable_state)
+                    &&& spec_recovery_equivalent_for_app(s2, original_durable_state)
+                })
+                ==> #[trigger] perm.check_permission(s1, s2),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
-            perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
             self.inv(),
             self.powerpm.constants() == old(self).powerpm.constants(),
@@ -385,6 +385,7 @@ where
                 &&& seqs_match_in_range(j.state, original_commit_state, self.sm.app_area_start as int,
                                       self.sm.app_area_end as int)
             }),
+            perm.completed(result@),
     {
         broadcast use group_update_bytes_effect;
         broadcast use pmcopy_axioms;
@@ -406,12 +407,10 @@ where
                                                                      self.sm, self.entries@);
         }
 
-        let tracked unchanged_perm = perm_factory.grant_permission();
-        let tracked combined_perm = CombinedPermission::new(unchanged_perm, perm);
         assert forall |s| #[trigger] can_result_from_partial_write(s, self.powerpm@.durable_state,
                                                               self.sm.committed_cdb_start as int,
                                                               cdb.spec_to_bytes())
-            implies combined_perm.check_permission(self.powerpm@.durable_state, s) by {
+            implies perm.check_permission(self.powerpm@.durable_state, s) by {
             assert(s == self.powerpm@.durable_state || s == desired_state) by {
                 assert(self.sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
                 lemma_only_two_crash_states_introduced_by_aligned_chunk_write(s, self.powerpm@.durable_state,
@@ -420,10 +419,11 @@ where
             }
         }
 
-        self.powerpm.serialize_and_write::<CombinedPermission<Seq<u8>, PermFactory::Perm, Perm>, u64>(self.sm.committed_cdb_start, &cdb, Tracked(combined_perm));
+        let complete = self.powerpm.serialize_and_write::<Perm, u64>(self.sm.committed_cdb_start, &cdb, Tracked(perm));
         self.powerpm.flush();
         assert(self.powerpm@.read_state == desired_state);
         self.status = Ghost(JournalStatus::Committed);
+        complete
     }
 
     #[inline]
@@ -669,17 +669,20 @@ where
         }
     }
 
-    pub exec fn commit<PermFactory, Perm>(&mut self, Tracked(perm_factory): Tracked<&PermFactory>, Tracked(perm): Tracked<Perm>)
+    pub exec fn commit<PermFactory, Perm>(&mut self, Tracked(perm_factory): Tracked<&PermFactory>, Tracked(perm): Tracked<Perm>) -> (result: Tracked<Perm::Completion>)
         where
             PermFactory: PermissionFactory<Seq<u8>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             old(self).valid(),
             perm.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| {
+            forall|s1: Seq<u8>, s2: Seq<u8>| ({
                 &&& Self::recovery_equivalent_for_app(s1, old(self)@.durable_state)
                 &&& Self::recovery_equivalent_for_app(s2, old(self)@.commit_state)
-            } ==> #[trigger] perm.check_permission(s1, s2),
+            } || {
+                &&& Self::recovery_equivalent_for_app(s1, old(self)@.durable_state)
+                &&& Self::recovery_equivalent_for_app(s2, old(self)@.durable_state)
+            }) ==> #[trigger] perm.check_permission(s1, s2),
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
         ensures
@@ -687,14 +690,16 @@ where
             self@.valid(),
             self.recover_idempotent(),
             self@.committed_from(old(self)@),
+            perm.completed(result@),
     {
         proof {
             self.lemma_commit_initial_conditions();
         }
         self.status = Ghost(JournalStatus::WritingJournal);
         self.write_journal_metadata::<PermFactory>(Tracked(perm_factory));
-        self.mark_journal_committed::<PermFactory, Perm>(Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
-                                                         Ghost(old(self)@.commit_state), Tracked(perm_factory), Tracked(perm));
+        let complete = self.mark_journal_committed::<Perm>(
+            Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
+            Ghost(old(self)@.commit_state), Tracked(perm));
         self.install_journal_entries_during_commit::<PermFactory>(Ghost(old(self)@.commit_state), Tracked(perm_factory));
         assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                    implies #[trigger] perm_factory.check_permission(s1, s2) by {
@@ -705,6 +710,7 @@ where
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
         self.entries.clear();
+        complete
     }
 }
 

@@ -25,20 +25,26 @@ where
     pub exec fn commit<Perm>(
         &mut self, 
         Tracked(perm): Tracked<Perm>
-    ) -> (result: Result<(), KvError>)
+    ) -> (result: Result<Tracked<Perm::Completion>, KvError>)
         where
             Perm: CheckPermission<Seq<u8>>,
         requires 
             old(self).valid(),
             perm.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| {
+            forall|s1: Seq<u8>, s2: Seq<u8>| ({
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.tentative })
-            } ==> #[trigger] perm.check_permission(s1, s2),
+            } || {
+                &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
+                &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
+            }) ==> #[trigger] perm.check_permission(s1, s2),
         ensures 
             self.valid(),
             match result {
-                Ok(()) => self@ == old(self)@.commit(),
+                Ok(complete) => {
+                    &&& self@ == old(self)@.commit()
+                    &&& perm.completed(complete@)
+                },
                 Err(_) => false,
             }
     {
@@ -49,7 +55,7 @@ where
             self.lemma_establish_recovery_equivalent_for_app_on_commit(perm);
         }
 
-        self.journal.commit::<PermFactory, Perm>(Tracked(self.perm_factory.borrow()), Tracked(perm));
+        let complete = self.journal.commit::<PermFactory, Perm>(Tracked(self.perm_factory.borrow()), Tracked(perm));
 
         proof {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
@@ -70,7 +76,7 @@ where
             self.lemma_used_slots_correspond();
         }
 
-        Ok(())
+        Ok(complete)
     }
 }
 

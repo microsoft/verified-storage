@@ -54,6 +54,8 @@ impl<State, SimplePerm> CheckPermission<State> for SimplePermissionAdapter<State
     where
         SimplePerm: SimpleCheckPermission<State>
 {
+    type Completion = ();
+
     closed spec fn check_permission(&self, s1: State, s2: State) -> bool {
         self.perm.check_permission(s2)
     }
@@ -62,8 +64,13 @@ impl<State, SimplePerm> CheckPermission<State> for SimplePermissionAdapter<State
         self.perm.id()
     }
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) {
-        self.perm.apply(credit, r, new_state)
+    closed spec fn completed(&self, c: Self::Completion) -> bool {
+        true
+    }
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) -> (tracked result: Self::Completion) {
+        self.perm.apply(credit, r, new_state);
+        ()
     }
 }
 
@@ -126,6 +133,8 @@ impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, P
         PermA: CheckPermission<State>,
         PermB: CheckPermission<State>,
 {
+    type Completion = ();
+
     closed spec fn check_permission(&self, s1: State, s2: State) -> bool {
         self.a.check_permission(s1, s2) || self.b.check_permission(s1, s2)
     }
@@ -134,13 +143,18 @@ impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, P
         self.a.id()
     }
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) {
+    closed spec fn completed(&self, c: Self::Completion) -> bool {
+        true
+    }
+
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) -> (tracked result: Self::Completion) {
         use_type_invariant(&self);
         if self.a.check_permission(r@, new_state) {
-            self.a.apply(credit, r, new_state)
+            self.a.apply(credit, r, new_state);
         } else {
-            self.b.apply(credit, r, new_state)
+            self.b.apply(credit, r, new_state);
         }
+        ()
     }
 }
 
@@ -237,7 +251,7 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
     // must prove that for every state this memory can crash and
     // recover into, the permission authorizes that state.
     #[allow(unused_variables)]
-    pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>)
+    pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], perm: Tracked<Perm>) -> (result: Tracked<Perm::Completion>)
         where
             Perm: CheckPermission<Seq<u8>>,
         requires
@@ -252,8 +266,9 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             self.constants() == old(self).constants(),
             self.id() == old(self).id(),
             self@.can_result_from_write(old(self)@, addr as int, bytes@),
+            perm@.completed(result@),
     {
-        self.pm_region.write(addr, bytes, perm);
+        self.pm_region.write(addr, bytes, perm)
     }
 
     // This executable function performs a write that serializes an
@@ -262,7 +277,7 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
     // for every state this memory can crash and recover into, the
     // permission authorizes that state.
     #[allow(unused_variables)]
-    pub exec fn serialize_and_write<Perm, S>(&mut self, addr: u64, to_write: &S, perm: Tracked<Perm>)
+    pub exec fn serialize_and_write<Perm, S>(&mut self, addr: u64, to_write: &S, perm: Tracked<Perm>) -> (result: Tracked<Perm::Completion>)
         where
             Perm: CheckPermission<Seq<u8>>,
             S: PmCopy + Sized
@@ -278,8 +293,9 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             self.constants() == old(self).constants(),
             self.id() == old(self).id(),
             self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
+            perm@.completed(result@),
     {
-        self.pm_region.serialize_and_write(addr, to_write, perm);
+        self.pm_region.serialize_and_write(addr, to_write, perm)
     }
 
     // Even though the memory is write-restricted, no restrictions are

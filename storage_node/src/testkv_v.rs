@@ -731,6 +731,8 @@ pub struct TestKvPermission
 
 impl CheckPermission<Seq<u8>> for TestKvPermission
 {
+    type Completion = ();
+
     closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
     {
         (self.is_transition_allowable)(s1, s2)
@@ -741,9 +743,15 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
         self.powerpm_id
     }
 
-    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>)
+    closed spec fn completed(&self, c: Self::Completion) -> bool
+    {
+        true
+    }
+
+    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>) -> (tracked result: Self::Completion)
     {
         admit();
+        ()
     }
 }
 
@@ -836,13 +844,16 @@ where
                                TestItem, TestListElement>::recover(s1) matches Some(old_rkv)
         &&& ConcurrentKvStore::<TestKvPermissionFactory, FileBackedPersistentMemoryRegion, TestKey,
                                TestItem, TestListElement>::recover(s2) matches Some(new_rkv)
-        &&& exists|result| {
-               #[trigger] op.result_valid(
-                   ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv },
-                   ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
-                   result
-               )
-         }
+        &&& {
+            ||| exists|result| {
+                    #[trigger] op.result_valid(
+                        ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv },
+                        ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
+                        result
+                    )
+                }
+            ||| old_rkv == new_rkv
+        }
     };
     let tracked perm = TestKvPermission{
         is_transition_allowable,

@@ -105,13 +105,16 @@ where
     {
         &&& Kv::recover(s1) matches Some(old_rkv)
         &&& Kv::recover(s2) matches Some(new_rkv)
-        &&& exists|result| {
-               #[trigger] op.result_valid(
-                   ConcurrentKvStoreView::<K, I, L>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv },
-                   ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
-                   result
-               )
-           }
+        &&& {
+            ||| exists|result| {
+                    #[trigger] op.result_valid(
+                        ConcurrentKvStoreView::<K, I, L>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv },
+                        ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
+                        result
+                    )
+                }
+            ||| old_rkv == new_rkv
+        }
     } ==> #[trigger] perm.check_permission(s1, s2)
 }
 

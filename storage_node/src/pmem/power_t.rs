@@ -13,16 +13,20 @@ verus! {
 
 pub trait CheckPermission<State> : Sized
 {
+    type Completion;
+
     spec fn check_permission(&self, s1: State, s2: State) -> bool;
     spec fn id(&self) -> int;
+    spec fn completed(&self, c: Self::Completion) -> bool;
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State)
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) -> (tracked complete: Self::Completion)
         requires
             self.id() == old(r).id(),
             self.check_permission(old(r)@, new_state),
         ensures
             r.id() == old(r).id(),
-            r@ == new_state
+            r@ == new_state,
+            self.completed(complete),
         opens_invariants
             any;
 }
@@ -74,7 +78,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         (pm_la, Tracked(r))
     }
 
-    pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], Tracked(perm): Tracked<Perm>)
+    pub exec fn write<Perm>(&mut self, addr: u64, bytes: &[u8], Tracked(perm): Tracked<Perm>) -> (result: Tracked<Perm::Completion>)
         where
             Perm: CheckPermission<Seq<u8>>
         requires
@@ -88,15 +92,18 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             self.id() == old(self).id(),
             self.constants() == old(self).constants(),
             self@.can_result_from_write(old(self)@, addr as int, bytes@),
+            perm.completed(result@),
     {
         self.pm.write(addr, bytes);
         let credit = create_open_invariant_credit();
+        let tracked mut complete;
         proof {
-            perm.apply(credit.get(), self.res.borrow_mut(), self.pm@.durable_state);
+            complete = perm.apply(credit.get(), self.res.borrow_mut(), self.pm@.durable_state);
         }
+        Tracked(complete)
     }
 
-    pub exec fn serialize_and_write<S, Perm>(&mut self, addr: u64, to_write: &S, Tracked(perm): Tracked<Perm>)
+    pub exec fn serialize_and_write<S, Perm>(&mut self, addr: u64, to_write: &S, Tracked(perm): Tracked<Perm>) -> (result: Tracked<Perm::Completion>)
         where
             S: PmCopy + Sized,
             Perm: CheckPermission<Seq<u8>>,
@@ -111,14 +118,17 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             self.id() == old(self).id(),
             self.constants() == old(self).constants(),
             self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
+            perm.completed(result@),
     {
         broadcast use pmcopy_axioms;
 
         self.pm.serialize_and_write(addr, to_write);
         let credit = create_open_invariant_credit();
+        let tracked mut complete;
         proof {
-            perm.apply(credit.get(), self.res.borrow_mut(), self.pm@.durable_state);
+            complete = perm.apply(credit.get(), self.res.borrow_mut(), self.pm@.durable_state);
         }
+        Tracked(complete)
     }
 
     pub exec fn flush(&mut self)
