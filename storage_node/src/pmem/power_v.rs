@@ -2,11 +2,11 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
-use crate::pmem::frac_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
+use vstd::pcm::frac::*;
 
 verus! {
 
@@ -15,14 +15,12 @@ pub trait SimpleCheckPermission<State> : Sized
     spec fn check_permission(&self, s: State) -> bool;
     spec fn id(&self) -> int;
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State)
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State)
         requires
             self.id() == old(r).id(),
-            old(r).valid(old(r).id(), 1),
             self.check_permission(new_state),
         ensures
             r.id() == old(r).id(),
-            r.valid(r.id(), 1),
             r@ == new_state
         opens_invariants
             any;
@@ -64,7 +62,7 @@ impl<State, SimplePerm> CheckPermission<State> for SimplePermissionAdapter<State
         self.perm.id()
     }
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State) {
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) {
         self.perm.apply(credit, r, new_state)
     }
 }
@@ -136,7 +134,7 @@ impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, P
         self.a.id()
     }
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<State>, new_state: State) {
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) {
         use_type_invariant(&self);
         if self.a.check_permission(r@, new_state) {
             self.a.apply(credit, r, new_state)
@@ -188,14 +186,14 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
         self.pm_region.pm.lemma_inv_implies_view_valid();
     }
 
-    pub exec fn new(pm_region: PMRegion) -> (result: (Self, Tracked<Frac<Seq<u8>>>))
+    pub exec fn new(pm_region: PMRegion) -> (result: (Self, Tracked<GhostVar<Seq<u8>>>))
         requires
             pm_region.inv(),
         ensures
             result.0.inv(),
             result.0@ == pm_region@,
             result.0.constants() == pm_region.constants(),
-            result.1@.valid(result.0.id(), 1),
+            result.1@.id() == result.0.id(),
             result.1@@ == result.0@.durable_state,
     {
         let (pm_region, Tracked(r)) = PersistentMemoryRegionAtomic::new(pm_region);

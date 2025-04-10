@@ -1,9 +1,9 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::frac_v::*;
 use crate::pmem::power_t::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
+use vstd::pcm::frac::*;
 use std::sync::Arc;
 
 verus! {
@@ -167,7 +167,7 @@ impl<PM> PoWERApplication<PM> for ExampleApp
 //   before the crash.
 
 struct DurableResource {
-    r: Frac<Seq<u8>>,
+    r: GhostVar<Seq<u8>>,
 }
 
 struct DurablePredicate<PM, A>
@@ -186,7 +186,7 @@ impl<PM, A> InvariantPredicate<DurablePredicate<PM, A>, DurableResource> for Dur
         A: PoWERApplication<PM>,
 {
     closed spec fn inv(pred: DurablePredicate<PM, A>, inner: DurableResource) -> bool {
-        &&& inner.r.valid(pred.id, 1)
+        &&& inner.r.id() == pred.id
         &&& pred.app.valid(inner.r@)
     }
 }
@@ -212,9 +212,9 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         self.inv.constant().id
     }
 
-    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>) {
+    proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>) {
         open_atomic_invariant_in_proof!(credit => &self.inv => inner => {
-            r.update_with(&mut inner.r, new_state);
+            r.update(&mut inner.r, new_state);
         });
     }
 }
@@ -323,7 +323,7 @@ exec fn main_after_crash<PM, A>(pm: PM, app: A)
     // because the resource in the invariant agrees with `pm_atomic`.
     open_atomic_invariant!(&inv => inner => {
         proof {
-            inner.r.agree(pm_atomic.res.borrow());
+            pm_atomic.res.borrow().agree(&inner.r);
         }
     });
 

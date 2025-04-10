@@ -13,11 +13,11 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::pcm::frac::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
-use crate::pmem::frac_v::*;
 use std::hash::Hash;
 use super::impl_v::*;
 use super::inv_v::*;
@@ -43,7 +43,7 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
         self.powerpm_id
     }
 
-    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>)
     {
         admit();
     }

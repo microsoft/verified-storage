@@ -25,12 +25,12 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
-use crate::pmem::frac_v::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
 use std::hash::Hash;
 use vstd::pcm::*;
 use vstd::pervasive::runtime_assert;
+use vstd::pcm::frac::*;
 
 verus! {
 
@@ -744,7 +744,7 @@ impl CheckPermission<Seq<u8>> for TestKvPermission
         self.powerpm_id
     }
 
-    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut Frac<Seq<u8>>, new_state: Seq<u8>)
+    proof fn apply(tracked self, tracked credit: vstd::invariant::OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>)
     {
         admit();
     }
