@@ -363,7 +363,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, CreateOp<K, I>, Self>,
+            CB: MutatingLinearizer<K, I, L, CreateOp<K, I>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -410,7 +410,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>, Self>,
+            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -456,7 +456,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, DeleteOp<K>, Self>,
+            CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -503,7 +503,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -551,7 +551,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -599,7 +599,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -649,7 +649,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -699,7 +699,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, TrimListOp<K>, Self>,
+            CB: MutatingLinearizer<K, I, L, TrimListOp<K>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
@@ -747,7 +747,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>, Self>,
+            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),

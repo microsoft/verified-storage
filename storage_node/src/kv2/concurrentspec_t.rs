@@ -174,7 +174,7 @@ where
     } ==> #[trigger] perm.check_permission(s1, s2)
 }
 
-pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>, Kv: CanRecover<K, I, L>> : Sized
+pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
 {
     type Completion;
 

@@ -854,10 +854,7 @@ where
     perm
 }
 
-impl<Op> MutatingLinearizer<TestKey, TestItem, TestListElement, Op,
-                            ConcurrentKvStore<TestKvPermissionFactory,
-                                              FileBackedPersistentMemoryRegion, TestKey,
-                                              TestItem, TestListElement>>
+impl<Op> MutatingLinearizer<TestKey, TestItem, TestListElement, Op>
     for TestMutatingLinearizer<Op>
 where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
