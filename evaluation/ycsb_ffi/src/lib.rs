@@ -9,8 +9,8 @@ use storage_node::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use storage_node::pmem::windows_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, pmcopy};
-use pmcopy::{PmCopy};
+use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
+use pmcopy::PmCopy;
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
