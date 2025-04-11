@@ -28,6 +28,50 @@ LD_LIBRARY_PATH=$VERIF_STORAGE_DIR/evaluation/ycsb_ffi/target/release:$VERIF_STO
 ld_lib_path="export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
 grep -qxF "${ld_lib_path}" $HOME/.bashrc || echo $ld_lib_path >> $HOME/.bashrc
 
+OS=""
+VER=""
+# some dependency installations depend on the distro
+# noble needs gcc-14
+if [ -f /etc/os-release ]; then
+    # freedesktop.org and systemd
+    . /etc/os-release
+    OS=$NAME
+    VER=$VERSION_ID
+elif [ -f /etc/lsb-release ]; then
+    # For some versions of Debian/Ubuntu without lsb_release command
+    . /etc/lsb-release
+    OS=$DISTRIB_ID
+    VER=$DISTRIB_RELEASE
+fi
+
+# echo $OS
+# echo $VER
+if [[ $OS != "Ubuntu" && $OS != "Debian" ]]; then
+    printf "${RED}${BOLD}You are using an untested distribution. This script may not work properly. Continue anyway? [y/n]: "
+    read continue
+    while [[ $continue != "y" ]]; do 
+        if [[ $continue == "n" ]]; then 
+            echo "Exiting"
+        else
+            printf "Unrecognized input. Please entry y or n: "
+        fi
+    done 
+    echo "Continuing"
+fi
+
+if [[ $VER != 22.04 && $VER != 24.04 ]]; then 
+    printf "${RED}${BOLD}You are using an untested and potentially unsupported OS version. This script may not work properly. Continue anyway? [y/n]: "
+    read continue
+    while [[ $continue != "y" ]]; do 
+        if [[ $continue == "n" ]]; then 
+            echo "Exiting"
+        else
+            printf "Unrecognized input. Please entry y or n: "
+        fi
+    done 
+    echo "Continuing"
+fi 
+
 # 1. Install apt dependencies
 # TODO: is valgrind necessary?
 step; printf "${BOLD}${MAGENTA}Installing dependencies...${NC}\n"
@@ -36,7 +80,7 @@ sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
     pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
     daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
     python3-toml numactl llvm-dev libclang-dev clang libpmem1 libpmem-dev \
-    python3-pip python3-prettytable unzip curl wget
+    python3-pip python3-prettytable unzip curl wget gcc-12 g++-12
 printf "${BOLD}${MAGENTA}Done installing dependencies!${NC}\n\n\n"
 
 # 2. Find java installation and set JAVA_HOME
@@ -144,7 +188,7 @@ fi
 path_maven="export PATH=\$PATH:${PROJECT_DIR}/maven/bin"
 grep -qxF "${path_maven}" $HOME/.bashrc || echo $path_maven >> $HOME/.bashrc
 printf "${BOLD}${MAGENTA}Done downloading Maven${NC}\n\n\n"
-source ~/.bashrc
+export PATH=$PATH:${PROJECT_DIR}/maven/bin
 
 # 9. Build YCSB FFI layer
 step; printf "${BOLD}${MAGENTA}Building YCSB FFI layer for CapybaraKV...${NC}\n"
