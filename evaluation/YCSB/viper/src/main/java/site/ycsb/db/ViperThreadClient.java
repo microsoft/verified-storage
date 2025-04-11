@@ -19,7 +19,7 @@ public class ViperThreadClient {
     static {
         // System.loadLibrary("pthread");
         // TODO: don't hardcode path
-        System.load("/mnt/local_ssd/usr/lib/x86_64-linux-gnu/libpthread.so");
+        System.load("/usr/lib/x86_64-linux-gnu/libpthread.so.0");
         System.loadLibrary("viper_wrapper");
         System.loadLibrary("benchmark");
     }
