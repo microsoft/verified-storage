@@ -2,6 +2,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::pcm::frac::*;
 
 use crate::common::subrange_v::*;
 use crate::pmem::pmemspec_t::*;
@@ -77,6 +78,21 @@ where
         }
 
         Ok(complete)
+    }
+
+    #[inline(always)]
+    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+        requires
+            self.valid(),
+            r.id() == self@.powerpm_id,
+        ensures
+            Self::recover(r@) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+    {
+        self.journal.agree(Tracked(r));
+
+        proof {
+            self.lemma_recover_to_durable_state();
+        }
     }
 }
 

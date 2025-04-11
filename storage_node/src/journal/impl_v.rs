@@ -2,6 +2,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::pcm::frac::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -74,6 +75,17 @@ where
         &&& j1.state.len() == state1.len() == state2.len()
         &&& j1.constants == j2.constants
         &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
+    }
+
+    #[inline(always)]
+    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+        requires
+            self.valid(),
+            self@.powerpm_id == r.id(),
+        ensures
+            self@.durable_state == r@,
+    {
+        self.powerpm.agree(Tracked(r));
     }
 
     pub exec fn remaining_capacity(&self) -> (result: u64)

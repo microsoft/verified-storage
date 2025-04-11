@@ -59,6 +59,19 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         self.pm.constants()
     }
 
+    #[inline(always)]
+    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+        requires
+            self.inv(),
+            self.id() == r.id(),
+        ensures
+            self@.durable_state == r@,
+    {
+        proof {
+            self.res.borrow().agree(r);
+        }
+    }
+
     pub exec fn new(pm: PM) -> (result: (Self, Tracked<GhostVar<Seq<u8>>>))
         requires
             pm.inv(),

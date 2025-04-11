@@ -96,6 +96,34 @@ where
         }
     }
 
+    pub(super) proof fn lemma_recover_to_durable_state(&self)
+        requires
+            self.valid(),
+        ensures
+            Self::recover(self.journal@.durable_state) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }),
+    {
+        let s = self.journal@.durable_state;
+        let jc = self.journal@.constants;
+        let sm = self.sm@;
+        let js = Journal::<PM>::recover(s).unwrap().state;
+
+        lemma_recover_static_metadata_depends_only_on_its_area::<K, I, L>(self.journal@.durable_state, js, jc);
+
+        self.keys.lemma_valid_implications(self.journal@);
+        self.items.lemma_valid_implications(self.journal@);
+        self.lists.lemma_valid_implications(self.journal@);
+
+        KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(
+            self.journal@.durable_state, js, sm.keys
+        );
+        ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(
+            self.journal@.durable_state, js, self.items@.durable.m.dom(), sm.items
+        );
+        ListTable::<PM, L>::lemma_recover_depends_only_on_my_area(
+            self.journal@.durable_state, js, self.lists@.durable.m.dom(), sm.lists
+        );
+    }
+
     pub(super) proof fn lemma_establish_recovery_equivalent_for_app_on_commit<Perm>(self, perm: Perm)
         where
             Perm: CheckPermission<Seq<u8>>,

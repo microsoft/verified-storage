@@ -200,6 +200,17 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
         self.pm_region.pm.lemma_inv_implies_view_valid();
     }
 
+    #[inline(always)]
+    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+        requires
+            self.inv(),
+            self.id() == r.id(),
+        ensures
+            self@.durable_state == r@,
+    {
+        self.pm_region.agree(Tracked(r));
+    }
+
     pub exec fn new(pm_region: PMRegion) -> (result: (Self, Tracked<GhostVar<Seq<u8>>>))
         requires
             pm_region.inv(),
