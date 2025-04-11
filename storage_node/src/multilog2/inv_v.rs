@@ -62,9 +62,10 @@ impl UntrustedMultilogImpl {
     }
 
     pub(super) open(super) spec fn inv_logs_unmodified(&self) -> bool {
-        forall|i: int|
+        &&& forall|i: int| 0 <= i < self.logs_modified@.len() ==> 0 <= #[trigger] self.logs_modified@[i] < self.sm.num_logs
+        &&& forall|i: int|
             #![trigger self.log_infos@[i]]
-            0 <= i < self.sm.num_logs && !self.logs_modified@.contains(i as usize) ==> {
+            0 <= i < self.sm.num_logs && !self.logs_modified@.contains(i as u64) ==> {
                 let info = self.log_infos@[i];
                 &&& info.durable_head == info.tentative_head
                 &&& info.durable_head_addr == info.tentative_head_addr

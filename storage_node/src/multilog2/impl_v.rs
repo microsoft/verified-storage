@@ -16,7 +16,7 @@ pub struct UntrustedMultilogImpl {
     pub(super) vm: Ghost<MultilogVersionMetadata>,
     pub(super) sm: MultilogStaticMetadata,
     pub(super) log_infos: Vec<LogInfo>,
-    pub(super) logs_modified: Vec<usize>,
+    pub(super) logs_modified: Vec<u64>,
     pub(super) durable_mask_cdb: bool,
     pub(super) durable_mask: u64,
     pub(super) rm: Ghost<MultilogRecoveryMapping>,
@@ -148,32 +148,6 @@ impl UntrustedMultilogImpl {
                 },
                 _ => false,
             },
-    {
-        assume(false);
-        Err(MultilogErr::NotYetImplemented)
-    }
-
-    pub exec fn commit<Perm, PMRegion>(
-        &mut self,
-        powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<(), MultilogErr>) where
-        Perm: CheckPermission<Seq<u8>>,
-        PMRegion: PersistentMemoryRegion,
-
-        requires
-            old(self).valid(&*old(powerpm_region)),
-            forall|s| #[trigger]
-                perm.check_permission(s) <==> {
-                    ||| Self::recover(s) == Some(old(self)@.recover())
-                    ||| Self::recover(s) == Some(old(self)@.commit().recover())
-                },
-        ensures
-            self.valid(powerpm_region),
-            powerpm_region.constants() == old(powerpm_region).constants(),
-            Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
-            result is Ok,
-            self@ == old(self)@.commit(),
     {
         assume(false);
         Err(MultilogErr::NotYetImplemented)

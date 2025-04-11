@@ -269,7 +269,7 @@ impl UntrustedMultilogImpl {
             vm: Ghost(vm),
             sm,
             log_infos,
-            logs_modified: Vec::<usize>::new(),
+            logs_modified: Vec::<u64>::new(),
             durable_mask_cdb: mask_cdb,
             durable_mask: mask,
             rm: Ghost(rm),
@@ -278,7 +278,7 @@ impl UntrustedMultilogImpl {
 
         assert forall|i: int|
             #![trigger result.log_infos@[i]]
-            0 <= i < result.sm.num_logs && !result.logs_modified@.contains(i as usize) implies {
+            0 <= i < result.sm.num_logs && !result.logs_modified@.contains(i as u64) implies {
             let info = result.log_infos@[i];
             &&& info.durable_head == info.tentative_head
             &&& info.durable_head_addr == info.tentative_head_addr

@@ -157,14 +157,18 @@ pub(super) open spec fn recover_single_log_dynamic_metadata_given_version(
     recover_object::<SingleLogDynamicMetadata>(s, dynamic_metadata_addr, dynamic_metadata_crc_addr)
 }
 
+pub(super) open spec fn mask_bit_set(mask: u64, which_bit: u64) -> bool
+{
+    mask & (1u64 << which_bit) != 0
+}
+
 pub(super) open spec fn recover_single_log_dynamic_metadata_given_mask(
     s: Seq<u8>,
     which_log: int,
     sm: MultilogStaticMetadata,
     mask: u64,
 ) -> Option<SingleLogDynamicMetadata> {
-    let version = (mask & (1u64 << which_log as u64)) != 0;
-    recover_single_log_dynamic_metadata_given_version(s, which_log, sm, version)
+    recover_single_log_dynamic_metadata_given_version(s, which_log, sm, mask_bit_set(mask, which_log as u64))
 }
 
 pub(super) open spec fn recover_mask_cdb(s: Seq<u8>, sm: MultilogStaticMetadata) -> Option<bool> {
