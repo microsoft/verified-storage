@@ -6,7 +6,7 @@ CXXFLAGS:=-I../viper/include -I../viper_deps/concurrentqueue -I../viper/benchmar
 	-I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux \
 	-std=c++17 -mclwb -DCXX_COMPILATION -fPIC -DNDEBUG #-flto
 LDFLAGS=-lpmem -lpmempool -lpmemobj -lbenchmark -pthread
-SHARED_FLAGS=-L../viper_deps/benchmark/build/src -L/mnt/local_ssd/usr/lib/x86_64-linux-gnu/
+SHARED_FLAGS=-L../viper_deps/benchmark/build/src -L/usr/lib/x86_64-linux-gnu/
 WORKLOADX_FLAG=-DWORKLOADX
 CPP_FILE=viper_wrapper.cpp
 OBJ_FILE=viper_wrapper.o
