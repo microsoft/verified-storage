@@ -7,10 +7,10 @@ MAGENTA="\e[35m"
 BOLD=$(tput bold)
 NC="\e[0m"
 
-# check that verus binary is on PATH and exit if not
-cmd=verus
-[[ $(type -P "$cmd") ]] && echo "$cmd is in PATH"  || 
-    { echo "$cmd is NOT in PATH" 1>&2; exit 1; }
+# # check that verus binary is on PATH and exit if not
+# cmd=verus
+# [[ $(type -P "$cmd") ]] && echo "$cmd is in PATH"  || 
+#     { echo "$cmd is NOT in PATH" 1>&2; exit 1; }
 
 # clear
 cd ../../deps_hack
