@@ -25,12 +25,25 @@ elif [ -z $PM_DEV ]; then
 #     exit
 fi
 
+# if PM_DEV ends with a slash, remove it so that mkfs works properly
+if [[ "$PM_DEV" == *"/" ]]; then 
+    ${PM_DEV::-1}
+fi  
+# add trailing slash if not present for results_dir and mount_point
+# makes them easier to deal with later
+if [[ "${RESULTS_DIR}" != *"/" ]]; then 
+    RESULTS_DIR="${RESULTS_DIR}/"
+fi
+if [[ "${MOUNT_POINT}" != *"/" ]]; then 
+    MOUNT_POINT="${MOUNT_POINT}/"
+fi
+
 for filename in configs/*; do
     if [[ $filename != *"win"* ]]; then 
         # replacements in experiment configs
-        sed -i "s!results_dir = \".*\"!results_dir = \"$RESULTS_DIR/\"!" $filename
-        sed -i "s!mount_point = \".*\"!mount_point = \"$MOUNT_POINT/\"!" $filename
-        sed -i "s!pm_device = \".*\"!pm_device = \"$PM_DEV/\"!" $filename
+        sed -i "s!results_dir = \".*\"!results_dir = \"$RESULTS_DIR\"!" $filename
+        sed -i "s!mount_point = \".*\"!mount_point = \"$MOUNT_POINT\"!" $filename
+        sed -i "s!pm_device = \".*\"!pm_device = \"$PM_DEV\"!" $filename
         if [[ ! -z $ITERS && $filename != *"mini"* ]]; then 
             sed -i "s!iterations = .*!iterations = $ITERS!" $filename
         fi

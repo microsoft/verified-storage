@@ -1,8 +1,8 @@
 [experiment_config]
 results_dir = "results/artifact-evaluation/"
 threads = 16
-mount_point = /mnt/pmem/
-pm_device = "/dev/pmem0/"
+mount_point = "/mnt/pmem/"
+pm_device = "/dev/pmem0"
 iterations = 1
 op_count = 10000
 record_count = 10000
