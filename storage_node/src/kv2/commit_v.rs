@@ -81,12 +81,16 @@ where
     }
 
     #[inline(always)]
+    #[verifier::atomic]
     pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
         requires
             self.valid(),
             r.id() == self@.powerpm_id,
         ensures
             Self::recover(r@) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
+        opens_invariants
+            none
+        no_unwind
     {
         self.journal.agree(Tracked(r));
 

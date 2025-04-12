@@ -78,12 +78,16 @@ where
     }
 
     #[inline(always)]
+    #[verifier::atomic]
     pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
         requires
             self.valid(),
             self@.powerpm_id == r.id(),
         ensures
             self@.durable_state == r@,
+        opens_invariants
+            none
+        no_unwind
     {
         self.powerpm.agree(Tracked(r));
     }

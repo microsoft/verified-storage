@@ -201,12 +201,16 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
     }
 
     #[inline(always)]
+    #[verifier::atomic]
     pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
         requires
             self.inv(),
             self.id() == r.id(),
         ensures
             self@.durable_state == r@,
+        opens_invariants
+            none
+        no_unwind
     {
         self.pm_region.agree(Tracked(r));
     }
