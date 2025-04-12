@@ -148,6 +148,14 @@ where
                 Err(KvError::OutOfSpace) => pm@.len() < Self::spec_space_needed_for_setup(*ps),
                 Err(_) => false,
             },
+            match result {
+                Ok(_) => true,
+                Err(_) => {
+                    &&& pm.inv()
+                    &&& pm.constants() == old(pm).constants()
+                    &&& pm@.len() == old(pm)@.len()
+                },
+            },
     {
         if !check_setup_parameters(ps) {
             return Err(KvError::InvalidParameter);
