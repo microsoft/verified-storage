@@ -44,9 +44,9 @@ where
 
 pub trait ReadOnlyOperation<K, I, L>: Sized
 {
-    type ExecResult;
+    type KvResult;
 
-    spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool;
+    spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool;
 }
 
 pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
@@ -57,12 +57,12 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 
     spec fn pre(self, id: int, op: Op) -> bool;
 
-    spec fn post(self, apply: Self::Completion, id: int, op: Op, result: Op::ExecResult) -> bool;
+    spec fn post(self, apply: Self::Completion, id: int, op: Op, result: Result<Op::KvResult, KvError>) -> bool;
 
     proof fn apply(
         tracked self,
         op: Op,
-        result: Op::ExecResult,
+        result: Result<Op::KvResult, KvError>,
         tracked r: &GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
     ) -> (tracked complete: Self::Completion)
         requires
@@ -76,13 +76,13 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 
 pub trait MutatingOperation<K, I, L>: Sized
 {
-    type ExecResult;
+    type KvResult;
 
     spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>,
     ) -> bool;
 }
 
@@ -126,13 +126,13 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
 
     spec fn pre(self, id: int, op: Op) -> bool;
 
-    spec fn post(self, complete: Self::Completion, id: int, op: Op, exec_result: Op::ExecResult) -> bool;
+    spec fn post(self, complete: Self::Completion, id: int, op: Op, exec_result: Result<Op::KvResult, KvError>) -> bool;
 
     proof fn apply(
         tracked self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        exec_result: Op::ExecResult,
+        exec_result: Result<Op::KvResult, KvError>,
         tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
     ) -> (tracked complete: Self::Completion)
         requires
@@ -159,9 +159,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<I, KvError>;
+    type KvResult = I;
 
-    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool
     {
         match result {
             Ok(item) => {
@@ -192,13 +192,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -239,13 +239,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -284,13 +284,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -322,9 +322,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<Vec<K>, KvError>;
+    type KvResult = Vec<K>;
 
-    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool
     {
         match result {
             Ok(keys) => {
@@ -350,9 +350,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(I, Vec<L>), KvError>;
+    type KvResult = (I, Vec<L>);
 
-    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool
     {
         match result {
             Ok((item, lst)) => {
@@ -382,9 +382,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<Vec<L>, KvError>;
+    type KvResult = Vec<L>;
 
-    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool
     {
         match result {
             Ok(lst) => {
@@ -413,9 +413,9 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<usize, KvError>;
+    type KvResult = usize;
 
-    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Self::ExecResult) -> bool
+    open spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool
     {
         match result {
             Ok(num_elements) => {
@@ -446,13 +446,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -498,13 +498,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -551,13 +551,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -605,13 +605,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -656,13 +656,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {
@@ -704,13 +704,13 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    type ExecResult = Result<(), KvError>;
+    type KvResult = ();
 
     open spec fn result_valid(
         self,
         old_ckv: ConcurrentKvStoreView<K, I, L>,
         new_ckv: ConcurrentKvStoreView<K, I, L>,
-        result: Self::ExecResult
+        result: Result<Self::KvResult, KvError>
     ) -> bool
     {
         match result {

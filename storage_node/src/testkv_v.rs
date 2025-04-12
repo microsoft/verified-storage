@@ -887,7 +887,7 @@ where
         complete: Self::Completion,
         id: int,
         op: Op,
-        exec_result: Op::ExecResult,
+        exec_result: Result<Op::KvResult, KvError>,
     ) -> bool
     {
         &&& complete.r.id() == self.r.id()
@@ -902,7 +902,7 @@ where
         tracked self,
         op: Op,
         new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
-        exec_result: Op::ExecResult,
+        exec_result: Result<Op::KvResult, KvError>,
         tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>
     ) -> (tracked complete: Self::Completion)
     {
