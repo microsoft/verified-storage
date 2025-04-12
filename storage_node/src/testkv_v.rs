@@ -6,6 +6,8 @@ use crate::common::util_v::*;
 use crate::kv2::concurrentspec_t::*;
 use crate::kv2::impl_t::KvStore;
 use crate::kv2::rwkv_v::*;
+use crate::kv2::rwkv_inv_v;
+use crate::kv2::shardkv_v::*;
 use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsPolicy, RecoveredKvStore,
                          SetupParameters};
 // use crate::log::logimpl_t::*;
@@ -1022,6 +1024,174 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     print_message("SUCCESS: Read correct value");
 
     let (read_item_result, Tracked(app_resource)) = ckv.read_item::<GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>>(
+        &key2, Tracked(app_resource)
+    );
+    match read_item_result {
+        Ok(i) => { print_message("Error: failed to fail when reading non-inserted key"); return Err(()); },
+        Err(KvError::KeyNotFound) => {},
+        Err(e) => { print_message("Error: got an unexpected error when reading non-inserted key"); return Err(()); },
+    };
+
+    print_message("All kv operations gave expected results");
+    return Ok(());
+}
+
+pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
+{
+    let kv_file_name0 = "test_concurrent_kv0";
+    let kv_file_name1 = "test_concurrent_kv1";
+
+    let max_keys = 16;
+    let max_list_elements = 16;
+
+    // delete the test files if they already exist. Ignore the result,
+    // since it's ok if the file doesn't exist.
+    remove_file(kv_file_name0);
+    remove_file(kv_file_name1);
+
+    let kvstore_id = generate_fresh_id();
+    let ps = SetupParameters{
+        kvstore_id,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsForbidden,
+        max_keys,
+        max_list_elements,
+        max_operations_per_transaction: 4,
+    };
+
+    let region_size = match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                                            TestKey, TestItem, TestListElement>::space_needed_for_setup(&ps) {
+        Ok(s) => s,
+        Err(e) => { print_message("Failed to compute space needed for setup"); return Err(()); },
+    };
+
+    let mut pm0 = match create_pm_region(&kv_file_name0, region_size) {
+        Ok(p) => p,
+        Err(e) => { print_message("Failed to create file for kv store 0"); return Err(()); },
+    };
+
+    let mut pm1 = match create_pm_region(&kv_file_name1, region_size) {
+        Ok(p) => p,
+        Err(e) => { print_message("Failed to create file for kv store 1"); return Err(()); },
+    };
+
+    assume(pm0.constants() == pm1.constants());
+    let ghost pm_constants = pm0.constants();
+
+    assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    let ghost shard_namespace = 5;
+    let mut atomicpm0;
+    let mut atomicpm1;
+    let mut inv0;
+    let mut inv1;
+    let mut gvar0;
+    let mut gvar1;
+    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                          TestKey, TestItem, TestListElement>::setup(
+        pm0, &ps, Ghost(shard_namespace),
+    ) {
+        Ok((atomicpm, inv, gvar)) => {
+            atomicpm0 = atomicpm;
+            inv0 = inv;
+            gvar0 = gvar;
+        },
+        Err(e) => { print_message("Failed to set up KV store 0"); return Err(()); },
+    }
+    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                          TestKey, TestItem, TestListElement>::setup(
+        pm1, &ps, Ghost(shard_namespace),
+    ) {
+        Ok((atomicpm, inv, gvar)) => {
+            atomicpm1 = atomicpm;
+            inv1 = inv;
+            gvar1 = gvar;
+        },
+        Err(e) => { print_message("Failed to set up KV store 1"); return Err(()); },
+    }
+
+    let tracked mut shard_res = Map::<int, GhostVar<ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>>>::tracked_empty();
+    proof {
+        shard_res.tracked_insert(0, gvar0.get());
+        shard_res.tracked_insert(1, gvar1.get());
+    }
+
+    let ghost namespace = 6;
+    let (inv, gvar) = ShardedKvStore::<FileBackedPersistentMemoryRegion,
+                                       TestKey, TestItem, TestListElement>::setup(
+        2, Tracked(shard_res), Ghost(ps), Ghost(pm_constants), Ghost(namespace));
+
+    let mut ckv0;
+    let mut ckv1;
+    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                          TestKey, TestItem, TestListElement>::start(
+        atomicpm0, kvstore_id, inv0
+    ) {
+        Ok(ckv) => {
+            ckv0 = ckv;
+        },
+        Err(e) => { print_message("Failed to start KV store shard 0"); return Err(()); },
+    }
+
+    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                          TestKey, TestItem, TestListElement>::start(
+        atomicpm1, kvstore_id, inv1
+    ) {
+        Ok(ckv) => {
+            ckv1 = ckv;
+        },
+        Err(e) => { print_message("Failed to start KV store shard 1"); return Err(()); },
+    }
+
+    assert(ckv0.namespace() == shard_namespace);
+    assert(ckv0.id() == shard_res[0].id());
+    assert(ckv0.id() == inv@.constant().shard_ids[0]);
+    assert(ckv0.valid());
+    let skv = ShardedKvStore::<FileBackedPersistentMemoryRegion,
+                               TestKey, TestItem, TestListElement>::start(
+        vec![ckv0, ckv1], inv, Ghost(shard_namespace));
+
+    let key1 = TestKey { val: 0x33333333 };
+    let key2 = TestKey { val: 0x44444444 };
+
+    let item1 = TestItem { val: 0x55555555 };
+    let item2 = TestItem { val: 0x66666666 };
+
+    let tracked app_resource = gvar.get();
+    let ghost op = CreateOp::<TestKey, TestItem, false>{ key: key1, item: item1 };
+    let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem, false>>{
+        r: app_resource,
+        op,
+        old_ckv: None,
+        new_ckv: None,
+        powerpm_id: 0,
+    };
+
+    let (create_result, Tracked(create_linearizer)) = skv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem, false>>>(
+        &key1, &item1, Tracked(create_linearizer)
+    );
+    match create_result {
+        Ok(()) => {},
+        Err(e) => { print_message("Error when creating key 1"); return Err(()); },
+    };
+
+    let tracked app_resource = create_linearizer.r;
+
+    // read the item of the record we just created
+    let (read_item_result, Tracked(app_resource)) = skv.read_item::<GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>>(
+        &key1, Tracked(app_resource)
+    );
+    let read_item1 = match read_item_result {
+        Ok(i) => i,
+        Err(e) => { print_message("Error when reading key"); return Err(()); },
+    };
+
+    if read_item1.val != item1.val {
+        print_message("ERROR: Read incorrect value");
+        return Err(());
+    }
+
+    print_message("SUCCESS: Read correct value");
+
+    let (read_item_result, Tracked(app_resource)) = skv.read_item::<GhostVar<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>>(
         &key2, Tracked(app_resource)
     );
     match read_item_result {

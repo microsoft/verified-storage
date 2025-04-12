@@ -49,6 +49,23 @@ pub trait ReadOnlyOperation<K, I, L>: Sized
     spec fn result_valid(self, ckv: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) -> bool;
 }
 
+pub trait SingleKeyReadOnlyOperation<K, I, L>: ReadOnlyOperation<K, I, L>
+    where
+        K: std::fmt::Debug,
+        L: LogicalRange,
+{
+    spec fn key(self) -> K;
+    proof fn only_key_matters(self, ckv1: ConcurrentKvStoreView<K, I, L>, ckv2: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>)
+        requires
+            self.result_valid(ckv1, result),
+            ckv1.kv[self.key()] == ckv2.kv[self.key()],
+            ckv1.ps == ckv2.ps,
+            ckv1.pm_constants == ckv2.pm_constants,
+            ckv1.kv.logical_range_gaps_policy == ckv2.kv.logical_range_gaps_policy,
+        ensures
+            self.result_valid(ckv2, result);
+}
+
 pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 {
     type Completion;
@@ -84,6 +101,34 @@ pub trait MutatingOperation<K, I, L>: Sized
         new_ckv: ConcurrentKvStoreView<K, I, L>,
         result: Result<Self::KvResult, KvError>,
     ) -> bool;
+}
+
+pub open spec fn map_optset<K, V>(m: Map<K, V>, k: K, v: Option<V>) -> Map<K, V> {
+    match v {
+        Some(v) => m.insert(k, v),
+        None => m.remove(k),
+    }
+}
+
+pub trait SingleKeyMutatingOperation<K, I, L>: MutatingOperation<K, I, L>
+    where
+        K: std::fmt::Debug,
+        L: LogicalRange,
+{
+    spec fn key(self) -> K;
+    proof fn only_key_matters(self, old1: ConcurrentKvStoreView<K, I, L>, old2: ConcurrentKvStoreView<K, I, L>, new1: ConcurrentKvStoreView<K, I, L>, new2: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>)
+        requires
+            self.result_valid(old1, new1, result),
+            old1.kv[self.key()] == old2.kv[self.key()],
+            new2.kv.m == map_optset(old2.kv.m, self.key(), new1.kv[self.key()]),
+            old1.ps == old2.ps,
+            old1.pm_constants == old2.pm_constants,
+            old1.kv.logical_range_gaps_policy == old2.kv.logical_range_gaps_policy,
+            new1.ps == new2.ps,
+            new1.pm_constants == new2.pm_constants,
+            new1.kv.logical_range_gaps_policy == new2.kv.logical_range_gaps_policy,
+        ensures
+            self.result_valid(old2, new2, result);
 }
 
 pub trait CanRecover<K, I, L>
@@ -177,6 +222,16 @@ where
     }
 }
 
+impl<K, I, L> SingleKeyReadOnlyOperation<K, I, L> for ReadItemOp<K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(self, ckv1: ConcurrentKvStoreView<K, I, L>, ckv2: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) {}
+}
+
 pub struct CreateOp<K, I, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -220,6 +275,27 @@ where
                 &&& old_ckv.kv.create(self.key, self.item) matches Err(e_spec)
                 &&& e == e_spec
             },
+        }
+    }
+}
+
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for CreateOp<K, I, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
         }
     }
 }
@@ -271,6 +347,27 @@ where
     }
 }
 
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for UpdateItemOp<K, I, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
+        }
+    }
+}
+
 pub struct DeleteOp<K>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -308,6 +405,27 @@ where
                 &&& old_ckv.kv.delete(self.key) matches Err(e_spec)
                 &&& e == e_spec
             },
+        }
+    }
+}
+
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for DeleteOp<K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
         }
     }
 }
@@ -369,6 +487,16 @@ where
     }
 }
 
+impl<K, I, L> SingleKeyReadOnlyOperation<K, I, L> for ReadItemAndListOp<K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(self, ckv1: ConcurrentKvStoreView<K, I, L>, ckv2: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) {}
+}
+
 pub struct ReadListOp<K>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -400,6 +528,16 @@ where
     }
 }
 
+impl<K, I, L> SingleKeyReadOnlyOperation<K, I, L> for ReadListOp<K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(self, ckv1: ConcurrentKvStoreView<K, I, L>, ckv2: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) {}
+}
+
 pub struct GetListLengthOp<K>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -429,6 +567,16 @@ where
             },
         }
     }
+}
+
+impl<K, I, L> SingleKeyReadOnlyOperation<K, I, L> for GetListLengthOp<K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(self, ckv1: ConcurrentKvStoreView<K, I, L>, ckv2: ConcurrentKvStoreView<K, I, L>, result: Result<Self::KvResult, KvError>) {}
 }
 
 pub struct AppendToListOp<K, L, const STRICT_SPACE: bool>
@@ -477,6 +625,27 @@ where
                 &&& old_ckv.kv.append_to_list(self.key, self.new_list_element) matches Err(e_spec)
                 &&& e == e_spec
             },
+        }
+    }
+}
+
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for AppendToListOp<K, L, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
         }
     }
 }
@@ -535,6 +704,27 @@ where
     }
 }
 
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for AppendToListAndUpdateItemOp<K, I, L, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
+        }
+    }
+}
+
 pub struct UpdateListElementAtIndexOp<K, L, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -584,6 +774,27 @@ where
                     matches Err(e_spec)
                 &&& e == e_spec
             },
+        }
+    }
+}
+
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for UpdateListElementAtIndexOp<K, L, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
         }
     }
 }
@@ -642,6 +853,27 @@ where
     }
 }
 
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for UpdateListElementAtIndexAndItemOp<K, I, L, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
+        }
+    }
+}
+
 pub struct TrimListOp<K, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -684,6 +916,27 @@ where
                 &&& old_ckv.kv.trim_list(self.key, self.trim_length as nat) matches Err(e_spec)
                 &&& e == e_spec
             },
+        }
+    }
+}
+
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for TrimListOp<K, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
         }
     }
 }
@@ -733,6 +986,27 @@ where
                     matches Err(e_spec)
                 &&& e == e_spec
             },
+        }
+    }
+}
+
+impl<K, I, L> SingleKeyMutatingOperation<K, I, L> for TrimListAndUpdateItemOp<K, I, false>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    open spec fn key(self) -> K { self.key }
+    proof fn only_key_matters(
+        self,
+        old1: ConcurrentKvStoreView<K, I, L>,
+        old2: ConcurrentKvStoreView<K, I, L>,
+        new1: ConcurrentKvStoreView<K, I, L>,
+        new2: ConcurrentKvStoreView<K, I, L>,
+        result: Result<Self::KvResult, KvError>,
+    ) {
+        if result is Err {
+            assert(old2.kv.m == new2.kv.m);
         }
     }
 }

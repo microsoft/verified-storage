@@ -74,13 +74,15 @@ where
     rwlock_auth: GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
     caller_auth: GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
     durable_res: GhostVar<Seq<u8>>,
-    _pm: core::marker::PhantomData<PM>,
+    ghost _pm: core::marker::PhantomData<PM>,
 }
 
 pub struct ConcurrentKvStoreInvPred {
     pub rwlock_id: int,
     pub caller_id: int,
     pub durable_id: int,
+    pub pm_constants: PersistentMemoryConstants,
+    pub ps: SetupParameters,
 }
 
 #[verifier::reject_recursive_types(K)]
@@ -98,6 +100,8 @@ where
         &&& inner.caller_auth.id() == k.caller_id
         &&& inner.durable_res.id() == k.durable_id
         &&& inner.rwlock_auth@ == inner.caller_auth@
+        &&& k.pm_constants == inner.caller_auth@.pm_constants
+        &&& k.ps == inner.caller_auth@.ps
         &&& recover_journal_then_kv::<PM, K, I, L>(inner.durable_res@) ==
             Some(RecoveredKvStore::<K, I, L>{
                 ps: inner.caller_auth@.ps,
@@ -203,6 +207,7 @@ where
         requires
             pm.inv(),
         ensures
+            result.0.inv(),
             result.1@.constant().durable_id == result.0.id(),
             result.1@.constant().caller_id == id,
     {
@@ -237,9 +242,12 @@ where
         ensures
             match result {
                 Ok((atomicpm, inv, res)) => {
+                    &&& atomicpm.inv()
                     &&& atomicpm.constants() == pm.constants()
                     &&& atomicpm.id() == inv@.constant().durable_id
                     &&& inv@.namespace() == namespace
+                    &&& inv@.constant().ps == ps
+                    &&& inv@.constant().pm_constants == pm.constants()
                     &&& res@.id() == inv@.constant().caller_id
                     &&& res@@ == ConcurrentKvStoreView::<K, I, L>{
                             ps: *ps,
@@ -278,6 +286,8 @@ where
                     rwlock_id: rwlock_auth.id(),
                     caller_id: caller_auth.id(),
                     durable_id: durable_res@.id(),
+                    pm_constants: pm.constants(),
+                    ps: *ps,
                 };
                 let tracked inv_state = ConcurrentKvStoreInvState::<PM, K, I, L>{
                     rwlock_auth: rwlock_auth,
@@ -296,13 +306,11 @@ where
         atomicpm: PersistentMemoryRegionAtomic<PM>,
         kvstore_id: u128,
         Tracked(inv): Tracked<AtomicInvariant::<ConcurrentKvStoreInvPred, ConcurrentKvStoreInvState<PM, K, I, L>, ConcurrentKvStoreInvPred>>,
-        Tracked(res): Tracked<&GhostVar<ConcurrentKvStoreView::<K, I, L>>>,
     ) -> (result: Result<Self, KvError>)
         requires
             atomicpm.inv(),
             atomicpm.id() == inv.constant().durable_id,
-            res.id() == inv.constant().caller_id,
-            res@.pm_constants == atomicpm.constants(),
+            atomicpm.constants() == inv.constant().pm_constants,
             vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures
             match result {
@@ -314,13 +322,14 @@ where
                 Err(KvError::CRCMismatch) => !atomicpm.constants().impervious_to_corruption(),
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
-                   &&& actual_id == res@.ps.kvstore_id
+                   &&& actual_id == inv.constant().ps.kvstore_id
                 },
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(_) => false,
             },
     {
-        let tracked (rwlock_auth, rwlock_res) = GhostVarAuth::<ConcurrentKvStoreView::<K, I, L>>::new(res@);
+        let tracked inv_old = inv.into_inner();
+        let tracked (rwlock_auth, rwlock_res) = GhostVarAuth::<ConcurrentKvStoreView::<K, I, L>>::new(inv_old.caller_auth@);
 
         let ghost inv_pred = ConcurrentKvStoreInvPred{
             rwlock_id: rwlock_auth.id(),
@@ -330,13 +339,10 @@ where
         let ghost namespace = inv.namespace();
         let tracked inv_state = ConcurrentKvStoreInvState::<PM, K, I, L>{
             rwlock_auth: rwlock_auth,
-            .. inv.into_inner()
+            .. inv_old
         };
 
         atomicpm.agree(Tracked(&inv_state.durable_res));
-        proof {
-            inv_state.caller_auth.agree(res);
-        }
 
         let tracked inv = AtomicInvariant::<_, _, ConcurrentKvStoreInvPred>::new(inv_pred, inv_state, namespace);
         let tracked inv = Arc::new(inv);
@@ -346,8 +352,8 @@ where
         };
 
         let ghost recovered_state = RecoveredKvStore::<K, I, L>{
-            ps: res@.ps,
-            kv: res@.kv,
+            ps: inv_old.caller_auth@.ps,
+            kv: inv_old.caller_auth@.kv,
         };
 
         let powerpm = PoWERPersistentMemoryRegion::new_atomic(atomicpm);
@@ -575,8 +581,10 @@ where
             cb.pre(self.inv@.constant().caller_id, op),
             !cb.namespaces().contains(self.inv@.namespace()),
             forall |ckv_old, ckv_new, result|
-                #[trigger] op.result_valid(ckv_old, ckv_new, result) ==>
-                ckv_old.pm_constants == ckv_new.pm_constants,
+                #[trigger] op.result_valid(ckv_old, ckv_new, result) ==> {
+                    &&& ckv_old.pm_constants == ckv_new.pm_constants
+                    &&& ckv_old.ps == ckv_new.ps
+                },
             op.result_valid(old(kv_internal).invariant_resource@@,
                             ConcurrentKvStoreView::<K, I, L>{
                                 ps: old(kv_internal).kv@.ps,
@@ -896,6 +904,10 @@ impl<PM, K, I, L, Op, Lin> OpPerm<PM, K, I, L, Op, Lin>
         &&& self.rwlock_res.id() == self.inv.constant().rwlock_id
         &&& !self.lin.namespaces().contains(self.inv.namespace())
         &&& self.lin.pre(self.inv.constant().caller_id, self.op)
+        &&& forall |old_state, new_state, result| #[trigger] self.op.result_valid(old_state, new_state, result) ==> {
+            &&& old_state.ps == new_state.ps
+            &&& old_state.pm_constants == new_state.pm_constants
+        }
     }
 }
 
