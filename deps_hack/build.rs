@@ -1,11 +1,11 @@
 #[cfg(target_os = "linux")]
 extern crate bindgen;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "pmem"))]
 use std::path::PathBuf;
 
-#[cfg(target_os = "linux")]
-fn setup_linux()
+#[cfg(all(target_os = "linux", feature = "pmem"))]
+fn setup_linux_pmem()
 {
     println!("cargo:rustc-link-lib=pmem");
 
@@ -21,6 +21,6 @@ fn setup_linux()
 }
 
 fn main() {
-    #[cfg(target_os = "linux")]
-    setup_linux();
+    #[cfg(all(target_os = "linux", feature = "pmem"))]
+    setup_linux_pmem();
 }

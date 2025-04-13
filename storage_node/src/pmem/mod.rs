@@ -1,4 +1,4 @@
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "pmem"))]
 pub mod linux_pmemfile_t;
 #[cfg(target_os = "windows")]
 pub mod windows_pmemfile_t;

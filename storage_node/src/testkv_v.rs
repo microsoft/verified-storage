@@ -15,10 +15,14 @@ use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsP
 // use crate::multilog::multilogimpl_t::*;
 // use crate::multilog::multilogimpl_v::*;
 // use crate::multilog::multilogspec_t::*;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "pmem"))]
 use crate::pmem::linux_pmemfile_t::*;
+#[cfg(all(target_os = "linux", not(feature = "pmem")))]
+use crate::pmem::mmap_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
+#[cfg(target_os = "macos")]
+use crate::pmem::mmap_pmemfile_t::*;
 #[cfg(target_os = "macos")]
 use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -451,11 +455,16 @@ fn create_pm_region(file_name: &str, region_size: u64) -> (result: Result<FileBa
         region_size,
         FileCloseBehavior::TestingSoDeleteOnClose
     );
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "pmem"))]
     let mut pm_region = FileBackedPersistentMemoryRegion::new(
         &file_name,
         region_size,
         PersistentMemoryCheck::DontCheckForPersistentMemory,
+    );
+    #[cfg(all(target_os = "linux", not(feature = "pmem")))]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name,
+        region_size,
     );
     #[cfg(target_os = "macos")]
     let mut pm_region = FileBackedPersistentMemoryRegion::new(
