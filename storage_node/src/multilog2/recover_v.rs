@@ -187,18 +187,27 @@ pub(super) open spec fn recover_mask_given_cdb(
     }
 }
 
-pub open spec fn relative_log_pos_to_addr(
-    pos_relative_to_head: int,
-    head_addr: int,
+pub(super) open spec fn recover_log_given_metadata(
+    s: Seq<u8>,
     log_area_start: int,
     log_area_end: int,
-) -> int {
-    let addr_without_wrapping = head_addr + pos_relative_to_head;
-    if addr_without_wrapping >= log_area_end {
-        addr_without_wrapping - log_area_end + log_area_start
-    } else {
-        addr_without_wrapping
+    length: int,
+    head: int,
+) -> Seq<u8>
+{
+    let log_area_len = log_area_end - log_area_start;
+    let head_addr = log_area_start + (head % log_area_len);
+    if head_addr + length <= log_area_end {
+        s.subrange(head_addr, head_addr + length)
     }
+    else {
+        s.subrange(head_addr, log_area_end) + s.subrange(log_area_start, head_addr + length - log_area_len)
+    }
+}
+
+pub(super) open spec fn recover_log(s: Seq<u8>, c: SingleLogConstants, d: SingleLogDynamicMetadata) -> Seq<u8>
+{
+    recover_log_given_metadata(s, c.log_area_start as int, c.log_area_end as int, d.length as int, d.head as int)
 }
 
 pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState> {
@@ -273,23 +282,10 @@ impl MultilogRecoveryMapping {
     }
 
     pub(super) open spec fn storage_state_corresponds(self, s: Seq<u8>) -> bool {
-        forall|which_log: int, pos: int|
-            #![trigger self.state.logs[which_log].log[pos]]
-            0 <= which_log < self.sm.num_logs ==> {
-                let log_constants = self.all_log_constants[which_log];
-                let log_area_start = log_constants.log_area_start;
-                let log_area_end = log_constants.log_area_end;
-                let log_area_len = log_area_end - log_area_start;
-                let head = self.state.logs[which_log].head;
-                let head_addr = log_area_start + (head % log_area_len);
-                let log = self.state.logs[which_log].log;
-                0 <= pos < log.len() ==> log[pos] == s[relative_log_pos_to_addr(
-                    pos,
-                    head_addr,
-                    log_area_start as int,
-                    log_area_end as int,
-                )]
-            }
+        forall|which_log: int| #![trigger self.state.logs[which_log]]
+            0 <= which_log < self.sm.num_logs ==>
+                self.state.logs[which_log].log == recover_log(s, self.all_log_constants[which_log],
+                                                              self.all_log_dynamic_metadata[which_log])
     }
 
     pub(super) open spec fn valid(self) -> bool {

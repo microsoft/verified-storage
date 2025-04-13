@@ -260,7 +260,6 @@ impl UntrustedMultilogImpl {
         broadcast use lemma_row_index_to_addr_is_valid;
         broadcast use pmcopy_axioms;
 
-        let ghost old_pm_region = pm_region@.read_state;
         assert(rm.all_log_constants[0].log_area_start <= rm.all_log_constants.last().log_area_end);
         assert(sm.log_metadata_table.end <= rm.all_log_constants[which_log as int].log_area_start);
 
@@ -347,7 +346,6 @@ impl UntrustedMultilogImpl {
         broadcast use lemma_row_index_to_addr_is_valid;
         broadcast use pmcopy_axioms;
 
-        let ghost old_pm_region = pm_region@.read_state;
         assert(rm.all_log_constants[0].log_area_start <= rm.all_log_constants.last().log_area_end);
         assert(sm.log_metadata_table.end <= rm.all_log_constants[which_log as int].log_area_start);
 
@@ -546,6 +544,15 @@ impl UntrustedMultilogImpl {
             ) =~= Some(d)) by {
                 assert(0 <= which_log < 64 ==> 0u64 & (1u64 << which_log) == 0u64) by (bit_vector);
             }
+        }
+
+        assert forall |which_log: int| #![trigger rm.state.logs[which_log]]
+                   0 <= which_log < rm.sm.num_logs implies
+                   rm.state.logs.index(which_log).log ==
+                   recover_log(pm_region@.read_state, rm.all_log_constants.index(which_log),
+                               rm.all_log_dynamic_metadata.index(which_log)) by {
+            assert(recover_log(pm_region@.read_state, rm.all_log_constants.index(which_log),
+                               rm.all_log_dynamic_metadata.index(which_log)) =~= Seq::<u8>::empty());
         }
 
         proof {

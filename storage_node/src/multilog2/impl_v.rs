@@ -62,6 +62,7 @@ impl UntrustedMultilogImpl {
 
         requires
             old(self).valid(&*old(powerpm_region)),
+            perm.valid(old(powerpm_region).id()),
             forall|s| #[trigger]
                 perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
         ensures
@@ -111,6 +112,7 @@ impl UntrustedMultilogImpl {
 
         requires
             old(self).valid(&*old(powerpm_region)),
+            perm.valid(old(powerpm_region).id()),
             forall|s| #[trigger]
                 perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
         ensures

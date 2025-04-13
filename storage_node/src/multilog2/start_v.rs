@@ -163,17 +163,10 @@ impl UntrustedMultilogImpl {
                     0 <= i < which_log ==> {
                         let info = log_infos@[i];
                         let durable = state.state.logs[i];
+                        &&& Self::inv_durable_metadata(info, durable)
+                        &&& Self::inv_tentative_metadata(info, durable)
                         &&& info.log_area_start == rm.all_log_constants[i].log_area_start
                         &&& info.log_area_len == rm.all_log_constants[i].log_area_end
-                            - rm.all_log_constants[i].log_area_start
-                        &&& info.durable_head == durable.head
-                        &&& info.durable_log_length == durable.log.len()
-                        &&& info.durable_head_addr == info.log_area_start + (durable.head % (
-                        info.log_area_len as int))
-                        &&& info.tentative_head == durable.head
-                        &&& info.tentative_log_length == durable.log.len()
-                        &&& info.tentative_head_addr == info.log_area_start + (durable.head % (
-                        info.log_area_len as int))
                     },
                 rm.corresponds(pm_region@.durable_state),
                 rm.vm == vm,
@@ -236,6 +229,7 @@ impl UntrustedMultilogImpl {
             assert(head_addr == c.log_area_start as int + (d.head as int % log_area_len as int));
             let log_info = LogInfo {
                 log_area_start: c.log_area_start,
+                log_area_end: c.log_area_end,
                 log_area_len,
                 durable_head: d.head,
                 durable_head_addr: head_addr,
