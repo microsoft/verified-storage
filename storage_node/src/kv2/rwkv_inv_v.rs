@@ -646,14 +646,14 @@ where
         }
     }
 
-    pub exec fn create<CB>(
+    pub exec fn create<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, CreateOp<K, I>>,
+            CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
@@ -662,21 +662,21 @@ where
             cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
+        let ghost op = CreateOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
         let result = kv_internal.kv.tentatively_create(key, item);
-        let result = self.maybe_commit::<CreateOp<K, I>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<CreateOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
 
-    pub exec fn update_item<CB>(
+    pub exec fn update_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         item: &I,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>>,
+            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
@@ -685,9 +685,9 @@ where
             cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
+        let ghost op = UpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
         let result = kv_internal.kv.tentatively_update_item(key, item);
-        let result = self.maybe_commit::<UpdateItemOp<K, I>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<UpdateItemOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
@@ -714,14 +714,14 @@ where
         result
     }
 
-    pub exec fn append_to_list<CB>(
+    pub exec fn append_to_list<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         new_list_element: L,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>>,
+            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
@@ -730,14 +730,14 @@ where
             cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = AppendToListOp::<K, L>{ key: *key, new_list_element };
+        let ghost op = AppendToListOp::<K, L, STRICT_SPACE>{ key: *key, new_list_element };
         let result = kv_internal.kv.tentatively_append_to_list(key, new_list_element);
-        let result = self.maybe_commit::<AppendToListOp::<K, L>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<AppendToListOp::<K, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
 
-    pub exec fn append_to_list_and_update_item<CB>(
+    pub exec fn append_to_list_and_update_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         new_list_element: L,
@@ -745,7 +745,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>>,
+            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
@@ -754,14 +754,14 @@ where
             cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
+        let ghost op = AppendToListAndUpdateItemOp::<K, I, L, STRICT_SPACE>{ key: *key, new_list_element, new_item: *new_item };
         let result = kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item);
-        let result = self.maybe_commit::<AppendToListAndUpdateItemOp<K, I, L>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
 
-    pub exec fn update_list_element_at_index<CB>(
+    pub exec fn update_list_element_at_index<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         idx: usize,
@@ -769,7 +769,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
@@ -778,14 +778,14 @@ where
             cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
+        let ghost op = UpdateListElementAtIndexOp::<K, L, STRICT_SPACE>{ key: *key, idx, new_list_element };
         let result = kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element);
-        let result = self.maybe_commit::<UpdateListElementAtIndexOp<K, L>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<UpdateListElementAtIndexOp<K, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
 
-    pub exec fn update_list_element_at_index_and_item<CB>(
+    pub exec fn update_list_element_at_index_and_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         idx: usize,
@@ -794,7 +794,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
@@ -803,24 +803,24 @@ where
             cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L>{ key: *key, idx, new_list_element,
+        let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L, STRICT_SPACE>{ key: *key, idx, new_list_element,
                                                                      new_item: *new_item };
         let result = kv_internal.kv.tentatively_update_list_element_at_index_and_item(
             key, idx, new_list_element, new_item
         );
-        let result = self.maybe_commit::<UpdateListElementAtIndexAndItemOp<K, I, L>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
 
-    pub exec fn trim_list<CB>(
+    pub exec fn trim_list<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         trim_length: usize,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, TrimListOp<K>>,
+            CB: MutatingLinearizer<K, I, L, TrimListOp<K, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), TrimListOp{ key : *key, trim_length }),
@@ -829,14 +829,14 @@ where
             cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = TrimListOp::<K>{ key: *key, trim_length };
+        let ghost op = TrimListOp::<K, STRICT_SPACE>{ key: *key, trim_length };
         let result = kv_internal.kv.tentatively_trim_list(key, trim_length);
-        let result = self.maybe_commit::<TrimListOp<K>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<TrimListOp<K, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }
 
-    pub exec fn trim_list_and_update_item<CB>(
+    pub exec fn trim_list_and_update_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         trim_length: usize,
@@ -844,7 +844,7 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>>,
+            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, STRICT_SPACE>>,
         requires
             self.valid(),
             cb.pre(self.id(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
@@ -853,9 +853,9 @@ where
             cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
+        let ghost op = TrimListAndUpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, trim_length, new_item: *new_item };
         let result = kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item);
-        let result = self.maybe_commit::<TrimListAndUpdateItemOp<K, I>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
+        let result = self.maybe_commit::<TrimListAndUpdateItemOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
     }

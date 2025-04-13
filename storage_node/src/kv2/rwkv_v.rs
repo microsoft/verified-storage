@@ -344,7 +344,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn create<Perm, CB>(
+    pub exec fn create<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         item: &I,
@@ -352,20 +352,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, CreateOp<K, I>>,
+            CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
-            grants_permission_to_mutate::<Perm, K, I, L, CreateOp<K, I>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, CreateOp<K, I, STRICT_SPACE>, Self>(
                 perm, CreateOp{ key: *key, item: *item }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = CreateOp::<K, I>{ key: *key, item: *item };
+        let ghost op = CreateOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
         let result = match kv_internal.kv.tentatively_create(key, item) {
             Err(e) => Err(e),
             Ok(()) => {
@@ -392,7 +392,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn update_item<Perm, CB>(
+    pub exec fn update_item<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         item: &I,
@@ -400,20 +400,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I>>,
+            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
-            grants_permission_to_mutate::<Perm, K, I, L, UpdateItemOp<K, I>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, UpdateItemOp<K, I, STRICT_SPACE>, Self>(
                 perm, UpdateItemOp{ key: *key, item: *item }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateItemOp::<K, I>{ key: *key, item: *item };
+        let ghost op = UpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
         let result = match kv_internal.kv.tentatively_update_item(key, item) {
             Err(e) => Err(e),
             Ok(()) => {
@@ -487,7 +487,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn append_to_list<Perm, CB>(
+    pub exec fn append_to_list<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         new_list_element: L,
@@ -495,20 +495,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L>>,
+            CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
-            grants_permission_to_mutate::<Perm, K, I, L, AppendToListOp<K, L>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, AppendToListOp<K, L, STRICT_SPACE>, Self>(
                 perm, AppendToListOp{ key: *key, new_list_element }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = AppendToListOp::<K, L>{ key: *key, new_list_element };
+        let ghost op = AppendToListOp::<K, L, STRICT_SPACE>{ key: *key, new_list_element };
         let result = match kv_internal.kv.tentatively_append_to_list(key, new_list_element) {
             Err(e) => Err(e),
             Ok(()) => {
@@ -535,7 +535,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn append_to_list_and_update_item<Perm, CB>(
+    pub exec fn append_to_list_and_update_item<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         new_list_element: L,
@@ -544,20 +544,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L>>,
+            CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
-            grants_permission_to_mutate::<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>, Self>(
                 perm, AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = AppendToListAndUpdateItemOp::<K, I, L>{ key: *key, new_list_element, new_item: *new_item };
+        let ghost op = AppendToListAndUpdateItemOp::<K, I, L, STRICT_SPACE>{ key: *key, new_list_element, new_item: *new_item };
         let result = match kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item) {
             Err(e) => Err(e),
             Ok(()) => {
@@ -584,7 +584,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn update_list_element_at_index<Perm, CB>(
+    pub exec fn update_list_element_at_index<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         idx: usize,
@@ -593,20 +593,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L>>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
-            grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexOp<K, L>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexOp<K, L, STRICT_SPACE>, Self>(
                 perm, UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateListElementAtIndexOp::<K, L>{ key: *key, idx, new_list_element };
+        let ghost op = UpdateListElementAtIndexOp::<K, L, STRICT_SPACE>{ key: *key, idx, new_list_element };
         let result = match kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element) {
             Err(e) => Err(e),
             Ok(()) => {
@@ -634,7 +634,7 @@ where
     }
 
     pub exec fn update_list_element_at_index_and_item
-        <Perm, CB>(
+        <Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         idx: usize,
@@ -644,20 +644,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>>,
+            CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
-            grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>, Self>(
                 perm, UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L>{ key: *key, idx, new_list_element,
+        let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L, STRICT_SPACE>{ key: *key, idx, new_list_element,
                                                                      new_item: *new_item };
         let result = match kv_internal.kv.tentatively_update_list_element_at_index_and_item(
             key, idx, new_list_element, new_item
@@ -687,7 +687,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn trim_list<Perm, CB>(
+    pub exec fn trim_list<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         trim_length: usize,
@@ -695,20 +695,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, TrimListOp<K>>,
+            CB: MutatingLinearizer<K, I, L, TrimListOp<K, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), TrimListOp{ key : *key, trim_length }),
-            grants_permission_to_mutate::<Perm, K, I, L, TrimListOp<K>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, TrimListOp<K, STRICT_SPACE>, Self>(
                 perm, TrimListOp{ key : *key, trim_length }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = TrimListOp::<K>{ key: *key, trim_length };
+        let ghost op = TrimListOp::<K, STRICT_SPACE>{ key: *key, trim_length };
         let result = match kv_internal.kv.tentatively_trim_list(key, trim_length) {
             Err(e) => Err(e),
             Ok(()) => {
@@ -735,7 +735,7 @@ where
         (result, Tracked(completion))
     }
 
-    pub exec fn trim_list_and_update_item<Perm, CB>(
+    pub exec fn trim_list_and_update_item<Perm, CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
         trim_length: usize,
@@ -744,20 +744,20 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
-            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I>>,
+            CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, STRICT_SPACE>>,
             Perm: CheckPermission<Seq<u8>>,
         requires
             self.valid(),
             perm.id() == self.powerpm_id(),
             cb.pre(self.id(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
-            grants_permission_to_mutate::<Perm, K, I, L, TrimListAndUpdateItemOp<K, I>, Self>(
+            grants_permission_to_mutate::<Perm, K, I, L, TrimListAndUpdateItemOp<K, I, STRICT_SPACE>, Self>(
                 perm, TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }, self.pm_constants()
             ),
         ensures 
             cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = TrimListAndUpdateItemOp::<K, I>{ key: *key, trim_length, new_item: *new_item };
+        let ghost op = TrimListAndUpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, trim_length, new_item: *new_item };
         let result = match kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item) {
             Err(e) => Err(e),
             Ok(()) => {

@@ -177,7 +177,7 @@ where
     }
 }
 
-pub struct CreateOp<K, I>
+pub struct CreateOp<K, I, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -186,7 +186,7 @@ where
     pub item: I,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for CreateOp<K, I>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for CreateOp<K, I, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -213,7 +213,7 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -224,7 +224,7 @@ where
     }
 }
 
-pub struct UpdateItemOp<K, I>
+pub struct UpdateItemOp<K, I, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -233,7 +233,7 @@ where
     pub item: I,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for UpdateItemOp<K, I>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for UpdateItemOp<K, I, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -260,7 +260,7 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -431,7 +431,7 @@ where
     }
 }
 
-pub struct AppendToListOp<K, L>
+pub struct AppendToListOp<K, L, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
@@ -440,7 +440,7 @@ where
     pub new_list_element: L,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for AppendToListOp<K, L>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for AppendToListOp<K, L, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -467,10 +467,10 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& {
+                &&& STRICT_SPACE ==> {
                        ||| old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
                        ||| old_ckv.kv.num_list_elements() >= old_ckv.ps.max_list_elements
-                   }
+                    }
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -481,7 +481,7 @@ where
     }
 }
 
-pub struct AppendToListAndUpdateItemOp<K, I, L>
+pub struct AppendToListAndUpdateItemOp<K, I, L, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -492,7 +492,7 @@ where
     pub new_item: I,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for AppendToListAndUpdateItemOp<K, I, L>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -520,10 +520,10 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& {
+                &&& STRICT_SPACE ==> {
                        ||| old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
                        ||| old_ckv.kv.num_list_elements() >= old_ckv.ps.max_list_elements
-                   }
+                    }
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -535,7 +535,7 @@ where
     }
 }
 
-pub struct UpdateListElementAtIndexOp<K, L>
+pub struct UpdateListElementAtIndexOp<K, L, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
@@ -545,7 +545,7 @@ where
     pub new_list_element: L,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for UpdateListElementAtIndexOp<K, L>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for UpdateListElementAtIndexOp<K, L, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -573,10 +573,10 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& {
+                &&& STRICT_SPACE ==> {
                        ||| old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
                        ||| old_ckv.kv.num_list_elements() >= old_ckv.ps.max_list_elements
-                   }
+                    }
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -588,7 +588,7 @@ where
     }
 }
 
-pub struct UpdateListElementAtIndexAndItemOp<K, I, L>
+pub struct UpdateListElementAtIndexAndItemOp<K, I, L, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
@@ -599,7 +599,7 @@ where
     pub new_item: I,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for UpdateListElementAtIndexAndItemOp<K, I, L>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -627,10 +627,10 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& {
+                &&& STRICT_SPACE ==> {
                        ||| old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
                        ||| old_ckv.kv.num_list_elements() >= old_ckv.ps.max_list_elements
-                   }
+                    }
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -642,7 +642,7 @@ where
     }
 }
 
-pub struct TrimListOp<K>
+pub struct TrimListOp<K, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
 {
@@ -650,7 +650,7 @@ where
     pub trim_length: usize,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for TrimListOp<K>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for TrimListOp<K, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -677,7 +677,7 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
             },
             Err(e) => {
                 &&& new_ckv == old_ckv
@@ -688,7 +688,7 @@ where
     }
 }
 
-pub struct TrimListAndUpdateItemOp<K, I>
+pub struct TrimListAndUpdateItemOp<K, I, const STRICT_SPACE: bool>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -698,7 +698,7 @@ where
     pub new_item: I,
 }
 
-impl<K, I, L> MutatingOperation<K, I, L> for TrimListAndUpdateItemOp<K, I>
+impl<K, I, L, const STRICT_SPACE: bool> MutatingOperation<K, I, L> for TrimListAndUpdateItemOp<K, I, STRICT_SPACE>
 where
     K: Hash + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -725,7 +725,7 @@ where
             }, 
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
-                &&& old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
+                &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
             },
             Err(e) => {
                 &&& new_ckv == old_ckv

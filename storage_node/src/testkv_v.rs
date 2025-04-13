@@ -985,9 +985,9 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let item1 = TestItem { val: 0x55555555 };
     let item2 = TestItem { val: 0x66666666 };
 
-    let ghost op = CreateOp::<TestKey, TestItem>{ key: key1, item: item1 };
-    let tracked perm = create_mutating_perm::<CreateOp<TestKey, TestItem>>(op, pm_constants, powerpm.id());
-    let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem>>{
+    let ghost op = CreateOp::<TestKey, TestItem, true>{ key: key1, item: item1 };
+    let tracked perm = create_mutating_perm::<CreateOp<TestKey, TestItem, true>>(op, pm_constants, powerpm.id());
+    let tracked mut create_linearizer = TestMutatingLinearizer::<CreateOp<TestKey, TestItem, true>>{
         r: app_resource,
         op,
         old_ckv: None,
@@ -995,7 +995,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         powerpm_id: powerpm.id(),
     };
 
-    let (create_result, Tracked(create_linearizer)) = ckv.create::<TestKvPermission, TestMutatingLinearizer<CreateOp<TestKey, TestItem>>>(
+    let (create_result, Tracked(create_linearizer)) = ckv.create::<TestKvPermission, TestMutatingLinearizer<CreateOp<TestKey, TestItem, true>>, true>(
         &key1, &item1, Tracked(perm), Tracked(create_linearizer)
     );
     match create_result {
