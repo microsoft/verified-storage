@@ -48,7 +48,13 @@ fn check_kv_on_concurrent_memory_mapped_file () -> Result<(), ()>
 {
     test_concurrent_kv_on_memory_mapped_file()
 }
-    
+
+#[test]
+fn check_kv_on_sharded_memory_mapped_file () -> Result<(), ()>
+{
+    test_sharded_kv_on_memory_mapped_file()
+}
+
 }
 
 verus! {
