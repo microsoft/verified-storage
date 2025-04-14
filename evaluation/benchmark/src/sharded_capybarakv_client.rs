@@ -6,10 +6,14 @@ use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmcopy::PmCopy;
 
+use storage_node::kv2::rwkv_v::*;
+use storage_node::kv2::rwkv_inv_v;
+
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use std::path::Path;
 
 // TODO: read these from config file
 const KVSTORE_ID: u128 = 1234;
@@ -47,10 +51,15 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
             max_operations_per_transaction: 5 // TODO: set this to something that makes sense
         };
 
-        let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
-        KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
-            &mut kv_region, &setup_parameters
-        )?;
+        let region_size = rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion, K, V, L>::space_needed_for_setup(&setup_parameters)?;
+
+        let mut pm = create_pm_region(kv_store_file.to_str().unwrap(), region_size);
+
+
+        // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
+        // KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
+        //     &mut kv_region, &setup_parameters
+        // )?;
 
         Ok(())
     }
