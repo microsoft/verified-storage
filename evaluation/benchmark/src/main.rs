@@ -51,6 +51,7 @@ pub mod redis_client;
 pub mod rocksdb_client;
 pub mod capybarakv_client;
 pub mod viper_client;
+pub mod sharded_capybarakv_client;
 // pub mod custom_bindings;
 
 // length of key and value in byte for most tests

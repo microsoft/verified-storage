@@ -23,7 +23,7 @@ fn main() {
     // This is the path to the static library file.
     let lib_path = viper_wrapper_path.join("libviper_wrapper.a");
 
-    let java_home = env::var("JAVA_HOME").unwrap();
+    let java_home = env::var("JAVA_HOME").expect("Please set JAVA_HOME");
 
     // build object file for the viper wrapper
     // based on instructions from https://rust-lang.github.io/rust-bindgen/non-system-libraries.html
