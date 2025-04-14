@@ -642,10 +642,13 @@ where
 
                     proof {
                         inner.rwlock_auth.agree(kv_internal.invariant_resource.borrow());
-                        completion = match perm_complete.lin_or_complete {
-                            Either::A(lin) => lin.apply(op, ckv, result, &mut inner.caller_auth),
-                            Either::B(complete) => complete,
-                        }
+
+                        // We can provably unwrap, because if it was None, that means
+                        // the committing write predicted a crash and didn't update the
+                        // durable state to linearize at the write call.  But at this
+                        // point, we now know the flush succeeded and the resulting state
+                        // does satisfy result_valid().
+                        completion = perm_complete.complete.tracked_unwrap();
                     }
                 });
 
@@ -911,11 +914,6 @@ impl<PM, K, I, L, Op, Lin> OpPerm<PM, K, I, L, Op, Lin>
     }
 }
 
-enum Either<A, B> {
-    A(A),
-    B(B),
-}
-
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -928,7 +926,7 @@ struct OpPermComplete<K, I, L, Op, Lin>
         Lin: MutatingLinearizer<K, I, L, Op>,
 {
     rwlock_res: GhostVar<ConcurrentKvStoreView<K, I, L>>,
-    lin_or_complete: Either<Lin, Lin::Completion>,
+    complete: Option<Lin::Completion>,
 }
 
 impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, Lin>
@@ -960,12 +958,12 @@ impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, 
 
     closed spec fn completed(&self, c: Self::Completion) -> bool {
         &&& c.rwlock_res.id() == self.rwlock_res.id()
-        &&& match c.lin_or_complete {
-            Either::A(lin) => {
+        &&& match c.complete {
+            None => {
                 &&& c.rwlock_res@ == self.rwlock_res@
-                &&& lin == self.lin
+                &&& !self.op.result_valid(self.rwlock_res@, c.rwlock_res@, self.result)
             },
-            Either::B(complete) => {
+            Some(complete) => {
                 &&& self.op.result_valid(self.rwlock_res@, c.rwlock_res@, self.result)
                 &&& self.lin.post(complete, self.inv.constant().caller_id, self.op, self.result)
             },
@@ -976,7 +974,7 @@ impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, 
         use_type_invariant(&self);
 
         let tracked mut rwlock_res = self.rwlock_res;
-        let tracked mut lin_or_complete;
+        let tracked mut complete = None;
 
         open_atomic_invariant_in_proof!(credit => &self.inv => inner => {
             inner.rwlock_auth.agree(&rwlock_res);
@@ -985,20 +983,20 @@ impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, 
             let ghost old_rkv = recover_journal_then_kv::<PM, K, I, L>(r@).unwrap();
             let ghost new_rkv = recover_journal_then_kv::<PM, K, I, L>(new_state).unwrap();
 
-            if old_rkv == new_rkv {
-                // No change to durable state on disk, can't call linearizer yet.  Keep it.
-                lin_or_complete = Either::A(self.lin);
-            } else {
-                // Committed on disk, can invoke linearizer, save completion.
-                let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{
-                    ps: new_rkv.ps,
-                    pm_constants: rwlock_res@.pm_constants,
-                    kv: new_rkv.kv,
-                };
+            let ghost new_ckv = ConcurrentKvStoreView::<K, I, L>{
+                ps: new_rkv.ps,
+                pm_constants: rwlock_res@.pm_constants,
+                kv: new_rkv.kv,
+            };
 
-                let tracked lin_complete = self.lin.apply(self.op, new_ckv, self.result, &mut inner.caller_auth);
+            if !self.op.result_valid( rwlock_res@, new_ckv, self.result) {
+                // No change to durable state on disk, and moreover, no change
+                // is not valid for this op.  Can't call linearizer, but this
+                // case corresponds to a predicted crash; if we get all the way
+                // to flush() in commit, we can turn this into a contradiction.
+            } else {
+                complete = Some(self.lin.apply(self.op, new_ckv, self.result, &mut inner.caller_auth));
                 inner.rwlock_auth.update(&mut rwlock_res, new_ckv);
-                lin_or_complete = Either::B(lin_complete);
             }
 
             r.update(&mut inner.durable_res, new_state);
@@ -1006,7 +1004,7 @@ impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, 
 
         OpPermComplete::<K, I, L, Op, Lin>{
             rwlock_res: rwlock_res,
-            lin_or_complete: lin_or_complete,
+            complete: complete,
         }
     }
 }
