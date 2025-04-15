@@ -51,6 +51,8 @@ pub enum KvError
     LogicalRangeUpdateNotAllowed{ old_start: usize, old_end: usize, new_start: usize, new_end: usize },
     PmemErr { pmem_err: PmemError },
     ListLengthWouldExceedUsizeMax,
+    TooFewShards,
+    TooManyShards,
 }
 
 pub enum LogicalRangeGapsPolicy {

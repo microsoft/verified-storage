@@ -967,7 +967,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     }
 
     let (mut powerpm, _) = PoWERPersistentMemoryRegion::<FileBackedPersistentMemoryRegion>::new(pm);
-    let ghost pm_constants = powerpm.constants();
+    let ghost pm_constants: PersistentMemoryConstants = powerpm.constants();
     let ghost state = ConcurrentKvStore::<TestKvPermissionFactory,
                                           FileBackedPersistentMemoryRegion, TestKey, TestItem,
                                           TestListElement>::recover(powerpm@.durable_state).unwrap();
