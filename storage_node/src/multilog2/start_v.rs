@@ -166,7 +166,8 @@ impl UntrustedMultilogImpl {
                         &&& Self::inv_durable_metadata(info, durable)
                         &&& Self::inv_tentative_metadata(info, durable)
                         &&& info.log_area_start == rm.all_log_constants[i].log_area_start
-                        &&& info.log_area_len == rm.all_log_constants[i].log_area_end
+                        &&& info.log_area_len ==
+                            rm.all_log_constants[i].log_area_end - rm.all_log_constants[i].log_area_start
                     },
                 rm.corresponds(pm_region@.durable_state),
                 rm.vm == vm,

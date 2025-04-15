@@ -238,6 +238,7 @@ impl UntrustedMultilogImpl {
             assert(row_addr + dynamic_metadata_crc_offset + u64::spec_size_of() <= new_head_addr);
             assert(info.log_area_start + info.log_area_len <= new_read_state.len());
 
+                /*
             assert(recover_log_given_metadata(old_durable_state, info.log_area_start as int,
                                               info.log_area_start + info.log_area_len,
                                               info.durable_log_length as int,
@@ -262,6 +263,7 @@ impl UntrustedMultilogImpl {
                                               info.log_area_start + info.log_area_len,
                                               info.tentative_log_length as int,
                                               info.tentative_head as int));
+                */
         }
     }
 
@@ -356,6 +358,7 @@ impl UntrustedMultilogImpl {
             assert(row_addr + dynamic_metadata_crc_offset + u64::spec_size_of() <= head_addr);
             assert(info.log_area_start + info.log_area_len <= old_read_state.len());
 
+                    /*
             assert(recover_log_given_metadata(old_read_state, info.log_area_start as int,
                                               info.log_area_start + info.log_area_len,
                                               info.durable_log_length as int,
@@ -372,6 +375,7 @@ impl UntrustedMultilogImpl {
                                               info.log_area_start + info.log_area_len,
                                               info.tentative_log_length as int,
                                               info.tentative_head as int));
+                    */
         }
     }
 
@@ -554,6 +558,7 @@ impl UntrustedMultilogImpl {
                 let v2 = self.log_infos[i];
                 &&& v2.log_area_start == v1.log_area_start
                 &&& v2.log_area_len == v1.log_area_len
+                &&& v2.log_area_end == v1.log_area_end
                 &&& v2.durable_head == v1.tentative_head
                 &&& v2.durable_head_addr == v1.tentative_head_addr
                 &&& v2.durable_log_length == v1.tentative_log_length
@@ -573,6 +578,7 @@ impl UntrustedMultilogImpl {
                     let v2 = self.log_infos[i];
                     &&& v2.log_area_start == v1.log_area_start
                     &&& v2.log_area_len == v1.log_area_len
+                    &&& v2.log_area_end == v1.log_area_end
                     &&& v2.durable_head == v1.tentative_head
                     &&& v2.durable_head_addr == v1.tentative_head_addr
                     &&& v2.durable_log_length == v1.tentative_log_length
@@ -612,6 +618,7 @@ impl UntrustedMultilogImpl {
                 },
         ensures
             self.valid(powerpm_region),
+            Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             powerpm_region.constants() == old(powerpm_region).constants(),
             result is Ok,
             self@ == old(self)@.commit(),

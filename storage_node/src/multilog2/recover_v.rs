@@ -187,7 +187,21 @@ pub(super) open spec fn recover_mask_given_cdb(
     }
 }
 
-pub(super) open spec fn recover_log_given_metadata(
+pub(super) open spec fn distinct_log_indices(i: int, j: int, num_logs: int) -> bool
+{
+    0 <= i < num_logs && 0 <= j < num_logs && i != j
+}
+
+pub(super) open spec fn rotate_left<T>(s: Seq<T>, amount: int) -> Seq<T>
+    recommends
+        0 < s.len()
+    decreases
+        amount
+{
+    if amount <= 0 { s } else { rotate_left(s.skip(1).push(s[0]), amount - 1) }
+}
+
+pub(super) open spec fn extract_log_given_metadata_values(
     s: Seq<u8>,
     log_area_start: int,
     log_area_end: int,
@@ -195,19 +209,16 @@ pub(super) open spec fn recover_log_given_metadata(
     head: int,
 ) -> Seq<u8>
 {
-    let log_area_len = log_area_end - log_area_start;
-    let head_addr = log_area_start + (head % log_area_len);
-    if head_addr + length <= log_area_end {
-        s.subrange(head_addr, head_addr + length)
-    }
-    else {
-        s.subrange(head_addr, log_area_end) + s.subrange(log_area_start, head_addr + length - log_area_len)
-    }
+    rotate_left(s.subrange(log_area_start, log_area_end), head).take(length)
 }
 
-pub(super) open spec fn recover_log(s: Seq<u8>, c: SingleLogConstants, d: SingleLogDynamicMetadata) -> Seq<u8>
+pub(super) open spec fn extract_log_given_metadata(
+    s: Seq<u8>,
+    c: SingleLogConstants,
+    d: SingleLogDynamicMetadata
+) -> Seq<u8>
 {
-    recover_log_given_metadata(s, c.log_area_start as int, c.log_area_end as int, d.length as int, d.head as int)
+    extract_log_given_metadata_values(s, c.log_area_start as int, c.log_area_end as int, d.length as int, d.head as int)
 }
 
 pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState> {
@@ -246,10 +257,19 @@ impl MultilogRecoveryMapping {
         &&& self.sm.mask1_crc_addr >= self.sm.mask1_addr + u64::spec_size_of()
         &&& self.sm.log_metadata_table.start >= self.sm.mask1_crc_addr + u64::spec_size_of()
         &&& self.sm.log_metadata_table.end >= self.sm.log_metadata_table.start
-        &&& self.all_log_constants[0].log_area_start >= self.sm.log_metadata_table.end
-        &&& forall|i: int, j: int|
-            0 <= i < j < self.sm.num_logs ==> #[trigger] self.all_log_constants[i].log_area_end
-                <= #[trigger] self.all_log_constants[j].log_area_start
+        &&& forall|i: int| #![trigger self.all_log_constants[i]]
+            self.sm.log_metadata_table.end <= self.all_log_constants[i].log_area_start
+        &&& forall|i: int, j: int| #[trigger] distinct_log_indices(i, j, self.sm.num_logs as int) ==> {
+                ||| self.all_log_constants[i].log_area_end <= self.all_log_constants[j].log_area_start
+                ||| self.all_log_constants[j].log_area_end <= self.all_log_constants[i].log_area_start
+        }
+            /*
+        &&& forall|i: int, j: int| #![trigger self.all_log_constants[i], self.all_log_constants[j]]
+            0 <= i < self.sm.num_logs && 0 <= j < self.sm.num_logs && i != j ==> {
+                ||| self.all_log_constants[i].log_area_end <= self.all_log_constants[j].log_area_start
+                ||| self.all_log_constants[j].log_area_end <= self.all_log_constants[i].log_area_start
+            }
+            */
     }
 
     pub(super) open spec fn constants_correspond(self) -> bool {
@@ -284,8 +304,9 @@ impl MultilogRecoveryMapping {
     pub(super) open spec fn storage_state_corresponds(self, s: Seq<u8>) -> bool {
         forall|which_log: int| #![trigger self.state.logs[which_log]]
             0 <= which_log < self.sm.num_logs ==>
-                self.state.logs[which_log].log == recover_log(s, self.all_log_constants[which_log],
-                                                              self.all_log_dynamic_metadata[which_log])
+                self.state.logs[which_log].log == extract_log_given_metadata(
+                    s, self.all_log_constants[which_log], self.all_log_dynamic_metadata[which_log]
+                )
     }
 
     pub(super) open spec fn valid(self) -> bool {
@@ -300,11 +321,12 @@ impl MultilogRecoveryMapping {
 
     pub(super) open spec fn corresponds(self, s: Seq<u8>) -> bool {
         &&& self.valid()
-        &&& self.all_log_constants.last().log_area_end <= s.len()
         &&& recover_version_metadata(s) == Some(self.vm)
         &&& recover_static_metadata(s, self.vm) == Some(self.sm)
         &&& recover_mask_cdb(s, self.sm) == Some(self.mask_cdb)
         &&& recover_mask_given_cdb(s, self.sm, self.mask_cdb) == Some(self.mask)
+        &&& forall|i: int| #![trigger self.all_log_constants[i]]
+            0 <= i < self.sm.num_logs ==> self.all_log_constants[i].log_area_end <= s.len()
         &&& forall|i: int|
             0 <= i < self.sm.num_logs ==> recover_single_log_constants(s, i, self.sm) == Some(
                 #[trigger] self.all_log_constants[i],

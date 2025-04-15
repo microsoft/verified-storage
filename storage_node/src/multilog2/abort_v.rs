@@ -33,6 +33,7 @@ impl UntrustedMultilogImpl {
                 let v2 = self.log_infos[i];
                 &&& v2.log_area_start == v1.log_area_start
                 &&& v2.log_area_len == v1.log_area_len
+                &&& v2.log_area_end == v1.log_area_end
                 &&& v2.durable_head == v1.durable_head
                 &&& v2.durable_head_addr == v1.durable_head_addr
                 &&& v2.durable_log_length == v1.durable_log_length
@@ -52,6 +53,7 @@ impl UntrustedMultilogImpl {
                     let v2 = self.log_infos[i];
                     &&& v2.log_area_start == v1.log_area_start
                     &&& v2.log_area_len == v1.log_area_len
+                    &&& v2.log_area_end == v1.log_area_end
                     &&& v2.durable_head == v1.durable_head
                     &&& v2.durable_head_addr == v1.durable_head_addr
                     &&& v2.durable_log_length == v1.durable_log_length
@@ -87,6 +89,7 @@ impl UntrustedMultilogImpl {
                 perm.check_permission(s) <== Self::recover(s) == Some(old(self)@.recover()),
         ensures
             self.valid(powerpm_region),
+            Self::recover(powerpm_region@.durable_state) == Some(self@.recover()),
             powerpm_region.constants() == old(powerpm_region).constants(),
             result is Ok,
             self@ == old(self)@.abort(),
@@ -94,6 +97,10 @@ impl UntrustedMultilogImpl {
         self.revert_log_info_to_durable();
         self.logs_modified.clear();
         self.mv = Ghost(self.mv@.abort());
+
+        proof {
+            self.lemma_inv_implies_can_only_crash_as(powerpm_region);
+        }
 
         Ok(())
     }

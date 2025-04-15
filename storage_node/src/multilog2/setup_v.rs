@@ -260,7 +260,6 @@ impl UntrustedMultilogImpl {
         broadcast use lemma_row_index_to_addr_is_valid;
         broadcast use pmcopy_axioms;
 
-        assert(rm.all_log_constants[0].log_area_start <= rm.all_log_constants.last().log_area_end);
         assert(sm.log_metadata_table.end <= rm.all_log_constants[which_log as int].log_area_start);
 
         let row_addr = sm.log_metadata_table.row_index_to_addr(which_log as u64);
@@ -346,7 +345,6 @@ impl UntrustedMultilogImpl {
         broadcast use lemma_row_index_to_addr_is_valid;
         broadcast use pmcopy_axioms;
 
-        assert(rm.all_log_constants[0].log_area_start <= rm.all_log_constants.last().log_area_end);
         assert(sm.log_metadata_table.end <= rm.all_log_constants[which_log as int].log_area_start);
 
         let row_addr = sm.log_metadata_table.row_index_to_addr(which_log as u64);
@@ -548,11 +546,18 @@ impl UntrustedMultilogImpl {
 
         assert forall |which_log: int| #![trigger rm.state.logs[which_log]]
                    0 <= which_log < rm.sm.num_logs implies
-                   rm.state.logs.index(which_log).log ==
-                   recover_log(pm_region@.read_state, rm.all_log_constants.index(which_log),
-                               rm.all_log_dynamic_metadata.index(which_log)) by {
-            assert(recover_log(pm_region@.read_state, rm.all_log_constants.index(which_log),
-                               rm.all_log_dynamic_metadata.index(which_log)) =~= Seq::<u8>::empty());
+                   rm.state.logs[which_log].log == extract_log_given_metadata(
+                       pm_region@.read_state,
+                       rm.all_log_constants[which_log],
+                       rm.all_log_dynamic_metadata[which_log]
+                   ) by {
+            let c = rm.all_log_constants[which_log];
+            let d = rm.all_log_dynamic_metadata[which_log];
+            let log_area_len = c.log_area_end as int - c.log_area_start as int;
+            let head_addr = c.log_area_start as int + (d.head as int % log_area_len);
+            let length = d.length as int;
+            assert(rotate_left(pm_region@.read_state.subrange(c.log_area_start as int, c.log_area_end as int),
+                               d.head as int).take(d.length as int) =~= Seq::<u8>::empty());
         }
 
         proof {

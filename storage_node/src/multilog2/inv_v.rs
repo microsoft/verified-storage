@@ -119,21 +119,27 @@ impl UntrustedMultilogImpl {
         which_log: int
     ) -> bool {
         let info = self.log_infos@[which_log];
-        &&& self.mv@.durable.logs[which_log].log ==
-               recover_log_given_metadata(durable_state, info.log_area_start as int,
-                                          info.log_area_start + info.log_area_len,
-                                          info.durable_log_length as int,
-                                          info.durable_head as int)
-        &&& self.mv@.durable.logs[which_log].log ==
-               recover_log_given_metadata(read_state, info.log_area_start as int,
-                                          info.log_area_start + info.log_area_len,
-                                          info.durable_log_length as int,
-                                          info.durable_head as int)
-        &&& self.mv@.tentative.logs[which_log].log ==
-               recover_log_given_metadata(read_state, info.log_area_start as int,
-                                          info.log_area_start + info.log_area_len,
-                                          info.tentative_log_length as int,
-                                          info.tentative_head as int)
+        &&& self.mv@.durable.logs[which_log].log == extract_log_given_metadata_values(
+            durable_state,
+            info.log_area_start as int,
+            info.log_area_start + info.log_area_len,
+            info.durable_log_length as int,
+            info.durable_head as int
+        )
+        &&& self.mv@.durable.logs[which_log].log == extract_log_given_metadata_values(
+            read_state,
+            info.log_area_start as int,
+            info.log_area_start + info.log_area_len,
+            info.durable_log_length as int,
+            info.durable_head as int
+        )
+        &&& self.mv@.tentative.logs[which_log].log == extract_log_given_metadata_values(
+            read_state,
+            info.log_area_start as int,
+            info.log_area_start + info.log_area_len,
+            info.tentative_log_length as int,
+            info.tentative_head as int
+        )
     }
 
     pub(super) open(super) spec fn inv_state_correspondence(
