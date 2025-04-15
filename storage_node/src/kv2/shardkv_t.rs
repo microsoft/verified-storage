@@ -184,7 +184,7 @@ pub const MAX_SHARDS: isize = isize::MAX;
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ShardedKvInfo<PM, K, I, L>
+pub struct ShardedKvInfo<PM, K, I, L>
     where 
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
@@ -246,12 +246,12 @@ impl<PM, K, I, L> TrustedShardedKvStore<PM, K, I, L>
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     // TODO: at least some of this should probably be moved into a verified file?
-    pub exec fn setup_shards(mut pms: Vec<PM>, ps: &SetupParameters) -> (result: Result<ShardedKvInfo<PM, K, I, L>, (KvError, PM)>)
+    pub exec fn setup_shards(mut pms: Vec<PM>, ps: &SetupParameters) -> (result: Result<ShardedKvInfo<PM, K, I, L>, (KvError, Option<PM>)>)
         requires 
             forall |i| 0 <= i < pms@.len() ==> #[trigger] pms[i].inv(),
             forall |i, j| 0 <= i < j < pms@.len() ==> 
                 #[trigger] pms[i].constants() == #[trigger] pms[j].constants(),
-            1 <= pms@.len() <= MAX_SHARDS,
+            pms@.len() <= MAX_SHARDS,
         ensures 
             match result {
                 Ok(info) => {
@@ -265,18 +265,18 @@ impl<PM, K, I, L> TrustedShardedKvStore<PM, K, I, L>
                 }
                 Err((KvError::InvalidParameter, _)) => !ps.valid(),
                 Err((KvError::KeySizeTooSmall, _)) => K::spec_size_of() == 0,
-                Err((KvError::OutOfSpace, pm)) => 
+                Err((KvError::OutOfSpace, Some(pm))) => 
                     pm@.len() < ConcurrentKvStore::<PM, K, I, L>::spec_space_needed_for_setup(*ps),
-                Err((KvError::TooFewShards, _)) => pms@.len() == 0,
+                Err((KvError::TooFewShards, None)) => pms@.len() == 0,
                 Err(_) => false
             }
     {
         if pms.len() == 0 {
-            return Err(KvError::TooFewShards);
+            return Err((KvError::TooFewShards, None));
         }
 
         let ghost shard_namespace = 5; // TODO: what is this? what should it be set to?
-        let mut pm_vec = Vec::new();
+        let mut pm_vec: Vec<(PersistentMemoryRegionAtomic<PM>, Tracked<AtomicInvariant<ConcurrentKvStoreInvPred, ConcurrentKvStoreInvState<PM, K, I, L>, ConcurrentKvStoreInvPred>>)> = Vec::new();
         let tracked mut shard_res = Map::<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>::tracked_empty();
         let ghost pm_constants = pms[0].constants(); // the precondition specifies that all the constants should be the same, so we can use any
 
@@ -297,15 +297,19 @@ impl<PM, K, I, L> TrustedShardedKvStore<PM, K, I, L>
                     &&& shard_res[shard]@.ps == ps
                     &&& shard_res[shard]@.pm_constants == pm_constants
                     &&& shard_res[shard]@.kv == RecoveredKvStore::<K, I, L>::init(*ps).kv
-                }
+                },
+                pm_vec@.len() == idx,
+                forall |i| 0 <= i < pm_vec@.len() ==> #[trigger] pm_vec@[i].0.constants() == pm_constants,
         {
             let pm = pms.remove(0);
+            // this assert is required to hit the trigger on pms[i].inv() in the invariant
+            assert(forall |i| 0 <= i < pms@.len() ==> #[trigger] pms[i].inv());
             let (atomic_pm, inv, res) = 
                 match ConcurrentKvStore::<PM, K, I, L>::setup(pm, ps, Ghost(shard_namespace)) {
                     Ok((atomic_pm, inv, res)) => (atomic_pm, inv, res),
                     Err((e, pm)) => {
                         assert(e == KvError::OutOfSpace ==> pm@.len() < ConcurrentKvStore::<PM, K, I, L>::spec_space_needed_for_setup(*ps));
-                        return Err((e, pm));
+                        return Err((e, Some(pm)));
                     }
             };
 
@@ -323,141 +327,17 @@ impl<PM, K, I, L> TrustedShardedKvStore<PM, K, I, L>
         let namespace = 6;
         let (inv, gvar) = ShardedKvStore::<PM, K, I, L>::setup(nshards, Tracked(shard_res),
             Ghost(*ps), Ghost(pm_constants), Ghost(namespace as int)); 
-        
-        Ok(ShardedKvInfo {
+
+        let info = ShardedKvInfo {
             shard_inv: inv,
             gvar,
             pm_vec,
             pm_constants: Ghost(pm_constants)
-        })
+        };
+        
+        Ok(info)
     }
 
-    // pub exec fn setup_shards(
-    //     nshards: usize, 
-    //     ps: &SetupParameters,
-    //     shard_infos: &Vec<TrustedKvStoreShardInfo<PM, K, I, L>>
-    // ) -> (result: Result<(), KvError>)
-    //     requires 
-    //         nshards >= 1,
-    //         forall |i| 0 <= i < shard_infos@.len() ==> #[trigger] shard_infos[i].inv(),
-    //         forall |i, j| 0 <= i < j < shard_infos@.len() ==> 
-    //             #[trigger] shard_infos[i].pm_constants() == #[trigger] shard_infos[j].pm_constants(),
-    //     ensures 
-    //         match result {
-    //             Ok(()) => {true}
-    //             Err(KvError::InvalidParameter) => nshards != shard_infos.len(),
-    //             Err(_) => false
-    //         }
-    // {
-    //     if nshards != shard_infos.len() {
-    //         return Err(KvError::InvalidParameter);
-    //     }
-
-    //     let ghost namespace = 6; // TODO: what should this be..?
-    //     let tracked mut shard_res = Map::<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>::tracked_empty();
-    //     for i in 0..nshards 
-    //         invariant 
-    //             forall |j| 0 <= j < i ==> shard_res.contains_key(j) && shard_res[j] == shard_infos[i as int].spec_get_res()@
-    //     {
-    //         let res = shard_infos[i].get_res();
-    //         proof {
-    //             shard_res.tracked_insert(i as int, res.get());
-    //         }
-    //     }
-
-    //     // start the sharded kv store
-    //     let (inv, gvar) = ShardedKvStore::<PM, K, I, L>::setup(
-    //         nshards,
-    //         Tracked(shard_res),
-    //         Ghost(*ps),
-    //         Ghost(shard_infos[0].pm_constants()),
-    //         Ghost(namespace)
-    //     );
-
-    //     Ok(())        
-    // }
-
-
-    // pub exec fn setup_shard(pm: &mut Vec<PM>, ps: &SetupParameters) -> (result: Result<(), KvError>) 
-    //     requires 
-    //         forall |i| 0 <= i < old(pms)@.len() ==> #[trigger] old(pms)[i].inv(),
-    //     ensures 
-    //         pms@.len() == old(pms)@.len(),
-    //         forall |i| 0 <= i < pms@.len() ==> #[trigger] pms[i].inv(),
-    //         forall |i| 0 <= i < pms@.len() ==> #[trigger] pms[i].constants() == old(pms)[i].constants(),
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& ps.valid()
-    //                 &&& forall |i| 0 <= i < pms@.len() ==> 
-    //                     {
-    //                         &&& #[trigger] pms@[i]@.flush_predicted()
-    //                         &&& ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::recover(pms@[i]@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
-    //                     }
-    //             }
-    //             Err(KvError::InvalidParameter) => !ps.valid(),
-    //             Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
-    //             Err(KvError::OutOfSpace) => {
-    //                 ||| ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(*ps) > u64::MAX
-    //                 ||| exists |i| {
-    //                     &&& 0 <= i < pms@.len() 
-    //                     &&& #[trigger] pms@[i]@.len() < ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(*ps)
-    //                 }
-    //             },
-    //             Err(_) => false,
-    //         }
-    // {
-    //     // check that the setup parameters are valid
-    //     if ps.max_keys == 0 || ps.max_list_elements == 0 || ps.max_operations_per_transaction == 0 {
-    //         return Err(KvError::InvalidParameter);
-    //     }
-
-    //     // make sure all regions are big enough
-    //     let region_size = match ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::space_needed_for_setup(&ps) {
-    //         Ok(s) => s,
-    //         Err(e) => {
-    //             assert(ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(*ps) > u64::MAX); 
-    //             assert(e != KvError::OutOfSpace ==> false);
-    //             return Err(e);
-    //         }
-    //     };
-        
-    //     for i in 0..pms.len() 
-    //         invariant
-    //             forall |j| 0 <= j < i ==> #[trigger] pms@[j]@.len() >= region_size,
-    //             old(pms) == pms,
-    //             ps.valid(),
-    //             forall |j| 0 <= j < pms@.len() ==> {
-    //                 &&& #[trigger] pms[j].inv()
-    //                 &&& pms[j].constants() == old(pms)[j].constants()
-    //             },
-    //             region_size == ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(*ps),
-    //     {
-    //         if pms[i].get_region_size() < region_size {
-    //             assert(pms@[i as int]@.len() < ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::spec_space_needed_for_setup(*ps));
-    //             return Err(KvError::OutOfSpace);
-    //         }
-    //     }
-
-    //     for i in 0..pms.len()  
-    //         invariant 
-    //             forall |j| 0 <= j < pms@.len() ==> #[trigger] pms@[j]@.len() >= region_size,
-
-    //     {
-    //         ConcurrentKvStore::<TrustedPermissionFactory, PM, K, I, L>::setup(pms.get_mut(i).unwrap(), ps)?;
-    //     }
-
-        
-    //     // NOTE: concurrent KV store and sharded KV store get set up separately.
-    //     // we should probably call both here and manage all of the sharding-related 
-    //     // ghost state in this file to hide it from the caller
-        
-
-    //     // Nickolai called concurrent kv store setup on each shard
-    //     // and then the sharded kv store setup ONCE. so we should probably
-    //     // take all of the shards here and call all necessary setup functions
-
-    //     Ok(())
-    // }
 }
 
 
