@@ -75,8 +75,17 @@ impl SetupParameters {
     }
 }
 
-// The page type must satisfy the `LogicalRange` trait, giving it a
-// logical range with a `start` and `end`.
+// The list-element type must satisfy the `LogicalRange` trait, giving
+// it a logical range with a `start` and `end`. The KV store enforces
+// that when appending a list element its `start` must be at least as
+// large as the `end` of the current last element in that list. If one
+// doesn't want such enforcement, one should just have `start` and
+// `end` both always return `0`. If one wants even stricter
+// enforcement, i.e., if one wants to require that the `start` of the
+// appended element must be *exactly* equal to the `end` of the last
+// element, one should initialize the KV store with the logical range
+// gaps policy set to `LogicalRangeGapsForbidden`.
+
 pub trait LogicalRange {
     spec fn spec_start(&self) -> usize;
     spec fn spec_end(&self) -> usize;
@@ -108,8 +117,6 @@ pub open spec fn end_of_range<L>(list_elements: Seq<L>) -> usize
 /// An `AtomicKvStore` is an abstraction of an atomic key/value
 /// store, i.e., one that doesn't support tentative operations,
 /// aborts, and commits.
-/// TODO: Should this be generic over the key/header/page
-/// types used in the kv store, or over their views?
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub struct AtomicKvStore<K, I, L>
@@ -397,6 +404,10 @@ where
     }
 }
 
+// A `RecoveredKvStore` represents the abstract state of a key/value
+// store that will result from recovery from the current state of
+// storage. It consists of setup parameters and an `AtomicKvStore`.
+
 #[verifier::reject_recursive_types(K)]
 #[verifier::ext_equal]
 pub struct RecoveredKvStore<K, I, L>
@@ -415,6 +426,23 @@ where
         Self{ ps, kv: AtomicKvStore::<K, I, L>::init(ps.logical_range_gaps_policy) }
     }
 }
+
+// A `KvStoreView` is the abstraction of the state of a running
+// key/value store service. Its main fields are `durable`, which
+// represents the `AtomicKvStore` that would result from aborting or
+// crashing, and `tentative`, which represents the `AtomicKvStore`
+// that would result from committing. It also has fields indicating
+// how many logical storage slots are used for various purposes, to
+// allow for precise specifications of the conditions under which the
+// KV store is permitted to fail with an "out of space" error.
+//
+// Its main operations are `abort`, which sets `tentative` to
+// `durable`, and `commit`, which sets `durable` to `tentative`. Both
+// reset the number of slots used for keys to the number of keys in
+// the store, reset the number of slots used for list elements to the
+// number of list elements, and rest the number of slots used for
+// transaction operations to zero. Proving we meet these reset
+// specifications proves that we don't leak storage space.
 
 #[verifier::reject_recursive_types(K)]
 pub struct KvStoreView<K, I, L>
