@@ -6,7 +6,7 @@ use crate::common::util_v::*;
 use crate::kv2::concurrentspec_t::*;
 use crate::kv2::impl_t::KvStore;
 use crate::kv2::rwkv_v::*;
-use crate::kv2::rwkv_inv_v;
+use crate::kv2::rwinvkv_v;
 use crate::kv2::shardkv_v::*;
 use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsPolicy, RecoveredKvStore,
                          SetupParameters};
@@ -1067,8 +1067,8 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
         max_operations_per_transaction: 4,
     };
 
-    let region_size = match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
-                                                            TestKey, TestItem, TestListElement>::space_needed_for_setup(&ps) {
+    let region_size = match rwinvkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                                           TestKey, TestItem, TestListElement>::space_needed_for_setup(&ps) {
         Ok(s) => s,
         Err(e) => { print_message("Failed to compute space needed for setup"); return Err(()); },
     };
@@ -1094,8 +1094,8 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
     let mut inv1;
     let mut gvar0;
     let mut gvar1;
-    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
-                                          TestKey, TestItem, TestListElement>::setup(
+    match rwinvkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                         TestKey, TestItem, TestListElement>::setup(
         pm0, &ps, Ghost(shard_namespace),
     ) {
         Ok((atomicpm, inv, gvar)) => {
@@ -1105,8 +1105,8 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
         },
         Err(e) => { print_message("Failed to set up KV store 0"); return Err(()); },
     }
-    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
-                                          TestKey, TestItem, TestListElement>::setup(
+    match rwinvkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                         TestKey, TestItem, TestListElement>::setup(
         pm1, &ps, Ghost(shard_namespace),
     ) {
         Ok((atomicpm, inv, gvar)) => {
@@ -1130,8 +1130,8 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
 
     let mut ckv0;
     let mut ckv1;
-    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
-                                          TestKey, TestItem, TestListElement>::start(
+    match rwinvkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                         TestKey, TestItem, TestListElement>::start(
         atomicpm0, kvstore_id, inv0
     ) {
         Ok(ckv) => {
@@ -1140,8 +1140,8 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(e) => { print_message("Failed to start KV store shard 0"); return Err(()); },
     }
 
-    match rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
-                                          TestKey, TestItem, TestListElement>::start(
+    match rwinvkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion,
+                                         TestKey, TestItem, TestListElement>::start(
         atomicpm1, kvstore_id, inv1
     ) {
         Ok(ckv) => {

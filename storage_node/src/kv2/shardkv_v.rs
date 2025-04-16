@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher, DefaultHasher};
 use super::concurrentspec_t::*;
 use super::impl_v::*;
 use super::spec_t::*;
-use super::rwkv_inv_v::*;
+use super::rwinvkv_v::*;
 use vstd::invariant::*;
 use vstd::pcm::frac::*;
 use std::sync::Arc;
