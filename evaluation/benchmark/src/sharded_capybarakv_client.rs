@@ -1,4 +1,4 @@
-use storage_node::kv2::impl_t::*;
+use storage_node::kv2::shardkv_t::*;
 use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::kv2::spec_t::*;
 use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
@@ -55,6 +55,7 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
 
         let mut pm = create_pm_region(kv_store_file.to_str().unwrap(), region_size);
 
+        let info = TrustedShardedKvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(vec![pm], &setup_parameters);
 
         // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
         // KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
