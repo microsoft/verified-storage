@@ -1,6 +1,7 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 use builtin::*;
 use builtin_macros::*;
+use vstd::pervasive::*;
 use vstd::prelude::*;
 use vstd::pcm::frac::*;
 use vstd::invariant::*;
@@ -17,11 +18,13 @@ use crate::pmem::power_t::*;
 use crate::pmem::mmap_pmemfile_t::*;
 
 use std::hash::Hash;
+use std::io::Read;
 
 
 verus! {
 
 pub const MAX_SHARDS: isize = isize::MAX;
+pub const NAMESPACE: i32 = 6; // TODO: don't hardcode this as a constant -- what should it actually be?
 
 // pub struct TrustedKvPermission 
 // {
@@ -338,7 +341,126 @@ impl<PM, K, I, L> TrustedShardedKvStore<PM, K, I, L>
         Ok(info)
     }
 
+    // TODO: verify this function. It should return a structure that helps us manage the tracked ConcurrentKvStoreView 
+    // that is needed for linearization(?)
+    pub exec fn start_shards(info: ShardedKvInfo<PM, K, I, L>, id: u128) -> (result: Result<ShardedKvStore<PM, K, I, L>, KvError>)
+    {
+        assume(false); // TODO: remove and prove this function
+        let mut pms = info.pm_vec;
+        let mut kvs = Vec::new();
+        let gvar = info.gvar;
+
+        while pms.len() > 0 
+        {
+            assume(false); // TODO: remove and prove the loop
+            let (pm, inv) = pms.remove(0);
+            let kv = ConcurrentKvStore::<PM, K, I, L>::start(pm, id, inv)?;
+            kvs.push(kv);
+        }
+
+        let skv = ShardedKvStore::<PM, K, I, L>::start(kvs, info.shard_inv, Ghost(NAMESPACE as int));
+        Ok(skv)
+    }
+
+    pub exec fn create<CB>(&self, key: &K, item: &I) -> (result: Result<(), KvError>) 
+        where
+            CB: MutatingLinearizer<K, I, L, CreateOp<K, I, false>>,
+    {
+        assume(false);
+        let tracked cb: CB = proof_from_false();
+        let (result, _) = self.untrusted_kv_impl.create(key, item, Tracked(cb));
+        result
+    }
+
+    pub exec fn update_item<CB>(&self, key: &K, item: &I) -> (result: Result<(), KvError>)
+        where
+            CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, false>>,
+    {
+        assume(false);
+        let tracked cb: CB = proof_from_false();
+        let (result, _) = self.untrusted_kv_impl.update_item(key, item, Tracked(cb));
+        result
+    }
+
+    pub exec fn read_item<CB>(&self, key: &K) -> (result: Result<I, KvError>)
+        where
+            CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
+    {
+        assume(false);
+        let tracked cb: CB = proof_from_false();
+        let (result, _) = self.untrusted_kv_impl.read_item(key, Tracked(cb));
+        result
+    }
+
+    pub exec fn delete_item<CB>(&self, key: &K) -> (result: Result<(), KvError>)
+        where 
+            CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
+    {
+        assume(false);
+        let tracked cb: CB = proof_from_false();
+        let (result, _) = self.untrusted_kv_impl.delete(key, Tracked(cb));
+        result
+    }
 }
 
+impl<K, I, L, Op> MutatingLinearizer<K, I, L, Op> for ()
+    where 
+        Op: MutatingOperation<K, I, L>
+{
+    type Completion = Self;
+
+    closed spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    closed spec fn pre(self, id: int, op: Op) -> bool { true }
+
+    closed spec fn post(self, complete: Self::Completion, id: int, op: Op, exec_result: Result<Op::KvResult, KvError>) -> bool 
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: Op,
+        new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
+        exec_result: Result<Op::KvResult, KvError>,
+        tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>
+    ) -> (tracked complete: Self::Completion) 
+    {
+        self
+    }
+}
+
+impl<K, I, L, Op> ReadLinearizer<K, I, L, Op> for () 
+    where 
+        Op: ReadOnlyOperation<K, I, L>
+{
+    type Completion = Self;
+
+    closed spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    closed spec fn pre(self, id: int, op: Op) -> bool { true }
+
+    closed spec fn post(self, complete: Self::Completion, id: int, op: Op, exec_result: Result<Op::KvResult, KvError>) -> bool 
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: Op,
+        new_ckv: ConcurrentKvStoreView<TestKey, TestItem, TestListElement>,
+        exec_result: Result<Op::KvResult, KvError>,
+        tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>
+    ) -> (tracked complete: Self::Completion) 
+    {
+        self
+    }
+}
 
 }
