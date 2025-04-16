@@ -132,7 +132,8 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub closed spec fn valid(self) -> bool {
+    #[verifier::type_invariant]
+    pub closed spec fn typeinv(self) -> bool {
         &&& self.inv@.constant().nshard() == self.nshard as int
         &&& self.nshard as int == self.kv.len()
         &&& self.nshard >= 1
@@ -304,7 +305,6 @@ where
             vstd::std_specs::hash::obeys_key_model::<K>(),
             shard_namespace != inv.namespace(),
         ensures
-            result.valid(),
             result.id() == inv.constant().combined_id,
     {
         let nshards = shard_kvs.len() as u64;
@@ -327,7 +327,6 @@ where
             Op: SingleKeyReadOnlyOperation<K, I, L>,
             CB: ReadLinearizer<K, I, L, Op>,
         requires
-            self.valid(),
             cb.pre(self.id(), op),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
@@ -337,6 +336,7 @@ where
             forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
                 ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
+        proof { use_type_invariant(self); }
         let Tracked(credit) = create_open_invariant_credit();
         let tracked shardcb = ShardedReadLinearizer::<K, I, L, Op, CB>{
             inv: self.inv.borrow().clone(),
@@ -357,7 +357,6 @@ where
             Op: SingleKeyMutatingOperation<K, I, L>,
             CB: MutatingLinearizer<K, I, L, Op>,
         requires
-            self.valid(),
             cb.pre(self.id(), op),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
@@ -373,6 +372,7 @@ where
             forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
                 ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
+        proof { use_type_invariant(self); }
         let Tracked(credit) = create_open_invariant_credit();
         let tracked shardcb = ShardedMutatingLinearizer::<K, I, L, Op, CB>{
             inv: self.inv.borrow().clone(),
@@ -392,14 +392,13 @@ where
         where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
         requires
-            self.valid(),
             cb.pre(self.id(), ReadItemOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), ReadItemOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.read_linearizer(ReadItemOp{ key: *key }, Tracked(cb));
         self.kv[shard].read_item::<ShardedReadLinearizer::<K, I, L, ReadItemOp<K>, CB>>(key, shardcb)
@@ -413,14 +412,13 @@ where
         where
             CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>,
         requires
-            self.valid(),
             cb.pre(self.id(), ReadItemAndListOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), ReadItemAndListOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.read_linearizer(ReadItemAndListOp{ key: *key }, Tracked(cb));
         self.kv[shard].read_item_and_list::<ShardedReadLinearizer::<K, I, L, ReadItemAndListOp<K>, CB>>(key, shardcb)
@@ -434,14 +432,13 @@ where
         where
             CB: ReadLinearizer<K, I, L, ReadListOp<K>>,
         requires
-            self.valid(),
             cb.pre(self.id(), ReadListOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), ReadListOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.read_linearizer(ReadListOp{ key: *key }, Tracked(cb));
         self.kv[shard].read_list::<ShardedReadLinearizer::<K, I, L, ReadListOp<K>, CB>>(key, shardcb)
@@ -455,14 +452,13 @@ where
         where
             CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>,
         requires
-            self.valid(),
             cb.pre(self.id(), GetListLengthOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), GetListLengthOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.read_linearizer(GetListLengthOp{ key: *key }, Tracked(cb));
         self.kv[shard].get_list_length::<ShardedReadLinearizer::<K, I, L, GetListLengthOp<K>, CB>>(key, shardcb)
@@ -479,13 +475,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(CreateOp{ key: *key, item: *item }, Tracked(cb));
         self.kv[shard].create::<ShardedMutatingLinearizer::<K, I, L, CreateOp<K, I, false>, CB>, false>(key, item, shardcb)
@@ -500,13 +496,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(UpdateItemOp{ key: *key, item: *item }, Tracked(cb));
         self.kv[shard].update_item::<ShardedMutatingLinearizer::<K, I, L, UpdateItemOp<K, I, false>, CB>, false>(key, item, shardcb)
@@ -520,13 +516,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
         requires
-            self.valid(),
             cb.pre(self.id(), DeleteOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), DeleteOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(DeleteOp{ key: *key }, Tracked(cb));
         self.kv[shard].delete::<ShardedMutatingLinearizer::<K, I, L, DeleteOp<K>, CB>>(key, shardcb)
@@ -541,13 +537,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(AppendToListOp{ key: *key, new_list_element }, Tracked(cb));
         self.kv[shard].append_to_list::<ShardedMutatingLinearizer::<K, I, L, AppendToListOp<K, L, false>, CB>, false>(key, new_list_element, shardcb)
@@ -563,13 +559,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, Tracked(cb));
         self.kv[shard].append_to_list_and_update_item::<ShardedMutatingLinearizer::<K, I, L, AppendToListAndUpdateItemOp<K, I, L, false>, CB>, false>(key, new_list_element, new_item, shardcb)
@@ -585,13 +581,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, Tracked(cb));
         self.kv[shard].update_list_element_at_index::<ShardedMutatingLinearizer::<K, I, L, UpdateListElementAtIndexOp<K, L, false>, CB>, false>(key, idx, new_list_element, shardcb)
@@ -608,13 +604,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, Tracked(cb));
         self.kv[shard].update_list_element_at_index_and_item::<ShardedMutatingLinearizer::<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, false>, CB>, false>(key, idx, new_list_element, new_item, shardcb)
@@ -629,13 +625,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, TrimListOp<K, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), TrimListOp{ key: *key, trim_length }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(TrimListOp{ key: *key, trim_length }, Tracked(cb));
         self.kv[shard].trim_list::<ShardedMutatingLinearizer::<K, I, L, TrimListOp<K, false>, CB>, false>(key, trim_length, shardcb)
@@ -651,13 +647,13 @@ where
         where
             CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, false>>,
         requires
-            self.valid(),
             cb.pre(self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
             !cb.namespaces().contains(self.shard_namespace()),
         ensures
             cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
         let shardcb = self.mut_linearizer(TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, Tracked(cb));
         self.kv[shard].trim_list_and_update_item::<ShardedMutatingLinearizer::<K, I, L, TrimListAndUpdateItemOp<K, I, false>, CB>, false>(key, trim_length, new_item, shardcb)

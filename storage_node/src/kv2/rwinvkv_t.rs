@@ -18,9 +18,7 @@ use super::spec_t::*;
 use super::crashinv_t::*;
 use super::rwinvkv_v::*;
 use super::impl_v::*;
-
-#[cfg(verus_keep_ghost)]
-use super::recover_v::recover_journal_then_kv;
+use super::recover_v::*;
 
 verus! {
 
