@@ -146,7 +146,8 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub closed spec fn valid(self) -> bool
+    #[verifier::type_invariant]
+    spec fn typeinv(self) -> bool
     {
         &&& self.inv@.constant().rwlock_id == self.lock.pred().id
         &&& self.inv@.constant().durable_id == self.lock.pred().powerpm_id
@@ -310,7 +311,6 @@ where
         ensures
             match result {
                 Ok(kv) => {
-                    &&& kv.valid()
                     &&& kv.id() == inv.constant().caller_id
                     &&& kv.namespace() == inv.namespace()
                 },
@@ -385,13 +385,12 @@ where
         where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
         requires 
-            self.valid(),
             cb.pre(self.id(), ReadItemOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), ReadItemOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadItemOp{ key: *key };
         let kv_internal = read_handle.borrow();
@@ -413,13 +412,12 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<Vec<K>, KvError>, Tracked<CB::Completion>))
         requires 
-            self.valid(),
             cb.pre(self.id(), GetKeysOp{ }),
             !cb.namespaces().contains(self.namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), GetKeysOp{ }, result.0),
     {
+        proof { use_type_invariant(self); }
         let read_handle = self.lock.acquire_read();
         let ghost op = GetKeysOp{ };
         let kv_internal = read_handle.borrow();
@@ -442,13 +440,12 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(I, Vec<L>), KvError>, Tracked<CB::Completion>))
         requires 
-            self.valid(),
             cb.pre(self.id(), ReadItemAndListOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), ReadItemAndListOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadItemAndListOp{ key: *key };
         let kv_internal = read_handle.borrow();
@@ -471,13 +468,12 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<Vec<L>, KvError>, Tracked<CB::Completion>))
         requires 
-            self.valid(),
             cb.pre(self.id(), ReadListOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), ReadListOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let read_handle = self.lock.acquire_read();
         let ghost op = ReadListOp{ key: *key };
         let kv_internal = read_handle.borrow();
@@ -500,13 +496,12 @@ where
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<usize, KvError>, Tracked<CB::Completion>))
         requires 
-            self.valid(),
             cb.pre(self.id(), GetListLengthOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
-            self.valid(),
             cb.post(result.1@, self.id(), GetListLengthOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let read_handle = self.lock.acquire_read();
         let ghost op = GetListLengthOp{ key: *key };
         let kv_internal = read_handle.borrow();
@@ -565,7 +560,6 @@ where
             Op: MutatingOperation<K, I, L>,
             CB: MutatingLinearizer<K, I, L, Op>,
         requires
-            self.valid(),
             old(kv_internal).kv.valid(),
             old(kv_internal).kv@.ps.valid(),
             old(kv_internal).kv@.ps.logical_range_gaps_policy ==
@@ -600,6 +594,7 @@ where
             self.lock.pred().inv(*kv_internal),
             cb.post(result.1@, self.id(), op, result.0),
     {
+        proof { use_type_invariant(self); }
         match tentative_result {
             Err(e) => {
                 let credit = create_open_invariant_credit();
@@ -661,12 +656,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = CreateOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
         let result = kv_internal.kv.tentatively_create(key, item);
@@ -684,12 +679,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
         let result = kv_internal.kv.tentatively_update_item(key, item);
@@ -706,12 +701,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
         requires
-            self.valid(),
             cb.pre(self.id(), DeleteOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), DeleteOp{ key: *key }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = DeleteOp::<K>{ key: *key };
         let result = kv_internal.kv.tentatively_delete(key);
@@ -729,12 +724,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListOp::<K, L, STRICT_SPACE>{ key: *key, new_list_element };
         let result = kv_internal.kv.tentatively_append_to_list(key, new_list_element);
@@ -753,12 +748,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L, STRICT_SPACE>{ key: *key, new_list_element, new_item: *new_item };
         let result = kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item);
@@ -777,12 +772,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexOp::<K, L, STRICT_SPACE>{ key: *key, idx, new_list_element };
         let result = kv_internal.kv.tentatively_update_list_element_at_index(key, idx, new_list_element);
@@ -802,12 +797,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L, STRICT_SPACE>{ key: *key, idx, new_list_element,
                                                                      new_item: *new_item };
@@ -828,12 +823,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, TrimListOp<K, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), TrimListOp{ key : *key, trim_length }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListOp::<K, STRICT_SPACE>{ key: *key, trim_length };
         let result = kv_internal.kv.tentatively_trim_list(key, trim_length);
@@ -852,12 +847,12 @@ where
         where
             CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, STRICT_SPACE>>,
         requires
-            self.valid(),
             cb.pre(self.id(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
         ensures 
             cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
+        proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListAndUpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, trim_length, new_item: *new_item };
         let result = kv_internal.kv.tentatively_trim_list_and_update_item(key, trim_length, new_item);

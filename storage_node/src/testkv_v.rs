@@ -1153,7 +1153,6 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
     assert(ckv0.namespace() == shard_namespace);
     assert(ckv0.id() == shard_res[0].id());
     assert(ckv0.id() == inv@.constant().shard_ids[0]);
-    assert(ckv0.valid());
     let skv = ShardedKvStore::<FileBackedPersistentMemoryRegion,
                                TestKey, TestItem, TestListElement>::start(
         vec![ckv0, ckv1], inv, Ghost(shard_namespace));

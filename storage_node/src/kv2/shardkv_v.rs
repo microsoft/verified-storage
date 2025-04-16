@@ -139,8 +139,6 @@ where
                 #[trigger] self.kv[shard].id() == self.inv@.constant().shard_ids[shard]
         &&& forall |shard| 0 <= shard < self.kv.len() ==>
                 #[trigger] self.kv[shard].namespace() == self.shard_namespace@
-        &&& forall |shard| 0 <= shard < self.kv.len() ==>
-                #[trigger] self.kv[shard].valid()
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
         &&& self.shard_namespace@ != self.inv@.namespace()
     }
@@ -301,7 +299,6 @@ where
             forall |shard: int| #![all_triggers] 0 <= shard < shard_kvs@.len() ==> {
                 &&& shard_kvs@[shard].namespace() == shard_namespace
                 &&& shard_kvs@[shard].id() == inv.constant().shard_ids[shard]
-                &&& shard_kvs@[shard].valid()
             },
             vstd::std_specs::hash::obeys_key_model::<K>(),
             shard_namespace != inv.namespace(),
