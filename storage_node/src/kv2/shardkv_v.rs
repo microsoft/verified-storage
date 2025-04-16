@@ -22,7 +22,17 @@ use super::recover_v::*;
 
 verus! {
 
-uninterp spec fn default_hash_of_key<K: Hash>(k: K) -> u64;
+pub uninterp spec fn default_hash_of_key<K: Hash>(k: K) -> u64;
+
+#[verifier::external_body]
+pub exec fn hash_key<K: Hash>(k: &K) -> (result: u64)
+    ensures
+        result == default_hash_of_key(*k)
+{
+    let mut hasher = DefaultHasher::new();
+    k.hash(&mut hasher);
+    hasher.finish()
+}
 
 spec fn shard_of_key<K: Hash>(k: K, nshards: int) -> int {
     default_hash_of_key(k) as int % nshards
@@ -157,14 +167,13 @@ where
         shard_of_key(k, self.nshard as int)
     }
 
-    #[verifier::external_body]
     exec fn key_to_shard(&self, k: &K) -> (result: usize)
         ensures
             result == self.shard_of_key(*k)
     {
-        let mut hasher = DefaultHasher::new();
-        k.hash(&mut hasher);
-        (hasher.finish() % self.nshard) as usize
+        proof { use_type_invariant(self); }
+        let h = hash_key(k);
+        (h % self.nshard) as usize
     }
 
     // This function is expected to be called after a crash.
