@@ -184,8 +184,6 @@ pub(super) open spec fn recover_journal_entries_bytes(bytes: Seq<u8>, sm: Journa
 }
 
 pub(super) open spec fn parse_journal_entry(entries_bytes: Seq<u8>) -> Option<(JournalEntry, int)>
-    decreases
-        entries_bytes.len()
 {
     if u64::spec_size_of() + u64::spec_size_of() > entries_bytes.len() {
         None
