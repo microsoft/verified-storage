@@ -3,6 +3,7 @@
 pub mod abort_v;
 pub mod commit_v;
 pub mod concurrentspec_t;
+pub mod crashinv_t;
 pub mod crud_v;
 pub mod elements_v;
 pub mod impl_t;
@@ -20,4 +21,3 @@ pub mod slots_v;
 pub mod spec_t;
 pub mod start_v;
 pub mod util_v;
-

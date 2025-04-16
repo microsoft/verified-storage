@@ -11,6 +11,7 @@ use super::concurrentspec_t::*;
 use super::impl_v::*;
 use super::spec_t::*;
 use super::recover_v::*;
+use super::crashinv_t::*;
 use vstd::pcm::frac::*;
 use vstd::rwlock::{RwLock, RwLockPredicate};
 use vstd::invariant::*;
@@ -212,21 +213,15 @@ where
             result.1@.constant().caller_id == id,
     {
         let (atomicpm, durable_res) = PersistentMemoryRegionAtomic::new(pm);
-        (atomicpm, Tracked(Self::invariant_recovery_axiom(id, durable_res@.id())))
-    }
-
-    #[verifier::external_body]
-    proof fn invariant_recovery_axiom(
-        caller_id: int,
-        durable_id: int
-    ) -> (tracked result: AtomicInvariant::<ConcurrentKvStoreInvPred,
-                                            ConcurrentKvStoreInvState<PM, K, I, L>,
-                                            ConcurrentKvStoreInvPred>)
-        ensures
-            result.constant().durable_id == durable_id,
-            result.constant().caller_id == caller_id,
-    {
-        unimplemented!()
+        let tracked crashinv = InvariantRecoverer::new(ConcurrentKvStoreInvPred{
+            rwlock_id: arbitrary(),
+            caller_id: id,
+            durable_id: durable_res@.id(),
+            pm_constants: arbitrary(),
+            ps: arbitrary(),
+        }, 0);
+        assume(crashinv.held_before_crash());
+        (atomicpm, Tracked(crashinv.get()))
     }
 
     pub exec fn setup(
