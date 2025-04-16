@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::pmem::crashinv_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
@@ -11,7 +12,6 @@ use super::concurrentspec_t::*;
 use super::impl_v::*;
 use super::spec_t::*;
 use super::recover_v::*;
-use super::crashinv_t::*;
 use super::rwinvkv_t::*;
 use vstd::pcm::frac::*;
 use vstd::rwlock::{RwLock, RwLockPredicate};

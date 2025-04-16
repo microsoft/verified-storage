@@ -5,6 +5,7 @@ pub mod windows_pmemfile_t;
 #[cfg(target_family = "unix")]
 pub mod mmap_pmemfile_t;
 
+pub mod crashinv_t;
 pub mod crc_t;
 pub mod hamming_t;
 pub mod hamming_v;

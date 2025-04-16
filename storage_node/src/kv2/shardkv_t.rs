@@ -11,13 +11,13 @@ use std::marker::PhantomData;
 use std::hash::{Hash, Hasher, DefaultHasher};
 use std::collections::VecDeque;
 
+use crate::pmem::crashinv_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
 
 use super::concurrentspec_t::*;
 use super::spec_t::*;
-use super::crashinv_t::*;
 use super::rwinvkv_t;
 use super::rwinvkv_t::*;
 use super::rwinvkv_v::*;

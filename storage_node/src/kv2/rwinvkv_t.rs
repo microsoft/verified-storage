@@ -9,13 +9,13 @@ use vstd::invariant::*;
 use std::sync::Arc;
 use std::hash::Hash;
 
+use crate::pmem::crashinv_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
 
 use super::concurrentspec_t::*;
 use super::spec_t::*;
-use super::crashinv_t::*;
 use super::rwinvkv_v::*;
 use super::impl_v::*;
 use super::recover_v::*;
@@ -407,7 +407,7 @@ exec fn start_with_inv<PM, K, I, L>(
         rwlock_auth: rwlock_auth,
         .. inv_old
     };
-
+
     let tracked inv = AtomicInvariant::<_, _, ConcurrentKvStoreInvPred>::new(inv_pred, inv_state, inv.namespace());
     let tracked inv = Arc::new(inv);
 
