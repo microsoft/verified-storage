@@ -22,11 +22,19 @@ pub open spec fn nat_seq_max(seq: Seq<nat>) -> nat
     } else if seq.len() == 0 {
         0
     } else {
-        let later_max = nat_seq_max(seq.drop_first());
-        if seq[0] >= later_max {
+        if seq.drop_first().len() < seq.len() {
+            let later_max = nat_seq_max(seq.drop_first());
+            if seq[0] >= later_max {
+                seq[0]
+            } else {
+                later_max
+            }
+        }
+        else {
+            // This case will never happen, but we need to include it
+            // to prove this function doesn't infinitely recursively
+            // descend (i.e., to prove termination)
             seq[0]
-        } else {
-            later_max
         }
     }
 }

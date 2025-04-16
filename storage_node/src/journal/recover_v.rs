@@ -218,9 +218,17 @@ pub(super) open spec fn parse_journal_entries(entries_bytes: Seq<u8>) -> Option<
         match parse_journal_entry(entries_bytes) {
             None => None,
             Some((entry, num_bytes)) =>
-                match parse_journal_entries(entries_bytes.skip(num_bytes)) {
-                    None => None,
-                    Some(remaining_journal) => Some(seq![entry] + remaining_journal),
+                if entries_bytes.skip(num_bytes).len() < entries_bytes.len() {
+                    match parse_journal_entries(entries_bytes.skip(num_bytes)) {
+                        None => None,
+                        Some(remaining_journal) => Some(seq![entry] + remaining_journal),
+                    }
+                }
+                else {
+                    // We need to include this case to ensure this
+                    // function doesn't infinitely recursively descend
+                    // (which it would if `num_bytes` were 0)
+                    None
                 },
         }
     }
