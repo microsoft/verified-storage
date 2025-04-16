@@ -12,6 +12,7 @@ use super::impl_v::*;
 use super::spec_t::*;
 use super::rwinvkv_t::*;
 use super::rwinvkv_v::*;
+use super::shardkv_t::*;
 use vstd::invariant::*;
 use vstd::pcm::frac::*;
 use std::sync::Arc;
@@ -21,18 +22,6 @@ use std::collections::VecDeque;
 use super::recover_v::*;
 
 verus! {
-
-pub uninterp spec fn default_hash_of_key<K: Hash>(k: K) -> u64;
-
-#[verifier::external_body]
-pub exec fn hash_key<K: Hash>(k: &K) -> (result: u64)
-    ensures
-        result == default_hash_of_key(*k)
-{
-    let mut hasher = DefaultHasher::new();
-    k.hash(&mut hasher);
-    hasher.finish()
-}
 
 spec fn shard_of_key<K: Hash>(k: K, nshards: int) -> int {
     default_hash_of_key(k) as int % nshards
@@ -155,14 +144,6 @@ where
         &&& self.shard_namespace@ != self.inv@.namespace()
     }
 
-    pub closed spec fn namespaces(self) -> Set<int> {
-        set![self.inv@.namespace(), self.shard_namespace@]
-    }
-
-    pub closed spec fn id(self) -> int {
-        self.inv@.constant().combined_id
-    }
-
     spec fn shard_of_key(self, k: K) -> int {
         shard_of_key(k, self.nshard as int)
     }
@@ -176,31 +157,87 @@ where
         (h % self.nshard) as usize
     }
 
-    // This function is expected to be called after a crash.
-    //
-    // The caller must be sure that there exist atomic invariants for each shard,
-    // with caller IDs specified in `shard_ids`, and before the crash, there was
-    // an atomic invariant for the ShardedKvStore with `combined_id` and
-    // `pm_constants`.
-    #[verifier::external_body]
-    pub proof fn recover_inv_checked(
-        shard_ids: Seq<int>,
-        combined_id: int,
-        pm_constants: PersistentMemoryConstants,
-        namespace: int,
-    ) -> (tracked result: AtomicInvariant::<ShardingPredicate,
-                                            ShardStates<K, I, L>,
-                                            ShardingPredicate>)
+    exec fn read_linearizer<Op, CB>(
+        &self,
+        op: Op,
+        Tracked(cb): Tracked<CB>,
+    ) -> (shardcb: Tracked<ShardedReadLinearizer::<K, I, L, Op, CB>>)
+        where
+            Op: SingleKeyReadOnlyOperation<K, I, L>,
+            CB: ReadLinearizer<K, I, L, Op>,
+        requires
+            cb.pre(self.id(), op),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
-            result.constant().shard_ids == shard_ids,
-            result.constant().combined_id == combined_id,
-            result.constant().pm_constants == pm_constants,
-            result.namespace() == namespace,
+            shardcb@.pre(self.kv[shard_of_key(op.key(), self.nshard as int)].id(), op),
+            !shardcb@.namespaces().contains(self.shard_namespace@),
+            forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
+                ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
-        unimplemented!()
+        proof { use_type_invariant(self); }
+        let Tracked(credit) = create_open_invariant_credit();
+        let tracked shardcb = ShardedReadLinearizer::<K, I, L, Op, CB>{
+            inv: self.inv.borrow().clone(),
+            lin: cb,
+            credit: credit,
+            shard: self.shard_of_key(op.key()),
+            __phantom: PhantomData,
+        };
+        Tracked(shardcb)
     }
 
-    pub exec fn setup(
+    exec fn mut_linearizer<Op, CB>(
+        &self,
+        op: Op,
+        Tracked(cb): Tracked<CB>,
+    ) -> (shardcb: Tracked<ShardedMutatingLinearizer::<K, I, L, Op, CB>>)
+        where
+            Op: SingleKeyMutatingOperation<K, I, L>,
+            CB: MutatingLinearizer<K, I, L, Op>,
+        requires
+            cb.pre(self.id(), op),
+            cb.namespaces().disjoint(self.namespaces()),
+            forall |old_state, new_state, result| #[trigger] op.result_valid(old_state, new_state, result) ==> {
+                &&& old_state.ps == new_state.ps
+                &&& old_state.pm_constants == new_state.pm_constants
+                &&& old_state.kv.logical_range_gaps_policy == new_state.kv.logical_range_gaps_policy
+                &&& forall |k| k != op.key() ==> old_state.kv[k] == #[trigger] new_state.kv[k]
+            },
+        ensures
+            shardcb@.pre(self.kv[shard_of_key(op.key(), self.nshard as int)].id(), op),
+            !shardcb@.namespaces().contains(self.shard_namespace@),
+            forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
+                ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
+    {
+        proof { use_type_invariant(self); }
+        let Tracked(credit) = create_open_invariant_credit();
+        let tracked shardcb = ShardedMutatingLinearizer::<K, I, L, Op, CB>{
+            inv: self.inv.borrow().clone(),
+            lin: cb,
+            credit: credit,
+            shard: self.shard_of_key(op.key()),
+            __phantom: PhantomData,
+        };
+        Tracked(shardcb)
+    }
+}
+
+impl<PM, K, I, L> ShardedKvStoreTrait<PM, K, I, L> for ShardedKvStore<PM, K, I, L>
+where
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    closed spec fn namespaces(self) -> Set<int> {
+        set![self.inv@.namespace(), self.shard_namespace@]
+    }
+
+    closed spec fn id(self) -> int {
+        self.inv@.constant().combined_id
+    }
+
+    exec fn setup(
         nshards: usize,
         Tracked(shard_res): Tracked<Map<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>>,
         Ghost(ps): Ghost<SetupParameters>,
@@ -208,25 +245,6 @@ where
         Ghost(namespace): Ghost<int>,
     ) -> (result: (Tracked<AtomicInvariant::<ShardingPredicate, ShardStates<K, I, L>, ShardingPredicate>>,
                    Tracked<GhostVar<ConcurrentKvStoreView::<K, I, L>>>))
-        requires
-            nshards >= 1,
-            forall |shard| 0 <= shard < nshards ==> #[trigger] shard_res.contains_key(shard),
-            forall |shard| #[trigger] shard_res.contains_key(shard) ==> {
-                &&& shard_res[shard]@.ps == ps
-                &&& shard_res[shard]@.pm_constants == pm_constants
-                &&& shard_res[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
-            }
-        ensures
-            result.0@.namespace() == namespace,
-            result.0@.constant().nshard() == nshards,
-            forall |shard| 0 <= shard < nshards ==>
-                #[trigger] result.0@.constant().shard_ids[shard] == shard_res[shard].id(),
-            result.1@.id() == result.0@.constant().combined_id,
-            result.1@@ == (ConcurrentKvStoreView::<K, I, L>{
-                ps: ps,
-                pm_constants: pm_constants,
-                kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
-            }),
     {
         let ghost shard_res_old = shard_res;
         let ghost combined_state = ConcurrentKvStoreView::<K, I, L>{
@@ -295,110 +313,29 @@ where
         (Tracked(inv), Tracked(combined_res))
     }
 
-    pub exec fn start(
+    exec fn start(
         shard_kvs: Vec<ConcurrentKvStore<PM, K, I, L>>,
-        Tracked(inv): Tracked<AtomicInvariant::<ShardingPredicate, ShardStates<K, I, L>, ShardingPredicate>>,
+        Tracked(inv): Tracked<Arc<AtomicInvariant::<ShardingPredicate, ShardStates<K, I, L>, ShardingPredicate>>>,
         Ghost(shard_namespace): Ghost<int>,
     ) -> (result: Self)
-        requires
-            shard_kvs@.len() >= 1,
-            shard_kvs@.len() == inv.constant().nshard(),
-            forall |shard: int| #![all_triggers] 0 <= shard < shard_kvs@.len() ==> {
-                &&& shard_kvs@[shard].namespace() == shard_namespace
-                &&& shard_kvs@[shard].id() == inv.constant().shard_ids[shard]
-            },
-            vstd::std_specs::hash::obeys_key_model::<K>(),
-            shard_namespace != inv.namespace(),
-        ensures
-            result.id() == inv.constant().combined_id,
     {
         let nshards = shard_kvs.len() as u64;
 
         Self{
             nshard: nshards,
             kv: shard_kvs,
-            inv: Tracked(Arc::new(inv)),
+            inv: Tracked(inv),
             shard_namespace: Ghost(shard_namespace),
         }
     }
 
-    #[inline(always)]
-    exec fn read_linearizer<Op, CB>(
-        &self,
-        op: Op,
-        Tracked(cb): Tracked<CB>,
-    ) -> (shardcb: Tracked<ShardedReadLinearizer::<K, I, L, Op, CB>>)
-        where
-            Op: SingleKeyReadOnlyOperation<K, I, L>,
-            CB: ReadLinearizer<K, I, L, Op>,
-        requires
-            cb.pre(self.id(), op),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            shardcb@.pre(self.kv[shard_of_key(op.key(), self.nshard as int)].id(), op),
-            !shardcb@.namespaces().contains(self.shard_namespace@),
-            forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
-                ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
-    {
-        proof { use_type_invariant(self); }
-        let Tracked(credit) = create_open_invariant_credit();
-        let tracked shardcb = ShardedReadLinearizer::<K, I, L, Op, CB>{
-            inv: self.inv.borrow().clone(),
-            lin: cb,
-            credit: credit,
-            shard: self.shard_of_key(op.key()),
-            __phantom: PhantomData,
-        };
-        Tracked(shardcb)
-    }
-
-    exec fn mut_linearizer<Op, CB>(
-        &self,
-        op: Op,
-        Tracked(cb): Tracked<CB>,
-    ) -> (shardcb: Tracked<ShardedMutatingLinearizer::<K, I, L, Op, CB>>)
-        where
-            Op: SingleKeyMutatingOperation<K, I, L>,
-            CB: MutatingLinearizer<K, I, L, Op>,
-        requires
-            cb.pre(self.id(), op),
-            cb.namespaces().disjoint(self.namespaces()),
-            forall |old_state, new_state, result| #[trigger] op.result_valid(old_state, new_state, result) ==> {
-                &&& old_state.ps == new_state.ps
-                &&& old_state.pm_constants == new_state.pm_constants
-                &&& old_state.kv.logical_range_gaps_policy == new_state.kv.logical_range_gaps_policy
-                &&& forall |k| k != op.key() ==> old_state.kv[k] == #[trigger] new_state.kv[k]
-            },
-        ensures
-            shardcb@.pre(self.kv[shard_of_key(op.key(), self.nshard as int)].id(), op),
-            !shardcb@.namespaces().contains(self.shard_namespace@),
-            forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
-                ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
-    {
-        proof { use_type_invariant(self); }
-        let Tracked(credit) = create_open_invariant_credit();
-        let tracked shardcb = ShardedMutatingLinearizer::<K, I, L, Op, CB>{
-            inv: self.inv.borrow().clone(),
-            lin: cb,
-            credit: credit,
-            shard: self.shard_of_key(op.key()),
-            __phantom: PhantomData,
-        };
-        Tracked(shardcb)
-    }
-
-    pub exec fn read_item<CB>(
+    exec fn read_item<CB>(
         &self,
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<I, KvError>, Tracked<CB::Completion>))
         where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
-        requires
-            cb.pre(self.id(), ReadItemOp{ key: *key }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), ReadItemOp{ key: *key }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -406,18 +343,13 @@ where
         self.kv[shard].read_item::<ShardedReadLinearizer::<K, I, L, ReadItemOp<K>, CB>>(key, shardcb)
     }
 
-    pub exec fn read_item_and_list<CB>(
+    exec fn read_item_and_list<CB>(
         &self,
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(I, Vec<L>), KvError>, Tracked<CB::Completion>))
         where
             CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>,
-        requires
-            cb.pre(self.id(), ReadItemAndListOp{ key: *key }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), ReadItemAndListOp{ key: *key }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -425,18 +357,13 @@ where
         self.kv[shard].read_item_and_list::<ShardedReadLinearizer::<K, I, L, ReadItemAndListOp<K>, CB>>(key, shardcb)
     }
 
-    pub exec fn read_list<CB>(
+    exec fn read_list<CB>(
         &self,
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<Vec<L>, KvError>, Tracked<CB::Completion>))
         where
             CB: ReadLinearizer<K, I, L, ReadListOp<K>>,
-        requires
-            cb.pre(self.id(), ReadListOp{ key: *key }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), ReadListOp{ key: *key }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -444,18 +371,13 @@ where
         self.kv[shard].read_list::<ShardedReadLinearizer::<K, I, L, ReadListOp<K>, CB>>(key, shardcb)
     }
 
-    pub exec fn get_list_length<CB>(
+    exec fn get_list_length<CB>(
         &self,
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<usize, KvError>, Tracked<CB::Completion>))
         where
             CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>,
-        requires
-            cb.pre(self.id(), GetListLengthOp{ key: *key }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), GetListLengthOp{ key: *key }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -463,9 +385,7 @@ where
         self.kv[shard].get_list_length::<ShardedReadLinearizer::<K, I, L, GetListLengthOp<K>, CB>>(key, shardcb)
     }
 
-    // XXX cannot linearize GetKeysOp without a more elaborate plan
-
-    pub exec fn create<CB>(
+    exec fn create<CB>(
         &self,
         key: &K,
         item: &I,
@@ -473,11 +393,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I, false>>,
-        requires
-            cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -485,7 +400,7 @@ where
         self.kv[shard].create::<ShardedMutatingLinearizer::<K, I, L, CreateOp<K, I, false>, CB>, false>(key, item, shardcb)
     }
 
-    pub exec fn update_item<CB>(
+    exec fn update_item<CB>(
         &self,
         key: &K,
         item: &I,
@@ -493,11 +408,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, false>>,
-        requires
-            cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -505,18 +415,13 @@ where
         self.kv[shard].update_item::<ShardedMutatingLinearizer::<K, I, L, UpdateItemOp<K, I, false>, CB>, false>(key, item, shardcb)
     }
 
-    pub exec fn delete<CB>(
+    exec fn delete<CB>(
         &self,
         key: &K,
         Tracked(cb): Tracked<CB>
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
-        requires
-            cb.pre(self.id(), DeleteOp{ key: *key }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), DeleteOp{ key: *key }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -524,7 +429,7 @@ where
         self.kv[shard].delete::<ShardedMutatingLinearizer::<K, I, L, DeleteOp<K>, CB>>(key, shardcb)
     }
 
-    pub exec fn append_to_list<CB>(
+    exec fn append_to_list<CB>(
         &self,
         key: &K,
         new_list_element: L,
@@ -532,11 +437,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, false>>,
-        requires
-            cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -544,7 +444,7 @@ where
         self.kv[shard].append_to_list::<ShardedMutatingLinearizer::<K, I, L, AppendToListOp<K, L, false>, CB>, false>(key, new_list_element, shardcb)
     }
 
-    pub exec fn append_to_list_and_update_item<CB>(
+    exec fn append_to_list_and_update_item<CB>(
         &self,
         key: &K,
         new_list_element: L,
@@ -553,11 +453,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, false>>,
-        requires
-            cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -565,7 +460,7 @@ where
         self.kv[shard].append_to_list_and_update_item::<ShardedMutatingLinearizer::<K, I, L, AppendToListAndUpdateItemOp<K, I, L, false>, CB>, false>(key, new_list_element, new_item, shardcb)
     }
 
-    pub exec fn update_list_element_at_index<CB>(
+    exec fn update_list_element_at_index<CB>(
         &self,
         key: &K,
         idx: usize,
@@ -574,11 +469,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, false>>,
-        requires
-            cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -586,7 +476,7 @@ where
         self.kv[shard].update_list_element_at_index::<ShardedMutatingLinearizer::<K, I, L, UpdateListElementAtIndexOp<K, L, false>, CB>, false>(key, idx, new_list_element, shardcb)
     }
 
-    pub exec fn update_list_element_at_index_and_item<CB>(
+    exec fn update_list_element_at_index_and_item<CB>(
         &self,
         key: &K,
         idx: usize,
@@ -596,11 +486,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, false>>,
-        requires
-            cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -608,7 +493,7 @@ where
         self.kv[shard].update_list_element_at_index_and_item::<ShardedMutatingLinearizer::<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, false>, CB>, false>(key, idx, new_list_element, new_item, shardcb)
     }
 
-    pub exec fn trim_list<CB>(
+    exec fn trim_list<CB>(
         &self,
         key: &K,
         trim_length: usize,
@@ -616,11 +501,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, TrimListOp<K, false>>,
-        requires
-            cb.pre(self.id(), TrimListOp{ key: *key, trim_length }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);
@@ -628,7 +508,7 @@ where
         self.kv[shard].trim_list::<ShardedMutatingLinearizer::<K, I, L, TrimListOp<K, false>, CB>, false>(key, trim_length, shardcb)
     }
 
-    pub exec fn trim_list_and_update_item<CB>(
+    exec fn trim_list_and_update_item<CB>(
         &self,
         key: &K,
         trim_length: usize,
@@ -637,11 +517,6 @@ where
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, false>>,
-        requires
-            cb.pre(self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }),
-            cb.namespaces().disjoint(self.namespaces()),
-        ensures
-            cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
         proof { use_type_invariant(self); }
         let shard = self.key_to_shard(key);

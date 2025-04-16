@@ -6,9 +6,10 @@ use crate::common::util_v::*;
 use crate::kv2::concurrentspec_t::*;
 use crate::kv2::impl_t::KvStore;
 use crate::kv2::rwkv_v::*;
-use crate::kv2::rwinvkv_t::ConcurrentKvStoreTrait;
-use crate::kv2::rwinvkv_t;
 use crate::kv2::rwinvkv_v;
+use crate::kv2::rwinvkv_t::*;
+use crate::kv2::shardkv_t;
+use crate::kv2::shardkv_t::*;
 use crate::kv2::shardkv_v::*;
 use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsPolicy, RecoveredKvStore,
                          SetupParameters};
@@ -36,6 +37,7 @@ use crate::pmem::power_t::*;
 use deps_hack::PmCopy;
 use deps_hack::rand::Rng;
 use std::hash::Hash;
+use std::collections::VecDeque;
 use vstd::pcm::*;
 use vstd::pervasive::runtime_assert;
 use vstd::pcm::frac::*;
@@ -1085,53 +1087,28 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
         Err(e) => { print_message("Failed to create file for kv store 1"); return Err(()); },
     };
 
+    assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
     assume(pm0.constants() == pm1.constants());
     let ghost pm_constants = pm0.constants();
-
-    assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
     let ghost shard_namespace = 5;
-    let mut ckv0;
-    let mut ckv1;
-    let mut gvar0;
-    let mut gvar1;
-    match rwinvkv_t::setup::<FileBackedPersistentMemoryRegion,
+    let ghost namespace = 6;
+
+    let mut pms = VecDeque::new();
+    pms.push_back(pm0);
+    pms.push_back(pm1);
+
+    let mut skv;
+    let tracked mut gvar;
+    match shardkv_t::setup::<FileBackedPersistentMemoryRegion,
                              TestKey, TestItem, TestListElement>(
-        pm0, &ps, Ghost(shard_namespace),
+        pms, &ps, Ghost(pm_constants), Ghost(namespace), Ghost(shard_namespace),
     ) {
-        Ok((ckv, gvar)) => {
-            ckv0 = ckv;
-            gvar0 = gvar;
-        },
-        Err(e) => { print_message("Failed to set up KV store 0"); return Err(()); },
-    }
-    match rwinvkv_t::setup::<FileBackedPersistentMemoryRegion,
-                             TestKey, TestItem, TestListElement>(
-        pm1, &ps, Ghost(shard_namespace),
-    ) {
-        Ok((ckv, gvar)) => {
-            ckv1 = ckv;
-            gvar1 = gvar;
+        Ok((skv0, gvar0)) => {
+            skv = skv0;
+            proof { gvar = gvar0; }
         },
         Err(e) => { print_message("Failed to set up KV store 1"); return Err(()); },
     }
-
-    let tracked mut shard_res = Map::<int, GhostVar<ConcurrentKvStoreView::<TestKey, TestItem, TestListElement>>>::tracked_empty();
-    proof {
-        shard_res.tracked_insert(0, gvar0.get());
-        shard_res.tracked_insert(1, gvar1.get());
-    }
-
-    let ghost namespace = 6;
-    let (inv, gvar) = ShardedKvStore::<FileBackedPersistentMemoryRegion,
-                                       TestKey, TestItem, TestListElement>::setup(
-        2, Tracked(shard_res), Ghost(ps), Ghost(pm_constants), Ghost(namespace));
-
-    assert(ckv0.namespace() == shard_namespace);
-    assert(ckv0.id() == shard_res[0].id());
-    assert(ckv0.id() == inv@.constant().shard_ids[0]);
-    let skv = ShardedKvStore::<FileBackedPersistentMemoryRegion,
-                               TestKey, TestItem, TestListElement>::start(
-        vec![ckv0, ckv1], inv, Ghost(shard_namespace));
 
     let key1 = TestKey { val: 0x33333333 };
     let key2 = TestKey { val: 0x44444444 };

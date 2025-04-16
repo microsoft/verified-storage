@@ -17,6 +17,7 @@ pub mod rwinvkv_t;
 pub mod rwinvkv_v;
 pub mod rwkv_v;
 pub mod setup_v;
+pub mod shardkv_t;
 pub mod shardkv_v;
 pub mod slots_v;
 pub mod spec_t;
