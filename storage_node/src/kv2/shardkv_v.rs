@@ -145,12 +145,8 @@ where
         &&& self.shard_namespace@ != self.inv@.namespace()
     }
 
-    pub closed spec fn namespace(self) -> int {
-        self.inv@.namespace()
-    }
-
-    pub closed spec fn shard_namespace(self) -> int {
-        self.shard_namespace@
+    pub closed spec fn namespaces(self) -> Set<int> {
+        set![self.inv@.namespace(), self.shard_namespace@]
     }
 
     pub closed spec fn id(self) -> int {
@@ -328,11 +324,10 @@ where
             CB: ReadLinearizer<K, I, L, Op>,
         requires
             cb.pre(self.id(), op),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             shardcb@.pre(self.kv[shard_of_key(op.key(), self.nshard as int)].id(), op),
-            !shardcb@.namespaces().contains(self.shard_namespace()),
+            !shardcb@.namespaces().contains(self.shard_namespace@),
             forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
                 ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
@@ -358,8 +353,7 @@ where
             CB: MutatingLinearizer<K, I, L, Op>,
         requires
             cb.pre(self.id(), op),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
             forall |old_state, new_state, result| #[trigger] op.result_valid(old_state, new_state, result) ==> {
                 &&& old_state.ps == new_state.ps
                 &&& old_state.pm_constants == new_state.pm_constants
@@ -368,7 +362,7 @@ where
             },
         ensures
             shardcb@.pre(self.kv[shard_of_key(op.key(), self.nshard as int)].id(), op),
-            !shardcb@.namespaces().contains(self.shard_namespace()),
+            !shardcb@.namespaces().contains(self.shard_namespace@),
             forall |complete, id, result| #[trigger] shardcb@.post(complete, id, op, result)
                 ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
@@ -393,8 +387,7 @@ where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
         requires
             cb.pre(self.id(), ReadItemOp{ key: *key }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), ReadItemOp{ key: *key }, result.0),
     {
@@ -413,8 +406,7 @@ where
             CB: ReadLinearizer<K, I, L, ReadItemAndListOp<K>>,
         requires
             cb.pre(self.id(), ReadItemAndListOp{ key: *key }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), ReadItemAndListOp{ key: *key }, result.0),
     {
@@ -433,8 +425,7 @@ where
             CB: ReadLinearizer<K, I, L, ReadListOp<K>>,
         requires
             cb.pre(self.id(), ReadListOp{ key: *key }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), ReadListOp{ key: *key }, result.0),
     {
@@ -453,8 +444,7 @@ where
             CB: ReadLinearizer<K, I, L, GetListLengthOp<K>>,
         requires
             cb.pre(self.id(), GetListLengthOp{ key: *key }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), GetListLengthOp{ key: *key }, result.0),
     {
@@ -476,8 +466,7 @@ where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I, false>>,
         requires
             cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0),
     {
@@ -497,8 +486,7 @@ where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, false>>,
         requires
             cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0),
     {
@@ -517,8 +505,7 @@ where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
         requires
             cb.pre(self.id(), DeleteOp{ key: *key }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), DeleteOp{ key: *key }, result.0),
     {
@@ -538,8 +525,7 @@ where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, false>>,
         requires
             cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0),
     {
@@ -560,8 +546,7 @@ where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, false>>,
         requires
             cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0),
     {
@@ -582,8 +567,7 @@ where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, false>>,
         requires
             cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0),
     {
@@ -605,8 +589,7 @@ where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, false>>,
         requires
             cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0),
     {
@@ -626,8 +609,7 @@ where
             CB: MutatingLinearizer<K, I, L, TrimListOp<K, false>>,
         requires
             cb.pre(self.id(), TrimListOp{ key: *key, trim_length }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0),
     {
@@ -648,8 +630,7 @@ where
             CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, false>>,
         requires
             cb.pre(self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }),
-            !cb.namespaces().contains(self.namespace()),
-            !cb.namespaces().contains(self.shard_namespace()),
+            cb.namespaces().disjoint(self.namespaces()),
         ensures
             cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0),
     {
