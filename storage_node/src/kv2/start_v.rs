@@ -60,6 +60,7 @@ where
                 Err(KvError::WrongKvStoreId{ requested_id, actual_id }) => {
                    &&& requested_id == kvstore_id
                    &&& actual_id == state.ps.kvstore_id
+                   &&& requested_id != actual_id
                 },
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
                 Err(_) => false,

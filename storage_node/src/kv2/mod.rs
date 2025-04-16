@@ -13,6 +13,7 @@ pub mod items;
 pub mod keys;
 pub mod lists;
 pub mod recover_v;
+pub mod rwinvkv_t;
 pub mod rwinvkv_v;
 pub mod rwkv_v;
 pub mod setup_v;

@@ -1,7 +1,27 @@
 use vstd::prelude::*;
 use vstd::invariant::*;
 
+use std::sync::Arc;
+
 verus! {
+    // hold_until_crash() represents the notion that an atomic invariant
+    // will keep holding until the system crashes.
+    //
+    // Effectively, keep_until_crash() simulates holding a reference on
+    // the Arc<>.  This ensures that the invariant cannot be destroyed,
+    // using inv.into_inner(), and therefore it will be sound after crash
+    // to assume InvariantRecoverer::held_before_crash() and thereby
+    // recover the invariant.
+    #[verifier::external_body]
+    pub proof fn hold_until_crash<Pred, State>(
+        tracked inv: Arc<AtomicInvariant<Pred, State, Pred>>
+    )
+        where
+            Pred: InvariantPredicate<Pred, State>
+    {
+        unimplemented!()
+    }
+
     pub struct InvariantRecoverer<Pred, State>
         where
             Pred: InvariantPredicate<Pred, State>
@@ -47,7 +67,7 @@ verus! {
         // caller gets to recover one invariant for every assume() of
         // held_before_crash().
         #[verifier::external_body]
-        pub proof fn get(self) -> (tracked result: AtomicInvariant::<Pred, State, Pred>)
+        pub proof fn get(tracked self) -> (tracked result: AtomicInvariant::<Pred, State, Pred>)
             requires
                 self.held_before_crash(),
             ensures
