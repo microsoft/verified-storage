@@ -12,7 +12,7 @@ use super::concurrentspec_t::*;
 use super::impl_v::*;
 use super::spec_t::*;
 use super::recover_v::*;
-use super::rwinvkv_t::*;
+use super::rwkv_t::*;
 use vstd::pcm::frac::*;
 use vstd::rwlock::{RwLock, RwLockPredicate};
 use vstd::invariant::*;

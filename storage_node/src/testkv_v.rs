@@ -5,8 +5,8 @@ use vstd::prelude::*;
 use crate::common::util_v::*;
 use crate::kv2::concurrentspec_t::*;
 use crate::kv2::impl_t::KvStore;
-use crate::kv2::rwinvkv_t::*;
-use crate::kv2::rwinvkv_v::*;
+use crate::kv2::rwkv_t::*;
+use crate::kv2::rwkv_v::*;
 use crate::kv2::shardkv_t;
 use crate::kv2::shardkv_t::*;
 use crate::kv2::shardkv_v::*;
@@ -835,8 +835,8 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     let ghost pm_constants = pm.constants();
     let mut ckv;
     let tracked mut gvar;
-    match crate::kv2::rwinvkv_t::setup::<FileBackedPersistentMemoryRegion, TestKey,
-                                         TestItem, TestListElement>(pm, &ps, Ghost(123)) {
+    match crate::kv2::rwkv_t::setup::<FileBackedPersistentMemoryRegion, TestKey,
+                                      TestItem, TestListElement>(pm, &ps, Ghost(123)) {
         Ok((ckv0, gvar0)) => {
             ckv = ckv0;
             proof { gvar = gvar0; }

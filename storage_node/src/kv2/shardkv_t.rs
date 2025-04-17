@@ -18,9 +18,9 @@ use crate::pmem::power_t::*;
 
 use super::concurrentspec_t::*;
 use super::spec_t::*;
-use super::rwinvkv_t;
-use super::rwinvkv_t::*;
-use super::rwinvkv_v::*;
+use super::rwkv_t;
+use super::rwkv_t::*;
+use super::rwkv_v::*;
 use super::shardkv_v::*;
 
 verus! {
@@ -351,7 +351,7 @@ pub exec fn setup<PM, K, I, L>(
         let pm = pms_mut.pop_front().unwrap();
         assert(pms_mut@ == pms@.subrange(idx as int + 1, pms@.len() as int));
 
-        match rwinvkv_t::setup::<PM, K, I, L>(pm, ps, Ghost(shard_namespace)) {
+        match rwkv_t::setup::<PM, K, I, L>(pm, ps, Ghost(shard_namespace)) {
             Err(e) => return Err(e),
             Ok((ckv, gvar)) => {
                 shard_kvs.push(ckv);
@@ -444,7 +444,7 @@ pub exec fn recover<PM, K, I, L>(
         // There was some shard ID before crash; it doesn't matter what it was.
         let ghost shard_id: int = arbitrary();
 
-        match rwinvkv_t::recover(pm, kvstore_id, Ghost(shard_id), Ghost(shard_namespace)) {
+        match rwkv_t::recover(pm, kvstore_id, Ghost(shard_id), Ghost(shard_namespace)) {
             Err(e) => return Err(e),
             Ok(ckv) => {
                 shard_kvs.push(ckv);

@@ -16,7 +16,7 @@ use crate::pmem::power_t::*;
 
 use super::concurrentspec_t::*;
 use super::spec_t::*;
-use super::rwinvkv_v::*;
+use super::rwkv_v::*;
 use super::impl_v::*;
 use super::recover_v::*;
 
