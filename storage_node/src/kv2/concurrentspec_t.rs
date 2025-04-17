@@ -6,7 +6,6 @@ use vstd::prelude::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::*;
-use crate::pmem::power_t::*;
 use std::hash::Hash;
 use super::spec_t::*;
 use vstd::pcm::frac::*;
@@ -134,33 +133,6 @@ pub trait SingleKeyMutatingOperation<K, I, L>: MutatingOperation<K, I, L>
 pub trait CanRecover<K, I, L>
 {
     spec fn recover(s: Seq<u8>) -> Option<RecoveredKvStore<K, I, L>>;
-}
-
-pub open spec fn grants_permission_to_mutate<Perm, K, I, L, Op, Kv>(
-    perm: Perm,
-    op: Op,
-    pm_constants: PersistentMemoryConstants,
-) -> bool
-where
-    Perm: CheckPermission<Seq<u8>>,
-    Op: MutatingOperation<K, I, L>,
-    Kv: CanRecover<K, I, L>,
-{
-    forall|s1: Seq<u8>, s2: Seq<u8>|
-    {
-        &&& Kv::recover(s1) matches Some(old_rkv)
-        &&& Kv::recover(s2) matches Some(new_rkv)
-        &&& {
-            ||| exists|result| {
-                    #[trigger] op.result_valid(
-                        ConcurrentKvStoreView::<K, I, L>{ ps: old_rkv.ps, pm_constants, kv: old_rkv.kv },
-                        ConcurrentKvStoreView::<K, I, L>{ ps: new_rkv.ps, pm_constants, kv: new_rkv.kv },
-                        result
-                    )
-                }
-            ||| old_rkv == new_rkv
-        }
-    } ==> #[trigger] perm.check_permission(s1, s2)
 }
 
 pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
