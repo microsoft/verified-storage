@@ -65,17 +65,7 @@ pub(super) open spec fn apply_journal_entries(bytes: Seq<u8>, entries: Seq<Journ
     else {
         match apply_journal_entry(bytes, entries[0], sm) {
             None => None,
-            Some(updated_bytes) => 
-                if entries.skip(1).len() < entries.len() {
-                    apply_journal_entries(updated_bytes, entries.skip(1), sm)
-                }
-                else {
-                    // This case will never happen, but we need to
-                    // include it to prove this function doesn't
-                    // infinitely recursively descend (i.e., to prove
-                    // termination)
-                    None
-                },
+            Some(updated_bytes) => apply_journal_entries(updated_bytes, entries.skip(1), sm),
         }
     }
 }
