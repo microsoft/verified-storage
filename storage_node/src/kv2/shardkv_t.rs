@@ -323,12 +323,11 @@ pub exec fn setup<PM, K, I, L>(
     let mut shard_kvs: Vec<ConcurrentKvStore::<PM, K, I, L>> = Vec::new();
     let tracked mut shard_res = Map::<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>::tracked_empty();
 
-    assert(pms_mut@ == pms@.subrange(0, pms@.len() as int));
     for idx in 0..nshards
         invariant
             nshards > 0,
             pms@.len() == nshards,
-            pms_mut@ == pms@.subrange(idx as int, pms@.len() as int),
+            pms_mut@ =~= pms@.subrange(idx as int, pms@.len() as int),
             forall |i| #![all_triggers] 0 <= i < pms@.len() ==> {
                 &&& pms@[i].inv()
                 &&& pms@[i].constants() == pm_constants
@@ -349,7 +348,6 @@ pub exec fn setup<PM, K, I, L>(
         // Force trigger.
         assert(pms@[idx as int].inv());
         let pm = pms_mut.pop_front().unwrap();
-        assert(pms_mut@ == pms@.subrange(idx as int + 1, pms@.len() as int));
 
         match rwkv_t::setup::<PM, K, I, L>(pm, ps, Ghost(shard_namespace)) {
             Err(e) => return Err(e),
@@ -417,12 +415,11 @@ pub exec fn recover<PM, K, I, L>(
     let mut shard_kvs: Vec<ConcurrentKvStore::<PM, K, I, L>> = Vec::new();
     let ghost mut shard_ids = Seq::empty();
 
-    assert(pms_mut@ == pms@.subrange(0, pms@.len() as int));
     for idx in 0..nshards
         invariant
             nshards > 0,
             pms@.len() == nshards,
-            pms_mut@ == pms@.subrange(idx as int, pms@.len() as int),
+            pms_mut@ =~= pms@.subrange(idx as int, pms@.len() as int),
             forall |i| #![all_triggers] 0 <= i < pms@.len() ==> {
                 &&& pms@[i].inv()
                 &&& pms@[i].constants() == pm_constants
@@ -439,7 +436,6 @@ pub exec fn recover<PM, K, I, L>(
         // Force trigger.
         assert(pms@[idx as int].inv());
         let pm = pms_mut.pop_front().unwrap();
-        assert(pms_mut@ == pms@.subrange(idx as int + 1, pms@.len() as int));
 
         // There was some shard ID before crash; it doesn't matter what it was.
         let ghost shard_id: int = arbitrary();

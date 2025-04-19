@@ -307,7 +307,7 @@ where
             }
         }
 
-        assert(ShardingPredicate::inv(pred, shardstates));
+        // assert(ShardingPredicate::inv(pred, shardstates));
         let tracked inv = AtomicInvariant::<_, _, ShardingPredicate>::new(pred, shardstates, namespace);
 
         (Tracked(inv), Tracked(combined_res))
@@ -578,12 +578,10 @@ impl<K, I, L, Op, Lin> ReadLinearizer<K, I, L, Op> for ShardedReadLinearizer<K, 
 
             op.only_key_matters(r@, inner.combined@, result);
 
-            assert(op.result_valid(inner.combined@, result));
+            // assert(op.result_valid(inner.combined@, result));
             completion = self.lin.apply(op, result, &inner.combined);
-            assert(self.lin.post(completion, self.inv.constant().combined_id, op, result));
         });
-        assert(self.lin.post(completion, self.inv.constant().combined_id, op, result));
-        assert(self.post(completion, r.id(), op, result));
+        // assert(self.post(completion, r.id(), op, result));
         completion
     }
 }
@@ -681,23 +679,18 @@ impl<K, I, L, Op, Lin> MutatingLinearizer<K, I, L, Op> for ShardedMutatingLinear
             }
 
             r.update(&mut shard.kv_state, new_state);
-            assert(keys_match_shard(shard.kv_state@.kv, self.shard, self.inv.constant().nshard()));
+            // assert(keys_match_shard(shard.kv_state@.kv, self.shard, self.inv.constant().nshard()));
 
             op.only_key_matters(old_shard_ckv, old_combined_ckv,
                                 new_shard_ckv, new_combined_ckv, result);
 
             completion = self.lin.apply(op, new_combined_ckv, result, &mut inner.combined);
-            assert(self.lin.post(completion, self.inv.constant().combined_id, op, result));
-            assert(shard.valid(self.inv.constant().shard_ids[self.shard],
-                               self.shard,
-                               self.inv.constant().nshard(),
-                               inner.combined@));
+            // assert(self.lin.post(completion, self.inv.constant().combined_id, op, result));
             inner.shards.tracked_insert(self.shard, shard);
 
-            assert(ShardingPredicate::inv(self.inv.constant(), inner));
+            // assert(ShardingPredicate::inv(self.inv.constant(), inner));
         });
-        assert(self.lin.post(completion, self.inv.constant().combined_id, op, result));
-        assert(self.post(completion, r.id(), op, result));
+        // assert(self.post(completion, r.id(), op, result));
         completion
     }
 }
