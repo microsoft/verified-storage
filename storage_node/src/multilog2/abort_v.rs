@@ -4,7 +4,7 @@ use builtin_macros::*;
 use vstd::invariant;
 use vstd::prelude::*;
 
-use super::impl_v::UntrustedMultilogImpl;
+use super::impl_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
@@ -96,7 +96,6 @@ impl UntrustedMultilogImpl {
     {
         self.revert_log_info_to_durable();
         self.logs_modified.clear();
-        self.mv = Ghost(self.mv@.abort());
 
         proof {
             self.lemma_inv_implies_can_only_crash_as(powerpm_region);

@@ -13,8 +13,8 @@ verus! {
 #[derive(Debug)]
 pub enum MultilogErr {
     CantSetupWithFewerThanOneRegion,
-    CantSetupWithMoreThanMaxRegions { max_num_regions: usize },
-    CapacityMustBePositive { which_log: usize },
+    CantSetupWithMoreThanMaxRegions { max_num_regions: u64 },
+    CapacityMustBePositive { which_log: u64 },
     SpaceNeededForSetupExceedsMax,
     InsufficientSpaceForSetup { required_space: u64 },
     StartFailedDueToMultilogIDMismatch { multilog_id_expected: u128, multilog_id_read: u128 },

@@ -4,7 +4,7 @@ use builtin_macros::*;
 use vstd::invariant;
 use vstd::prelude::*;
 
-use super::impl_v::UntrustedMultilogImpl;
+use super::impl_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
@@ -163,11 +163,10 @@ impl UntrustedMultilogImpl {
                     0 <= i < which_log ==> {
                         let info = log_infos@[i];
                         let durable = state.state.logs[i];
-                        &&& Self::inv_durable_metadata(info, durable)
-                        &&& Self::inv_tentative_metadata(info, durable)
-                        &&& info.log_area_start == rm.all_log_constants[i].log_area_start
-                        &&& info.log_area_len ==
-                            rm.all_log_constants[i].log_area_end - rm.all_log_constants[i].log_area_start
+//                        &&& Self::inv_durable_metadata(info, durable)
+//                        &&& Self::inv_tentative_metadata(info, durable)
+                        &&& info.log_area_start == rm.logs[i].c.log_area_start
+                        &&& info.log_area_len == rm.logs[i].c.log_area_end - rm.logs[i].c.log_area_start
                     },
                 rm.corresponds(pm_region@.durable_state),
                 rm.vm == vm,
@@ -183,7 +182,7 @@ impl UntrustedMultilogImpl {
 
             let row_addr = sm.log_metadata_table.row_index_to_addr(which_log as u64);
             assert(recover_single_log_constants(pm_region@.durable_state, which_log as int, sm)
-                == Some(rm.all_log_constants[which_log as int]));
+                == Some(rm.logs[which_log as int].c));
             let c = match exec_recover_object::<PMRegion, SingleLogConstants>(
                 pm_region,
                 row_addr + sm.log_metadata_row_constants_addr,
@@ -194,7 +193,7 @@ impl UntrustedMultilogImpl {
                     return Err(MultilogErr::CRCMismatch);
                 },
             };
-            assert(c == rm.all_log_constants[which_log as int]);
+            assert(c == rm.logs[which_log as int].c);
 
             let which_dynamic_metadata = mask & (1u64 << which_log) != 0;
             let dynamic_metadata_addr = if which_dynamic_metadata {
@@ -212,7 +211,7 @@ impl UntrustedMultilogImpl {
                 which_log as int,
                 sm,
                 mask,
-            ) == Some(rm.all_log_dynamic_metadata[which_log as int]));
+            ) == Some(rm.logs[which_log as int].dynamic_metadata));
             let d = match exec_recover_object::<PMRegion, SingleLogDynamicMetadata>(
                 pm_region,
                 row_addr + dynamic_metadata_addr,
@@ -223,28 +222,31 @@ impl UntrustedMultilogImpl {
                     return Err(MultilogErr::CRCMismatch);
                 },
             };
-            assert(d == rm.all_log_dynamic_metadata[which_log as int]);
+            assert(d == rm.logs[which_log as int].dynamic_metadata);
 
             let log_area_len = c.log_area_end - c.log_area_start;
             let head_addr = c.log_area_start + (d.head % (log_area_len as u128)) as u64;
             assert(head_addr == c.log_area_start as int + (d.head as int % log_area_len as int));
             let log_info = LogInfo {
+                which_log: Ghost(which_log),
                 log_area_start: c.log_area_start,
                 log_area_end: c.log_area_end,
                 log_area_len,
                 durable_head: d.head,
                 durable_head_addr: head_addr,
                 durable_log_length: d.length,
+                durable_log: Ghost(rm.logs[which_log as int].log),
                 tentative_head: d.head,
                 tentative_head_addr: head_addr,
                 tentative_log_length: d.length,
+                tentative_log: Ghost(rm.logs[which_log as int].log),
             };
 
             let ghost durable = state.state.logs[which_log as int];
             assert(log_info.log_area_start
-                == rm.all_log_constants[which_log as int].log_area_start);
-            assert(log_info.log_area_len == rm.all_log_constants[which_log as int].log_area_end
-                - rm.all_log_constants[which_log as int].log_area_start);
+                == rm.logs[which_log as int].c.log_area_start);
+            assert(log_info.log_area_len == rm.logs[which_log as int].c.log_area_end
+                - rm.logs[which_log as int].c.log_area_start);
             assert(log_info.durable_head == durable.head);
             assert(log_info.durable_log_length == durable.log.len());
             assert(log_info.durable_head_addr == log_info.log_area_start + (durable.head % (
@@ -268,7 +270,6 @@ impl UntrustedMultilogImpl {
             durable_mask_cdb: mask_cdb,
             durable_mask: mask,
             rm: Ghost(rm),
-            mv: Ghost(mv),
         };
 
         assert forall|i: int|

@@ -2,7 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::inv_v::*;
+//use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -11,6 +11,28 @@ use crate::pmem::power_t::*;
 
 verus! {
 
+#[verifier::ext_equal]
+pub(super) enum MultilogStatus {
+    Quiescent,
+}
+
+#[verifier::ext_equal]
+pub(super) struct LogInfo {
+    pub which_log: Ghost<u64>,
+    pub log_area_start: u64,
+    pub log_area_end: u64,
+    pub log_area_len: u64,
+    pub durable_head: u128,
+    pub durable_head_addr: u64,
+    pub durable_log_length: u64,
+    pub durable_log: Ghost<Seq<u8>>,
+    pub tentative_head: u128,
+    pub tentative_head_addr: u64,
+    pub tentative_log_length: u64,
+    pub tentative_log: Ghost<Seq<u8>>,
+}
+
+#[verifier::ext_equal]
 pub struct UntrustedMultilogImpl {
     pub(super) status: Ghost<MultilogStatus>,
     pub(super) vm: Ghost<MultilogVersionMetadata>,
@@ -20,7 +42,6 @@ pub struct UntrustedMultilogImpl {
     pub(super) durable_mask_cdb: bool,
     pub(super) durable_mask: u64,
     pub(super) rm: Ghost<MultilogRecoveryMapping>,
-    pub(super) mv: Ghost<MultilogView>,
 }
 
 impl UntrustedMultilogImpl {
@@ -34,7 +55,7 @@ impl UntrustedMultilogImpl {
     // This function specifies how to view the in-memory state of
     // `self` as an abstract log state.
     pub open(super) spec fn view(&self) -> MultilogView {
-        self.mv@
+        self.internal_view()@
     }
 
     // The `tentatively_append` method tentatively appends
@@ -53,7 +74,7 @@ impl UntrustedMultilogImpl {
     pub exec fn tentatively_append<Perm, PMRegion>(
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: usize,
+        which_log: u64,
         bytes_to_append: &[u8],
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u128, MultilogErr>) where
@@ -103,7 +124,7 @@ impl UntrustedMultilogImpl {
     pub exec fn tentatively_advance_head<Perm, PMRegion>(
         &mut self,
         powerpm_region: &mut PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: usize,
+        which_log: u64,
         new_head: u128,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), MultilogErr>) where
@@ -162,7 +183,7 @@ impl UntrustedMultilogImpl {
     pub exec fn read<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: usize,
+        which_log: u64,
         pos: u128,
         len: u64,
     ) -> (result: Result<Vec<u8>, MultilogErr>) where
@@ -230,7 +251,7 @@ impl UntrustedMultilogImpl {
     pub exec fn get_head_tail_and_capacity<Perm, PMRegion>(
         &self,
         powerpm_region: &PoWERPersistentMemoryRegion<Perm, PMRegion>,
-        which_log: usize,
+        which_log: u64,
     ) -> (result: Result<(u128, u128, u64), MultilogErr>) where
         Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion,

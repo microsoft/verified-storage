@@ -27,7 +27,7 @@ pub const MULTILOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 
 // The maximum number of logs supported, limited by the number of
 // bits in the mask.
-pub const MAX_NUM_LOGS: usize = 64;
+pub const MAX_NUM_LOGS: u64 = 64;
 
 #[repr(C)]
 #[derive(PmCopy, Copy)]
@@ -75,15 +75,20 @@ pub(super) struct MultilogStaticMetadata {
 }
 
 #[verifier::ext_equal]
+pub(super) struct LogRecoveryMapping {
+    pub which_log: int,
+    pub c: SingleLogConstants,
+    pub dynamic_metadata: SingleLogDynamicMetadata,
+    pub log: Seq<u8>,
+}
+
+#[verifier::ext_equal]
 pub(super) struct MultilogRecoveryMapping {
     pub vm: MultilogVersionMetadata,
     pub sm: MultilogStaticMetadata,
     pub mask_cdb: bool,
     pub mask: u64,
-    pub all_log_constants: Seq<SingleLogConstants>,
-    pub all_log_dynamic_metadata: Seq<SingleLogDynamicMetadata>,
-    pub c: MultilogConstants,
-    pub state: AtomicMultilogState,
+    pub logs: Seq<LogRecoveryMapping>,
 }
 
 pub(super) open spec fn recover_version_metadata(s: Seq<u8>) -> Option<MultilogVersionMetadata> {
@@ -221,6 +226,43 @@ pub(super) open spec fn extract_log_given_metadata(
     extract_log_given_metadata_values(s, c.log_area_start as int, c.log_area_end as int, d.length as int, d.head as int)
 }
 
+impl View for LogRecoveryMapping {
+    type V = AtomicLogState;
+
+    open(super) spec fn view(&self) -> AtomicLogState {
+        AtomicLogState {
+            head: self.dynamic_metadata.head as int,
+            log: self.log,
+        }
+    }
+}
+
+impl LogRecoveryMapping {
+    pub(super) open(super) spec fn valid(&self, which_log: int, sm: MultilogStaticMetadata) -> bool
+    {
+        &&& 0 <= self.which_log < MAX_NUM_LOGS
+        &&& self.which_log == which_log
+        &&& sm.log_metadata_table.end <= self.c.log_area_start < self.c.log_area_end
+        &&& self.log.len() == self.dynamic_metadata.length
+        &&& self.log.len() <= self.c.log_area_end - self.c.log_area_start
+    }
+
+    pub(super) open(super) spec fn storage_state_corresponds(
+        &self,
+        s: Seq<u8>,
+        which_log: int,
+        which_dynamic_metadata: bool,
+        sm: MultilogStaticMetadata
+    ) -> bool
+    {
+        &&& Some(self.c) == recover_single_log_constants(s, which_log, sm)
+        &&& self.c.log_area_end <= s.len()
+        &&& Some(self.dynamic_metadata) ==
+            recover_single_log_dynamic_metadata_given_version(s, which_log, sm, which_dynamic_metadata)
+        &&& self.log == extract_log_given_metadata(s, self.c, self.dynamic_metadata)
+    }
+}
+
 pub(super) open spec fn recover_state(s: Seq<u8>) -> Option<RecoveredMultilogState> {
     match MultilogRecoveryMapping::new(s) {
         Some(rm) => Some(rm@),
@@ -232,7 +274,17 @@ impl View for MultilogRecoveryMapping {
     type V = RecoveredMultilogState;
 
     open(super) spec fn view(&self) -> RecoveredMultilogState {
-        RecoveredMultilogState { c: self.c, state: self.state }
+        let c = MultilogConstants{
+            id: self.sm.id,
+            capacities: Seq::<u64>::new(
+                self.sm.num_logs as nat,
+                |i: int| (self.logs[i].c.log_area_end - self.logs[i].c.log_area_start) as u64
+            ),
+        };
+        let state = AtomicMultilogState {
+            logs: Seq::<AtomicLogState>::new(self.sm.num_logs as nat, |i: int| self.logs[i]@)
+        };
+        RecoveredMultilogState { c, state }
     }
 }
 
@@ -257,66 +309,18 @@ impl MultilogRecoveryMapping {
         &&& self.sm.mask1_crc_addr >= self.sm.mask1_addr + u64::spec_size_of()
         &&& self.sm.log_metadata_table.start >= self.sm.mask1_crc_addr + u64::spec_size_of()
         &&& self.sm.log_metadata_table.end >= self.sm.log_metadata_table.start
-        &&& forall|i: int| #![trigger self.all_log_constants[i]]
-            self.sm.log_metadata_table.end <= self.all_log_constants[i].log_area_start
         &&& forall|i: int, j: int| #[trigger] distinct_log_indices(i, j, self.sm.num_logs as int) ==> {
-                ||| self.all_log_constants[i].log_area_end <= self.all_log_constants[j].log_area_start
-                ||| self.all_log_constants[j].log_area_end <= self.all_log_constants[i].log_area_start
+            ||| self.logs[i].c.log_area_end <= self.logs[j].c.log_area_start
+            ||| self.logs[j].c.log_area_end <= self.logs[i].c.log_area_start
         }
-            /*
-        &&& forall|i: int, j: int| #![trigger self.all_log_constants[i], self.all_log_constants[j]]
-            0 <= i < self.sm.num_logs && 0 <= j < self.sm.num_logs && i != j ==> {
-                ||| self.all_log_constants[i].log_area_end <= self.all_log_constants[j].log_area_start
-                ||| self.all_log_constants[j].log_area_end <= self.all_log_constants[i].log_area_start
-            }
-            */
-    }
-
-    pub(super) open spec fn constants_correspond(self) -> bool {
-        &&& self.c.id == self.sm.id
-        &&& self.c.capacities.len() == self.sm.num_logs
-        &&& forall|i: int|
-            #![trigger self.c.capacities[i]]
-            #![trigger self.all_log_constants[i]]
-            0 <= i < self.sm.num_logs ==> {
-                &&& self.c.capacities[i] == self.all_log_constants[i].log_area_end
-                    - self.all_log_constants[i].log_area_start
-                &&& self.c.capacities[i] > 0
-            }
-    }
-
-    pub(super) open spec fn state_corresponds_to_dynamic_metadata(self) -> bool {
-        forall|which_log: int|
-            #![trigger self.all_log_dynamic_metadata[which_log]]
-            #![trigger self.state.logs[which_log]]
-            0 <= which_log < self.sm.num_logs ==> {
-                let log_constants = self.all_log_constants[which_log];
-                let log_area_len = log_constants.log_area_end - log_constants.log_area_start;
-                let log_dynamic_metadata = self.all_log_dynamic_metadata[which_log];
-                let head = self.state.logs[which_log].head;
-                let log = self.state.logs[which_log].log;
-                &&& head == log_dynamic_metadata.head
-                &&& log.len() == log_dynamic_metadata.length
-                &&& log.len() <= log_area_len
-            }
-    }
-
-    pub(super) open spec fn storage_state_corresponds(self, s: Seq<u8>) -> bool {
-        forall|which_log: int| #![trigger self.state.logs[which_log]]
-            0 <= which_log < self.sm.num_logs ==>
-                self.state.logs[which_log].log == extract_log_given_metadata(
-                    s, self.all_log_constants[which_log], self.all_log_dynamic_metadata[which_log]
-                )
     }
 
     pub(super) open spec fn valid(self) -> bool {
         &&& self.parts_dont_overlap()
         &&& validate_version_metadata(self.vm)
         &&& validate_static_metadata(self.sm, self.vm)
-        &&& self.sm.num_logs == self.all_log_constants.len() == self.all_log_dynamic_metadata.len()
-            == self.state.logs.len()
-        &&& self.constants_correspond()
-        &&& self.state_corresponds_to_dynamic_metadata()
+        &&& self.sm.num_logs == self.logs.len()
+        &&& forall|i: int| 0 <= i < self.sm.num_logs ==> (#[trigger] self.logs[i]).valid(i, self.sm)
     }
 
     pub(super) open spec fn corresponds(self, s: Seq<u8>) -> bool {
@@ -325,20 +329,8 @@ impl MultilogRecoveryMapping {
         &&& recover_static_metadata(s, self.vm) == Some(self.sm)
         &&& recover_mask_cdb(s, self.sm) == Some(self.mask_cdb)
         &&& recover_mask_given_cdb(s, self.sm, self.mask_cdb) == Some(self.mask)
-        &&& forall|i: int| #![trigger self.all_log_constants[i]]
-            0 <= i < self.sm.num_logs ==> self.all_log_constants[i].log_area_end <= s.len()
-        &&& forall|i: int|
-            0 <= i < self.sm.num_logs ==> recover_single_log_constants(s, i, self.sm) == Some(
-                #[trigger] self.all_log_constants[i],
-            )
-        &&& forall|i: int|
-            0 <= i < self.sm.num_logs ==> recover_single_log_dynamic_metadata_given_mask(
-                s,
-                i,
-                self.sm,
-                self.mask,
-            ) == Some(#[trigger] self.all_log_dynamic_metadata[i])
-        &&& self.storage_state_corresponds(s)
+        &&& forall|i: int| 0 <= i < self.sm.num_logs ==>
+            (#[trigger] self.logs[i]).storage_state_corresponds(s, i, mask_bit_set(self.mask, i as u64), self.sm)
     }
 
     pub(super) proof fn lemma_uniqueness(self, other: Self, s: Seq<u8>)
@@ -348,17 +340,6 @@ impl MultilogRecoveryMapping {
         ensures
             self == other,
     {
-        assert(self.all_log_constants =~= other.all_log_constants);
-        assert(self.all_log_dynamic_metadata =~= other.all_log_dynamic_metadata);
-        assert(self.c =~= other.c);
-        assert(self.state =~= other.state) by {
-            assert forall|i: int| 0 <= i < self.sm.num_logs implies self.state.logs[i]
-                == other.state.logs[i] by {
-                assert(self.all_log_constants[i] == other.all_log_constants[i]);
-                assert(self.all_log_dynamic_metadata[i] == other.all_log_dynamic_metadata[i]);
-                assert(self.state.logs[i] =~= other.state.logs[i]);
-            }
-        }
         assert(self =~= other);
     }
 

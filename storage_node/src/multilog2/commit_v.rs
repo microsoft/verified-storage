@@ -6,7 +6,7 @@ use builtin_macros::*;
 use vstd::invariant;
 use vstd::prelude::*;
 
-use super::impl_v::UntrustedMultilogImpl;
+use super::impl_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
@@ -106,12 +106,13 @@ impl UntrustedMultilogImpl {
                     mask_bit_set(new_mask, i) == mask_bit_set(self.durable_mask, i),
         {
             let which_log = self.logs_modified[pos];
-            let old_value = (self.durable_mask & (1u64 << which_log as u64)) != 0;
-            new_mask = bit_set_or_clear(new_mask, which_log as u64, !old_value);
+            let old_value = (self.durable_mask & (1u64 << which_log)) != 0;
+            new_mask = bit_set_or_clear(new_mask, which_log, !old_value);
         }
         new_mask
     }
 
+    /*
     proof fn lemma_updating_inactive_dynamic_metadata_doesnt_affect_recovery(
         rm: MultilogRecoveryMapping,
         s1: Seq<u8>,
@@ -174,7 +175,7 @@ impl UntrustedMultilogImpl {
         which_log: u64,
     )
         requires
-            self.inv_internal(),
+            self.internal_view().inv_internal(),
             self.rm@.corresponds(old_durable_state),
             self.inv_state_correspondence(old_durable_state, old_read_state),
             old_durable_state.len() == old_read_state.len(),
@@ -421,6 +422,8 @@ impl UntrustedMultilogImpl {
                 head: self.log_infos@[which_log as int].tentative_head,
             }),
     {
+        assume(false);
+        /*
         broadcast use group_update_bytes_effect;
         broadcast use group_validate_row_addr;
         broadcast use lemma_row_index_to_addr_is_valid;
@@ -527,6 +530,7 @@ impl UntrustedMultilogImpl {
                 which_log
             );
         }
+        */
     }
 
     exec fn update_all_log_dynamic_metadata<Perm, PMRegion>(
@@ -600,6 +604,7 @@ impl UntrustedMultilogImpl {
             self.log_infos[which_log] = new_info;
         }
     }
+    */
 
     pub exec fn commit<Perm, PMRegion>(
         &mut self,
@@ -623,9 +628,11 @@ impl UntrustedMultilogImpl {
             result is Ok,
             self@ == old(self)@.commit(),
     {
+        /*
         self.advance_log_info_to_tentative();
         self.logs_modified.clear();
         self.mv = Ghost(self.mv@.commit());
+        */
 
         assume(false);
         Err(MultilogErr::NotYetImplemented)

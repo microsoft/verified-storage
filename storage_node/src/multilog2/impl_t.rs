@@ -253,7 +253,7 @@ impl<PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
     // that crashes will undo the appends, and reads aren't
     // allowed in the tentative part of the log. See `README.md` for
     // more documentation and examples of use.
-    pub exec fn tentatively_append(&mut self, which_log: usize, bytes_to_append: &[u8]) -> (result:
+    pub exec fn tentatively_append(&mut self, which_log: u64, bytes_to_append: &[u8]) -> (result:
         Result<u128, MultilogErr>)
         requires
             old(self).valid(),
@@ -301,7 +301,7 @@ impl<PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
         )
     }
 
-    pub exec fn tentatively_advance_head(&mut self, which_log: usize, new_head: u128) -> (result:
+    pub exec fn tentatively_advance_head(&mut self, which_log: u64, new_head: u128) -> (result:
         Result<(), MultilogErr>)
         requires
             old(self).valid(),
@@ -406,7 +406,7 @@ impl<PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
     // at virtual position `pos`. It isn't allowed to read earlier
     // than the head or past the committed tail. See `README.md` for
     // more documentation and examples of use.
-    pub exec fn read(&self, which_log: usize, pos: u128, len: u64) -> (result: Result<
+    pub exec fn read(&self, which_log: u64, pos: u128, len: u64) -> (result: Result<
         Vec<u8>,
         MultilogErr,
     >)
@@ -464,7 +464,7 @@ impl<PMRegion: PersistentMemoryRegion> MultilogImpl<PMRegion> {
     // log past the head, including bytes in tentative appends
     // that haven't been committed yet. See `README.md` for more
     // documentation and examples of use.
-    pub exec fn get_head_tail_and_capacity(&self, which_log: usize) -> (result: Result<
+    pub exec fn get_head_tail_and_capacity(&self, which_log: u64) -> (result: Result<
         (u128, u128, u64),
         MultilogErr,
     >)
