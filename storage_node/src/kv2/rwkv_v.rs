@@ -79,6 +79,24 @@ where
                                      ConcurrentKvStoreInvPred>>>,
 }
 
+// TODO: this is probably not correct or safe to do
+// TODO: make sure this is correctly counted as trusted
+#[verifier::external]
+impl<PM, K, I, L> Drop for ConcurrentKvStore<PM, K, I, L> 
+where
+    PM: PersistentMemoryRegion,
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    fn drop(&mut self) 
+        opens_invariants none 
+        no_unwind
+    {
+        self.lock.acquire_write();
+    }
+}
+
 impl<PM, K, I, L> CanRecover<K, I, L> for ConcurrentKvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
