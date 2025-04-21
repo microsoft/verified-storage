@@ -1,9 +1,9 @@
 [experiment_config]
-results_dir = "results/artifact-evaluation/"
+results_dir = "results/camera_ready_results/mem_storage/"
 threads = 1
 mount_point = "/mnt/pmem/"
 pm_device = "/dev/pmem0"
-iterations = 1
+iterations = 5
 op_count = 15000000
 record_count = 15000000
 viper_initial_size = 1073741824

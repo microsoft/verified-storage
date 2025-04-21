@@ -41,9 +41,28 @@ fi
 for filename in configs/*; do
     if [[ $filename != *"win"* ]]; then 
         # replacements in experiment configs
-        sed -i "s!results_dir = \".*\"!results_dir = \"$RESULTS_DIR\"!" $filename
         sed -i "s!mount_point = \".*\"!mount_point = \"$MOUNT_POINT\"!" $filename
         sed -i "s!pm_device = \".*\"!pm_device = \"$PM_DEV\"!" $filename
+
+        # mem storage files put output in a specific place
+        if [[ $filename == *"mem_storage"* ]]; then 
+            sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}mem_storage/\"!" $filename
+        else 
+            if [[ $filename == *"1.toml"* ]]; then 
+                sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_1\"!" $filename
+            elif [[ $filename == *"2"* ]]; then
+                sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_2\"!" $filename
+            elif [[ $filename == *"4"* ]]; then
+                sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_4\"!" $filename
+            elif [[ $filename == *"8"* ]]; then
+                sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_8\"!" $filename
+            elif [[ $filename == *"16"* ]]; then
+                sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_16\"!" $filename
+            else 
+                sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}\"!" $filename
+            fi
+        fi
+
         if [[ ! -z $ITERS && $filename != *"mini"* ]]; then 
             sed -i "s!iterations = .*!iterations = $ITERS!" $filename
         fi
