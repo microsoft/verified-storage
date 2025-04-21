@@ -80,7 +80,9 @@ where
 }
 
 // TODO: this is probably not correct or safe to do
-// TODO: make sure this is correctly counted as trusted
+// This can't live in rwkv_t.rs because lock is private, but it does something
+// that Verus doesn't like, so it has to be external.
+#[verus::trusted]
 #[verifier::external]
 impl<PM, K, I, L> Drop for ConcurrentKvStore<PM, K, I, L> 
 where
