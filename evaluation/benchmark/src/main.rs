@@ -43,7 +43,7 @@ use nix::sys;
 use crate::kv_interface::*;
 use crate::redis_client::*;
 use crate::rocksdb_client::*;
-use crate::capybarakv_client::*;
+use crate::sharded_capybarakv_client::*;
 use crate::viper_client::*;
 
 pub mod kv_interface;
@@ -285,7 +285,7 @@ fn main() {
     // create per-KV output directories
     let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue>::db_name();
     let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
-    let capybara_output_dir = output_dir.clone() + "/" + &CapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
+    let capybara_output_dir = output_dir.clone() + "/" + &ShardedCapybaraKvClient::<TestKey, TestValue, PlaceholderListElem>::db_name();
     let viper_output_dir = output_dir.clone() + "/" + &ViperClient::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
@@ -295,19 +295,19 @@ fn main() {
 
 
     for i in 1..ITERATIONS+1 {
-        run_experiments::<RedisClient<TestKey, TestValue>>(&mount_point, &pm_dev, &redis_output_dir, i).unwrap();
-        run_experiments::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, i).unwrap();
-        run_experiments::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&mount_point, &pm_dev, &capybara_output_dir, i).unwrap();
-        run_experiments::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, i).unwrap();
+        // run_experiments::<RedisClient<TestKey, TestValue>>(&mount_point, &pm_dev, &redis_output_dir, i).unwrap();
+        // run_experiments::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, i).unwrap();
+        run_experiments::<ShardedCapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&mount_point, &pm_dev, &capybara_output_dir, i).unwrap();
+        // run_experiments::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, i).unwrap();
     }
 
     #[cfg(not(feature="mini"))]
     {
         // full setup works differently so that we don't have to rebuild the full KV every iteration
-        run_full_setup::<RedisClient<TestKey, TestValue>>(&mount_point, &pm_dev, &redis_output_dir, NUM_KEYS).unwrap();
-        run_full_setup::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, NUM_KEYS).unwrap();
-        run_full_setup::<CapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&mount_point, &pm_dev, &capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
-        run_full_setup::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, NUM_KEYS).unwrap();
+        // run_full_setup::<RedisClient<TestKey, TestValue>>(&mount_point, &pm_dev, &redis_output_dir, NUM_KEYS).unwrap();
+        // run_full_setup::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, NUM_KEYS).unwrap();
+        run_full_setup::<ShardedCapybaraKvClient<TestKey, TestValue, PlaceholderListElem>>(&mount_point, &pm_dev, &capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
+        // run_full_setup::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, NUM_KEYS).unwrap();
     }
     
 }

@@ -1,4 +1,6 @@
 use storage_node::kv2::impl_t::*;
+use storage_node::kv2::shardkv_t::*;
+use storage_node::kv2::shardkv_v::*;
 use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::kv2::spec_t::*;
 use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
@@ -6,14 +8,16 @@ use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmcopy::PmCopy;
 
-use storage_node::kv2::rwkv_v::*;
-use storage_node::kv2::rwkv_inv_v;
-
+use storage_node::kv2::rwkv_v;
+// use storage_node::kv2::rwkv_t::*;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use std::path::Path;
+use std::collections::VecDeque;
+
+use vstd::prelude::*;
 
 // TODO: read these from config file
 const KVSTORE_ID: u128 = 1234;
@@ -23,16 +27,16 @@ const REGION_SIZE: u64 = 1024*1024*1024*115;
 // TODO: should make a capybarakv util crate so that you
 // can share some of these functions with ycsb_ffi?
 
-pub struct CapybaraKvClient<K, V, L> 
+pub struct ShardedCapybaraKvClient<K, V, L> 
     where 
         K: PmCopy + Key + Debug + Hash,
         V: PmCopy + Value + Debug + Hash,
         L: PmCopy + Debug + LogicalRange,
 {
-    kv: KvStore::<FileBackedPersistentMemoryRegion, K, V, L>,
+    kv: ShardedKvStore::<FileBackedPersistentMemoryRegion, K, V, L>,
 }
 
-impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
+impl<K, V, L> KvInterface<K, V> for ShardedCapybaraKvClient<K, V, L>
     where 
         K: PmCopy + Key + Debug + Hash,
         V: PmCopy + Value + Debug + Hash,
@@ -51,23 +55,28 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
             max_operations_per_transaction: 5 // TODO: set this to something that makes sense
         };
 
-        let region_size = rwkv_inv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion, K, V, L>::space_needed_for_setup(&setup_parameters)?;
-
-        let mut pm = create_pm_region(kv_store_file.to_str().unwrap(), region_size);
-
+        let kv_store_file = std::path::Path::new(mount_point).join("capybarakv");
+        let mut pm = create_pm_region(kv_store_file.to_str().unwrap(), REGION_SIZE);
+        let mut pms = VecDeque::new();
+        pms.push_back(pm);
 
         // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
         // KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
         //     &mut kv_region, &setup_parameters
         // )?;
 
+        let (_ckv, _) = setup::<FileBackedPersistentMemoryRegion, K, V, L>(pms, &setup_parameters, Ghost::assume_new(), Ghost::assume_new(), Ghost::assume_new())?;
+
         Ok(())
     }
 
     fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
-        let region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
-        let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
-            region, KVSTORE_ID)?;
+        let pm = open_pm_region(KVSTORE_FILE, REGION_SIZE);
+        let mut pms = VecDeque::new();
+        pms.push_back(pm);
+        let kv = recover::<FileBackedPersistentMemoryRegion, K, V, L>(
+            pms, KVSTORE_ID, Ghost::assume_new(), Ghost::assume_new(), Ghost::assume_new(), Ghost::assume_new(),
+        )?;
         
         Ok(Self { kv })
     }
@@ -77,14 +86,12 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
         remount_pm_fs(mount_point, pm_dev);
 
         let t0 = Instant::now();
-        // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
-        // KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
-        //     &mut kv_region, KVSTORE_ID, crate::NUM_KEYS + 1, 1, 1
-        // )?;
-
-        let region = open_pm_region(KVSTORE_FILE, REGION_SIZE);
-        let kv = KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::start(
-            region, KVSTORE_ID)?;
+        let pm = open_pm_region(KVSTORE_FILE, REGION_SIZE);
+        let mut pms = VecDeque::new();
+        pms.push_back(pm);
+        let kv = recover::<FileBackedPersistentMemoryRegion, K, V, L>(
+            pms, KVSTORE_ID, Ghost::assume_new(), Ghost::assume_new(), Ghost::assume_new(), Ghost::assume_new(),
+        )?;
         let dur = t0.elapsed();
 
         Ok((Self { kv } , dur))
@@ -95,23 +102,23 @@ impl<K, V, L> KvInterface<K, V> for CapybaraKvClient<K, V, L>
     }
 
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        self.kv.tentatively_create(key, value)?;
-        self.kv.commit()
+        let (result, _) = self.kv.create(key, value, Tracked::<()>::assume_new());
+        result
     }
 
     fn get(&mut self, key: &K) -> Result<V, Self::E> {
-        let value = self.kv.read_item(key)?;
-        Ok(value)
+        let (result, _) = self.kv.read_item(key, Tracked::<()>::assume_new());
+        result
     }
 
     fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        self.kv.tentatively_update_item(key, value)?;
-        self.kv.commit()
+        let (result, _) = self.kv.update_item(key, value, Tracked::<()>::assume_new());
+        result
     }
 
     fn delete(&mut self, key: &K) -> Result<(), Self::E> {
-        self.kv.tentatively_delete(key)?;
-        self.kv.commit()
+        let (result, _) = self.kv.delete(key, Tracked::<()>::assume_new());
+        result
     }
 
     fn cleanup(pm_dev: &str) {
