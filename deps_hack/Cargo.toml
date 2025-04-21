@@ -7,6 +7,7 @@ edition = "2021"
 ## The "pmem" feature enables actual persistent memory libraries, such as
 ## PMDK on Linux.  Not enabling this feature is helpful when testing with
 ## memory-mapped files that are not backed by PMDK.
+default = ["pmem"]
 pmem = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

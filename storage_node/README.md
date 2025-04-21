@@ -27,9 +27,9 @@ cargo build
 Then, to build `deps_hack`, run:
 ```
 cd deps_hack
-cargo build --features pmem
+cargo build
 ```
-Remove `--features pmem` if you are running in an environment where PMDK is not installed and/or do not want to run it on PM-backed files.
+If you want to run the KV store in an environment where PMDK is not installed, add `--no-default-features` to `cargo build`.
 
 4. Verify the code with:
 ```
