@@ -44,33 +44,52 @@ elif [ -f /etc/lsb-release ]; then
     VER=$DISTRIB_RELEASE
 fi
 
-# echo $OS
-# echo $VER
-if [[ $OS != "Ubuntu" && $OS != "Debian" ]]; then
-    printf "${RED}${BOLD}You are using an untested distribution. This script may not work properly. Continue anyway? [y/n]: "
+echo "$OS"
+echo "$VER"
+echo "$VERSION_CODENAME"
+
+
+if [[ $OS == "Debian"* ]]; then 
+    if [[ $VERSION_CODENAME != "trixie" && $VERSION_CODENAME != "bookworm" ]]; then 
+        printf "${RED}${BOLD}You are using an untested and potentially unsupported OS version ($OS $VERSION_CODENAME). This script may not work properly. Continue anyway? [y/n]: "
+        read continue
+        while [[ $continue != "y" ]]; do 
+            if [[ $continue == "n" ]]; then 
+                echo "Exiting"
+                exit 
+            else
+                printf "Unrecognized input. Please entry y or n: "
+            fi
+        done 
+        echo "Continuing"
+    fi
+elif [[ $OS == "Ubuntu" ]]; then 
+    if [[ $VER != 22.04 && $VER != 24.04 ]]; then 
+        printf "${RED}${BOLD}You are using an untested and potentially unsupported OS version ($OS $VERSION_CODENAME). This script may not work properly. Continue anyway? [y/n]: "
+        read continue
+        while [[ $continue != "y" ]]; do 
+            if [[ $continue == "n" ]]; then 
+                echo "Exiting"
+                exit
+            else
+                printf "Unrecognized input. Please entry y or n: "
+            fi
+        done 
+        echo "Continuing"
+    fi 
+else 
+    printf "${RED}${BOLD}You are using an untested distribution ($OS). This script may not work properly. Continue anyway? [y/n]: "
     read continue
     while [[ $continue != "y" ]]; do 
         if [[ $continue == "n" ]]; then 
             echo "Exiting"
+            exit
         else
             printf "Unrecognized input. Please entry y or n: "
         fi
     done 
     echo "Continuing"
 fi
-
-if [[ $VER != 22.04 && $VER != 24.04 ]]; then 
-    printf "${RED}${BOLD}You are using an untested and potentially unsupported OS version. This script may not work properly. Continue anyway? [y/n]: "
-    read continue
-    while [[ $continue != "y" ]]; do 
-        if [[ $continue == "n" ]]; then 
-            echo "Exiting"
-        else
-            printf "Unrecognized input. Please entry y or n: "
-        fi
-    done 
-    echo "Continuing"
-fi 
 
 # 1. Install apt dependencies
 # TODO: is valgrind necessary?
