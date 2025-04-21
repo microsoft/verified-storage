@@ -90,7 +90,7 @@ where
             old(crc_digest).bytes_in_digest() ==
                 old(self).powerpm@.read_state.subrange(old(self).sm.journal_entries_start as int, current_pos as int),
             perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
             self == (Self{
@@ -206,7 +206,7 @@ where
             old(self).inv(),
             old(self).status@ is WritingJournal,
             perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
             self == (Self{
@@ -262,7 +262,7 @@ where
                 crc_digest.bytes_in_digest() ==
                     self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int),
                 perm_factory.id() == self@.powerpm_id,
-                forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+                forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         {
             current_pos = self.write_journal_entry::<PermFactory>(Ghost(original_durable_state), Ghost(original_read_state),
                                                                   current_entry_index, current_pos,
@@ -285,7 +285,7 @@ where
             old(self).inv(),
             old(self).status@ is WritingJournal,
             perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
             self.powerpm.constants() == old(self).powerpm.constants(),
@@ -360,7 +360,7 @@ where
                     &&& spec_recovery_equivalent_for_app(s1, original_durable_state)
                     &&& spec_recovery_equivalent_for_app(s2, original_durable_state)
                 })
-                ==> #[trigger] perm.check_permission(s1, s2),
+                ==> #[trigger] perm.permits(s1, s2),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
         ensures
             self.inv(),
@@ -410,7 +410,7 @@ where
         assert forall |s| #[trigger] can_result_from_partial_write(s, self.powerpm@.durable_state,
                                                               self.sm.committed_cdb_start as int,
                                                               cdb.spec_to_bytes())
-            implies perm.check_permission(self.powerpm@.durable_state, s) by {
+            implies perm.permits(self.powerpm@.durable_state, s) by {
             assert(s == self.powerpm@.durable_state || s == desired_state) by {
                 assert(self.sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
                 lemma_only_two_crash_states_introduced_by_aligned_chunk_write(s, self.powerpm@.durable_state,
@@ -468,7 +468,7 @@ where
                                 old(self).sm.app_area_start as int, old(self).sm.app_area_end as int),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
             perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
             self == (Self{
@@ -507,7 +507,7 @@ where
             }
             assert forall|s| can_result_from_partial_write(s, self.powerpm@.durable_state, entry.start as int,
                                                       entry.bytes_to_write@)
-                implies #[trigger] perm_factory.check_permission(self.powerpm@.durable_state, s) by {
+                implies #[trigger] perm_factory.permits(self.powerpm@.durable_state, s) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
                     s, self.powerpm@.durable_state, entry.start as int, entry.bytes_to_write@,
                     entry@.addrs(),
@@ -560,7 +560,7 @@ where
             }),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
             perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
             self == (Self{
@@ -618,7 +618,7 @@ where
                 self.powerpm.constants() == old(self).powerpm.constants(),
                 self.powerpm.id() == old(self).powerpm.id(),
                 perm_factory.id() == self@.powerpm_id,
-                forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+                forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         {
             let ghost durable_state_at_start_of_loop = self.powerpm@.durable_state;
     
@@ -682,9 +682,9 @@ where
             } || {
                 &&& Self::recovery_equivalent_for_app(s1, old(self)@.durable_state)
                 &&& Self::recovery_equivalent_for_app(s2, old(self)@.durable_state)
-            }) ==> #[trigger] perm.check_permission(s1, s2),
+            }) ==> #[trigger] perm.permits(s1, s2),
             perm_factory.id() == old(self)@.powerpm_id,
-            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.valid(),
             self@.valid(),
@@ -702,7 +702,7 @@ where
             Ghost(old(self)@.commit_state), Tracked(perm));
         self.install_journal_entries_during_commit::<PermFactory>(Ghost(old(self)@.commit_state), Tracked(perm_factory));
         assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
-                   implies #[trigger] perm_factory.check_permission(s1, s2) by {
+                   implies #[trigger] perm_factory.permits(s1, s2) by {
             Self::lemma_recover_doesnt_change_size(s1);
         }
         Self::clear_log::<PermFactory>(&mut self.powerpm, Tracked(perm_factory), self.vm, &self.sm);

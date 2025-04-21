@@ -28,7 +28,7 @@ where
             &&& Self::recover(s) matches Some(j)
             &&& j.constants == self@.constants
             &&& j.state == s
-        } ==> #[trigger] perm.check_permission(self@.durable_state, s)
+        } ==> #[trigger] perm.permits(self@.durable_state, s)
         &&& forall|i: int| #![trigger self@.journaled_addrs.contains(i)]
             addr <= i < addr + bytes_to_write.len() ==> !self@.journaled_addrs.contains(i)
     }
@@ -69,7 +69,7 @@ where
         
         proof {
             assert forall|s| can_result_from_partial_write(s, self.powerpm@.durable_state, addr as int, bytes_to_write@)
-                implies #[trigger] perm.check_permission(self.powerpm@.durable_state, s) by {
+                implies #[trigger] perm.permits(self.powerpm@.durable_state, s) by {
                 assert(seqs_match_except_in_range(s, self.powerpm@.durable_state, addr as int,
                                                   addr + bytes_to_write@.len()));
             }

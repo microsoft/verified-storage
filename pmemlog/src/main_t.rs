@@ -42,7 +42,7 @@ verus! {
     }
 
     impl CheckPermission<Seq<u8>> for TrustedPermission {
-        closed spec fn check_permission(&self, state: Seq<u8>) -> bool {
+        closed spec fn permits(&self, state: Seq<u8>) -> bool {
             (self.is_state_allowable)(state)
         }
     }
@@ -51,7 +51,7 @@ verus! {
         proof fn new(cur: Seq<u8>, next: FnSpec(AbstractInfiniteLogState, AbstractInfiniteLogState) -> bool)
                      -> (tracked perm: Self)
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==>
+                forall |s| #[trigger] perm.permits(s) <==>
                     crate::sccf::is_state_allowable(cur, s, recovery_view(), next)
         {
             Self { is_state_allowable: |s| crate::sccf::is_state_allowable(cur, s, recovery_view(), next) }

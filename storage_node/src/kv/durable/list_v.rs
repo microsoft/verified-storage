@@ -31,7 +31,7 @@ verus! {
     #[verus::line_count::ignore]
     impl CheckPermission<Seq<u8>> for TrustedListPermission
     {
-        closed spec fn check_permission(&self, state: Seq<u8>) -> bool
+        closed spec fn permits(&self, state: Seq<u8>) -> bool
         {
             (self.is_state_allowable)(state)
         }

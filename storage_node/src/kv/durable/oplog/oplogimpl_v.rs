@@ -1419,7 +1419,7 @@ verus! {
                 &&& Self::recover(s1, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 &&& Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
-            forall |s| crash_pred(s) ==> perm.check_permission(s),
+            forall |s| crash_pred(s) ==> perm.permits(s),
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= overall_metadata.region_size,
             ({
@@ -1712,7 +1712,7 @@ verus! {
                 &&& states_differ_only_in_log_region(flushed_state, s2, overall_metadata.log_area_addr as nat,
                                                    overall_metadata.log_area_size as nat)
                 &&& Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@.commit_op_log())
-            } ==> perm.check_permission(s2),
+            } ==> perm.permits(s2),
             forall |s2: Seq<u8>| {
                 let crash_state = old(log_powerpm)@.durable_state;
                 &&& crash_state.len() == s2.len() 
@@ -1720,7 +1720,7 @@ verus! {
                                                    overall_metadata.log_area_size as nat)
                 &&& Self::recover(s2, version_metadata, overall_metadata) ==
                        Some(AbstractOpLogState::initialize())
-            } ==> perm.check_permission(s2),
+            } ==> perm.permits(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
@@ -1729,7 +1729,7 @@ verus! {
                 &&& Self::recover(s1, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 &&& Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
-            forall |s| crash_pred(s) ==> perm.check_permission(s),
+            forall |s| crash_pred(s) ==> perm.permits(s),
             // TODO: log probably shouldn't know about version metadata
             no_outstanding_writes_to_version_metadata(old(log_powerpm)@),
             old(log_powerpm)@.len() >= VersionMetadata::spec_size_of(),
@@ -1901,7 +1901,7 @@ verus! {
                 &&& Self::recover(s1, version_metadata, overall_metadata) == Some(old(self)@)
                 &&& Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
             } ==> #[trigger] crash_pred(s2),
-            forall |s| crash_pred(s) ==> perm.check_permission(s),
+            forall |s| crash_pred(s) ==> perm.permits(s),
         ensures 
             self.inv(log_powerpm@, version_metadata, overall_metadata),
             log_powerpm@.len() == old(log_powerpm)@.len(),
@@ -1914,7 +1914,7 @@ verus! {
                 Some(AbstractOpLogState::initialize()),
             views_differ_only_in_log_region(old(log_powerpm)@, log_powerpm@, 
                                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
-            perm.check_permission(log_powerpm@.durable_state),
+            perm.permits(log_powerpm@.durable_state),
             match result {
                 Ok(()) => {
                     Ok::<_, ()>(self@) == old(self)@.clear_log()

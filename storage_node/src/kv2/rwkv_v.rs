@@ -694,7 +694,7 @@ impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, 
 {
     type Completion = OpPermComplete<K, I, L, Op, Lin>;
 
-    closed spec fn check_permission(&self, old_state: Seq<u8>, new_state: Seq<u8>) -> bool {
+    closed spec fn permits(&self, old_state: Seq<u8>, new_state: Seq<u8>) -> bool {
         &&& recover_journal_then_kv::<PM, K, I, L>(old_state) matches Some(old_rkv)
         &&& recover_journal_then_kv::<PM, K, I, L>(new_state) matches Some(new_rkv)
         &&& {
@@ -787,7 +787,7 @@ impl<PM, K, I, L> CheckPermission<Seq<u8>> for NoopPerm<PM, K, I, L>
 {
     type Completion = ();
 
-    closed spec fn check_permission(&self, old_state: Seq<u8>, new_state: Seq<u8>) -> bool {
+    closed spec fn permits(&self, old_state: Seq<u8>, new_state: Seq<u8>) -> bool {
         recover_journal_then_kv::<PM, K, I, L>(old_state) == recover_journal_then_kv::<PM, K, I, L>(new_state)
     }
 
@@ -830,10 +830,10 @@ impl<PM, K, I, L> PermissionFactory<Seq<u8>> for NoopPermFactory<PM, K, I, L>
 {
     type Perm = NoopPerm<PM, K, I, L>;
 
-    closed spec fn check_permission(&self, old_state: Seq<u8>, new_state: Seq<u8>) -> bool {
+    closed spec fn permits(&self, old_state: Seq<u8>, new_state: Seq<u8>) -> bool {
         NoopPerm{
             inv: self.inv.clone(),
-        }.check_permission(old_state, new_state)
+        }.permits(old_state, new_state)
     }
 
     closed spec fn id(&self) -> int {

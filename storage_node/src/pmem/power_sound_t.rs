@@ -56,7 +56,7 @@ trait PoWERApplication<PM> : Sized
             pm.inv(),
             pm@.durable_state == pm@.read_state,
             perm_factory.id() == pm.id(),
-            forall |s1, s2| self.valid(s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+            forall |s1, s2| self.valid(s2) ==> #[trigger] perm_factory.permits(s1, s2),
             self.valid(pm@.durable_state);
 }
 
@@ -104,13 +104,13 @@ impl<PM> PoWERApplication<PM> for ExampleApp
                 perm_factory.id() == power_pm.id(),
                 self.addr < power_pm@.len(),
                 <Self as PoWERApplication<PM>>::valid(*self, power_pm@.durable_state),
-                forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s2) ==> #[trigger] perm_factory.check_permission(s1, s2),
+                forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         {
-            assert forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s1) && can_result_from_partial_write(s2, s1, self.addr as int, seq![self.val0]) implies #[trigger] perm_factory.check_permission(s1, s2) by {
+            assert forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s1) && can_result_from_partial_write(s2, s1, self.addr as int, seq![self.val0]) implies #[trigger] perm_factory.permits(s1, s2) by {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s2, s1, self.addr as int, seq![self.val0]);
             }
 
-            assert forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s1) && can_result_from_partial_write(s2, s1, self.addr as int, seq![self.val1]) implies #[trigger] perm_factory.check_permission(s1, s2) by {
+            assert forall |s1, s2| <Self as PoWERApplication<PM>>::valid(*self, s1) && can_result_from_partial_write(s2, s1, self.addr as int, seq![self.val1]) implies #[trigger] perm_factory.permits(s1, s2) by {
                 crate::pmem::pmemutil_v::lemma_can_result_from_partial_write_effect(s2, s1, self.addr as int, seq![self.val1]);
             }
 
@@ -206,7 +206,7 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
 {
     type Completion = ();
 
-    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
+    closed spec fn permits(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
         self.inv.constant().app.valid(s2)
     }
 
@@ -233,8 +233,8 @@ impl<PM, A> PermissionFactory<Seq<u8>> for SoundPermission<PM, A>
 {
     type Perm = SoundPermission<PM, A>;
 
-    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
-        CheckPermission::check_permission(self, s1, s2)
+    closed spec fn permits(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool {
+        CheckPermission::permits(self, s1, s2)
     }
 
     closed spec fn id(&self) -> int {

@@ -80,16 +80,16 @@ verus! {
 
     pub open spec fn permissions_depend_only_on_recovery_view<Perm: CheckPermission<Seq<u8>>>(perm: &Perm) -> bool
     {
-        forall |s1, s2| recovery_view()(s1) == recovery_view()(s2) ==> perm.check_permission(s1) == perm.check_permission(s2)
+        forall |s1, s2| recovery_view()(s1) == recovery_view()(s2) ==> perm.permits(s1) == perm.permits(s2)
     }
 
     pub proof fn lemma_same_permissions<Perm: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &Perm)
         requires
             recovery_view()(pm1) =~= recovery_view()(pm2),
-            perm.check_permission(pm1),
+            perm.permits(pm1),
             permissions_depend_only_on_recovery_view(perm)
         ensures
-            perm.check_permission(pm2)
+            perm.permits(pm2)
     {}
 
     /// Proves that a PM region has the given header at the given position. Useful for
@@ -381,7 +381,7 @@ verus! {
             UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
-            perm.check_permission(pm),
+            perm.permits(pm),
             permissions_depend_only_on_recovery_view(perm),
             ({
                 // write must be a valid write and not overlap the live log
@@ -402,11 +402,11 @@ verus! {
             forall |chunks_flushed| {
                 let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                     pm, write_addr, bytes, chunks_flushed);
-                perm.check_permission(new_pm)
+                perm.permits(new_pm)
             },
             ({
                 let new_pm = update_contents_to_reflect_write(pm, write_addr, bytes);
-                perm.check_permission(new_pm)
+                perm.permits(new_pm)
             }),
             update_data_view_postcond(pm, bytes, write_addr),
     {
@@ -417,7 +417,7 @@ verus! {
         assert forall |chunks_flushed| {
             let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                 pm, write_addr, bytes, chunks_flushed);
-            perm.check_permission(new_pm)
+            perm.permits(new_pm)
         } by {
             let new_pm = update_contents_to_reflect_partially_flushed_write(
                 pm, write_addr, bytes, chunks_flushed);
@@ -654,7 +654,7 @@ verus! {
                 &&& new_header.metadata.log_size == live_header.metadata.log_size
                 &&& new_header.metadata.tail - new_header.metadata.head < new_header.metadata.log_size
             }),
-            perm.check_permission(pm),
+            perm.permits(pm),
             permissions_depend_only_on_recovery_view(perm),
             ({
                 let live_header = spec_get_live_header(pm);
@@ -680,7 +680,7 @@ verus! {
             }),
             ({
                 let old_log_state = UntrustedLogImpl::recover(pm);
-                forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
+                forall |pm_state| #[trigger] perm.permits(pm_state) <==> {
                     let log_state = UntrustedLogImpl::recover(pm_state);
                     log_state == old_log_state || log_state == Some(old_log_state.unwrap().append(bytes_to_append))
                 }
@@ -696,7 +696,7 @@ verus! {
                 &&& match (old_log_state, new_log_state) {
                         (Some(old_log_state), Some(new_log_state)) => {
                             &&& new_log_state =~= old_log_state.append(bytes_to_append)
-                            &&& perm.check_permission(new_pm)
+                            &&& perm.permits(new_pm)
                         }
                         _ => false,
                     }
@@ -706,7 +706,7 @@ verus! {
             forall |chunks_flushed| {
                 let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                     pm, incorruptible_bool_pos as int, spec_u64_to_le_bytes(new_ib), chunks_flushed);
-                &&& perm.check_permission(new_pm)
+                &&& perm.permits(new_pm)
             }
     {
         let ib_bytes = spec_u64_to_le_bytes(new_ib);
@@ -717,7 +717,7 @@ verus! {
 
         lemma_auto_spec_u64_to_from_le_bytes();
         lemma_single_write_crash(pm, incorruptible_bool_pos as int, ib_bytes);
-        assert(perm.check_permission(pm));
+        assert(perm.permits(pm));
 
         let new_pm = update_contents_to_reflect_write(pm, incorruptible_bool_pos as int, ib_bytes);
         lemma_headers_unchanged(pm, new_pm);
@@ -779,7 +779,7 @@ verus! {
                     assert(old_physical_tail + append_size < physical_head);
                 }
                 assert(new_log_state =~= old_log_state.append(bytes_to_append));
-                assert(perm.check_permission(new_pm));
+                assert(perm.permits(new_pm));
             }
             _ => assert(false),
         }
@@ -1250,7 +1250,7 @@ verus! {
                     spec_crc_bytes(new_header_bytes@.subrange(header_head_offset as int, header_size as int)),
                 new_header_bytes.len() == header_size,
                 match Self::recover(old(wrpm)@) {
-                    Some(log_state) => perm.check_permission(old(wrpm)@),
+                    Some(log_state) => perm.permits(old(wrpm)@),
                     None => false
                 }
             ensures
@@ -1304,7 +1304,7 @@ verus! {
                 assert forall |chunks_flushed| {
                     let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                         wrpm@, header_pos as int, new_header_bytes@, chunks_flushed);
-                    perm.check_permission(new_pm)
+                    perm.permits(new_pm)
                 } by {
                     let new_pm = update_contents_to_reflect_partially_flushed_write(
                         wrpm@, header_pos as int, new_header_bytes@, chunks_flushed);
@@ -1423,7 +1423,7 @@ verus! {
                 // The restriction on writing persistent memory during initialization is
                 // that it can't change the interpretation of that memory's contents.
                 ({
-                    forall |pm_state| #[trigger] perm.check_permission(pm_state) <==>
+                    forall |pm_state| #[trigger] perm.permits(pm_state) <==>
                         Self::recover(pm_state) ==
                         Self::recover(old(wrpm)@)
                 }),
@@ -1509,7 +1509,7 @@ verus! {
                 Self::recover(old(wrpm)@).is_Some(),
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
-                    forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
+                    forall |pm_state| #[trigger] perm.permits(pm_state) <==> {
                         let log_state = Self::recover(pm_state);
                         log_state == old_log_state || log_state == Some(old_log_state.unwrap().append(bytes_to_append@))
                     }
@@ -1624,7 +1624,7 @@ verus! {
                 PM: PersistentMemory
             requires
                 permissions_depend_only_on_recovery_view(perm),
-                perm.check_permission(old(wrpm)@),
+                perm.permits(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
                 Self::recover(old(wrpm)@).is_Some(),
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
@@ -1681,7 +1681,7 @@ verus! {
                 PM: PersistentMemory
             requires
                 permissions_depend_only_on_recovery_view(perm),
-                perm.check_permission(old(wrpm)@),
+                perm.permits(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
                 Self::recover(old(wrpm)@).is_Some(),
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
@@ -1754,7 +1754,7 @@ verus! {
                 Self::recover(old(wrpm)@).is_Some(),
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
-                    forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
+                    forall |pm_state| #[trigger] perm.permits(pm_state) <==> {
                         let log_state = Self::recover(pm_state);
                         ||| log_state == old_log_state
                         ||| log_state == Some(old_log_state.unwrap().advance_head(new_head as int))
@@ -1830,7 +1830,7 @@ verus! {
             proof {
                 lemma_auto_spec_u64_to_from_le_bytes();
                 lemma_single_write_crash(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
-                assert(perm.check_permission(old(wrpm)@));
+                assert(perm.permits(old(wrpm)@));
                 let new_pm = update_contents_to_reflect_write(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
                 lemma_headers_unchanged(wrpm@, new_pm);
                 assert(new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_ib_bytes@);
@@ -1854,7 +1854,7 @@ verus! {
                         lemma_pm_state_header(new_pm);
                         lemma_pm_state_header(old(wrpm)@);
                         assert(new_log_state =~= old_log_state.advance_head(new_head as int));
-                        assert(perm.check_permission(new_pm));
+                        assert(perm.permits(new_pm));
                     }
                     _ => assert(false),
                 }

@@ -830,19 +830,19 @@ verus! {
             requires
                 self.inv(),
                 !self.transaction_committed(),
-                perm.check_permission(self.powerpm@.durable_state),
+                perm.permits(self.powerpm@.durable_state),
                 Self::physical_recover(self.powerpm@.durable_state, self.version_metadata, self.overall_metadata) == Some(self@),
                 forall |s| {
                     &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
                     &&& version_and_overall_metadata_match_deserialized(s, self.powerpm@.durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 Self::physical_recover(self.powerpm@.durable_state, self.version_metadata, self.overall_metadata) == Some(self@),
                 no_outstanding_writes_to_version_metadata(self.powerpm@),
                 no_outstanding_writes_to_overall_metadata(self.powerpm@, self.version_metadata.overall_metadata_addr as int),
                 self.powerpm@.len() >= VersionMetadata::spec_size_of(),
                 apply_physical_log_entries(self.powerpm@.read_state,
                     self.log@.physical_op_list) is Some,
-                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                forall |s| crash_pred(s) ==> perm.permits(s),
                 forall |s| {
                     &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
                     &&& version_and_overall_metadata_match_deserialized(s, self.powerpm@.durable_state)
@@ -913,11 +913,11 @@ verus! {
             requires 
                 op_log.inv(powerpm_region@, version_metadata, overall_metadata),
                 op_log@.op_list_committed,
-                perm.check_permission(powerpm_region@.durable_state),
+                perm.permits(powerpm_region@.durable_state),
                 UntrustedOpLog::<K, L>::recover(powerpm_region@.durable_state, version_metadata, overall_metadata) == Some(op_log@),
                 Self::physical_recover(powerpm_region@.durable_state, version_metadata, overall_metadata) == Some(state),
                 powerpm_region@.flush_predicted(),
-                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                forall |s| crash_pred(s) ==> perm.permits(s),
                 forall |s| {
                     &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(state)
                     &&& version_and_overall_metadata_match_deserialized(s, powerpm_region@.durable_state)
@@ -1021,11 +1021,11 @@ verus! {
             requires 
                 op_log.inv(powerpm_region@, version_metadata, overall_metadata),
                 op_log@.op_list_committed,
-                perm.check_permission(powerpm_region@.durable_state),
+                perm.permits(powerpm_region@.durable_state),
                 UntrustedOpLog::<K, L>::recover(powerpm_region@.durable_state, version_metadata, overall_metadata) == Some(op_log@),
                 Self::physical_recover(powerpm_region@.durable_state, version_metadata, overall_metadata) == Some(state),
                 powerpm_region@.flush_predicted(),
-                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                forall |s| crash_pred(s) ==> perm.permits(s),
                 forall |s| {
                     &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(state)
                     &&& version_and_overall_metadata_match_deserialized(s, powerpm_region@.durable_state)
@@ -1543,7 +1543,7 @@ verus! {
                 forall |s| {
                     &&& #[trigger] Self::physical_recover(s, version_metadata, overall_metadata) == Some(state) 
                     &&& version_and_overall_metadata_match_deserialized(s, powerpm_region@.durable_state)
-                } ==> perm.check_permission(s),
+                } ==> perm.permits(s),
                 powerpm_region@.len() == overall_metadata.region_size,
                 ({
                     let base_log_state = UntrustedLogImpl::recover(powerpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
@@ -1563,9 +1563,9 @@ verus! {
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 overall_metadata.item_size + u64::spec_size_of() <= u64::MAX,
                 vstd::std_specs::hash::obeys_key_model::<K>(),
-                perm.check_permission(powerpm_region@.durable_state),
+                perm.permits(powerpm_region@.durable_state),
             ensures
-                perm.check_permission(powerpm_region@.durable_state),
+                perm.permits(powerpm_region@.durable_state),
                 match result {
                     // the primary postcondition is just that we've recovered to the target state, which 
                     // is required by the precondition to be the physical recovery view of the powerpm_region we passed in.
@@ -1780,7 +1780,7 @@ verus! {
                 forall |s| {
                     &&& #[trigger] Self::physical_recover(s, version_metadata, overall_metadata) == Some(state) 
                     &&& version_and_overall_metadata_match_deserialized(s, old(powerpm_region)@.durable_state)
-                } ==> perm.check_permission(s),
+                } ==> perm.permits(s),
                 old(powerpm_region)@.len() == overall_metadata.region_size,
                 ({
                     let base_log_state = UntrustedLogImpl::recover(old(powerpm_region)@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
@@ -1828,9 +1828,9 @@ verus! {
                     &&& abstract_op_log.op_list_committed
                     &&& abstract_op_log.physical_op_list.len() > 0
                 }),
-                perm.check_permission(old(powerpm_region)@.durable_state),
+                perm.permits(old(powerpm_region)@.durable_state),
             ensures
-                perm.check_permission(old(powerpm_region)@.durable_state),
+                perm.permits(old(powerpm_region)@.durable_state),
                 match result {
                     Ok(()) => {
                         &&& powerpm_region.inv()
@@ -1948,7 +1948,7 @@ verus! {
                                              overall_metadata) ==
                        Self::physical_recover(s, version_metadata, overall_metadata) 
                     &&& version_and_overall_metadata_match_deserialized(s, old(powerpm_region)@.durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 0 <= overall_metadata.log_area_addr <
                     overall_metadata.log_area_addr + overall_metadata.log_area_size <=
@@ -1964,7 +1964,7 @@ verus! {
                 powerpm_region@.flush_predicted(),
                 powerpm_region@.len() == overall_metadata.region_size,
                 powerpm_region.constants() == old(powerpm_region).constants(),
-                perm.check_permission(powerpm_region@.durable_state),
+                perm.permits(powerpm_region@.durable_state),
                 ({
                     let true_recovery_state = Self::physical_recover(old(powerpm_region)@.durable_state,
                                                                      version_metadata,
@@ -2048,7 +2048,7 @@ verus! {
                         &&& Self::physical_recover(s, version_metadata, overall_metadata) ==
                            Some(final_recovery_state)
                         &&& version_and_overall_metadata_match_deserialized(s, powerpm_region@.durable_state)
-                    } ==> #[trigger] perm.check_permission(s),
+                    } ==> #[trigger] perm.permits(s),
                     Self::physical_recover(powerpm_region@.durable_state, version_metadata, overall_metadata) == 
                         Some(final_recovery_state),
                     old_phys_log == phys_log,
@@ -2130,7 +2130,7 @@ version_metadata, overall_metadata,
 
                 assert forall |s| #[trigger] can_result_from_partial_write(s, powerpm_region@.durable_state,
                                                                       op.absolute_addr as int, op.bytes@) implies
-                       perm.check_permission(s) by {
+                       perm.permits(s) by {
                    assert(Self::physical_recover(s, version_metadata, overall_metadata) ==
                           Some(final_recovery_state)
 );
@@ -2497,7 +2497,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(self@)
                     &&& version_and_overall_metadata_match_deserialized(s, self.powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 self.tentative_main_table() == self.main_table.tentative_view(),
                 forall |i: int| self.tentative_view().unwrap().contains_key(i) ==> i < self.overall_metadata.num_keys,
                 self.main_table@.valid_item_indices() == self.item_table.durable_valid_indices(),
@@ -2713,7 +2713,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
                     &&& version_and_overall_metadata_match_deserialized(s, self.powerpm@.durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 self.tentative_view_inv(),
             ensures
                 condition_sufficient_to_create_powerpm_subregion(
@@ -3297,8 +3297,8 @@ version_metadata, overall_metadata,
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(),
                                              old(self).spec_overall_metadata()) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm@.durable_state)
-                } ==> #[trigger] perm.check_permission(s),
-                perm.check_permission(old(self).powerpm@.durable_state),
+                } ==> #[trigger] perm.permits(s),
+                perm.permits(old(self).powerpm@.durable_state),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3314,7 +3314,7 @@ version_metadata, overall_metadata,
                 self.main_table@ == old(self).main_table@,
                 self.powerpm@.flush_predicted(),
                 self.tentative_view() == Some(self@),
-                perm.check_permission(self.powerpm@.durable_state),
+                perm.permits(self.powerpm@.durable_state),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.powerpm, self.version_metadata,
@@ -3447,7 +3447,7 @@ version_metadata, overall_metadata,
                 old(self).log.inv(old(self).powerpm@, old(self).version_metadata, old(self).overall_metadata),
                 old(self)@ == old_self@,
                 old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
-                perm.check_permission(old(self).powerpm@.durable_state),
+                perm.permits(old(self).powerpm@.durable_state),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3464,7 +3464,7 @@ version_metadata, overall_metadata,
                 self.main_table@ == old_self.main_table@,
                 self.item_table@ == old_self.item_table@,
                 self.powerpm@.flush_predicted(),
-                perm.check_permission(self.powerpm@.durable_state),
+                perm.permits(self.powerpm@.durable_state),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.powerpm, self.version_metadata, self.overall_metadata);
@@ -3564,7 +3564,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, old_self.spec_version_metadata(), old_self.spec_overall_metadata()) == Some(old_self@)
                     &&& version_and_overall_metadata_match_deserialized(s, old_self.powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 no_outstanding_writes_to_version_metadata(old_self.powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old_self.powerpm_view(),
                                                           old_self.spec_overall_metadata_addr() as int),
@@ -4093,7 +4093,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, old_self.spec_version_metadata(), old_self.spec_overall_metadata()) == Some(old_self@)
                     &&& version_and_overall_metadata_match_deserialized(s, old_self.powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 no_outstanding_writes_to_version_metadata(old_self.powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old_self.powerpm_view(),
                                                           old_self.spec_overall_metadata_addr() as int),
@@ -5043,7 +5043,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 no_outstanding_writes_to_version_metadata(old(self).powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).powerpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).powerpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -5053,7 +5053,7 @@ version_metadata, overall_metadata,
                 self@ == old(self)@,
                 !self.transaction_committed(),
                 self.tentative_view_inv(),
-                perm.check_permission(self.powerpm_view().durable_state),
+                perm.permits(self.powerpm_view().durable_state),
                 ({
                     match result {
                         Ok((offset, head_node)) => {
@@ -5144,7 +5144,7 @@ version_metadata, overall_metadata,
                     *old(self), item_table_subregion, perm
                 );
                 self.lemma_reestablish_inv_after_tentatively_write_item(*old(self), item_index, *item);
-                assert(perm.check_permission(self.powerpm@.durable_state));
+                assert(perm.permits(self.powerpm@.durable_state));
             }
             
             assert(self.tentative_item_table() == old(self).tentative_item_table());
@@ -5830,7 +5830,7 @@ version_metadata, overall_metadata,
                 old(self).durable_list@ == pre_self.durable_list@,
                 old(self).log@ == pre_self.log@,
                 log_entry.inv(old(self).version_metadata, old(self).overall_metadata),
-                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                forall |s| crash_pred(s) ==> perm.permits(s),
                 Self::physical_recover(old(self).powerpm@.durable_state, old(self).version_metadata, old(self).overall_metadata) == Some(old(self)@),
                 forall |s: Seq<u8>| {
                     &&& #[trigger] Self::physical_recover(s, old(self).version_metadata, old(self).overall_metadata) == Some(old(self)@)
@@ -5867,7 +5867,7 @@ version_metadata, overall_metadata,
                 self.item_table.inv(get_subregion_view(self.powerpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat),self.overall_metadata),
                 self.log.inv(self.powerpm@, self.version_metadata, self.overall_metadata),
-                perm.check_permission(self.powerpm@.durable_state),
+                perm.permits(self.powerpm@.durable_state),
                 match result {
                     Ok(()) => {
                         &&& self.log@ == old(self).log@.tentatively_append_log_entry(log_entry@)
@@ -6005,7 +6005,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 no_outstanding_writes_to_version_metadata(old(self).powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).powerpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).powerpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -6034,7 +6034,7 @@ version_metadata, overall_metadata,
                 self.durable_list@ == old(self).durable_list@,
                 self.main_table@ == old(self).main_table@,
                 self.tentative_view() is Some,
-                perm.check_permission(self.powerpm_view().durable_state),
+                perm.permits(self.powerpm_view().durable_state),
                 match result {
                     Ok(index) => {
                         &&& self.main_table == old(self).main_table
@@ -6247,8 +6247,8 @@ version_metadata, overall_metadata,
                     &&& Self::physical_recover(s, old(self).version_metadata, old(self).overall_metadata) ==
                            Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm@.durable_state)
-                } ==> #[trigger] perm.check_permission(s),
-                perm.check_permission(old(self).powerpm@.durable_state),
+                } ==> #[trigger] perm.permits(s),
+                perm.permits(old(self).powerpm@.durable_state),
             ensures 
                 self.inv(),
                 self.powerpm_view().len() == old(self).powerpm_view().len(),
@@ -6263,7 +6263,7 @@ version_metadata, overall_metadata,
                 no_outstanding_writes_to_version_metadata(self.powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(self.powerpm_view(), self.spec_overall_metadata_addr() as int),
                 self.tentative_view() is Some,
-                perm.check_permission(self.powerpm@.durable_state),
+                perm.permits(self.powerpm@.durable_state),
                 match result {
                     Ok((log_entry, old_entry, key)) => {
                         let new_log = self.log@.tentatively_append_log_entry(log_entry@);
@@ -6578,7 +6578,7 @@ version_metadata, overall_metadata,
                 forall |s| {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 no_outstanding_writes_to_version_metadata(old(self).powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).powerpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).powerpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -6593,7 +6593,7 @@ version_metadata, overall_metadata,
                 !self.transaction_committed(),
                 self@ == old(self)@,
                 self.tentative_view_inv(),
-                perm.check_permission(self.powerpm_view().durable_state),
+                perm.permits(self.powerpm_view().durable_state),
                 match result {
                     Ok(()) => {
                         let spec_result = old(self).tentative_view().unwrap().update_item(offset as int, *item);
@@ -6817,12 +6817,12 @@ version_metadata, overall_metadata,
                 old(self).tentative_view() is Some,
                 old(self).tentative_view().unwrap().contains_key(index as int),
                 !old(self).transaction_committed(),
-                perm.check_permission(old(self).powerpm_view().durable_state),
+                perm.permits(old(self).powerpm_view().durable_state),
                 Self::physical_recover(old(self).powerpm_view().durable_state, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm_view().durable_state)
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 Self::physical_recover(old(self).powerpm_view().durable_state, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 no_outstanding_writes_to_version_metadata(old(self).powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).powerpm_view(), old(self).spec_overall_metadata_addr() as int),
@@ -6839,7 +6839,7 @@ version_metadata, overall_metadata,
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
                 self@ == old(self)@,
                 self.tentative_view_inv(),
-                perm.check_permission(self.powerpm_view().durable_state),
+                perm.permits(self.powerpm_view().durable_state),
                 match result {
                     Ok(()) => {
                         self.tentative_view() == Some(old(self).tentative_view().unwrap().delete(index as int).unwrap())
@@ -7049,8 +7049,8 @@ version_metadata, overall_metadata,
         )
             requires 
                 self.valid(),
-                perm.check_permission(self.powerpm@.durable_state),
-                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                perm.permits(self.powerpm@.durable_state),
+                forall |s| crash_pred(s) ==> perm.permits(s),
                 forall |s: Seq<u8>| {
                     &&& version_and_overall_metadata_match_deserialized(s, self.powerpm@.durable_state)
                     &&& {
@@ -7088,7 +7088,7 @@ version_metadata, overall_metadata,
                                                        self.overall_metadata.log_area_size as nat)
                     &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) ==
                           Some(AbstractOpLogState::initialize())
-                } ==> perm.check_permission(s2),
+                } ==> perm.permits(s2),
                 forall |s2: Seq<u8>| {
                     let flushed_state = self.powerpm@.read_state;
                     &&& flushed_state.len() == s2.len() 
@@ -7097,7 +7097,7 @@ version_metadata, overall_metadata,
                                                        self.overall_metadata.log_area_size as nat)
                     &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) ==
                            Some(self.log@.commit_op_log())
-                } ==> perm.check_permission(s2),
+                } ==> perm.permits(s2),
         {
             hide(MainTable::opaquable_inv);
             hide(DurableItemTable::opaquable_inv);
@@ -7123,7 +7123,7 @@ version_metadata, overall_metadata,
                 &&& states_differ_only_in_log_region(flushed_state, s2, self.overall_metadata.log_area_addr as nat,
                                                    self.overall_metadata.log_area_size as nat)
                 &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log())
-            } implies perm.check_permission(s2) by {
+            } implies perm.permits(s2) by {
                 let flushed_state = self.powerpm@.read_state;
                   // The CDB made it to storage.
                   // In this case, the whole KV store recovers to its tentative view. 
@@ -7159,7 +7159,7 @@ version_metadata, overall_metadata,
                                                    self.overall_metadata.log_area_size as nat)
                 &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) ==
                        Some(AbstractOpLogState::initialize())
-            } implies perm.check_permission(s2) by {
+            } implies perm.permits(s2) by {
                 let crash_state = self.powerpm@.durable_state;
                 // The CDB did not make it to storage.
                 assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) ==
@@ -7184,7 +7184,7 @@ version_metadata, overall_metadata,
                     &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) 
                     &&& version_and_overall_metadata_match_deserialized(s, self.powerpm@.durable_state)
                 } <==> #[trigger] crash_pred(s),
-                forall |s| #[trigger] crash_pred(s) ==> perm.check_permission(s),
+                forall |s| #[trigger] crash_pred(s) ==> perm.permits(s),
                 self.powerpm@.flush_predicted(),
                 pre_log_install_powerpm@.flush_predicted(),
                 crash_pred(self.powerpm@.durable_state),
@@ -7274,7 +7274,7 @@ version_metadata, overall_metadata,
             requires 
                 old(self).valid(),
                 !old(self).transaction_committed(),
-                perm.check_permission(old(self).powerpm_view().durable_state),
+                perm.permits(old(self).powerpm_view().durable_state),
                 Self::physical_recover(old(self).powerpm_view().durable_state, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| {
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).powerpm_view().durable_state)
@@ -7282,7 +7282,7 @@ version_metadata, overall_metadata,
                         ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                         ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == old(self).tentative_view()
                     }
-                } ==> #[trigger] perm.check_permission(s),
+                } ==> #[trigger] perm.permits(s),
                 no_outstanding_writes_to_version_metadata(old(self).powerpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).powerpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).powerpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -7291,12 +7291,12 @@ version_metadata, overall_metadata,
                     tentative_view is Some
                 }),
                 old(self).spec_num_log_entries_in_current_transaction() > 0,
-                perm.check_permission(old(self).powerpm_view().durable_state),
+                perm.permits(old(self).powerpm_view().durable_state),
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
-                perm.check_permission(self.powerpm_view().durable_state),
+                perm.permits(self.powerpm_view().durable_state),
                 !self.transaction_committed(), // only used internally
                 match result {
                     Ok(()) => {
@@ -7350,7 +7350,7 @@ version_metadata, overall_metadata,
                 self.lemma_commit_log_precondition(crash_pred, perm);
 
 //                assert(self.powerpm@.can_crash_as(self.powerpm@.durable_state));
-                assert(forall |s| crash_pred(s) ==> perm.check_permission(s));
+                assert(forall |s| crash_pred(s) ==> perm.permits(s));
 
                 assert(crash_pred(self.powerpm@.durable_state)) by {
                     broadcast use pmcopy_axioms;
@@ -7466,7 +7466,7 @@ version_metadata, overall_metadata,
          */
 
             // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
-            // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
+            // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.permits(s)
             let ghost clear_log_crash_pred = |s: Seq<u8>| {
                 &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
                 &&& version_and_overall_metadata_match_deserialized(s, self.powerpm@.durable_state)

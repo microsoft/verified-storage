@@ -99,7 +99,7 @@ verus! {
     }
 
     impl CheckPermission<Seq<u8>> for TrustedPermission {
-        closed spec fn check_permission(&self, state: Seq<u8>) -> bool {
+        closed spec fn permits(&self, state: Seq<u8>) -> bool {
             (self.is_state_allowable)(state)
         }
     }
@@ -112,7 +112,7 @@ verus! {
         // abstract state `state`.
         proof fn new_one_possibility(log_id: u128, state: AbstractLogState) -> (tracked perm: Self)
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==>
+                forall |s| #[trigger] perm.permits(s) <==>
                     UntrustedLogImpl::recover(s, log_id) == Some(state)
         {
             Self {
@@ -131,7 +131,7 @@ verus! {
             state2: AbstractLogState
         ) -> (tracked perm: Self)
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| UntrustedLogImpl::recover(s, log_id) == Some(state1)
                     ||| UntrustedLogImpl::recover(s, log_id) == Some(state2)
                 }

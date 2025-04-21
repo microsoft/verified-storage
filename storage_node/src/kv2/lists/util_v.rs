@@ -183,7 +183,7 @@ where
                                                  initial_jv.constants, sm)
                 &&& Self::state_equivalent_for_me(s2, initial_jv.durable_state, iv.durable_mapping.list_elements.dom(),
                                                  initial_jv.constants, sm)
-            } ==> #[trigger] perm_factory.check_permission(s1, s2),
+            } ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             forall|current_durable_state: Seq<u8>, new_durable_state: Seq<u8>, start: int, end: int|
                 #![trigger seqs_match_except_in_range(current_durable_state, new_durable_state, start, end)]
@@ -198,7 +198,7 @@ where
                 &&& Self::state_equivalent_for_me(new_durable_state, initial_jv.durable_state,
                                                 iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(new_durable_state, sm)
-                &&& perm_factory.check_permission(current_durable_state, new_durable_state)
+                &&& perm_factory.permits(current_durable_state, new_durable_state)
             },
 
             forall|current_read_state: Seq<u8>, start: int, bytes: Seq<u8>|
@@ -229,7 +229,7 @@ where
                 &&& Self::state_equivalent_for_me(new_durable_state, initial_jv.durable_state,
                                                 iv.durable_mapping.list_elements.dom(), initial_jv.constants, sm)
                 &&& iv.corresponds_to_durable_state(new_durable_state, sm)
-                &&& perm_factory.check_permission(current_durable_state, new_durable_state)
+                &&& perm_factory.permits(current_durable_state, new_durable_state)
             } by {
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;

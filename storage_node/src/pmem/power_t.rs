@@ -15,14 +15,14 @@ pub trait CheckPermission<State> : Sized
 {
     type Completion;
 
-    spec fn check_permission(&self, s1: State, s2: State) -> bool;
+    spec fn permits(&self, s1: State, s2: State) -> bool;
     spec fn id(&self) -> int;
     spec fn completed(&self, c: Self::Completion) -> bool;
 
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) -> (tracked complete: Self::Completion)
         requires
             self.id() == old(r).id(),
-            self.check_permission(old(r)@, new_state),
+            self.permits(old(r)@, new_state),
         ensures
             r.id() == old(r).id(),
             r@ == new_state,
@@ -103,7 +103,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             addr + bytes@.len() <= old(self)@.len(),
             perm.id() == old(self).id(),
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
-                    ==> #[trigger] perm.check_permission(old(self)@.durable_state, s),
+                    ==> #[trigger] perm.permits(old(self)@.durable_state, s),
         ensures
             self.inv(),
             self.id() == old(self).id(),
@@ -129,7 +129,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             addr + S::spec_size_of() <= old(self)@.len(),
             perm.id() == old(self).id(),
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
-                    ==> #[trigger] perm.check_permission(old(self)@.durable_state, s),
+                    ==> #[trigger] perm.permits(old(self)@.durable_state, s),
         ensures
             self.inv(),
             self.id() == old(self).id(),

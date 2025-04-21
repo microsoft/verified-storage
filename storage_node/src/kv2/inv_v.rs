@@ -101,7 +101,7 @@ where
     {
         &&& self.perm_factory@.id() == self@.powerpm_id
         &&& forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
-            #[trigger] self.perm_factory@.check_permission(s1, s2)
+            #[trigger] self.perm_factory@.permits(s1, s2)
     }
 
     pub(super) open spec fn inv(self) -> bool

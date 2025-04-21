@@ -192,7 +192,7 @@ pub open spec fn condition_sufficient_to_create_powerpm_subregion<Perm>(
 {
     &&& start + len <= region_view.len() <= u64::MAX
     &&& condition(region_view.durable_state)
-    &&& forall|crash_state| condition(crash_state) ==> perm.check_permission(crash_state)
+    &&& forall|crash_state| condition(crash_state) ==> perm.permits(crash_state)
     &&& condition_stable_to_subregion_modifications(condition, region_view.len(), start as nat, len,
                                                   is_writable_absolute_addr_fn)
 }
@@ -215,12 +215,12 @@ pub proof fn lemma_condition_sufficient_to_create_powerpm_subregion<Perm>(
         forall |alt_crash_state: Seq<u8>|
             memories_differ_only_where_subregion_allows(region_view.durable_state, alt_crash_state,
                                                         start as nat, len, is_writable_absolute_addr_fn)
-        ==> #[trigger] perm.check_permission(alt_crash_state),
+        ==> #[trigger] perm.permits(alt_crash_state),
 {
     assert forall |alt_crash_state: Seq<u8>|
         memories_differ_only_where_subregion_allows(region_view.durable_state, alt_crash_state, start as nat, len,
                                                     is_writable_absolute_addr_fn)
-    implies #[trigger] perm.check_permission(alt_crash_state) by {
+    implies #[trigger] perm.permits(alt_crash_state) by {
         assert(condition(region_view.durable_state));
         assert(alt_crash_state.len() == region_view.durable_state.len());
         assert(region_view.durable_state.len() == region_view.len());
@@ -291,7 +291,7 @@ impl PoWERPersistentMemorySubregion
             forall |alt_crash_state: Seq<u8>|
                 memories_differ_only_where_subregion_allows(powerpm@.durable_state, alt_crash_state,
                                                             start as nat, len, is_writable_absolute_addr_fn)
-            ==> #[trigger] perm.check_permission(alt_crash_state),
+            ==> #[trigger] perm.permits(alt_crash_state),
         ensures
             result.inv(powerpm, perm),
             result.constants() == powerpm.constants(),
@@ -429,7 +429,7 @@ impl PoWERPersistentMemorySubregion
         forall |alt_crash_state: Seq<u8>|
             memories_differ_only_where_subregion_allows(self.initial_region_view().durable_state, alt_crash_state,
                                                         self.start(), self.len(), self.is_writable_absolute_addr_fn())
-        ==> #[trigger] perm.check_permission(alt_crash_state)
+        ==> #[trigger] perm.permits(alt_crash_state)
     }
 
     pub open spec fn inv<Perm, PMRegion>(

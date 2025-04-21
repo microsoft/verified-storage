@@ -294,7 +294,7 @@ verus! {
             requires
                 Self::recover(old(powerpm_regions)@.flush().committed(), multilog_id) == Some(state),
                 old(powerpm_regions).inv(),
-                forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, multilog_id) == Some(state),
+                forall |s| #[trigger] perm.permits(s) <==> Self::recover(s, multilog_id) == Some(state),
             ensures
                 powerpm_regions.inv(),
                 powerpm_regions.constants() == old(powerpm_regions).constants(),
@@ -397,7 +397,7 @@ verus! {
                 PMRegions: PersistentMemoryRegions
             requires
                 old(self).inv(&*old(powerpm_regions), multilog_id),
-                forall |s| #[trigger] perm.check_permission(s) <==>
+                forall |s| #[trigger] perm.permits(s) <==>
                     Self::recover(s, multilog_id) == Some(old(self)@.drop_pending_appends()),
             ensures
                 self.inv(powerpm_regions, multilog_id),
@@ -648,7 +648,7 @@ verus! {
                 forall |s| {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
-                      } ==> #[trigger] perm.check_permission(s),
+                      } ==> #[trigger] perm.permits(s),
                 metadata_types_set(old(powerpm_regions)@.committed()),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(powerpm_regions)@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < old(powerpm_regions)@[i].len(),
@@ -783,7 +783,7 @@ verus! {
             // `self.state@.drop_pending_appends()`.
 
             assert forall |crash_bytes| pm_regions_after_write.can_crash_as(crash_bytes) implies
-                       #[trigger] perm.check_permission(crash_bytes) by {
+                       #[trigger] perm.permits(crash_bytes) by {
                 lemma_invariants_imply_crash_recover_forall(powerpm_regions@, multilog_id, self.num_logs,
                                                             self.cdb, prev_infos, prev_state);
                 lemma_single_write_crash_effect_on_pm_regions_view(powerpm_regions@, 0int,
@@ -830,7 +830,7 @@ verus! {
                 forall |s| {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
-                      } ==> #[trigger] perm.check_permission(s),
+                      } ==> #[trigger] perm.permits(s),
                 metadata_types_set(old(powerpm_regions)@.committed()),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(powerpm_regions)@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < old(powerpm_regions)@[i].len(),
@@ -844,7 +844,7 @@ verus! {
                 each_info_consistent_with_log_area(powerpm_regions@, self.num_logs, prev_infos, prev_state),
                 each_info_consistent_with_log_area(powerpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
                 forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
-                    #[trigger] perm.check_permission(s),
+                    #[trigger] perm.permits(s),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < self.num_logs ==>
                     self.infos@[i].log_area_len == prev_infos[i].log_area_len,
                 forall |which_log: u32| #[trigger] log_index_trigger(which_log as int) && which_log < self.num_logs ==> {
@@ -897,7 +897,7 @@ verus! {
                     each_info_consistent_with_log_area(powerpm_regions@, self.num_logs, prev_infos, prev_state),
                     each_info_consistent_with_log_area(powerpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
                     forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
-                        #[trigger] perm.check_permission(s),
+                        #[trigger] perm.permits(s),
                     forall |which_log: int| #[trigger] log_index_trigger(which_log) && 0 <= which_log < self.num_logs ==>
                         self.infos@[which_log].log_area_len == prev_infos[which_log].log_area_len,
 
@@ -1002,7 +1002,7 @@ verus! {
                 // `write`. (One of the conditions for calling that lemma is that our invariants
                 // hold, which we just proved above.)
                 assert forall |crash_bytes| powerpm_regions_new.can_crash_as(crash_bytes)
-                           implies #[trigger] perm.check_permission(crash_bytes) by {
+                           implies #[trigger] perm.permits(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         powerpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
 
@@ -1038,7 +1038,7 @@ verus! {
                 }
 
                 assert forall |crash_bytes| powerpm_regions_new.can_crash_as(crash_bytes)
-                           implies #[trigger] perm.check_permission(crash_bytes) by {
+                           implies #[trigger] perm.permits(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         powerpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
 
@@ -1098,7 +1098,7 @@ verus! {
                 PMRegions: PersistentMemoryRegions
             requires
                 old(self).inv(&*old(powerpm_regions), multilog_id),
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| Self::recover(s, multilog_id) == Some(old(self)@.drop_pending_appends())
                     ||| Self::recover(s, multilog_id) == Some(old(self)@.commit().drop_pending_appends())
                 },
@@ -1198,7 +1198,7 @@ verus! {
                 PMRegions: PersistentMemoryRegions
             requires
                 old(self).inv(&*old(powerpm_regions), multilog_id),
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| Self::recover(s, multilog_id) == Some(old(self)@.drop_pending_appends())
                     ||| Self::recover(s, multilog_id) ==
                         Some(old(self)@.advance_head(which_log as int, new_head as int).drop_pending_appends())

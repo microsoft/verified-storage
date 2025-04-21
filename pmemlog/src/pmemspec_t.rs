@@ -284,7 +284,7 @@ verus! {
                         #[trigger] update_contents_to_reflect_partially_flushed_write(
                             old(self)@, addr as int, bytes@, chunks_flushed
                         );
-                    perm@.check_permission(new_contents)
+                    perm@.permits(new_contents)
                 },
             ensures
                 self.inv(),

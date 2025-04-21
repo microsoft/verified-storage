@@ -241,7 +241,7 @@ where
             powerpm_region.inv(),
             powerpm_region@.flush_predicted(),
             Self::recover(powerpm_region@.durable_state, kvstore_id) == Some(state),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(state),
+            forall |s| #[trigger] perm.permits(s) <==> Self::recover(s, kvstore_id) == Some(state),
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
             vstd::std_specs::hash::obeys_key_model::<K>(),
@@ -550,7 +550,7 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
+            forall |s| #[trigger] perm.permits(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
         ensures 
             self.valid(),
             old(self)@.id == self@.id,
@@ -622,7 +622,7 @@ where
                 self.durable_store.lemma_valid_implies_inv();
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
-                assert(perm.check_permission(self.powerpm_view().durable_state));
+                assert(perm.permits(self.powerpm_view().durable_state));
             }
             return Err(e);
         }
@@ -671,7 +671,7 @@ where
             // !old(self).transaction_committed(),
             // Self::recover(old(self).powerpm_view().durable_state, kvstore_id) == Some(old(self)@),
             old(self)@.id == kvstore_id,
-            forall |s| #[trigger] perm.check_permission(s) <==> {
+            forall |s| #[trigger] perm.permits(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
                     ||| Self::recover(s, kvstore_id) == Some(old(self).tentative_view())
@@ -712,7 +712,7 @@ where
             self.durable_store.lemma_main_table_index_key_tentative(); 
             self.durable_store.lemma_reveal_opaque_inv_mem();
 
-            assert(perm.check_permission(self.powerpm_view().durable_state)) by {
+            assert(perm.permits(self.powerpm_view().durable_state)) by {
                 self.durable_store.lemma_overall_metadata_addr();
 //                lemma_establish_extract_bytes_equivalence(s, self.powerpm_view().durable_state);
 //                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.powerpm_view());
@@ -724,8 +724,8 @@ where
                     ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == Some(self.durable_store@)
                     ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
                 }
-            } implies #[trigger] perm.check_permission(s) by {
-                assert(forall |s| #[trigger] perm.check_permission(s) <==> {
+            } implies #[trigger] perm.permits(s) by {
+                assert(forall |s| #[trigger] perm.permits(s) <==> {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
                     ||| Self::recover(s, kvstore_id) == Some(old(self).tentative_view())
                 });
@@ -755,11 +755,11 @@ where
                 self.durable_store.lemma_valid_implies_inv();
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
-                assert(perm.check_permission(self.powerpm_view().durable_state));
+                assert(perm.permits(self.powerpm_view().durable_state));
             }
             return Err(e);
         }
-        assert(perm.check_permission(self.powerpm_view().durable_state));
+        assert(perm.permits(self.powerpm_view().durable_state));
 
         self.volatile_index.commit_transaction();
 
@@ -786,7 +786,7 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
+            forall |s| #[trigger] perm.permits(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
         ensures 
             self.valid(),
             self@.id == old(self)@.id,
@@ -871,13 +871,13 @@ where
                     self.durable_store.lemma_valid_implies_inv();
                     self.durable_store.lemma_reveal_opaque_inv();
                     self.durable_store.lemma_overall_metadata_addr();
-                    assert(perm.check_permission(self.powerpm_view().durable_state));
+                    assert(perm.permits(self.powerpm_view().durable_state));
                 }
                 return Err(e);
             } 
         };
 
-        assert(perm.check_permission(self.powerpm_view().durable_state));
+        assert(perm.permits(self.powerpm_view().durable_state));
 
         // 3. Update the volatile index
         self.volatile_index.insert_key(key, offset)?; 
@@ -989,7 +989,7 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            forall |s| #[trigger] perm.check_permission(s) <==> {
+            forall |s| #[trigger] perm.permits(s) <==> {
                 Self::recover(s, kvstore_id) == Some(old(self)@)
             },
         ensures 
@@ -1064,7 +1064,7 @@ where
                 self.durable_store.lemma_valid_implies_inv();
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
-                assert(perm.check_permission(self.powerpm_view().durable_state));
+                assert(perm.permits(self.powerpm_view().durable_state));
             }
             return Err(e);
         }
@@ -1125,7 +1125,7 @@ where
                     } // else, trivial
                 }
             }
-            assert(perm.check_permission(self.powerpm_view().durable_state));
+            assert(perm.permits(self.powerpm_view().durable_state));
         }
 
         Ok(())

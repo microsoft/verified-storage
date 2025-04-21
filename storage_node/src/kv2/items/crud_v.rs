@@ -104,7 +104,7 @@ where
                                                 constants, sm)
                 &&& Self::state_equivalent_for_me(s2, initial_durable_state, iv.as_durable_snapshot().m.dom(),
                                                 constants, sm)
-            } ==> #[trigger] perm_factory.check_permission(s1, s2),
+            } ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             forall|current_durable_state: Seq<u8>, s: Seq<u8>, start: int, end: int| {
                 &&& #[trigger] seqs_match_except_in_range(current_durable_state, s, start, end)
@@ -117,7 +117,7 @@ where
                 &&& Self::state_equivalent_for_me(s, initial_durable_state, iv.as_durable_snapshot().m.dom(),
                                                  constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
-                &&& perm_factory.check_permission(current_durable_state, s)
+                &&& perm_factory.permits(current_durable_state, s)
             },
     {
         let item_addrs = iv.as_durable_snapshot().m.dom();
@@ -131,7 +131,7 @@ where
             } implies {
                 &&& Self::state_equivalent_for_me(s, initial_durable_state, item_addrs, constants, sm)
                 &&& iv.consistent_with_durable_state(s, sm)
-                &&& perm_factory.check_permission(current_durable_state, s)
+                &&& perm_factory.permits(current_durable_state, s)
             } by {
             broadcast use group_validate_row_addr;
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;

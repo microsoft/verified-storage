@@ -109,7 +109,7 @@ verus! {
     }
 
     impl CheckPermission<Seq<Seq<u8>>> for TrustedMultiLogPermission {
-        closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool {
+        closed spec fn permits(&self, state: Seq<Seq<u8>>) -> bool {
             (self.is_state_allowable)(state)
         }
     }
@@ -122,7 +122,7 @@ verus! {
         // abstract state `state`.
         proof fn new_one_possibility(multilog_id: u128, state: AbstractMultiLogState) -> (tracked perm: Self)
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==>
+                forall |s| #[trigger] perm.permits(s) <==>
                     UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state)
         {
             Self {
@@ -141,7 +141,7 @@ verus! {
             state2: AbstractMultiLogState
         ) -> (tracked perm: Self)
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state1)
                     ||| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state2)
                 }

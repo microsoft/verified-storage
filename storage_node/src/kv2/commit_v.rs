@@ -38,7 +38,7 @@ where
             } || {
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
-            }) ==> #[trigger] perm.check_permission(s1, s2),
+            }) ==> #[trigger] perm.permits(s1, s2),
         ensures 
             self.valid(),
             match result {

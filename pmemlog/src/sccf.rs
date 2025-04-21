@@ -27,7 +27,7 @@ verus! {
 
     pub trait CheckPermission<AbstractStorage>
     {
-        spec fn check_permission(&self, state: AbstractStorage) -> bool;
+        spec fn permits(&self, state: AbstractStorage) -> bool;
     }
 
 }

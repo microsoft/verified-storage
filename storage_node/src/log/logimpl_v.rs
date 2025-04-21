@@ -269,7 +269,7 @@ verus! {
                 old(powerpm_region)@.valid(),
                 old(powerpm_region)@.read_state == old(powerpm_region)@.durable_state,
                 crashes_as_abstract_state(old(powerpm_region)@, log_id, state),
-                forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, log_id) == Some(state),
+                forall |s| #[trigger] perm.permits(s) <==> Self::recover(s, log_id) == Some(state),
             ensures
                 powerpm_region.inv(),
                 powerpm_region.constants() == old(powerpm_region).constants(),
@@ -518,7 +518,7 @@ verus! {
                 PMRegion: PersistentMemoryRegion
             requires
                 old(self).inv(&*old(powerpm_region), log_id),
-                forall |s| #[trigger] perm.check_permission(s) <==>
+                forall |s| #[trigger] perm.permits(s) <==>
                     Self::recover(s, log_id) == Some(old(self)@.drop_pending_appends()),
             ensures
                 self.inv(powerpm_region, log_id),
@@ -584,7 +584,7 @@ verus! {
                 memories_differ_only_where_subregion_allows(powerpm_region@.durable_state, alt_crash_state,
                                                             ABSOLUTE_POS_OF_LOG_AREA as nat,
                                                             info.log_area_len as nat, is_writable_absolute_addr_fn)
-                implies #[trigger] perm.check_permission(alt_crash_state) by {
+                implies #[trigger] perm.permits(alt_crash_state) by {
                 reveal(spec_padding_needed);
                 lemma_if_view_and_memory_differ_only_in_inaccessible_log_area_parts_then_recover_state_matches(
                     powerpm_region@, alt_crash_state, log_id, self.cdb, self.info, self.state@,
@@ -754,7 +754,7 @@ verus! {
                 forall |s| {
                           ||| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, log_id) == Some(old(self).state@.drop_pending_appends())
-                      } ==> #[trigger] perm.check_permission(s),
+                      } ==> #[trigger] perm.permits(s),
                 metadata_types_set(old(powerpm_region)@.read_state),
             ensures
                 self.inv(powerpm_region, log_id),
@@ -777,7 +777,7 @@ verus! {
             // The main interesting part of creating the subregion is
             // establishing a condition `condition` such that (1)
             // `condition(crash_state) ==>
-            // perm.check_permission(crash_state)` and (2) `condition`
+            // perm.permits(crash_state)` and (2) `condition`
             // is preserved by updating writable addresses within the
             // subregion.
 
@@ -830,7 +830,7 @@ verus! {
                 assert(inactive_metadata_types_set(powerpm_region@.read_state));
                 assert(info_consistent_with_log_area_in_region(powerpm_region@, prev_info, prev_state));
                 assert(forall |s| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends()) ==>
-                           #[trigger] perm.check_permission(s));
+                           #[trigger] perm.permits(s));
                 assert(self.info.log_area_len == prev_info.log_area_len);
                 assert(info_consistent_with_log_area_in_region(powerpm_region_flushed, self.info, self.state@));
                 assert(metadata_consistent_with_info(powerpm_region_flushed, log_id, !self.cdb, self.info)) by {
@@ -959,7 +959,7 @@ verus! {
                 PMRegion: PersistentMemoryRegion
             requires
                 old(self).inv(&*old(powerpm_region), log_id),
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| Self::recover(s, log_id) == Some(old(self)@.drop_pending_appends())
                     ||| Self::recover(s, log_id) == Some(old(self)@.commit().drop_pending_appends())
                 },
@@ -1102,7 +1102,7 @@ verus! {
                 PMRegion: PersistentMemoryRegion
             requires
                 old(self).inv(&*old(powerpm_region), log_id),
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| Self::recover(s, log_id) == Some(old(self)@.drop_pending_appends())
                     ||| Self::recover(s, log_id) ==
                         Some(old(self)@.advance_head(new_head as int).drop_pending_appends())

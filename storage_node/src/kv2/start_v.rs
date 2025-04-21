@@ -40,7 +40,7 @@ where
             vstd::std_specs::hash::obeys_key_model::<K>(),
             perm_factory.id() == powerpm.id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
-                #[trigger] perm_factory.check_permission(s1, s2),
+                #[trigger] perm_factory.permits(s1, s2),
         ensures
             match result {
                 Ok(kv) => {
@@ -83,7 +83,7 @@ where
         }
 
         assert forall|s: Seq<u8>| Journal::<PM>::recovery_equivalent_for_app(s, old_state)
-                   implies #[trigger] perm_factory.check_permission(old_state, s) by {
+                   implies #[trigger] perm_factory.permits(old_state, s) by {
             let js2 = Journal::<PM>::recover(s).unwrap().state;
             KeyTable::<PM, K>::lemma_recover_depends_only_on_my_area(js, js2, sm.keys);
             ItemTable::<PM, I>::lemma_recover_depends_only_on_my_area(

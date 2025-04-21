@@ -91,7 +91,7 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
 {
     type Completion = ();
 
-    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
+    closed spec fn permits(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
     {
         (self.is_transition_allowable)(s1, s2)
     }
@@ -138,14 +138,14 @@ impl PermissionFactory<Seq<u8>> for TrustedKvPermissionFactory
 {
     type Perm = TrustedKvPermission;
 
-    closed spec fn check_permission(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
+    closed spec fn permits(&self, s1: Seq<u8>, s2: Seq<u8>) -> bool
     {
         (self.is_transition_allowable)(s1, s2)
     }
 
     proof fn grant_permission(tracked &self) -> (tracked perm: TrustedKvPermission)
         ensures
-            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2)
+            forall|s1, s2| self.permits(s1, s2) ==> #[trigger] perm.permits(s1, s2)
     {
         TrustedKvPermission{
             is_transition_allowable: |s1: Seq<u8>, s2: Seq<u8>| (self.is_transition_allowable)(s1, s2),
@@ -155,7 +155,7 @@ impl PermissionFactory<Seq<u8>> for TrustedKvPermissionFactory
 
     proof fn clone(tracked &self) -> (tracked other: Self)
         ensures
-            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2)
+            forall|s1, s2| self.permits(s1, s2) ==> #[trigger] other.permits(s1, s2)
     {
         Self{
             is_transition_allowable: self.is_transition_allowable,

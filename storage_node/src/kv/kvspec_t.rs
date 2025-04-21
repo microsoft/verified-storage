@@ -35,7 +35,7 @@ verus! {
         where
             PM: PersistentMemoryRegion,
     {
-        closed spec fn check_permission(&self, state: Seq<u8>) -> bool
+        closed spec fn permits(&self, state: Seq<u8>) -> bool
         {
             (self.is_state_allowable)(state)
         }
@@ -56,7 +56,7 @@ verus! {
                 I: PmCopy + std::fmt::Debug,
                 L: PmCopy + std::fmt::Debug + Copy,
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==>
+                forall |s| #[trigger] perm.permits(s) <==>
                     AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state)
         {
             Self {
@@ -80,7 +80,7 @@ verus! {
                 I: PmCopy + std::fmt::Debug,
                 L: PmCopy + std::fmt::Debug + Copy,
             ensures
-                forall |s| #[trigger] perm.check_permission(s) <==> {
+                forall |s| #[trigger] perm.permits(s) <==> {
                     ||| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id)== Some(state1)
                     ||| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state2)
                 }

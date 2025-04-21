@@ -183,7 +183,7 @@ where
         forall|s1: Seq<u8>, s2: Seq<u8>| {
             &&& Self::state_equivalent_for_me(s1, jv.durable_state, self@.durable.m.dom(), jv.constants, self@.sm)
             &&& Self::state_equivalent_for_me(s2, jv.durable_state, self@.durable.m.dom(), jv.constants, self@.sm)
-        } ==> #[trigger] perm_factory.check_permission(s1, s2)
+        } ==> #[trigger] perm_factory.permits(s1, s2)
     }
 }
 

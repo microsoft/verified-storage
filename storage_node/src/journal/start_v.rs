@@ -174,7 +174,7 @@ where
             entries[num_entries_installed as int].bytes_to_write == bytes_to_write@,
             perm_factory.id() == old(powerpm).id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+                ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             powerpm.inv(),
             powerpm.constants() == old(powerpm).constants(),
@@ -193,7 +193,7 @@ where
                 lemma_journal_entries_valid_implies_one_valid(entries, *sm, num_entries_installed);
             }
             assert forall|s| can_result_from_partial_write(s, powerpm@.durable_state, write_addr as int, bytes_to_write@)
-                implies #[trigger] perm_factory.check_permission(powerpm@.durable_state, s) by {
+                implies #[trigger] perm_factory.permits(powerpm@.durable_state, s) by {
                 lemma_if_addresses_unreachable_in_recovery_then_recovery_unchanged_by_write(
                     s, powerpm@.durable_state, write_addr as int, bytes_to_write@,
                     entries[num_entries_installed as int].addrs(),
@@ -249,7 +249,7 @@ where
             recover_journal(old(powerpm)@.read_state) is Some,
             perm_factory.id() == old(powerpm).id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+                ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             powerpm.inv(),
             powerpm.constants() == old(powerpm).constants(),
@@ -310,7 +310,7 @@ where
                 recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
                 perm_factory.id() == powerpm.id(),
                 forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
-                    ==> #[trigger] perm_factory.check_permission(s1, s2),
+                    ==> #[trigger] perm_factory.permits(s1, s2),
                 parse_journal_entries(entries_bytes@.skip(start as int)) == Some(entries.skip(num_entries_installed)),
                 seqs_match_in_range(old(powerpm)@.durable_state, powerpm@.durable_state, 0, sm.app_area_start as int),
                 seqs_match_in_range(old(powerpm)@.read_state, powerpm@.read_state, 0, sm.app_area_start as int),
@@ -384,7 +384,7 @@ where
             }),
             perm_factory.id() == old(powerpm).id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+                ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             powerpm.inv(),
             powerpm.constants() == old(powerpm).constants(),
@@ -405,7 +405,7 @@ where
             assert(sm.committed_cdb_start as int % const_persistence_chunk_size() == 0);
             assert(new_cdb.spec_to_bytes().len() == const_persistence_chunk_size()); // uses pmcopy_axioms
             assert(spec_recovery_equivalent_for_app(powerpm@.durable_state, powerpm@.durable_state));
-            assert(perm_factory.check_permission(powerpm@.durable_state, powerpm@.durable_state));
+            assert(perm_factory.permits(powerpm@.durable_state, powerpm@.durable_state));
             assert(recover_version_metadata(new_state) == Some(vm));
             assert(recover_static_metadata(new_state, vm) == Some(*sm));
             assert(recover_committed_cdb(new_state, *sm) == Some(false)); // uses pmcopy_axioms
@@ -429,7 +429,7 @@ where
             Self::recover(powerpm@.durable_state).is_some(),
             perm_factory.id() == powerpm.id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
-                ==> #[trigger] perm_factory.check_permission(s1, s2),
+                ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             match result {
                 Ok(j) => {
@@ -479,7 +479,7 @@ where
             Self::install_journal_entries_during_start::<PermFactory>(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm,
                                                                       &entries_bytes, Ghost(entries));
             assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
-                       implies #[trigger] perm_factory.check_permission(s1, s2) by {
+                       implies #[trigger] perm_factory.permits(s1, s2) by {
                 Self::lemma_recover_doesnt_change_size(s1);
             }
             Self::clear_log::<PermFactory>(&mut powerpm, Tracked(&perm_factory), Ghost(vm), &sm);

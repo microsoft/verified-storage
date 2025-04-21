@@ -12,13 +12,13 @@ verus! {
 
 pub trait SimpleCheckPermission<State> : Sized
 {
-    spec fn check_permission(&self, s: State) -> bool;
+    spec fn permits(&self, s: State) -> bool;
     spec fn id(&self) -> int;
 
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State)
         requires
             self.id() == old(r).id(),
-            self.check_permission(new_state),
+            self.permits(new_state),
         ensures
             r.id() == old(r).id(),
             r@ == new_state
@@ -41,7 +41,7 @@ impl<State, SimplePerm> SimplePermissionAdapter<State, SimplePerm>
     proof fn new(tracked perm: SimplePerm) -> (tracked result: Self)
         ensures
             result.id() == perm.id(),
-            forall |s1, s2| perm.check_permission(s2) <==> result.check_permission(s1, s2),
+            forall |s1, s2| perm.permits(s2) <==> result.permits(s1, s2),
     {
         Self{
             perm: perm,
@@ -56,8 +56,8 @@ impl<State, SimplePerm> CheckPermission<State> for SimplePermissionAdapter<State
 {
     type Completion = ();
 
-    closed spec fn check_permission(&self, s1: State, s2: State) -> bool {
-        self.perm.check_permission(s2)
+    closed spec fn permits(&self, s1: State, s2: State) -> bool {
+        self.perm.permits(s2)
     }
 
     closed spec fn id(&self) -> int {
@@ -78,18 +78,18 @@ pub trait PermissionFactory<State>: Sized
 {
     type Perm: CheckPermission<State>;
 
-    spec fn check_permission(&self, s1: State, s2: State) -> bool;
+    spec fn permits(&self, s1: State, s2: State) -> bool;
     spec fn id(&self) -> int;
 
     proof fn grant_permission(tracked &self) -> (tracked perm: Self::Perm)
         ensures
             self.id() == perm.id(),
-            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] perm.check_permission(s1, s2);
+            forall|s1, s2| self.permits(s1, s2) ==> #[trigger] perm.permits(s1, s2);
 
     proof fn clone(tracked &self) -> (tracked other: Self)
         ensures
             self.id() == other.id(),
-            forall|s1, s2| self.check_permission(s1, s2) ==> #[trigger] other.check_permission(s1, s2);
+            forall|s1, s2| self.permits(s1, s2) ==> #[trigger] other.permits(s1, s2);
 }
 
 pub struct CombinedPermission<State, PermA, PermB>
@@ -117,8 +117,8 @@ impl<State, PermA, PermB> CombinedPermission<State, PermA, PermB>
             a.id() == b.id(),
         ensures
             combined.id() == a.id(),
-            forall|s1: State, s2: State| #[trigger] combined.check_permission(s1, s2) <==>
-                a.check_permission(s1, s2) || b.check_permission(s1, s2)
+            forall|s1: State, s2: State| #[trigger] combined.permits(s1, s2) <==>
+                a.permits(s1, s2) || b.permits(s1, s2)
     {
         Self{
             a: a,
@@ -135,8 +135,8 @@ impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, P
 {
     type Completion = ();
 
-    closed spec fn check_permission(&self, s1: State, s2: State) -> bool {
-        self.a.check_permission(s1, s2) || self.b.check_permission(s1, s2)
+    closed spec fn permits(&self, s1: State, s2: State) -> bool {
+        self.a.permits(s1, s2) || self.b.permits(s1, s2)
     }
 
     closed spec fn id(&self) -> int {
@@ -149,7 +149,7 @@ impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, P
 
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) -> (tracked result: Self::Completion) {
         use_type_invariant(&self);
-        if self.a.check_permission(r@, new_state) {
+        if self.a.permits(r@, new_state) {
             self.a.apply(credit, r, new_state);
         } else {
             self.b.apply(credit, r, new_state);
@@ -275,7 +275,7 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             addr + bytes@.len() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
-                  ==> #[trigger] perm@.check_permission(old(self)@.durable_state, s),
+                  ==> #[trigger] perm@.permits(old(self)@.durable_state, s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
@@ -302,7 +302,7 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             addr + S::spec_size_of() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
-                  ==> #[trigger] perm@.check_permission(old(self)@.durable_state, s),
+                  ==> #[trigger] perm@.permits(old(self)@.durable_state, s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
