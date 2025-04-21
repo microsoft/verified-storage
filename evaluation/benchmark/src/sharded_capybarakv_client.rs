@@ -9,6 +9,7 @@ use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmS
 use pmcopy::PmCopy;
 
 use storage_node::kv2::rwkv_v;
+use storage_node::kv2::concurrentspec_t::*;
 // use storage_node::kv2::rwkv_t::*;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -26,6 +27,95 @@ const REGION_SIZE: u64 = 1024*1024*1024*115;
 
 // TODO: should make a capybarakv util crate so that you
 // can share some of these functions with ycsb_ffi?
+
+struct PlaceholderCB {}
+
+verus! {
+    impl<K, I, L, Op> MutatingLinearizer<K, I, L, Op> for PlaceholderCB
+    where 
+        Op: MutatingOperation<K, I, L>,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type Completion = Self;
+
+    closed spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    closed spec fn pre(self, id: int, op: Op) -> bool
+    {
+        true
+    }
+
+    closed spec fn post(
+        self,
+        complete: Self::Completion,
+        id: int,
+        op: Op,
+        exec_result: Result<Op::KvResult, KvError>,
+    ) -> bool
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: Op,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        exec_result: Result<Op::KvResult, KvError>,
+        tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<K, I, L>>
+    ) -> (tracked complete: Self::Completion)
+    {
+        admit();
+        self
+    }
+}
+
+impl<K, I, L> ReadLinearizer<K, I, L, ReadItemOp<K>> for PlaceholderCB
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type Completion = Self;
+
+    open spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    open spec fn pre(self, id: int, op: ReadItemOp<K>) -> bool
+    {
+        true
+    }
+
+    open spec fn post(
+        self,
+        completion: Self,
+        id: int,
+        op: ReadItemOp<K>,
+        result: Result<I, KvError>,
+    ) -> bool
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: ReadItemOp<K>,
+        result: Result<I, KvError>,
+        tracked r: &GhostVarAuth<ConcurrentKvStoreView<K, I, L>>
+    ) -> tracked Self::Completion
+    {
+        
+        // r.agree(&self);
+        self
+    }
+}
+}
 
 pub struct ShardedCapybaraKvClient<K, V, L> 
     where 
@@ -102,22 +192,22 @@ impl<K, V, L> KvInterface<K, V> for ShardedCapybaraKvClient<K, V, L>
     }
 
     fn put(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        let (result, _) = self.kv.create(key, value, Tracked::<()>::assume_new());
+        let (result, _) = self.kv.create(key, value, Tracked::<PlaceholderCB>::assume_new());
         result
     }
 
     fn get(&mut self, key: &K) -> Result<V, Self::E> {
-        let (result, _) = self.kv.read_item(key, Tracked::<()>::assume_new());
+        let (result, _) = self.kv.read_item(key, Tracked::<PlaceholderCB>::assume_new());
         result
     }
 
     fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        let (result, _) = self.kv.update_item(key, value, Tracked::<()>::assume_new());
+        let (result, _) = self.kv.update_item(key, value, Tracked::<PlaceholderCB>::assume_new());
         result
     }
 
     fn delete(&mut self, key: &K) -> Result<(), Self::E> {
-        let (result, _) = self.kv.delete(key, Tracked::<()>::assume_new());
+        let (result, _) = self.kv.delete(key, Tracked::<PlaceholderCB>::assume_new());
         result
     }
 

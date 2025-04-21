@@ -78,7 +78,6 @@ const START_ITERATIONS: u64 = 5;
 // the extra 128 bytes accounts for metadata and CRCs 
 const CAPYBARAKV_MAX_KEYS: u64 = 235000; 
 
-
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct TestKey {

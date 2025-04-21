@@ -5,6 +5,7 @@ use jni::sys::jlong;
 use storage_node::kv2::spec_t::*;
 use storage_node::kv2::shardkv_t::*;
 use storage_node::kv2::shardkv_v::*;
+use storage_node::kv2::concurrentspec_t::*;
 #[cfg(target_os = "linux")]
 use storage_node::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
@@ -20,6 +21,7 @@ use builtin_macros::*;
 use serde::Deserialize;
 use std::fs;
 use std::env;
+use std::hash::Hash;
 use std::collections::VecDeque;
 // use chrono;
 
@@ -29,6 +31,95 @@ const MAX_CONFIG_FILE_NAME_LEN: usize = 1024;
 
 // use a constant log id so we don't run into issues trying to restore a KV
 const KVSTORE_ID: u128 = 500;
+
+struct PlaceholderCB {}
+
+verus! {
+    impl<K, I, L, Op> MutatingLinearizer<K, I, L, Op> for PlaceholderCB
+    where 
+        Op: MutatingOperation<K, I, L>,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type Completion = Self;
+
+    closed spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    closed spec fn pre(self, id: int, op: Op) -> bool
+    {
+        true
+    }
+
+    closed spec fn post(
+        self,
+        complete: Self::Completion,
+        id: int,
+        op: Op,
+        exec_result: Result<Op::KvResult, KvError>,
+    ) -> bool
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: Op,
+        new_ckv: ConcurrentKvStoreView<K, I, L>,
+        exec_result: Result<Op::KvResult, KvError>,
+        tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<K, I, L>>
+    ) -> (tracked complete: Self::Completion)
+    {
+        admit();
+        self
+    }
+}
+
+impl<K, I, L> ReadLinearizer<K, I, L, ReadItemOp<K>> for PlaceholderCB
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    type Completion = Self;
+
+    open spec fn namespaces(self) -> Set<int>
+    {
+        Set::empty()
+    }
+
+    open spec fn pre(self, id: int, op: ReadItemOp<K>) -> bool
+    {
+        true
+    }
+
+    open spec fn post(
+        self,
+        completion: Self,
+        id: int,
+        op: ReadItemOp<K>,
+        result: Result<I, KvError>,
+    ) -> bool
+    {
+        true
+    }
+
+    proof fn apply(
+        tracked self,
+        op: ReadItemOp<K>,
+        result: Result<I, KvError>,
+        tracked r: &GhostVarAuth<ConcurrentKvStoreView<K, I, L>>
+    ) -> tracked Self::Completion
+    {
+        
+        // r.agree(&self);
+        self
+    }
+}
+}
 
 struct YcsbKV {
     kv: ShardedKvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement>,
@@ -311,7 +402,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let (ret, _) = kv.kv.create(&ycsb_key, &ycsb_item, Tracked::<()>::assume_new());
+    let (ret, _) = kv.kv.create(&ycsb_key, &ycsb_item, Tracked::<PlaceholderCB>::assume_new());
     match ret {
         Ok(_) => {}
         Err(e) => {
@@ -343,7 +434,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvRead<'local>(
         unreachable!();
     } 
     let ycsb_key = YcsbKey::new(&env, key);
-    let (result, _) = kv.kv.read_item(&ycsb_key, Tracked::<()>::assume_new());
+    let (result, _) = kv.kv.read_item(&ycsb_key, Tracked::<PlaceholderCB>::assume_new());
     match result {
         Ok(item) => {
             match env.byte_array_from_slice(item.as_byte_slice()) {
@@ -397,7 +488,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let (ret, _) = kv.kv.update_item(&ycsb_key, &ycsb_item, Tracked::<()>::assume_new());
+    let (ret, _) = kv.kv.update_item(&ycsb_key, &ycsb_item, Tracked::<PlaceholderCB>::assume_new());
     match ret {
         Ok(_) => {}
         Err(e) => {
