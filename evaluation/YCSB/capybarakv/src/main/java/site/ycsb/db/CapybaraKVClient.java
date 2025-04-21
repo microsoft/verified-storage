@@ -16,9 +16,6 @@ import java.nio.ByteBuffer;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.HashMap;
 import java.util.Map;
@@ -42,14 +39,16 @@ public class CapybaraKVClient extends DB {
   private static long preAvailableMem = 0;
   private static long postAvailableMem = 0;
 
-  // maps shard IDs to the corresponding KV
-  // TODO: a more idiomatic approach would be to have a thread pool where each 
-  // thread handles one KV, but that might interact strangely with 
-  // the incoming YCSB-created threads, so let's try a slightly simpler approach first.
-  // TODO: should these be volatile? final?
-  private static volatile ConcurrentMap<Long, CapybaraKV> kvMap = new ConcurrentHashMap<>();
-  private static volatile ConcurrentMap<Long, ReentrantReadWriteLock> kvLockMap = new ConcurrentHashMap<>();
-  private static volatile ConcurrentMap<Long, Integer> numShardHits = new ConcurrentHashMap<>();
+  private static volatile CapybaraKV kv = null;
+
+  // // maps shard IDs to the corresponding KV
+  // // TODO: a more idiomatic approach would be to have a thread pool where each 
+  // // thread handles one KV, but that might interact strangely with 
+  // // the incoming YCSB-created threads, so let's try a slightly simpler approach first.
+  // // TODO: should these be volatile? final?
+  // private static volatile ConcurrentMap<Long, CapybaraKV> kvMap = new ConcurrentHashMap<>();
+  // private static volatile ConcurrentMap<Long, ReentrantReadWriteLock> kvLockMap = new ConcurrentHashMap<>();
+  // private static volatile ConcurrentMap<Long, Integer> numShardHits = new ConcurrentHashMap<>();
 
   private static AtomicInteger counter = new AtomicInteger(0);
 
@@ -74,18 +73,15 @@ public class CapybaraKVClient extends DB {
           throw new DBException(message);
         }
       }
+      if (kv == null) {
+        initCapybaraKV();
+      }
+      counter.addAndGet(1);
     }
-    initCapybaraKV();
   }
 
   private void initCapybaraKV() throws DBException {
-    long id = Long.valueOf(counter.getAndAdd(1));
-    CapybaraKV kv = new CapybaraKV(capybarakvConfigFile, experimentConfigFile, id);
-    ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    kvMap.put(id, kv);
-    kvLockMap.put(id, lock);
-    numShardHits.put(id, 0);
-    // System.out.println("Created shard with id " + id);
+    kv = new CapybaraKV(capybarakvConfigFile, experimentConfigFile);
   }
 
   @Override
@@ -101,18 +97,18 @@ public class CapybaraKVClient extends DB {
       Map<String, ByteIterator> values) {
     try {
       byte[] serializedValues = serializeValues(values);
-      long id = getShardId(key);
-      CapybaraKV kv = null;
-      ReentrantReadWriteLock lock = null;
+      // long id = getShardId(key);
+      // CapybaraKV kv = null;
+      // ReentrantReadWriteLock lock = null;
       // Shard setup may race with operations, so keep trying to 
       // access the KV we want until it exists.
       // TODO: there should a timeout/maximum number of iterations
-      while (kv == null) {
-        kv = kvMap.get(id);
-      }
-      while (lock == null) {
-        lock = kvLockMap.get(id);
-      }
+      // while (kv == null) {
+      //   kv = kvMap.get(id);
+      // }
+      // while (lock == null) {
+      //   lock = kvLockMap.get(id);
+      // }
       // long startTime = 0;
       // if (lock.isWriteLocked()) {
       //   // System.out.println("write lock " + id + " is held");
@@ -122,15 +118,15 @@ public class CapybaraKVClient extends DB {
       // if (readers > 0) {
       //   System.out.println("read lock " + id + " is held by " + readers);
       // }
-      lock.writeLock().lock();
-      numShardHits.computeIfPresent(id, (k, v) -> v + 1);
+      // lock.writeLock().lock();
+      // numShardHits.computeIfPresent(id, (k, v) -> v + 1);
       // if (startTime != 0) {
       //   long elapsed = System.nanoTime() - startTime;
       //   System.out.println("Waited " + elapsed / 1000 + " usec to acquire write lock " + id);
       // }
       kv.insert(table, key, serializedValues);
-      kv.commit();
-      lock.writeLock().unlock();
+      // kv.commit();
+      // lock.writeLock().unlock();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -143,18 +139,18 @@ public class CapybaraKVClient extends DB {
   public Status update(String table, String key,
       Map<String, ByteIterator> values) {
     try {
-      long id = getShardId(key);
-      CapybaraKV kv = null;
-      ReentrantReadWriteLock lock = null;
+      // long id = getShardId(key);
+      // CapybaraKV kv = null;
+      // ReentrantReadWriteLock lock = null;
       // Shard setup may race with operations, so keep trying to 
       // access the KV we want until it exists.
       // TODO: there should a timeout/maximum number of iterations
-      while (kv == null) {
-        kv = kvMap.get(id);
-      }
-      while (lock == null) {
-        lock = kvLockMap.get(id);
-      }
+      // while (kv == null) {
+      //   kv = kvMap.get(id);
+      // }
+      // while (lock == null) {
+      //   lock = kvLockMap.get(id);
+      // }
       // long startTime = 0;
       // if (lock.isWriteLocked()) {
       //   // System.out.println("write lock " + id + " is held");
@@ -164,8 +160,8 @@ public class CapybaraKVClient extends DB {
       // if (readers > 0) {
       //   System.out.println("read lock " + id + " is held by " + readers);
       // }
-      lock.writeLock().lock();
-      numShardHits.computeIfPresent(id, (k, v) -> v + 1);
+      // lock.writeLock().lock();
+      // numShardHits.computeIfPresent(id, (k, v) -> v + 1);
       // if (startTime != 0) {
       //   long elapsed = System.nanoTime() - startTime;
       //   System.out.println("Waited " + elapsed / 1000 + " usec to acquire write lock " + id);
@@ -179,8 +175,8 @@ public class CapybaraKVClient extends DB {
       // serialize the updated value to bytes
       byte[] updateBytes = serializeValues(values);
       kv.update(table, key, updateBytes);
-      kv.commit();
-      lock.writeLock().unlock();
+      // kv.commit();
+      // lock.writeLock().unlock();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -199,26 +195,26 @@ public class CapybaraKVClient extends DB {
   public Status read(String table, String key, Set<String> fields,
       Map<String, ByteIterator> result) {
     try {
-      long id = getShardId(key);
-      CapybaraKV kv = null;
-      ReentrantReadWriteLock lock = null;
+      // long id = getShardId(key);
+      // CapybaraKV kv = null;
+      // ReentrantReadWriteLock lock = null;
       // Shard setup may race with operations, so keep trying to 
       // access the KV we want until it exists.
       // TODO: there should a timeout/maximum number of iterations
-      while (kv == null) {
-        kv = kvMap.get(id);
-      }
-      while (lock == null) {
-        lock = kvLockMap.get(id);
-      }
+      // while (kv == null) {
+      //   kv = kvMap.get(id);
+      // }
+      // while (lock == null) {
+      //   lock = kvLockMap.get(id);
+      // }
       // if (lock.isWriteLocked()) {
       //   System.out.println("write lock " + id + " is held");
       // }
-      lock.readLock().lock();
-      numShardHits.computeIfPresent(id, (k, v) -> v + 1);
+      // lock.readLock().lock();
+      // numShardHits.computeIfPresent(id, (k, v) -> v + 1);
       byte[] values = kv.read(table, key);
       deserializeValues(values, fields, result);
-      lock.readLock().unlock();
+      // lock.readLock().unlock();
       return Status.OK;
     } catch(CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -229,23 +225,33 @@ public class CapybaraKVClient extends DB {
   @Override 
   public void cleanup() throws DBException {
     synchronized(CapybaraKVClient.class) {
-      if (kvMap != null) {
+      if (counter.get() == 1) {
+        // If all threads but one have called cleanup, we can clean up 
+        // the actual KV store
+        kv.cleanup();
+        kv = null;
         postAvailableMem = getAvailableMem();
         System.out.println("Post-experiment available mem: " + postAvailableMem);
         System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
-
-        System.out.println("Cleaning up");
-        for (long id = 0; id < counter.get(); id++) {
-          CapybaraKV kv = kvMap.get(id);
-          ReentrantReadWriteLock lock = kvLockMap.get(id);
-          lock.writeLock().lock();
-          kv.cleanup();
-          System.out.println("Shard " + id + " was hit " + numShardHits.get(id) + " times.");
-          lock.writeLock().unlock();
-        }
-        kvMap = null;
-        kvLockMap = null;
       }
+      counter.decrementAndGet();
+      // if (kvMap != null) {
+      //   postAvailableMem = getAvailableMem();
+      //   System.out.println("Post-experiment available mem: " + postAvailableMem);
+      //   System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
+
+      //   System.out.println("Cleaning up");
+      //   for (long id = 0; id < counter.get(); id++) {
+      //     CapybaraKV kv = kvMap.get(id);
+      //     ReentrantReadWriteLock lock = kvLockMap.get(id);
+      //     lock.writeLock().lock();
+      //     kv.cleanup();
+      //     System.out.println("Shard " + id + " was hit " + numShardHits.get(id) + " times.");
+      //     lock.writeLock().unlock();
+      //   }
+      //   kvMap = null;
+      //   kvLockMap = null;
+      // }
       
     }
   }
