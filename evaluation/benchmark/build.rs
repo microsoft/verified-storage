@@ -27,7 +27,7 @@ fn main() {
 
     // build object file for the viper wrapper
     // based on instructions from https://rust-lang.github.io/rust-bindgen/non-system-libraries.html
-    if !std::process::Command::new("clang++")
+    let p = std::process::Command::new("clang++")
         .arg("-c")
         .arg("-I../viper/include")
         .arg("-I../viper/benchmark")
@@ -45,10 +45,11 @@ fn main() {
         .arg(&obj_path)
         .arg(viper_wrapper_path.join("viper_wrapper.cpp"))
         .output()
-        .expect("could not spawn `clang`")
-        .status
-        .success()
-    { panic!("could not compile object file") }
+        .expect("could not spawn `clang`");
+    if !p.status.success() {
+        println!("{:?}", p);
+        panic!("could not compile object file" )
+    }
 
     // build the static library file for the viper wrapper
     if !std::process::Command::new("ar")
