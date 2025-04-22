@@ -1,61 +1,64 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-use crate::{Key, Value, TestKey, TestValue, KEY_LEN, VALUE_LEN, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
+use crate::{
+    init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs, Key, KvInterface, MicrobenchmarkConfig,
+    TestKey, TestValue, Value, KEY_LEN, VALUE_LEN,
+};
+use std::ffi::{c_void, CString};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ffi::{c_void, CString};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-pub struct ViperClient
-{
+pub struct ViperClient {
     kv: *mut crate::ViperDBFFI,
     client: *mut crate::ViperDBClientFFI,
 }
 
-impl KvInterface<TestKey, TestValue> for ViperClient
-{
+impl KvInterface<TestKey, TestValue> for ViperClient {
     type E = bool;
 
-    fn setup(mount_point: &str, pm_dev: &str, num_keys: u64) -> Result<(), Self::E> { 
-        init_and_mount_pm_fs(mount_point, pm_dev);
-        
-        let file = crate::MOUNT_POINT.to_owned() + "/viper";
+    fn setup(config: &MicrobenchmarkConfig) -> Result<(), Self::E> {
+        let mount_point = &config.mount_point;
+        let pm_dev = &config.pm_dev;
+
+        init_and_mount_pm_fs(&mount_point, &pm_dev);
+
+        let file = config.mount_point.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
-        let init_size = 53687091200;
+        // let init_size = 53687091200;
+        let init_size = config.viper_region_size;
 
         println!("setting up initial viper instance");
 
         {
             unsafe {
-                let kv = crate::viperdb_create(file_ptr, init_size) ;
+                let kv = crate::viperdb_create(file_ptr, init_size);
                 let client = crate::viperdb_get_client(kv);
-                
+
                 crate::viperdb_client_cleanup(client);
-                crate::viperdb_cleanup(kv); 
+                crate::viperdb_cleanup(kv);
             }
         }
-        ViperClient::cleanup(pm_dev);
-        
-        // let client = unsafe { crate::viperdb_get_client(kv) };
-
+        ViperClient::cleanup(&mount_point, &pm_dev);
         println!("done creating\n");
-
-        // Ok(Self { kv, client })
 
         Ok(())
     }
 
-    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
+    fn start(config: &MicrobenchmarkConfig) -> Result<Self, Self::E> {
         // init_and_mount_pm_fs();
-        
-        let file = crate::MOUNT_POINT.to_owned() + "/viper";
+        let mount_point = &config.mount_point;
+        let pm_dev = &config.pm_dev;
+
+        let file = mount_point.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
-        let init_size = 53687091200;
+        // let init_size = 53687091200;
+        let init_size = config.viper_region_size;
 
         // println!("creating viper client");
 
@@ -68,24 +71,27 @@ impl KvInterface<TestKey, TestValue> for ViperClient
 
         // sleep(Duration::from_secs(10));
 
-        remount_pm_fs(mount_point, pm_dev);
+        remount_pm_fs(&mount_point, &pm_dev);
 
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
         let client = unsafe { crate::viperdb_get_client(kv) };
 
-        Ok(Self { kv, client } )
+        Ok(Self { kv, client })
     }
 
-    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E> {
-        
+    fn timed_start(config: &MicrobenchmarkConfig) -> Result<(Self, Duration), Self::E> {
+        let mount_point = &config.mount_point;
+        let pm_dev = &config.pm_dev;
+
         println!("running timed start");
 
-        let file = crate::MOUNT_POINT.to_owned() + "/viper";
+        let file = mount_point.to_owned() + "/viper";
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
-        let init_size = 53687091200;
+        // let init_size = 53687091200;
+        let init_size = config.viper_region_size;
 
-        remount_pm_fs(mount_point, pm_dev);
+        remount_pm_fs(&mount_point, &pm_dev);
 
         let t0 = Instant::now();
         let kv = unsafe { crate::viperdb_create(file_ptr, init_size) };
@@ -94,9 +100,9 @@ impl KvInterface<TestKey, TestValue> for ViperClient
 
         println!("timed start done");
 
-        Ok((Self { kv, client } , dur))
+        Ok((Self { kv, client }, dur))
     }
-    
+
     fn db_name() -> String {
         "viper".to_string()
     }
@@ -106,8 +112,8 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let value = &value.value as *const [u8; VALUE_LEN];
         let result = unsafe { crate::viperdb_put(self.client, key, value) };
         match result {
-            true => Ok(()), 
-            false => Err(false)
+            true => Ok(()),
+            false => Err(false),
         }
     }
 
@@ -117,7 +123,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let result = unsafe { crate::viperdb_get(self.client, key, &mut value.value) };
         match result {
             true => Ok(value),
-            false => Err(false)
+            false => Err(false),
         }
     }
 
@@ -134,11 +140,11 @@ impl KvInterface<TestKey, TestValue> for ViperClient
         let result = unsafe { crate::viperdb_delete(self.client, key) };
         match result {
             true => Ok(()),
-            false => Err(false)
+            false => Err(false),
         }
     }
 
-    fn cleanup(pm_dev: &str) {
+    fn cleanup(mount_point: &str, pm_dev: &str) {
         sleep(Duration::from_secs(1));
         unmount_pm_fs(pm_dev);
     }
@@ -146,13 +152,12 @@ impl KvInterface<TestKey, TestValue> for ViperClient
     fn flush(&mut self) {}
 }
 
-impl Drop for ViperClient
-{
+impl Drop for ViperClient {
     fn drop(&mut self) {
         println!("dropping viper db");
-        unsafe { 
+        unsafe {
             crate::viperdb_client_cleanup(self.client);
-            crate::viperdb_cleanup(self.kv); 
+            crate::viperdb_cleanup(self.kv);
         }
         println!("done dropping viperdb");
     }

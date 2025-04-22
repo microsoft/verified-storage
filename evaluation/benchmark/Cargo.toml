@@ -8,9 +8,9 @@ edition = "2021"
 [dependencies]
 storage_node = { path = "../../storage_node/" }
 pmcopy = { path = "../../pmcopy" }
-builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
-builtin = { git = "https://github.com/verus-lang/verus.git" }
-vstd = { git = "https://github.com/verus-lang/verus.git" }
+builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev = "cd8c9320616c1ddbf4e84256e0048903ae41508d" }
+builtin = { git = "https://github.com/verus-lang/verus.git", rev = "cd8c9320616c1ddbf4e84256e0048903ae41508d" }
+vstd = { git = "https://github.com/verus-lang/verus.git", rev = "cd8c9320616c1ddbf4e84256e0048903ae41508d" }
 toml = { version = "0.8.19", features = ["parse"] }
 serde = { version = "1.0.215", features = ["derive"] }
 chrono = "0.4.38"

@@ -1,0 +1,14 @@
+[microbenchmark_config]
+kv_file = "/mnt/pmem//capybarakv" 
+pm_dev = "/dev/pmem0"
+mount_point = "/mnt/pmem/"
+results_dir = "../results/artifact_evaluation/microbenchmark"
+experiment_keys = 25000000
+per_record_list_len = 100
+op_iterations = 5
+start_iterations = 5
+capybarakv_region_size = 123480309760 
+viper_region_size = 53687091200
+max_keys = 100882600
+run_full_setup = true
+max_operations_per_transaction = 1

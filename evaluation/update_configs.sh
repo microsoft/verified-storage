@@ -58,6 +58,8 @@ for filename in configs/*; do
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_8\"!" $filename
             elif [[ $filename == *"16"* ]]; then
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_16\"!" $filename
+            elif [[ $filename == *"microbenchmark"* ]]; then 
+                sed -i "s!results_dir = \".*\"!results_dir = \"../c${RESULTS_DIR}microbenchmark\"!" $filename
             else 
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}\"!" $filename
             fi

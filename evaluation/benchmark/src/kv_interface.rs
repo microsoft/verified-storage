@@ -1,5 +1,6 @@
 use storage_node::pmem::pmcopy_t::PmCopy;
 use std::time::Duration;
+use crate::MicrobenchmarkConfig;
 
 pub trait KvInterface<K, V> : Sized 
     where 
@@ -8,16 +9,16 @@ pub trait KvInterface<K, V> : Sized
 {
     type E;
 
-    fn setup(mount_point: &str, pm_dev: &str, num_keys: u64) -> Result<(), Self::E> { Ok(()) }
+    fn setup(config: &MicrobenchmarkConfig) -> Result<(), Self::E> { Ok(()) }
 
     // Initialize the KV store and return an instance of itself.
     // We'll always build KVs from scratch in these tests, so we'll 
     // do both setup and start (if they are separate) in this function.
-    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E>;
+    fn start(config: &MicrobenchmarkConfig) -> Result<Self, Self::E>;
 
     // Same as init, except records how long it takes to run init excluding
     // PM FS setup time and returns the duration alongside the KV
-    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E>;
+    fn timed_start(config: &MicrobenchmarkConfig) -> Result<(Self, Duration), Self::E>;
 
     fn db_name() -> String;
 
@@ -32,7 +33,7 @@ pub trait KvInterface<K, V> : Sized
     // RocksDB and CapybaraKV use a cleanup function *after* the KV
     // itself has been dropped. Redis can kill the server and clean up
     // in its Drop impl, but the other two need to drop the KV first.
-    fn cleanup(pm_dev: &str);
+    fn cleanup(mount_point: &str, pm_dev: &str);
 
     // Only required for RocksDB to make updates visible for subsequent ops
     // TODO @hayley -- is this necessary after EVERY put in rocksdb??

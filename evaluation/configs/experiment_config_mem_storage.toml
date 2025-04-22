@@ -1,5 +1,5 @@
 [experiment_config]
-results_dir = "results/camera_ready_results/mem_storage/"
+results_dir = "results/artifact_evaluation/mem_storage/"
 threads = 1
 mount_point = "/mnt/pmem/"
 pm_device = "/dev/pmem0"

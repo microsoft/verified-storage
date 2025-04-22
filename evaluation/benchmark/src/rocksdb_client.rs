@@ -1,20 +1,19 @@
-use rocksdb::{DB, Options};
 use crate::{
-    kv_interface::{KvInterface, Key, Value}, 
-    VALUE_LEN, TestValue, init_and_mount_pm_fs, unmount_pm_fs};
-use storage_node::pmem::pmcopy_t::PmCopy;
+    init_and_mount_pm_fs,
+    kv_interface::{Key, KvInterface, Value},
+    unmount_pm_fs, MicrobenchmarkConfig, TestValue, VALUE_LEN,
+};
 use core::marker::PhantomData;
+use rocksdb::{Options, DB};
 use std::path::Path;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-// TODO: get this from a config file
-const ROCKSDB_PATH: &str = "/mnt/pmem/";
+use storage_node::pmem::pmcopy_t::PmCopy;
 
 pub struct RocksDbClient<K, V>
-    where 
-        K: PmCopy + Key,
-        V: PmCopy + Value,
+where
+    K: PmCopy + Key,
+    V: PmCopy + Value,
 {
     db: DB,
     _options: Options,
@@ -46,29 +45,35 @@ fn rocksdb_options() -> Options {
 }
 
 impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
-    where 
-        K: PmCopy + Key + AsRef<[u8]>,
-        V: PmCopy + Value + AsRef<[u8]>,
+where
+    K: PmCopy + Key + AsRef<[u8]>,
+    V: PmCopy + Value + AsRef<[u8]>,
 {
     type E = rocksdb::Error;
 
-    fn start(mount_point: &str, pm_dev: &str) -> Result<Self, Self::E> {
-        init_and_mount_pm_fs(mount_point, pm_dev);
+    fn start(config: &MicrobenchmarkConfig) -> Result<Self, Self::E> {
+        let mount_point = &config.mount_point;
+        let pm_dev = &config.pm_dev;
+
+        init_and_mount_pm_fs(&mount_point, &pm_dev);
 
         let options = rocksdb_options();
 
-        let db = DB::open(&options, crate::MOUNT_POINT)?;
-        Ok(Self { 
+        let db = DB::open(&options, mount_point)?;
+        Ok(Self {
             db,
             _options: options,
-            _path: crate::MOUNT_POINT.to_string(),
+            _path: mount_point.to_string(),
             _key_type: PhantomData,
             _value_type: PhantomData,
         })
     }
 
-    fn timed_start(mount_point: &str, pm_dev: &str) -> Result<(Self, Duration), Self::E> {
-        init_and_mount_pm_fs(mount_point, pm_dev);
+    fn timed_start(config: &MicrobenchmarkConfig) -> Result<(Self, Duration), Self::E> {
+        let mount_point = &config.mount_point;
+        let pm_dev = &config.pm_dev;
+
+        init_and_mount_pm_fs(&mount_point, &pm_dev);
 
         let t0 = Instant::now();
         let mut options = rocksdb_options();
@@ -77,15 +82,18 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         // when not measuring performance.
         options.set_env(&rocksdb::Env::default_dcpmm()?);
 
-        let db = DB::open(&options, crate::MOUNT_POINT)?;
+        let db = DB::open(&options, mount_point)?;
         let dur = t0.elapsed();
-        Ok((Self { 
-            db,
-            _options: options,
-            _path: crate::MOUNT_POINT.to_string(),
-            _key_type: PhantomData,
-            _value_type: PhantomData,
-        }, dur))
+        Ok((
+            Self {
+                db,
+                _options: options,
+                _path: mount_point.to_string(),
+                _key_type: PhantomData,
+                _value_type: PhantomData,
+            },
+            dur,
+        ))
     }
 
     fn db_name() -> String {
@@ -107,7 +115,7 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
     }
 
     fn update(&mut self, key: &K, value: &V) -> Result<(), Self::E> {
-        // TODO: does this work if the key already exists? this is what 
+        // TODO: does this work if the key already exists? this is what
         // YCSB does, so I think it should work
         self.db.put(key, value)?;
         Ok(())
@@ -122,8 +130,8 @@ impl<K, V> KvInterface<K, V> for RocksDbClient<K, V>
         self.db.flush().unwrap();
     }
 
-    fn cleanup(pm_dev: &str) {
-        let _ = DB::destroy(&Options::default(), ROCKSDB_PATH);
+    fn cleanup(mount_point: &str, pm_dev: &str) {
+        let _ = DB::destroy(&Options::default(), mount_point);
         sleep(Duration::from_secs(1));
         unmount_pm_fs(pm_dev);
     }

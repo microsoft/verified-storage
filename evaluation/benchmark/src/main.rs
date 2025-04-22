@@ -3,7 +3,6 @@
 #![allow(dependency_on_unit_never_type_fallback)]
 #![allow(unused_imports)]
 #![allow(deprecated)]
-
 // these are required to suppress warnings from bindgen-generated code
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
@@ -14,12 +13,12 @@ include!("./bindings.rs");
 
 // use storage_node::kv::kvimpl_t::*;
 // use storage_node::pmem::linux_pmemfile_t::*;
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::kv2::spec_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmcopy::PmCopy;
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
+use storage_node::kv2::spec_t::*;
+use storage_node::pmem::pmcopy_t::*;
+use storage_node::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
 
 #[allow(unused_imports)]
 use builtin::*;
@@ -28,15 +27,17 @@ use builtin_macros::*;
 
 use redis::{FromRedisValue, RedisResult};
 
-use std::fs;
 use std::env;
-use std::time::{Instant};
+use std::fs;
+use std::time::Instant;
 // use std::thread::sleep;
 use std::io::{BufWriter, Write};
 use std::process::Command;
 
-use rand::thread_rng;
 use rand::seq::SliceRandom;
+use rand::thread_rng;
+
+use serde::Deserialize;
 
 use nix::sys;
 
@@ -49,9 +50,9 @@ use crate::viper_client::*;
 pub mod kv_interface;
 pub mod redis_client;
 pub mod rocksdb_client;
-pub mod capybarakv_client;
-pub mod viper_client;
+// pub mod capybarakv_client;
 pub mod sharded_capybarakv_client;
+pub mod viper_client;
 // pub mod custom_bindings;
 
 // length of key and value in byte for most tests
@@ -64,35 +65,35 @@ const LIST_ELEM_LEN: usize = 8;
 const BIG_KEY_LEN: usize = 1024;
 const BIG_VALUE_LEN: usize = 1024 * 512;
 
-const PM_DEV: &str = "/dev/pmem0";
-const MOUNT_POINT: &str = "/mnt/pmem";
+// const PM_DEV: &str = "/dev/pmem0";
+// const MOUNT_POINT: &str = "/mnt/pmem";
 
-#[cfg(feature="mini")]
-const NUM_KEYS: u64 = 25000;
-#[cfg(feature="mini")]
-const LIST_LEN: u64 = 10; 
-#[cfg(not(feature="mini"))]
-const NUM_KEYS: u64 = 25000000;
-#[cfg(not(feature="mini"))]
-const LIST_LEN: u64 = 100;
-const ITERATIONS: u64 = 1;
-const START_ITERATIONS: u64 = 5;
-// for use in the full startup experiment
-// 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
-// 115GB CapybaraKV instances uses 100% of PM device
-// the extra 128 bytes accounts for metadata and CRCs 
-const CAPYBARAKV_MAX_KEYS: u64 = 235000; 
+// #[cfg(feature="mini")]
+// const NUM_KEYS: u64 = 25000;
+// #[cfg(feature="mini")]
+// const LIST_LEN: u64 = 10;
+// #[cfg(not(feature="mini"))]
+// const NUM_KEYS: u64 = 25000000;
+// #[cfg(not(feature="mini"))]
+// const LIST_LEN: u64 = 100;
+// const ITERATIONS: u64 = 1;
+// const START_ITERATIONS: u64 = 5;
+// // for use in the full startup experiment
+// // 1024*1024*1024*115 / (1024 + 1024*512 + 128) (approximately)
+// // 115GB CapybaraKV instances uses 100% of PM device
+// // the extra 128 bytes accounts for metadata and CRCs
+// const CAPYBARAKV_MAX_KEYS: u64 = 235000;
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct TestKey {
-    key: [u8; KEY_LEN]
+    key: [u8; KEY_LEN],
 }
 
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct BigTestKey {
-    key: [u8; BIG_KEY_LEN]
+    key: [u8; BIG_KEY_LEN],
 }
 
 impl Key for TestKey {
@@ -122,24 +123,22 @@ impl AsRef<[u8]> for BigTestKey {
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct TestValue {
-    value: [u8; VALUE_LEN]
+    value: [u8; VALUE_LEN],
 }
 
 impl Default for TestValue {
     fn default() -> Self {
         Self {
-            value: [0; VALUE_LEN]
+            value: [0; VALUE_LEN],
         }
     }
 }
 
-
 #[repr(C)]
 #[derive(PmCopy, Copy, Hash, Debug)]
 struct BigTestValue {
-    value: [u8; BIG_VALUE_LEN]
+    value: [u8; BIG_VALUE_LEN],
 }
-
 
 impl AsRef<[u8]> for TestValue {
     fn as_ref(&self) -> &[u8] {
@@ -166,7 +165,9 @@ impl Value for TestValue {
         if v.len() > VALUE_LEN {
             panic!("value is too long");
         }
-        let mut value = TestValue { value: [0u8; VALUE_LEN] };
+        let mut value = TestValue {
+            value: [0u8; VALUE_LEN],
+        };
         value.value[0..v.len()].copy_from_slice(&v);
         value
     }
@@ -185,7 +186,9 @@ impl Value for BigTestValue {
         if v.len() > BIG_VALUE_LEN {
             panic!("value is too long");
         }
-        let mut value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
+        let mut value = BigTestValue {
+            value: [0u8; BIG_VALUE_LEN],
+        };
         value.value[0..v.len()].copy_from_slice(&v);
         value
     }
@@ -194,7 +197,7 @@ impl Value for BigTestValue {
 #[repr(C)]
 #[derive(PmCopy, Copy, Debug)]
 pub struct TestListElem {
-    val: [u8; LIST_ELEM_LEN]
+    val: [u8; LIST_ELEM_LEN],
 }
 
 impl ListElement for TestListElem {
@@ -203,7 +206,7 @@ impl ListElement for TestListElem {
     }
 }
 
-// This has to be implemented, but we're going to ignore it, 
+// This has to be implemented, but we're going to ignore it,
 // so it doesn't really matter what these return
 impl LogicalRange for TestListElem {
     fn start(&self) -> usize {
@@ -217,13 +220,14 @@ impl LogicalRange for TestListElem {
     }
 }
 
-
 impl FromRedisValue for TestValue {
     fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
         use redis::Value::*;
 
         // TODO: better error handling for unexpected value types
-        let mut out_value = Self { value: [0u8; VALUE_LEN] };
+        let mut out_value = Self {
+            value: [0u8; VALUE_LEN],
+        };
         if let Array(array) = v {
             if array.len() > 2 {
                 panic!("Invalid value structure");
@@ -241,7 +245,7 @@ impl FromRedisValue for TestValue {
             }
         }
         Ok(out_value)
-    }   
+    }
 }
 
 impl FromRedisValue for BigTestValue {
@@ -249,7 +253,9 @@ impl FromRedisValue for BigTestValue {
         use redis::Value::*;
 
         // TODO: better error handling for unexpected value types
-        let mut out_value = Self { value: [0u8; BIG_VALUE_LEN] };
+        let mut out_value = Self {
+            value: [0u8; BIG_VALUE_LEN],
+        };
         if let Array(array) = v {
             if array.len() > 2 {
                 panic!("Invalid value structure");
@@ -268,7 +274,6 @@ impl FromRedisValue for BigTestValue {
         }
         Ok(out_value)
     }
-    
 }
 
 impl FromRedisValue for TestListElem {
@@ -276,7 +281,9 @@ impl FromRedisValue for TestListElem {
         use redis::Value::*;
 
         // TODO: better error handling for unexpected value types
-        let mut out_value = Self { val: [0u8; LIST_ELEM_LEN] };
+        let mut out_value = Self {
+            val: [0u8; LIST_ELEM_LEN],
+        };
         if let Array(array) = v {
             if array.len() > 2 {
                 panic!("Invalid list element structure");
@@ -294,36 +301,58 @@ impl FromRedisValue for TestListElem {
             }
         }
         Ok(out_value)
-    }   
+    }
+}
+
+#[derive(Deserialize, Debug)]
+struct Config {
+    microbenchmark_config: MicrobenchmarkConfig,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MicrobenchmarkConfig {
+    kv_file: String,
+    pm_dev: String,
+    mount_point: String,
+    results_dir: String,
+    experiment_keys: u64,
+    per_record_list_len: u64,
+    op_iterations: u64,
+    start_iterations: u64,
+    capybarakv_region_size: u64,
+    viper_region_size: u64,
+    max_keys: u64,
+    run_full_setup: bool,
+    max_operations_per_transaction: u64,
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let output_dir = if args.len() > 1 {
+    let config_file = if args.len() > 1 {
         args[1].clone()
     } else {
-        panic!("Please provide output dir path");
-    };
-    let mount_point = if args.len() > 2 {
-        args[2].clone()
-    } else {
-        panic!("Please provide a mount point");
-    };
-    let pm_dev = if args.len() > 3 {
-        args[3].clone()
-    } else {
-        panic!("Please provide a PM device");
+        panic!("Please provide config file")
     };
 
-    #[cfg(feature="mini")]
-    println!("RUNNING MINI EXPERIMENT");
-    #[cfg(not(feature="mini"))]
-    println!("RUNNING FULL EXPERIMENT");
+    let config_contents_str = match fs::read_to_string(&config_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Could not read file `{}`: {}", config_file, e);
+            panic!();
+        }
+    };
+    let config_contents: Config = toml::from_str(&config_contents_str).unwrap();
+    let config = config_contents.microbenchmark_config;
+    let output_dir = &config.results_dir;
 
     // create per-KV output directories
-    let redis_output_dir = output_dir.clone() + "/" + &RedisClient::<TestKey,TestValue, TestListElem>::db_name();
-    let rocksdb_output_dir = output_dir.clone() + "/" + &RocksDbClient::<TestKey,TestValue>::db_name();
-    let capybara_output_dir = output_dir.clone() + "/" + &ShardedCapybaraKvClient::<TestKey, TestValue, TestListElem>::db_name();
+    let redis_output_dir =
+        output_dir.clone() + "/" + &RedisClient::<TestKey, TestValue, TestListElem>::db_name();
+    let rocksdb_output_dir =
+        output_dir.clone() + "/" + &RocksDbClient::<TestKey, TestValue>::db_name();
+    let capybara_output_dir = output_dir.clone()
+        + "/"
+        + &ShardedCapybaraKvClient::<TestKey, TestValue, TestListElem>::db_name();
     let viper_output_dir = output_dir.clone() + "/" + &ViperClient::db_name();
 
     fs::create_dir_all(&redis_output_dir).unwrap();
@@ -331,112 +360,143 @@ fn main() {
     fs::create_dir_all(&capybara_output_dir).unwrap();
     fs::create_dir_all(&viper_output_dir).unwrap();
 
-
-    // for i in 1..ITERATIONS+1 {
-    //     run_experiments::<RedisClient<TestKey, TestValue, TestListElem>>(&mount_point, &pm_dev, &redis_output_dir, NUM_KEYS, i).unwrap();
-    //     run_experiments::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, NUM_KEYS, i).unwrap();
-    //     run_experiments::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(&mount_point, &pm_dev, &capybara_output_dir, NUM_KEYS, i).unwrap();
-    //     run_experiments::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, NUM_KEYS, i).unwrap();
-    // }
-
-    for i in 1..ITERATIONS+1 {
-        // run_list_experiments::<RedisClient<TestKey, TestValue, TestListElem>>(&mount_point, &pm_dev, &redis_output_dir, NUM_KEYS, i).unwrap();
-        run_list_experiments::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(&mount_point, &pm_dev, &capybara_output_dir, NUM_KEYS, i).unwrap();
+    for i in 1..config.op_iterations + 1 {
+        run_experiments::<RedisClient<TestKey, TestValue, TestListElem>>(
+            &config,
+            &redis_output_dir,
+            i,
+        )
+        .unwrap();
+        run_experiments::<RocksDbClient<TestKey, TestValue>>(&config, &rocksdb_output_dir, i)
+            .unwrap();
+        run_experiments::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(
+            &config,
+            &capybara_output_dir,
+            i,
+        )
+        .unwrap();
+        run_experiments::<ViperClient>(&config, &viper_output_dir, i).unwrap();
     }
 
-    // #[cfg(not(feature="mini"))]
-    // {
-    //     // full setup works differently so that we don't have to rebuild the full KV every iteration
-    //     run_full_setup::<RedisClient<TestKey, TestValue, TestListElem>>(&mount_point, &pm_dev, &redis_output_dir, NUM_KEYS).unwrap();
-    //     run_full_setup::<RocksDbClient<TestKey, TestValue>>(&mount_point, &pm_dev, &rocksdb_output_dir, NUM_KEYS).unwrap();
-    //     run_full_setup::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(&mount_point, &pm_dev, &capybara_output_dir, CAPYBARAKV_MAX_KEYS).unwrap();
-    //     run_full_setup::<ViperClient>(&mount_point, &pm_dev, &viper_output_dir, NUM_KEYS).unwrap();
-    // }
-    
+    for i in 1..config.op_iterations + 1 {
+        run_list_experiments::<RedisClient<TestKey, TestValue, TestListElem>>(
+            &config,
+            &redis_output_dir,
+            i,
+        )
+        .unwrap();
+        run_list_experiments::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(
+            &config,
+            &capybara_output_dir,
+            i,
+        )
+        .unwrap();
+    }
+
+    if config.run_full_setup {
+        // full setup works differently so that we don't have to rebuild the full KV every iteration
+        run_full_setup::<RedisClient<TestKey, TestValue, TestListElem>>(&config, &redis_output_dir)
+            .unwrap();
+        run_full_setup::<RocksDbClient<TestKey, TestValue>>(&config, &rocksdb_output_dir).unwrap();
+        run_full_setup::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(
+            &config,
+            &capybara_output_dir,
+        )
+        .unwrap();
+        run_full_setup::<ViperClient>(&config, &viper_output_dir).unwrap();
+    }
 }
 
-fn run_experiments<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+fn run_experiments<KV>(config: &MicrobenchmarkConfig, output_dir: &str, i: u64) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
+    let mount_point = &config.mount_point;
+    let pm_dev = &config.pm_dev;
+    let num_keys = config.experiment_keys;
+    let max_keys = config.max_keys;
+
     // sequential access operations
     {
-        KV::setup(mount_point, pm_dev, num_keys)?;
-        let mut client = KV::start(mount_point, pm_dev)?;
+        KV::setup(config)?;
+        let mut client = KV::start(config)?;
         run_sequential_put(&mut client, &output_dir, num_keys, i)?;
         client.flush();
         run_sequential_get(&mut client, &output_dir, num_keys, i)?;
         run_sequential_update(&mut client, &output_dir, num_keys, i)?;
         run_sequential_delete(&mut client, &output_dir, num_keys, i)?;
     }
-    KV::cleanup(pm_dev);
+    KV::cleanup(&mount_point, &pm_dev);
 
     println!("sequential done");
 
     // random access operations
     {
-        KV::setup(mount_point, pm_dev, num_keys)?;
-        let mut client = KV::start(mount_point, pm_dev)?;
+        KV::setup(config)?;
+        let mut client = KV::start(config)?;
         run_rand_put(&mut client, &output_dir, num_keys, i)?;
         client.flush();
         run_rand_get(&mut client, &output_dir, num_keys, i)?;
         run_rand_update(&mut client, &output_dir, num_keys, i)?;
         run_rand_delete(&mut client, &output_dir, num_keys, i)?;
     }
-    KV::cleanup(pm_dev);
+    KV::cleanup(&mount_point, &pm_dev);
 
-    #[cfg(not(feature="mini"))]
     {
         // startup measurements
-        for j in 0..START_ITERATIONS {
+        for j in 0..config.start_iterations {
             {
-                run_empty_start::<KV>(&mount_point, &pm_dev, &output_dir, j, CAPYBARAKV_MAX_KEYS)?;
+                run_empty_start::<KV>(config, &output_dir, j)?;
             }
-            KV::cleanup(pm_dev);
         }
     }
 
     Ok(())
 }
 
-fn run_list_experiments<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E> 
-where 
-        KV: KvInterface<TestKey, TestValue> + ListKvInterface<TestKey, TestValue, TestListElem>
-{   
-    {
-        KV::setup(mount_point, pm_dev, num_keys)?;
-        let mut client = KV::start(mount_point, pm_dev)?;
-        if KV::db_name() == "capybarakv" {
-            // redis does not the keys to be pre-inserted
-            insert_keys_for_list_ops(&mut client, num_keys)?;
-        }
-        run_sequential_list_append(&mut client, output_dir, num_keys, i)?;
-        run_sequential_list_read(&mut client, output_dir, num_keys, i)?;
-        run_sequential_list_get_length(&mut client, output_dir, num_keys, i)?;
-        run_sequential_list_trim(&mut client, output_dir, num_keys, i)?;
-    }
-    KV::cleanup(pm_dev);
-
-    {
-        KV::setup(mount_point, pm_dev, num_keys)?;
-        let mut client = KV::start(mount_point, pm_dev)?;
-        if KV::db_name() == "capybarakv" {
-            // redis does not the keys to be pre-inserted
-            insert_keys_for_list_ops(&mut client, num_keys)?;
-        }
-        run_rand_list_append(&mut client, output_dir, num_keys, i)?;
-        run_rand_list_read(&mut client, output_dir, num_keys, i)?;
-        run_rand_list_get_length(&mut client, output_dir, num_keys, i)?;
-        run_rand_list_trim(&mut client, output_dir, num_keys, i)?;
-    }
-    KV::cleanup(pm_dev);
-
-
-    Ok(())
-}
-
-fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File>
+fn run_list_experiments<KV>(
+    config: &MicrobenchmarkConfig,
+    output_dir: &str,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue> + ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let mount_point = &config.mount_point;
+    let pm_dev = &config.pm_dev;
+    let num_keys = config.experiment_keys;
+    {
+        KV::setup(config)?;
+        let mut client = KV::start(config)?;
+        if KV::db_name() == "capybarakv" {
+            // redis does not the keys to be pre-inserted
+            insert_keys_for_list_ops(&mut client, num_keys)?;
+        }
+        run_sequential_list_append(&mut client, output_dir, config, i)?;
+        run_sequential_list_read(&mut client, output_dir, config, i)?;
+        run_sequential_list_get_length(&mut client, output_dir, config, i)?;
+        run_sequential_list_trim(&mut client, output_dir, config, i)?;
+    }
+    KV::cleanup(&mount_point, &pm_dev);
+
+    {
+        KV::setup(config)?;
+        let mut client = KV::start(config)?;
+        if KV::db_name() == "capybarakv" {
+            // redis does not the keys to be pre-inserted
+            insert_keys_for_list_ops(&mut client, num_keys)?;
+        }
+        run_rand_list_append(&mut client, output_dir, config, i)?;
+        run_rand_list_read(&mut client, output_dir, config, i)?;
+        run_rand_list_get_length(&mut client, output_dir, config, i)?;
+        run_rand_list_trim(&mut client, output_dir, config, i)?;
+    }
+    KV::cleanup(&mount_point, &pm_dev);
+
+    Ok(())
+}
+
+fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File> {
     remove_file(&output_file);
     let f = fs::File::create(&output_file).unwrap();
     let out_stream = BufWriter::new(f);
@@ -444,10 +504,16 @@ fn create_file_and_build_output_stream(output_file: &str) -> BufWriter<fs::File>
 }
 
 fn u64_to_test_key(i: u64) -> TestKey {
-    let mut key = TestKey { key: [0u8; KEY_LEN] };
+    let mut key = TestKey {
+        key: [0u8; KEY_LEN],
+    };
     let i_str = i.to_string();
     if i_str.len() > KEY_LEN {
-        panic!("key len {:?} is greater than maximum len {:?}", i_str.len(), KEY_LEN);
+        panic!(
+            "key len {:?} is greater than maximum len {:?}",
+            i_str.len(),
+            KEY_LEN
+        );
     }
     let byte_vec: Vec<u8> = i_str.into_bytes();
     key.key[..byte_vec.len()].copy_from_slice(&byte_vec);
@@ -456,10 +522,16 @@ fn u64_to_test_key(i: u64) -> TestKey {
 }
 
 fn u64_to_big_test_key(i: u64) -> BigTestKey {
-    let mut key = BigTestKey { key: [0u8; BIG_KEY_LEN] };
+    let mut key = BigTestKey {
+        key: [0u8; BIG_KEY_LEN],
+    };
     let i_str = i.to_string();
     if i_str.len() > BIG_KEY_LEN {
-        panic!("key len {:?} is greater than maximum len {:?}", i_str.len(), BIG_KEY_LEN);
+        panic!(
+            "key len {:?} is greater than maximum len {:?}",
+            i_str.len(),
+            BIG_KEY_LEN
+        );
     }
     let byte_vec: Vec<u8> = i_str.into_bytes();
     key.key[..byte_vec.len()].copy_from_slice(&byte_vec);
@@ -467,12 +539,11 @@ fn u64_to_big_test_key(i: u64) -> BigTestKey {
     key
 }
 
-
 // TODO: actually take generics key and value here?
 // TODO: more useful error code
 fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/sequential_put/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
@@ -480,7 +551,9 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) 
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("SEQUENTIAL PUT");
-    let value = TestValue { value: [0u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [0u8; VALUE_LEN],
+    };
     for i in 0..num_keys {
         let key = u64_to_test_key(i);
 
@@ -498,12 +571,14 @@ fn run_sequential_put<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) 
 }
 
 // This function is the same as run_sequential_put but it doesn't time the operations
-fn insert_keys_for_list_ops<KV>(kv: &mut KV, num_keys: u64) -> Result<(), KV::E> 
-    where 
-        KV: KvInterface<TestKey, TestValue> + ListKvInterface<TestKey, TestValue, TestListElem>,
+fn insert_keys_for_list_ops<KV>(kv: &mut KV, num_keys: u64) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue> + ListKvInterface<TestKey, TestValue, TestListElem>,
 {
     println!("Filling KV store for list ops");
-    let value = TestValue { value: [0u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [0u8; VALUE_LEN],
+    };
     for i in 0..num_keys {
         let key = u64_to_test_key(i);
 
@@ -517,8 +592,8 @@ fn insert_keys_for_list_ops<KV>(kv: &mut KV, num_keys: u64) -> Result<(), KV::E>
 }
 
 fn run_sequential_get<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/sequential_get/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
@@ -542,9 +617,14 @@ fn run_sequential_get<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) 
     Ok(())
 }
 
-fn run_sequential_update<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>
+fn run_sequential_update<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    num_keys: u64,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/sequential_update/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
@@ -552,8 +632,10 @@ fn run_sequential_update<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u6
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("SEQUENTIAL UPDATE");
-    let value = TestValue { value: [1u8; VALUE_LEN] };
-    
+    let value = TestValue {
+        value: [1u8; VALUE_LEN],
+    };
+
     for i in 0..num_keys {
         let key = u64_to_test_key(i);
 
@@ -570,9 +652,14 @@ fn run_sequential_update<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u6
     Ok(())
 }
 
-fn run_sequential_delete<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>
+fn run_sequential_delete<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    num_keys: u64,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/sequential_delete/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
@@ -597,15 +684,17 @@ fn run_sequential_delete<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u6
 }
 
 fn run_rand_put<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/rand_put/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    let value = TestValue { value: [0u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [0u8; VALUE_LEN],
+    };
 
     // randomize key order
     let mut key_vec = Vec::from_iter(0..num_keys);
@@ -629,15 +718,17 @@ fn run_rand_put<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Res
 }
 
 fn run_rand_get<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/rand_get/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    let value = TestValue { value: [0u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [0u8; VALUE_LEN],
+    };
 
     // randomize key order
     let mut key_vec = Vec::from_iter(0..num_keys);
@@ -661,15 +752,17 @@ fn run_rand_get<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Res
 }
 
 fn run_rand_update<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/rand_update/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    let value = TestValue { value: [1u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [1u8; VALUE_LEN],
+    };
 
     // randomize key order
     let mut key_vec = Vec::from_iter(0..num_keys);
@@ -693,15 +786,17 @@ fn run_rand_update<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> 
 }
 
 fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     let exp_output_dir = output_dir.to_owned() + "/rand_delete/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    let value = TestValue { value: [1u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [1u8; VALUE_LEN],
+    };
 
     // randomize key order
     let mut key_vec = Vec::from_iter(0..num_keys);
@@ -725,16 +820,23 @@ fn run_rand_delete<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> 
 }
 
 // this one is currently just for tracing and doesn't record latencies
-fn run_rand_latest_access_pattern<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+fn run_rand_latest_access_pattern<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    num_keys: u64,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
     // let exp_output_dir = output_dir.to_owned() + "/access_latest/";
     // let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     // fs::create_dir_all(&exp_output_dir).unwrap();
     // let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    let value = TestValue { value: [1u8; VALUE_LEN] };
+    let value = TestValue {
+        value: [1u8; VALUE_LEN],
+    };
 
     // randomize key order
     let mut key_vec = Vec::from_iter(0..num_keys);
@@ -752,26 +854,35 @@ fn run_rand_latest_access_pattern<KV>(kv: &mut KV, output_dir: &str, num_keys: u
     println!("ACCESS LATEST DONE");
 
     Ok(())
-
 }
 
-// This function assumes that the keys have already been inserted by 
+// This function assumes that the keys have already been inserted by
 // insert_keys_for_list_ops
-fn run_sequential_list_append<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_sequential_list_append<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
+    let list_len = config.per_record_list_len;
+
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_append/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
-    let list_elem = TestListElem { val: [1u8; LIST_ELEM_LEN] };
+    let list_elem = TestListElem {
+        val: [1u8; LIST_ELEM_LEN],
+    };
     println!("SEQUENTIAL LIST APPEND");
     for i in 0..num_keys {
         let key = u64_to_test_key(i);
 
-        for j in 0..LIST_LEN {
+        for j in 0..list_len {
             let t0 = Instant::now();
             if let Err(e) = kv.append_to_list(&key, list_elem) {
                 return Err(e);
@@ -785,10 +896,16 @@ fn run_sequential_list_append<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, 
     Ok(())
 }
 
-fn run_sequential_list_read<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_sequential_list_read<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_read/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -810,10 +927,16 @@ fn run_sequential_list_read<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i:
     Ok(())
 }
 
-fn run_sequential_list_get_length<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_sequential_list_get_length<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_len/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -835,10 +958,18 @@ fn run_sequential_list_get_length<KV>(kv: &mut KV, output_dir: &str, num_keys: u
     Ok(())
 }
 
-fn run_sequential_list_trim<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_sequential_list_trim<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
+    let list_len = config.per_record_list_len;
+
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_trim/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -849,7 +980,7 @@ fn run_sequential_list_trim<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i:
         let key = u64_to_test_key(i);
 
         let t0 = Instant::now();
-        if let Err(e) = kv.trim_list(&key, LIST_LEN.try_into().unwrap()) {
+        if let Err(e) = kv.trim_list(&key, list_len.try_into().unwrap()) {
             return Err(e);
         }
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
@@ -860,12 +991,20 @@ fn run_sequential_list_trim<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i:
     Ok(())
 }
 
-// This function assumes that the keys have already been inserted by 
+// This function assumes that the keys have already been inserted by
 // insert_keys_for_list_ops
-fn run_rand_list_append<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_rand_list_append<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
+    let list_len = config.per_record_list_len;
+
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_append/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -873,16 +1012,18 @@ fn run_rand_list_append<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64
 
     let mut key_vec = Vec::new();
     for i in 0..num_keys {
-        key_vec.append(&mut vec![i; LIST_LEN.try_into().unwrap()]);
+        key_vec.append(&mut vec![i; list_len.try_into().unwrap()]);
     }
     key_vec.shuffle(&mut thread_rng());
 
-    let list_elem = TestListElem { val: [1u8; LIST_ELEM_LEN] };
+    let list_elem = TestListElem {
+        val: [1u8; LIST_ELEM_LEN],
+    };
     println!("RANDOM LIST APPEND");
     for i in 0..num_keys {
         let key = u64_to_test_key(i);
 
-        for j in 0..LIST_LEN {
+        for j in 0..list_len {
             let t0 = Instant::now();
             if let Err(e) = kv.append_to_list(&key, list_elem) {
                 return Err(e);
@@ -896,10 +1037,17 @@ fn run_rand_list_append<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64
     Ok(())
 }
 
-fn run_rand_list_read<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_rand_list_read<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
+
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_read/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -925,10 +1073,17 @@ fn run_rand_list_read<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) 
     Ok(())
 }
 
-fn run_rand_list_get_length<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_rand_list_get_length<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
+
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_len/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -954,10 +1109,18 @@ fn run_rand_list_get_length<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i:
     Ok(())
 }
 
-fn run_rand_list_trim<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) -> Result<(), KV::E>
-    where 
-        KV: ListKvInterface<TestKey, TestValue, TestListElem>
+fn run_rand_list_trim<KV>(
+    kv: &mut KV,
+    output_dir: &str,
+    config: &MicrobenchmarkConfig,
+    i: u64,
+) -> Result<(), KV::E>
+where
+    KV: ListKvInterface<TestKey, TestValue, TestListElem>,
 {
+    let num_keys = config.experiment_keys;
+    let list_len = config.per_record_list_len;
+
     let exp_output_dir = output_dir.to_owned() + "/sequential_list_trim/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
@@ -972,7 +1135,7 @@ fn run_rand_list_trim<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) 
         let key = u64_to_test_key(i);
 
         let t0 = Instant::now();
-        if let Err(e) = kv.trim_list(&key, LIST_LEN.try_into().unwrap()) {
+        if let Err(e) = kv.trim_list(&key, list_len.try_into().unwrap()) {
             return Err(e);
         }
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
@@ -983,49 +1146,57 @@ fn run_rand_list_trim<KV>(kv: &mut KV, output_dir: &str, num_keys: u64, i: u64) 
     Ok(())
 }
 
-fn run_empty_start<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, i: u64, num_keys: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
+fn run_empty_start<KV>(config: &MicrobenchmarkConfig, output_dir: &str, i: u64) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue>,
 {
+    let mount_point = &config.mount_point;
+    let pm_dev = &config.pm_dev;
+    let num_keys = config.max_keys;
+
     let exp_output_dir = output_dir.to_owned() + "/empty_setup/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
 
     println!("EMPTY SETUP");
-    KV::setup(mount_point, pm_dev, num_keys)?;
+    KV::setup(config)?;
     {
-        let (_kv, dur) = KV::timed_start(mount_point, pm_dev)?;
+        let (_kv, dur) = KV::timed_start(config)?;
         let elapsed = format!("{:?}\n", dur.as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
         out_stream.flush().unwrap();
         println!("EMPTY SETUP DONE");
     }
-    
-    KV::cleanup(pm_dev);
+    KV::cleanup(&mount_point, &pm_dev);
 
     Ok(())
 }
 
-fn run_full_setup<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, num_keys: u64) -> Result<(), KV::E>
-    where 
-        KV: KvInterface<TestKey, TestValue>,
-        KV::E: std::fmt::Debug,
+fn run_full_setup<KV>(config: &MicrobenchmarkConfig, output_dir: &str) -> Result<(), KV::E>
+where
+    KV: KvInterface<TestKey, TestValue>,
+    KV::E: std::fmt::Debug,
 {
+    let mount_point = &config.mount_point;
+    let pm_dev = &config.pm_dev;
+    let num_keys = config.max_keys;
     let exp_output_dir = output_dir.to_owned() + "/full_setup/";
-    
+
     println!("FULL SETUP");
 
     {
-        KV::setup(mount_point, pm_dev, num_keys)?;
-        let mut kv = KV::start(mount_point, pm_dev)?;
-    
+        KV::setup(config)?;
+        let mut kv = KV::start(config)?;
+
         // let value = BigTestValue { value: [0u8; BIG_VALUE_LEN] };
-        let value = TestValue { value: [0u8; VALUE_LEN] };
+        let value = TestValue {
+            value: [0u8; VALUE_LEN],
+        };
         let mut i = 0;
 
         println!("Inserting keys until failure");
-    
+
         // insert keys until the KV store runs out of space
         let mut insert_ok = Ok(());
         while insert_ok.is_ok() {
@@ -1035,11 +1206,12 @@ fn run_full_setup<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, num_key
             if i % 1000000 == 0 {
                 println!("Inserted {:?} keys", i);
                 // viper throws an exception in a different thread when it runs out space,
-                // which we can't really handle from Rust, so instead of waiting for 
-                // and error we'll periodically check if we're close to running out 
+                // which we can't really handle from Rust, so instead of waiting for
+                // and error we'll periodically check if we're close to running out
                 // of space and break when we are
-                let stat = sys::statvfs::statvfs(MOUNT_POINT).unwrap();
-                if (stat.blocks_available()*100) / stat.blocks() == 0 {
+                let mount_point_path = std::path::Path::new(mount_point);
+                let stat = sys::statvfs::statvfs(mount_point_path).unwrap();
+                if (stat.blocks_available() * 100) / stat.blocks() == 0 {
                     println!("Full, stopping.");
                     break;
                 }
@@ -1047,15 +1219,15 @@ fn run_full_setup<KV>(mount_point: &str, pm_dev: &str, output_dir: &str, num_key
         }
         println!("Maxed out at {:?} keys", i);
     }
-    KV::cleanup(pm_dev);
+    KV::cleanup(&mount_point, &pm_dev);
 
     println!("Done setting up, running timed start");
 
-    for i in 0..START_ITERATIONS {
+    for i in 0..config.start_iterations {
         let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
         fs::create_dir_all(&exp_output_dir).unwrap();
         let mut out_stream = create_file_and_build_output_stream(&output_file);
-        let (_kv, dur) = KV::timed_start(mount_point, pm_dev)?;
+        let (_kv, dur) = KV::timed_start(config)?;
         let elapsed = format!("{:?}\n", dur.as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
         out_stream.flush().unwrap();
@@ -1107,14 +1279,11 @@ pub fn remount_pm_fs(mount_point: &str, pm_dev: &str) {
 
 pub fn unmount_pm_fs(pm_dev: &str) {
     // sleep(Duration::from_secs(5));
-    let status = Command::new("sudo")
-        .args(["umount", pm_dev, "-f"])
-        .status();
+    let status = Command::new("sudo").args(["umount", pm_dev, "-f"]).status();
     if let Err(e) = status {
         println!("{:?}", e);
     }
 }
-
 
 fn remove_file(name: &str) {
     let _ = std::fs::remove_file(name);
