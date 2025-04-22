@@ -2,11 +2,11 @@
 kv_file = "/mnt/pmem/capybarakv" 
 pm_dev = "/dev/pmem0"
 mount_point = "/mnt/pmem"
-results_dir = "../results/ae-test/microbenchmark"
+results_dir = "../results/camera_ready_results/microbenchmark"
 experiment_keys = 25000000
 per_record_list_len = 100
-op_iterations = 1
-start_iterations = 1
+op_iterations = 5
+start_iterations = 5
 capybarakv_region_size = 123480309760 
 viper_region_size = 53687091200
 max_keys = 100882600

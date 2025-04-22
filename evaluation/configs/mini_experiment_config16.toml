@@ -1,5 +1,5 @@
 [experiment_config]
-results_dir = "results/ae-test/threads_16"
+results_dir = "results/camera_ready_results/threads_16"
 threads = 16
 mount_point = "/mnt/pmem"
 pm_device = "/dev/pmem0"
