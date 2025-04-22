@@ -2,7 +2,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 use crate::common::subrange_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;

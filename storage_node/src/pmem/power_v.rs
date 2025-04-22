@@ -6,7 +6,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 
 verus! {
 

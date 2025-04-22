@@ -13,7 +13,7 @@ use super::impl_v::*;
 use super::spec_t::*;
 use super::recover_v::*;
 use super::rwkv_t::*;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 use vstd::rwlock::{RwLock, RwLockPredicate};
 use vstd::invariant::*;
 use vstd::modes::*;
@@ -783,6 +783,7 @@ impl<PM, K, I, L> CheckPermission<Seq<u8>> for NoopPerm<PM, K, I, L>
 
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<Seq<u8>>, new_state: Seq<u8>) -> (tracked result: Self::Completion) {
         open_atomic_invariant_in_proof!(credit => &self.inv => inner => {
+            assert(self.inv.inv(inner));
             r.update(&mut inner.durable_res, new_state);
         });
     }

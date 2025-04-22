@@ -64,7 +64,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;

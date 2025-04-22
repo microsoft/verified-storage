@@ -39,7 +39,7 @@ use std::hash::Hash;
 use std::collections::VecDeque;
 use vstd::pcm::*;
 use vstd::pervasive::runtime_assert;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 
 verus! {
 

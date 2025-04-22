@@ -700,6 +700,7 @@ where
         let complete = self.mark_journal_committed::<Perm>(
             Ghost(old(self).powerpm@.durable_state), Ghost(old(self).powerpm@.read_state),
             Ghost(old(self)@.commit_state), Tracked(perm));
+        assert(perm.completed(complete@));
         self.install_journal_entries_during_commit::<PermFactory>(Ghost(old(self)@.commit_state), Tracked(perm_factory));
         assert forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                    implies #[trigger] perm_factory.permits(s1, s2) by {

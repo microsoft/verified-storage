@@ -8,7 +8,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::*;
 use std::hash::Hash;
 use super::spec_t::*;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 
 verus! {
 

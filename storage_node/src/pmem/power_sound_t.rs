@@ -3,7 +3,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::power_t::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
-use vstd::pcm::frac::*;
+use vstd::tokens::frac::*;
 use std::sync::Arc;
 
 verus! {
