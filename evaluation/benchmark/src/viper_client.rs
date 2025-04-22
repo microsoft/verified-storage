@@ -27,6 +27,7 @@ impl KvInterface<TestKey, TestValue> for ViperClient {
         init_and_mount_pm_fs(&mount_point, &pm_dev);
 
         let file = config.mount_point.to_owned() + "/viper";
+        println!("viper file: {:?}", file);
         let file_cstring = CString::new(file.clone()).unwrap();
         let file_ptr = file_cstring.as_ptr();
         // let init_size = 53687091200;

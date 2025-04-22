@@ -74,8 +74,11 @@ fn main() {
         .header(headers_path_str)
         .clang_args(&[
             "-I../viper/include", 
-            "-I/usr/include/c++/14", 
-            "-I/usr/include/x86_64-linux-gnu/c++/14",
+
+            // TODO: do these need to be in here? May depend on the system...
+            // "-I/usr/include/c++/14", 
+            // "-I/usr/include/x86_64-linux-gnu/c++/14",
+
             "-I../viper_deps/concurrentqueue",
             "-I../viper_wrapper",
             "-I../viper/benchmark",

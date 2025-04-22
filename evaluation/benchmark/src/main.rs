@@ -444,7 +444,7 @@ where
 
     {
         // startup measurements
-        for j in 0..config.start_iterations {
+        for j in 1..config.start_iterations+1 {
             {
                 run_empty_start::<KV>(config, &output_dir, j)?;
             }

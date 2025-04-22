@@ -9,7 +9,7 @@ numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db viper --experiment_
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config configs/experiment_config_mem_storage.toml --capybarakv_config configs/capybarakv_config_mem_storage.toml --workloads A
 
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db capybarakv --experiment_config configs/experiment_config1.toml 
-numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config experiment_config1.toml 
+numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db pmemrocksdb --experiment_config configs/experiment_config1.toml 
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db redis --experiment_config configs/experiment_config1.toml 
 numactl --membind 0 --cpunodebind 0 python3 run_ycsb.py --db viper --experiment_config configs/experiment_config1.toml
 
