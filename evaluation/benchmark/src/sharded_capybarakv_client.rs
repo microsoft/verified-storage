@@ -3,7 +3,7 @@ use storage_node::kv2::shardkv_t::*;
 use storage_node::kv2::shardkv_v::*;
 use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::kv2::spec_t::*;
-use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
+use crate::{LIST_LEN, Key, Value, ListKvInterface, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmcopy::PmCopy;
@@ -23,7 +23,8 @@ use vstd::prelude::*;
 // TODO: read these from config file
 const KVSTORE_ID: u128 = 1234;
 const KVSTORE_FILE: &str = "/mnt/pmem/capybarakv";
-const REGION_SIZE: u64 = 1024*1024*1024*115;
+// const REGION_SIZE: u64 = 1024*1024*1024*115;
+const REGION_SIZE: u64 = 1024*1024*1024*7; // TODO: revert
 
 // TODO: should make a capybarakv util crate so that you
 // can share some of these functions with ycsb_ffi?
@@ -74,11 +75,12 @@ verus! {
     }
 }
 
-impl<K, I, L> ReadLinearizer<K, I, L, ReadItemOp<K>> for PlaceholderCB
+impl<K, I, L, Op> ReadLinearizer<K, I, L, Op> for PlaceholderCB
     where
         K: Hash + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        Op: ReadOnlyOperation<K, I, L>
 {
     type Completion = Self;
 
@@ -87,7 +89,7 @@ impl<K, I, L> ReadLinearizer<K, I, L, ReadItemOp<K>> for PlaceholderCB
         Set::empty()
     }
 
-    open spec fn pre(self, id: int, op: ReadItemOp<K>) -> bool
+    open spec fn pre(self, id: int, op: Op) -> bool
     {
         true
     }
@@ -96,7 +98,7 @@ impl<K, I, L> ReadLinearizer<K, I, L, ReadItemOp<K>> for PlaceholderCB
         self,
         completion: Self,
         id: int,
-        op: ReadItemOp<K>,
+        op: Op,
         result: Result<I, KvError>,
     ) -> bool
     {
@@ -140,20 +142,15 @@ impl<K, V, L> KvInterface<K, V> for ShardedCapybaraKvClient<K, V, L>
         let setup_parameters = SetupParameters {
             kvstore_id: KVSTORE_ID,
             logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsPermitted,
-            max_keys: num_keys + 1,
-            max_list_elements: 10, // TODO: set this to something that makes sense
-            max_operations_per_transaction: 5 // TODO: set this to something that makes sense
+            max_keys: num_keys + 5,
+            max_list_elements: num_keys*LIST_LEN, // TODO: pass in list len, don't use a hardcoded constant
+            max_operations_per_transaction: 10 // TODO: set this to something that makes sense
         };
 
         let kv_store_file = std::path::Path::new(mount_point).join("capybarakv");
         let mut pm = create_pm_region(kv_store_file.to_str().unwrap(), REGION_SIZE);
         let mut pms = VecDeque::new();
         pms.push_back(pm);
-
-        // let mut kv_region = create_pm_region(KVSTORE_FILE, REGION_SIZE);
-        // KvStore::<FileBackedPersistentMemoryRegion, K, V, L>::setup(
-        //     &mut kv_region, &setup_parameters
-        // )?;
 
         let (_ckv, _) = setup::<FileBackedPersistentMemoryRegion, K, V, L>(pms, &setup_parameters, Ghost::assume_new(), Ghost::assume_new(), Ghost::assume_new())?;
 
@@ -217,6 +214,34 @@ impl<K, V, L> KvInterface<K, V> for ShardedCapybaraKvClient<K, V, L>
     }
 
     fn flush(&mut self) {}
+}
+
+impl<K, V, L> ListKvInterface<K, V, L> for ShardedCapybaraKvClient<K, V, L>
+    where 
+        K: PmCopy + Key + Debug + Hash,
+        V: PmCopy + Value + Debug + Hash,
+        L: PmCopy + Debug + LogicalRange,
+{
+
+    fn get_list_length(&mut self, key: &K) -> Result<usize, Self::E> {
+        let (result, _) = self.kv.get_list_length(key, Tracked::<PlaceholderCB>::assume_new());
+        result
+    }
+
+    fn read_full_list(&mut self, key: &K) -> Result<Vec<L>, Self::E> {
+        let (result, _) = self.kv.read_list(key, Tracked::<PlaceholderCB>::assume_new());
+        result
+    }
+
+    fn append_to_list(&mut self, key: &K, l: L) -> Result<(), Self::E> {
+        let (result, _) = self.kv.append_to_list(key, l, Tracked::<PlaceholderCB>::assume_new());
+        result
+    }
+
+    fn trim_list(&mut self, key: &K, trim_length: usize) -> Result<(), Self::E> {
+        let (result, _) = self.kv.trim_list(key, trim_length, Tracked::<PlaceholderCB>::assume_new());
+        result
+    }
 }
 
 fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion

@@ -39,6 +39,24 @@ pub trait KvInterface<K, V> : Sized
     fn flush(&mut self);
 }
 
+// Trait for KVs that support operations on lists to implement
+// redis doesn't support in-place list element updates so we don't
+// have a function for that here.
+pub trait ListKvInterface<K, V, L>: Sized + KvInterface<K, V>
+    where 
+        K: PmCopy + Key,
+        V: PmCopy + Value,
+        L: PmCopy,
+{
+    fn get_list_length(&mut self, key: &K) -> Result<usize, Self::E>;
+
+    fn read_full_list(&mut self, key: &K) -> Result<Vec<L>, Self::E>;
+
+    fn append_to_list(&mut self, key: &K, l: L) -> Result<(), Self::E>;
+
+    fn trim_list(&mut self, key: &K, trim_length: usize) -> Result<(), Self::E>;
+}
+
 pub trait Key {
     fn key_str(&self) -> &str;
 }
@@ -49,4 +67,8 @@ pub trait Value {
     fn value_str(&self) -> &str;
 
     fn from_byte_vec(v: Vec<u8>) -> Self;
+}
+
+pub trait ListElement {
+    fn element_str(&self) -> &str;
 }

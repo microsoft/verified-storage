@@ -1,5 +1,5 @@
 use redis::{Client, Connection, RedisResult, RedisError, Commands, FromRedisValue};
-use crate::kv_interface::{KvInterface, Key, Value};
+use crate::kv_interface::{KvInterface, ListKvInterface, Key, Value, ListElement};
 use std::process::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -9,21 +9,24 @@ use std::hash::{Hash, DefaultHasher, Hasher};
 
 const INDEX_KEY: &str = "_indices";
 
-pub struct RedisClient<K, V> 
+pub struct RedisClient<K, V, L> 
     where
         K: PmCopy + Key,
         V: PmCopy + Value,
+        L: PmCopy
 {
     server: Child,
     cxn: Connection,
     _key_type: PhantomData<K>,
     _value_type: PhantomData<V>,
+    _list_element_type: PhantomData<L>
 }
 
-impl<K, V> RedisClient<K, V> 
+impl<K, V, L> RedisClient<K, V, L> 
     where 
         K: PmCopy + Key,
         V: PmCopy + Value,
+        L: PmCopy
 {
     pub fn new_connection() -> RedisResult<Connection> {
         let client = Client::open("redis://127.0.0.1/")?;
@@ -39,10 +42,11 @@ impl<K, V> RedisClient<K, V>
     }
 }
 
-impl<K, V> KvInterface<K, V> for RedisClient<K, V>
+impl<K, V, L> KvInterface<K, V> for RedisClient<K, V, L>
     where
         K: PmCopy + Key,
         V: PmCopy + Value + FromRedisValue,
+        L: PmCopy
 {
     type E = RedisError;
 
@@ -72,6 +76,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
             cxn,
             _key_type: PhantomData,
             _value_type: PhantomData,
+            _list_element_type: PhantomData,
         })
     }
 
@@ -104,6 +109,7 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
             cxn,
             _key_type: PhantomData,
             _value_type: PhantomData,
+            _list_element_type: PhantomData
         }, dur))
     }
 
@@ -159,10 +165,44 @@ impl<K, V> KvInterface<K, V> for RedisClient<K, V>
     
 }
 
-impl<K, V> Drop for RedisClient<K, V> 
+impl<K, V, L> ListKvInterface<K, V, L> for RedisClient<K, V, L> 
+    where
+        K: PmCopy + Key,
+        V: PmCopy + Value + FromRedisValue,
+        L: PmCopy + ListElement + FromRedisValue
+{
+
+    fn get_list_length(&mut self, key: &K) -> Result<usize, Self::E> {
+        let key_str = key.key_str();
+        let result = self.cxn.llen(&key_str)?;
+        Ok(result)
+    }
+
+    fn read_full_list(&mut self, key: &K) -> Result<Vec<L>, Self::E> {
+        let key_str = key.key_str();
+        let result = self.cxn.lrange(&key_str, 0, -1)?;
+        Ok(result)
+    }
+
+    fn append_to_list(&mut self, key: &K, l: L) -> Result<(), Self::E> {
+        let key_str = key.key_str();
+        let element_str = l.element_str();
+        let result = self.cxn.rpush(key_str, element_str);
+        result
+    }
+
+    fn trim_list(&mut self, key: &K, trim_len: usize) -> Result<(), Self::E> {
+        let key_str = key.key_str();
+        let result = self.cxn.ltrim(key_str, trim_len.try_into().unwrap(), -1);
+        result
+    }
+}
+
+impl<K, V, L> Drop for RedisClient<K, V, L> 
     where
         K: PmCopy + Key,
         V: PmCopy + Value,
+        L: PmCopy
 {
     // Automatically kills the server process when the RedisClient is 
     // dropped. I'm *pretty* sure the redis crate handles closing the 
@@ -171,7 +211,7 @@ impl<K, V> Drop for RedisClient<K, V>
         self.server.kill().expect("redis-server could not be killed");
         println!("Stopped redis server.");
 
-        // sleep(Duration::from_secs(2));
+        sleep(Duration::from_secs(2));
 
         // crate::unmount_pm_fs();
 
