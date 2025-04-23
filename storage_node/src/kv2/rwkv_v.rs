@@ -14,7 +14,7 @@ use super::spec_t::*;
 use super::recover_v::*;
 use super::rwkv_t::*;
 use vstd::tokens::frac::*;
-use vstd::rwlock::{RwLock, RwLockPredicate};
+use super::rwlock_t::{RwLockReadGuardWithPredicate, RwLockPredicate, RwLockWithPredicate, RwLockWriter};
 use vstd::invariant::*;
 use vstd::modes::*;
 use std::sync::Arc;
@@ -63,6 +63,222 @@ where
     }
 }
 
+proof fn linearize_nop<PM, K, I, L, Op, CB>(
+    tracked credit: OpenInvariantCredit,
+    tracked inv: Arc<AtomicInvariant<ConcurrentKvStoreInvPred,
+                                     ConcurrentKvStoreInvState<PM, K, I, L>,
+                                     ConcurrentKvStoreInvPred>>,
+    tracked ckv_res: &GhostVar<ConcurrentKvStoreView<K, I, L>>,
+    op: Op,
+    exec_result: Result<Op::KvResult, KvError>,
+    tracked cb: CB,
+) -> (tracked complete: CB::Completion)
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        Op: MutatingOperation<K, I, L>,
+        CB: MutatingLinearizer<K, I, L, Op>,
+    requires
+        ckv_res.id() == inv.constant().rwlock_id,
+        cb.pre(inv.constant().caller_id, op),
+        !cb.namespaces().contains(inv.namespace()),
+        op.result_valid(ckv_res@, ckv_res@, exec_result),
+    ensures
+        cb.post(complete, inv.constant().caller_id, op, exec_result),
+    opens_invariants
+        cb.namespaces().insert(inv.namespace())
+{
+    let tracked mut completion;
+    open_atomic_invariant_in_proof!(credit => &inv => inner => {
+        inner.rwlock_auth.agree(ckv_res);
+        completion = cb.apply(op, ckv_res@, exec_result, &mut inner.caller_auth);
+    });
+    completion
+}
+
+exec fn maybe_commit<PM, K, I, L, Op, CB>(
+    inv: Tracked<Arc<AtomicInvariant<ConcurrentKvStoreInvPred,
+                                     ConcurrentKvStoreInvState<PM, K, I, L>,
+                                     ConcurrentKvStoreInvPred>>>,
+    pred: Ghost<ConcurrentKvStorePredicate>,
+    tentative_result: Result<Op::KvResult, KvError>,
+    kv_internal: &mut ConcurrentKvStoreInternal<PM, K, I, L>,
+    Ghost(op): Ghost<Op>,
+    Tracked(cb): Tracked<CB>,
+) -> (result: (Result<Op::KvResult, KvError>, Tracked<CB::Completion>))
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        Op: MutatingOperation<K, I, L>,
+        CB: MutatingLinearizer<K, I, L, Op>,
+    requires
+        old(kv_internal).kv.valid(),
+        old(kv_internal).kv@.ps.valid(),
+        old(kv_internal).kv@.ps.logical_range_gaps_policy ==
+            old(kv_internal).kv@.durable.logical_range_gaps_policy,
+        old(kv_internal).kv@.powerpm_id == inv@.constant().durable_id,
+        old(kv_internal).invariant_resource@.id() == inv@.constant().rwlock_id,
+        old(kv_internal).invariant_resource@@ == ConcurrentKvStoreView::from_kvstore_view(old(kv_internal).kv@),
+        cb.pre(inv@.constant().caller_id, op),
+        !cb.namespaces().contains(inv@.namespace()),
+        forall |ckv_old, ckv_new, result|
+            #[trigger] op.result_valid(ckv_old, ckv_new, result) ==> {
+                &&& ckv_old.pm_constants == ckv_new.pm_constants
+                &&& ckv_old.ps == ckv_new.ps
+            },
+        op.result_valid(old(kv_internal).invariant_resource@@,
+                        ConcurrentKvStoreView::<K, I, L>{
+                            ps: old(kv_internal).kv@.ps,
+                            pm_constants: old(kv_internal).kv@.pm_constants,
+                            kv: old(kv_internal).kv@.tentative,
+                        },
+                        tentative_result),
+        match tentative_result {
+            Ok(_) => true,
+            Err(_) => {
+                &&& old(kv_internal).kv@.used_key_slots == old(kv_internal).kv@.durable.num_keys()
+                &&& old(kv_internal).kv@.used_list_element_slots == old(kv_internal).kv@.durable.num_list_elements()
+                &&& old(kv_internal).kv@.used_transaction_operation_slots == 0
+                &&& old(kv_internal).kv@.tentative == old(kv_internal).kv@.durable
+            },
+        },
+        inv@.constant().rwlock_id == pred@.id,
+        inv@.constant().durable_id == pred@.powerpm_id,
+    ensures
+        pred@.inv(*kv_internal),
+        cb.post(result.1@, inv@.constant().caller_id, op, result.0),
+{
+    match tentative_result {
+        Err(e) => {
+            let credit = create_open_invariant_credit();
+            let completion = Tracked(linearize_nop::<PM, K, I, L, Op, CB>(
+                credit.get(), inv.borrow().clone(), kv_internal.invariant_resource.borrow(), op, Err(e), cb)
+            );
+            (Err(e), completion)
+        },
+        Ok(v) => {
+            let tracked mut completion;
+            let result = Ok(v);
+            let tracked mut inv_res;
+            proof {
+                inv_res = GhostVarAuth::<ConcurrentKvStoreView<K, I, L>>::new(kv_internal.invariant_resource@@).1;
+                tracked_swap(kv_internal.invariant_resource.borrow_mut(), &mut inv_res);
+            }
+
+            let tracked perm = OpPerm{
+                inv: inv.borrow().clone(),
+                lin: cb,
+                rwlock_res: inv_res,
+                op: op,
+                result: result,
+            };
+
+            let perm_complete = kv_internal.kv.commit::<OpPerm::<PM, K, I, L, Op, CB>>(Tracked(perm));
+            let perm_complete = perm_complete.unwrap();
+            let tracked perm_complete = perm_complete.get();
+
+            kv_internal.invariant_resource = Tracked(perm_complete.rwlock_res);
+            let ghost ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
+
+            open_atomic_invariant!(inv.borrow() => inner => {
+                kv_internal.kv.agree(Tracked(&inner.durable_res));
+
+                proof {
+                    inner.rwlock_auth.agree(kv_internal.invariant_resource.borrow());
+
+                    // We can provably unwrap, because if it was None, that means
+                    // the committing write predicted a crash and didn't update the
+                    // durable state to linearize at the write call.  But at this
+                    // point, we now know the flush succeeded and the resulting state
+                    // does satisfy result_valid().
+                    completion = perm_complete.complete.tracked_unwrap();
+                }
+            });
+
+            (result, Tracked(completion))
+        },
+    }
+}
+
+#[verifier::reject_recursive_types(K)]
+#[verifier::reject_recursive_types(I)]
+#[verifier::reject_recursive_types(L)]
+struct ConcurrentKvStoreCreateWriter<'a, PM, K, I, L, const STRICT_SPACE: bool, CB>
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
+{
+    key: &'a K,
+    item: &'a I,
+    cb: Tracked<CB>,
+    pred: Ghost<ConcurrentKvStorePredicate>,
+    inv: Tracked<Arc<AtomicInvariant<ConcurrentKvStoreInvPred,
+                                     ConcurrentKvStoreInvState<PM, K, I, L>,
+                                     ConcurrentKvStoreInvPred>>>,
+}
+
+impl<'a, PM, K, I, L, CB, const STRICT_SPACE: bool>
+        RwLockWriter<ConcurrentKvStoreInternal<PM, K, I, L>, (Result<(), KvError>, Tracked<CB::Completion>),
+                     ConcurrentKvStorePredicate>
+        for ConcurrentKvStoreCreateWriter<'a, PM, K, I, L, STRICT_SPACE, CB>
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
+{
+    closed spec fn pred(self) -> ConcurrentKvStorePredicate
+    {
+        self.pred@
+    }
+
+    closed spec fn pre(self) -> bool
+    {
+        let op = CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item };
+        &&& self.cb@.pre(self.inv@.constant().caller_id, op)
+        &&& !self.cb@.namespaces().contains(self.inv@.namespace())
+        &&& self.inv@.constant().rwlock_id == self.pred@.id
+        &&& self.inv@.constant().durable_id == self.pred@.powerpm_id
+    }
+
+    closed spec fn post(self, completion: (Result<(), KvError>, Tracked<CB::Completion>)) -> bool
+    {
+        let (exec_result, cb_completion) = completion;
+        let op = CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item };
+        self.cb@.post(cb_completion@, self.inv@.constant().caller_id, op, exec_result)
+    }
+
+    exec fn write(self, kv_internal: &mut ConcurrentKvStoreInternal<PM, K, I, L>)
+                  -> (result_and_completion: (Result<(), KvError>, Tracked<CB::Completion>))
+     {
+        let ghost op = CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item };
+        let exec_result = kv_internal.kv.tentatively_create(self.key, self.item);
+        let both_results =
+             maybe_commit::<PM, K, I, L, CreateOp<K, I, STRICT_SPACE>, CB>(self.inv, self.pred,
+                                                                           exec_result, kv_internal,
+                                                                           Ghost(op), self.cb);
+        both_results
+     }
+}
+
+    /*
+struct ConcurrentKvStoreWriter<K, I, L, Op: MutatingOperation<K, I, L>>
+{
+}
+
+impl<PM, K, I, L> RwLockWriter<ConcurrentKvStoreInternal<PM, K, I, L>> for ConcurrentKvStoreWriter {
+}
+    */
+
+#[verifier::reject_recursive_types(PM)]
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -73,7 +289,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub(super) lock: RwLock<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>,
+    pub(super) lock: RwLockWithPredicate<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>,
     inv: Tracked<Arc<AtomicInvariant<ConcurrentKvStoreInvPred,
                                      ConcurrentKvStoreInvState<PM, K, I, L>,
                                      ConcurrentKvStoreInvPred>>>,
@@ -103,135 +319,6 @@ where
     {
         &&& self.inv@.constant().rwlock_id == self.lock.pred().id
         &&& self.inv@.constant().durable_id == self.lock.pred().powerpm_id
-    }
-
-    proof fn linearize_nop<Op, CB>(
-        tracked credit: OpenInvariantCredit,
-        tracked inv: Arc<AtomicInvariant<ConcurrentKvStoreInvPred,
-                                         ConcurrentKvStoreInvState<PM, K, I, L>,
-                                         ConcurrentKvStoreInvPred>>,
-        tracked ckv_res: &GhostVar<ConcurrentKvStoreView<K, I, L>>,
-        op: Op,
-        exec_result: Result<Op::KvResult, KvError>,
-        tracked cb: CB,
-    ) -> (tracked complete: CB::Completion)
-        where
-            Op: MutatingOperation<K, I, L>,
-            CB: MutatingLinearizer<K, I, L, Op>,
-        requires
-            ckv_res.id() == inv.constant().rwlock_id,
-            cb.pre(inv.constant().caller_id, op),
-            !cb.namespaces().contains(inv.namespace()),
-            op.result_valid(ckv_res@, ckv_res@, exec_result),
-        ensures
-            cb.post(complete, inv.constant().caller_id, op, exec_result),
-        opens_invariants
-            cb.namespaces().insert(inv.namespace())
-    {
-        let tracked mut completion;
-        open_atomic_invariant_in_proof!(credit => &inv => inner => {
-            inner.rwlock_auth.agree(ckv_res);
-            completion = cb.apply(op, ckv_res@, exec_result, &mut inner.caller_auth);
-        });
-        completion
-    }
-
-    exec fn maybe_commit<Op, CB>(
-        &self,
-        tentative_result: Result<Op::KvResult, KvError>,
-        kv_internal: &mut ConcurrentKvStoreInternal<PM, K, I, L>,
-        Ghost(op): Ghost<Op>,
-        Tracked(cb): Tracked<CB>,
-    ) -> (result: (Result<Op::KvResult, KvError>, Tracked<CB::Completion>))
-        where
-            Op: MutatingOperation<K, I, L>,
-            CB: MutatingLinearizer<K, I, L, Op>,
-        requires
-            old(kv_internal).kv.valid(),
-            old(kv_internal).kv@.ps.valid(),
-            old(kv_internal).kv@.ps.logical_range_gaps_policy ==
-                old(kv_internal).kv@.durable.logical_range_gaps_policy,
-            old(kv_internal).kv@.powerpm_id == self.inv@.constant().durable_id,
-            old(kv_internal).invariant_resource@.id() == self.inv@.constant().rwlock_id,
-            old(kv_internal).invariant_resource@@ == ConcurrentKvStoreView::from_kvstore_view(old(kv_internal).kv@),
-            cb.pre(self.inv@.constant().caller_id, op),
-            !cb.namespaces().contains(self.inv@.namespace()),
-            forall |ckv_old, ckv_new, result|
-                #[trigger] op.result_valid(ckv_old, ckv_new, result) ==> {
-                    &&& ckv_old.pm_constants == ckv_new.pm_constants
-                    &&& ckv_old.ps == ckv_new.ps
-                },
-            op.result_valid(old(kv_internal).invariant_resource@@,
-                            ConcurrentKvStoreView::<K, I, L>{
-                                ps: old(kv_internal).kv@.ps,
-                                pm_constants: old(kv_internal).kv@.pm_constants,
-                                kv: old(kv_internal).kv@.tentative,
-                            },
-                            tentative_result),
-            match tentative_result {
-                Ok(_) => true,
-                Err(_) => {
-                    &&& old(kv_internal).kv@.used_key_slots == old(kv_internal).kv@.durable.num_keys()
-                    &&& old(kv_internal).kv@.used_list_element_slots == old(kv_internal).kv@.durable.num_list_elements()
-                    &&& old(kv_internal).kv@.used_transaction_operation_slots == 0
-                    &&& old(kv_internal).kv@.tentative == old(kv_internal).kv@.durable
-                },
-            },
-        ensures
-            self.lock.pred().inv(*kv_internal),
-            cb.post(result.1@, self.id(), op, result.0),
-    {
-        proof { use_type_invariant(self); }
-        match tentative_result {
-            Err(e) => {
-                let credit = create_open_invariant_credit();
-                let completion = Tracked(Self::linearize_nop::<Op, CB>(
-                    credit.get(), self.inv.borrow().clone(), kv_internal.invariant_resource.borrow(), op, Err(e), cb)
-                );
-                (Err(e), completion)
-            },
-            Ok(v) => {
-                let tracked mut completion;
-                let result = Ok(v);
-                let tracked mut inv_res;
-                proof {
-                    inv_res = GhostVarAuth::<ConcurrentKvStoreView<K, I, L>>::new(kv_internal.invariant_resource@@).1;
-                    tracked_swap(kv_internal.invariant_resource.borrow_mut(), &mut inv_res);
-                }
-
-                let tracked perm = OpPerm{
-                    inv: self.inv.borrow().clone(),
-                    lin: cb,
-                    rwlock_res: inv_res,
-                    op: op,
-                    result: result,
-                };
-
-                let perm_complete = kv_internal.kv.commit::<OpPerm::<PM, K, I, L, Op, CB>>(Tracked(perm));
-                let perm_complete = perm_complete.unwrap();
-                let tracked perm_complete = perm_complete.get();
-
-                kv_internal.invariant_resource = Tracked(perm_complete.rwlock_res);
-                let ghost ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
-
-                open_atomic_invariant!(self.inv.borrow() => inner => {
-                    kv_internal.kv.agree(Tracked(&inner.durable_res));
-
-                    proof {
-                        inner.rwlock_auth.agree(kv_internal.invariant_resource.borrow());
-
-                        // We can provably unwrap, because if it was None, that means
-                        // the committing write predicted a crash and didn't update the
-                        // durable state to linearize at the write call.  But at this
-                        // point, we now know the flush succeeded and the resulting state
-                        // does satisfy result_valid().
-                        completion = perm_complete.complete.tracked_unwrap();
-                    }
-                });
-
-                (result, Tracked(completion))
-            },
-        }
     }
 }
 
@@ -312,7 +399,7 @@ where
             kv: kv,
         };
         assert(pred.inv(kv_internal));
-        let lock = RwLock::<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>::new(
+        let lock = RwLockWithPredicate::<ConcurrentKvStoreInternal<PM, K, I, L>, ConcurrentKvStorePredicate>::new(
             kv_internal, Ghost(pred)
         );
         let selfish = Self{
@@ -331,7 +418,7 @@ where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
     {
         proof { use_type_invariant(self); }
-        let read_handle = self.lock.acquire_read();
+        let read_handle = self.lock.read();
         let ghost op = ReadItemOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_item(key);
@@ -343,7 +430,6 @@ where
                 completion = cb.apply(op, result, &inner.caller_auth);
             };
         });
-        read_handle.release_read();
         (result, Tracked(completion))
     }
 
@@ -353,7 +439,7 @@ where
     ) -> (result: (Result<Vec<K>, KvError>, Tracked<CB::Completion>))
     {
         proof { use_type_invariant(self); }
-        let read_handle = self.lock.acquire_read();
+        let read_handle = self.lock.read();
         let ghost op = GetKeysOp{ };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.get_keys();
@@ -365,7 +451,6 @@ where
                 completion = cb.apply(op, result, &inner.caller_auth);
             }
         });
-        read_handle.release_read();
         (result, Tracked(completion))
     }
 
@@ -376,7 +461,7 @@ where
     ) -> (result: (Result<(I, Vec<L>), KvError>, Tracked<CB::Completion>))
     {
         proof { use_type_invariant(self); }
-        let read_handle = self.lock.acquire_read();
+        let read_handle = self.lock.read();
         let ghost op = ReadItemAndListOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_item_and_list(key);
@@ -388,7 +473,6 @@ where
                 completion = cb.apply(op, result, &inner.caller_auth);
             }
         });
-        read_handle.release_read();
         (result, Tracked(completion))
     }
 
@@ -399,7 +483,7 @@ where
     ) -> (result: (Result<Vec<L>, KvError>, Tracked<CB::Completion>))
     {
         proof { use_type_invariant(self); }
-        let read_handle = self.lock.acquire_read();
+        let read_handle = self.lock.read();
         let ghost op = ReadListOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.read_list(key);
@@ -411,7 +495,6 @@ where
                 completion = cb.apply(op, result, &inner.caller_auth);
             }
         });
-        read_handle.release_read();
         (result, Tracked(completion))
     }
 
@@ -422,7 +505,7 @@ where
     ) -> (result: (Result<usize, KvError>, Tracked<CB::Completion>))
     {
         proof { use_type_invariant(self); }
-        let read_handle = self.lock.acquire_read();
+        let read_handle = self.lock.read();
         let ghost op = GetListLengthOp{ key: *key };
         let kv_internal = read_handle.borrow();
         let result = kv_internal.kv.get_list_length(key);
@@ -434,28 +517,27 @@ where
                 completion = cb.apply(op, result, &inner.caller_auth);
             }
         });
-        read_handle.release_read();
         (result, Tracked(completion))
     }
 
-    exec fn create<CB, const STRICT_SPACE: bool>(
+    exec fn create<'a, CB, const STRICT_SPACE: bool>(
         &self,
-        key: &K,
-        item: &I,
+        key: &'a K,
+        item: &'a I,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
     {
         proof { use_type_invariant(self); }
-        let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = CreateOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
-        let result = kv_internal.kv.tentatively_create(key, item);
-        let result = self.maybe_commit::<CreateOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
-        write_handle.release_write(kv_internal);
-        result
+        let tracked inv_clone = self.inv.borrow().clone();
+        let mut writer = ConcurrentKvStoreCreateWriter::<'a, PM, K, I, L, STRICT_SPACE, CB>{
+            key, item, cb: Tracked(cb), pred: Ghost(self.lock.pred()), inv: Tracked(inv_clone)
+        };
+        self.lock.write(writer)
     }
 
+    #[verifier::external_body]
     exec fn update_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -465,6 +547,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
@@ -472,8 +557,10 @@ where
         let result = self.maybe_commit::<UpdateItemOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+            */
     }
 
+    #[verifier::external_body]
     exec fn delete<CB>(
         &self,
         key: &K,
@@ -482,6 +569,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = DeleteOp::<K>{ key: *key };
@@ -489,8 +579,12 @@ where
         let result = self.maybe_commit::<DeleteOp::<K>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+        assume(false);
+        unimplemented!()
+            */
     }
 
+    #[verifier::external_body]
     exec fn append_to_list<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -500,6 +594,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListOp::<K, L, STRICT_SPACE>{ key: *key, new_list_element };
@@ -507,8 +604,10 @@ where
         let result = self.maybe_commit::<AppendToListOp::<K, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+         */
     }
 
+    #[verifier::external_body]
     exec fn append_to_list_and_update_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -519,6 +618,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = AppendToListAndUpdateItemOp::<K, I, L, STRICT_SPACE>{ key: *key, new_list_element, new_item: *new_item };
@@ -526,8 +628,10 @@ where
         let result = self.maybe_commit::<AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+         */
     }
 
+    #[verifier::external_body]
     exec fn update_list_element_at_index<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -538,6 +642,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexOp<K, L, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexOp::<K, L, STRICT_SPACE>{ key: *key, idx, new_list_element };
@@ -545,8 +652,10 @@ where
         let result = self.maybe_commit::<UpdateListElementAtIndexOp<K, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+         */
     }
 
+    #[verifier::external_body]
     exec fn update_list_element_at_index_and_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -558,6 +667,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = UpdateListElementAtIndexAndItemOp::<K, I, L, STRICT_SPACE>{ key: *key, idx, new_list_element,
@@ -568,8 +680,10 @@ where
         let result = self.maybe_commit::<UpdateListElementAtIndexAndItemOp<K, I, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+         */
     }
 
+    #[verifier::external_body]
     exec fn trim_list<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -579,6 +693,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, TrimListOp<K, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListOp::<K, STRICT_SPACE>{ key: *key, trim_length };
@@ -586,8 +703,10 @@ where
         let result = self.maybe_commit::<TrimListOp<K, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+         */
     }
 
+    #[verifier::external_body]
     exec fn trim_list_and_update_item<CB, const STRICT_SPACE: bool>(
         &self,
         key: &K,
@@ -598,6 +717,9 @@ where
         where
             CB: MutatingLinearizer<K, I, L, TrimListAndUpdateItemOp<K, I, STRICT_SPACE>>,
     {
+        assume(false);
+        unimplemented!()
+            /*
         proof { use_type_invariant(self); }
         let (mut kv_internal, write_handle) = self.lock.acquire_write();
         let ghost op = TrimListAndUpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, trim_length, new_item: *new_item };
@@ -605,6 +727,7 @@ where
         let result = self.maybe_commit::<TrimListAndUpdateItemOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
         write_handle.release_write(kv_internal);
         result
+         */
     }
 }
 
