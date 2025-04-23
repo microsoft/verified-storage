@@ -259,40 +259,6 @@ trait OpParameters<K, I, L, Op>: Sized
     ;
 }
 
-struct CreateParameters<'a, K, I>
-    where
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
-        I: PmCopy + Sized + std::fmt::Debug,
-{
-    key: &'a K,
-    item: &'a I,
-}
-
-impl<'a, K, I, L, const STRICT_SPACE: bool> OpParameters<K, I, L, CreateOp<K, I, STRICT_SPACE>>
-        for CreateParameters<'a, K, I>
-    where
-        K: Hash + PmCopy + Sized + std::fmt::Debug,
-        I: PmCopy + Sized + std::fmt::Debug,
-        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-{
-    spec fn op(self) -> CreateOp<K, I, STRICT_SPACE>
-    {
-        CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item }
-    }
-
-    proof fn lemma_result_valid_implies_constants_unchanged(self)
-    {
-    }
-
-    exec fn execute<PM>(&self, kv: &mut UntrustedKvStoreImpl<NoopPermFactory<PM, K, I, L>, PM, K, I, L>)
-                        -> (result: Result<(), KvError>)
-        where
-            PM: PersistentMemoryRegion,
-    {
-        kv.tentatively_create(self.key, self.item)
-    }
-}
-
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
@@ -381,6 +347,176 @@ impl<PM, K, I, L, Op, Params, CB>
         maybe_commit::<PM, K, I, L, Op, CB>(self.inv, self.pred, exec_result, kv_internal,
                                             Ghost(self.params.op()), self.cb)
      }
+}
+
+struct CreateParameters<'a, K, I>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+{
+    key: &'a K,
+    item: &'a I,
+}
+
+impl<'a, K, I, L, const STRICT_SPACE: bool> OpParameters<K, I, L, CreateOp<K, I, STRICT_SPACE>>
+        for CreateParameters<'a, K, I>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    spec fn op(self) -> CreateOp<K, I, STRICT_SPACE>
+    {
+        CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item }
+    }
+
+    proof fn lemma_result_valid_implies_constants_unchanged(self)
+    {
+    }
+
+    exec fn execute<PM>(&self, kv: &mut UntrustedKvStoreImpl<NoopPermFactory<PM, K, I, L>, PM, K, I, L>)
+                        -> (result: Result<(), KvError>)
+        where
+            PM: PersistentMemoryRegion,
+    {
+        kv.tentatively_create(self.key, self.item)
+    }
+}
+
+struct UpdateItemParameters<'a, K, I>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+{
+    key: &'a K,
+    item: &'a I,
+}
+
+impl<'a, K, I, L, const STRICT_SPACE: bool> OpParameters<K, I, L, UpdateItemOp<K, I, STRICT_SPACE>>
+        for UpdateItemParameters<'a, K, I>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    spec fn op(self) -> UpdateItemOp<K, I, STRICT_SPACE>
+    {
+        UpdateItemOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item }
+    }
+
+    proof fn lemma_result_valid_implies_constants_unchanged(self)
+    {
+    }
+
+    exec fn execute<PM>(&self, kv: &mut UntrustedKvStoreImpl<NoopPermFactory<PM, K, I, L>, PM, K, I, L>)
+                        -> (result: Result<(), KvError>)
+        where
+            PM: PersistentMemoryRegion,
+    {
+        kv.tentatively_update_item(self.key, self.item)
+    }
+}
+
+struct DeleteParameters<'a, K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+{
+    key: &'a K,
+}
+
+impl<'a, K, I, L> OpParameters<K, I, L, DeleteOp<K>> for DeleteParameters<'a, K>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    spec fn op(self) -> DeleteOp<K>
+    {
+        DeleteOp::<K>{ key: *self.key }
+    }
+
+    proof fn lemma_result_valid_implies_constants_unchanged(self)
+    {
+    }
+
+    exec fn execute<PM>(&self, kv: &mut UntrustedKvStoreImpl<NoopPermFactory<PM, K, I, L>, PM, K, I, L>)
+                        -> (result: Result<(), KvError>)
+        where
+            PM: PersistentMemoryRegion,
+    {
+        kv.tentatively_delete(self.key)
+    }
+}
+
+struct AppendToListParameters<'a, K, L>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    key: &'a K,
+    new_list_element: L,
+}
+
+impl<'a, K, I, L, const STRICT_SPACE: bool> OpParameters<K, I, L, AppendToListOp<K, L, STRICT_SPACE>>
+        for AppendToListParameters<'a, K, L>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    spec fn op(self) -> AppendToListOp<K, L, STRICT_SPACE>
+    {
+        AppendToListOp::<K, L, STRICT_SPACE>{ key: *self.key, new_list_element: self.new_list_element }
+    }
+
+    proof fn lemma_result_valid_implies_constants_unchanged(self)
+    {
+    }
+
+    exec fn execute<PM>(&self, kv: &mut UntrustedKvStoreImpl<NoopPermFactory<PM, K, I, L>, PM, K, I, L>)
+                        -> (result: Result<(), KvError>)
+        where
+            PM: PersistentMemoryRegion,
+    {
+        kv.tentatively_append_to_list(self.key, self.new_list_element)
+    }
+}
+
+struct AppendToListAndUpdateItemParameters<'a, K, I, L>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    key: &'a K,
+    new_list_element: L,
+    new_item: &'a I,
+}
+
+impl<'a, K, I, L, const STRICT_SPACE: bool> OpParameters<K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>>
+        for AppendToListAndUpdateItemParameters<'a, K, I, L>
+    where
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    spec fn op(self) -> AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>
+    {
+        AppendToListAndUpdateItemOp::<K, I, L, STRICT_SPACE>{ key: *self.key, new_list_element: self.new_list_element,
+                                                              new_item: *self.new_item }
+    }
+
+    proof fn lemma_result_valid_implies_constants_unchanged(self)
+    {
+    }
+
+    exec fn execute<PM>(&self, kv: &mut UntrustedKvStoreImpl<NoopPermFactory<PM, K, I, L>, PM, K, I, L>)
+                        -> (result: Result<(), KvError>)
+        where
+            PM: PersistentMemoryRegion,
+    {
+        kv.tentatively_append_to_list_and_update_item(self.key, self.new_list_element, self.new_item)
+    }
 }
 
 #[verifier::reject_recursive_types(PM)]
@@ -635,108 +771,93 @@ where
             CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
     {
         proof { use_type_invariant(self); }
-        let mut writer =
-            ConcurrentKvStoreWriter::<PM, K, I, L, CreateOp<K, I, STRICT_SPACE>, CreateParameters<'a, K, I>, CB>::new(
-                CreateParameters::<'a, K, I>{ key, item },
-                Tracked(cb),
-                Ghost(self.lock.pred()),
-                &self.inv
-            );
+        let mut writer = ConcurrentKvStoreWriter::<PM, K, I, L, CreateOp<K, I, STRICT_SPACE>,
+                                                   CreateParameters<'a, K, I>, CB>::new(
+            CreateParameters::<'a, K, I>{ key, item },
+            Tracked(cb),
+            Ghost(self.lock.pred()),
+            &self.inv
+        );
         self.lock.write(writer)
     }
 
-    #[verifier::external_body]
-    exec fn update_item<CB, const STRICT_SPACE: bool>(
+    exec fn update_item<'a, CB, const STRICT_SPACE: bool>(
         &self,
-        key: &K,
-        item: &I,
+        key: &'a K,
+        item: &'a I,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, UpdateItemOp<K, I, STRICT_SPACE>>,
     {
-        assume(false);
-        unimplemented!()
-            /*
         proof { use_type_invariant(self); }
-        let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = UpdateItemOp::<K, I, STRICT_SPACE>{ key: *key, item: *item };
-        let result = kv_internal.kv.tentatively_update_item(key, item);
-        let result = self.maybe_commit::<UpdateItemOp<K, I, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
-        write_handle.release_write(kv_internal);
-        result
-            */
+        let mut writer = ConcurrentKvStoreWriter::<PM, K, I, L, UpdateItemOp<K, I, STRICT_SPACE>,
+                                                   UpdateItemParameters<'a, K, I>, CB>::new(
+            UpdateItemParameters::<'a, K, I>{ key, item },
+            Tracked(cb),
+            Ghost(self.lock.pred()),
+            &self.inv
+        );
+        self.lock.write(writer)
     }
 
-    #[verifier::external_body]
-    exec fn delete<CB>(
+    exec fn delete<'a, CB>(
         &self,
-        key: &K,
+        key: &'a K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, DeleteOp<K>>,
     {
-        assume(false);
-        unimplemented!()
-            /*
         proof { use_type_invariant(self); }
-        let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = DeleteOp::<K>{ key: *key };
-        let result = kv_internal.kv.tentatively_delete(key);
-        let result = self.maybe_commit::<DeleteOp::<K>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
-        write_handle.release_write(kv_internal);
-        result
-        assume(false);
-        unimplemented!()
-            */
+        let mut writer = ConcurrentKvStoreWriter::<PM, K, I, L, DeleteOp<K>, DeleteParameters<'a, K>, CB>::new(
+            DeleteParameters::<'a, K>{ key },
+            Tracked(cb),
+            Ghost(self.lock.pred()),
+            &self.inv
+        );
+        self.lock.write(writer)
     }
 
-    #[verifier::external_body]
-    exec fn append_to_list<CB, const STRICT_SPACE: bool>(
+    exec fn append_to_list<'a, CB, const STRICT_SPACE: bool>(
         &self,
-        key: &K,
+        key: &'a K,
         new_list_element: L,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, AppendToListOp<K, L, STRICT_SPACE>>,
     {
-        assume(false);
-        unimplemented!()
-            /*
         proof { use_type_invariant(self); }
-        let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = AppendToListOp::<K, L, STRICT_SPACE>{ key: *key, new_list_element };
-        let result = kv_internal.kv.tentatively_append_to_list(key, new_list_element);
-        let result = self.maybe_commit::<AppendToListOp::<K, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
-        write_handle.release_write(kv_internal);
-        result
-         */
+        let mut writer = ConcurrentKvStoreWriter::<PM, K, I, L, AppendToListOp<K, L, STRICT_SPACE>,
+                                                   AppendToListParameters<'a, K, L>, CB>::new(
+            AppendToListParameters::<'a, K, L>{ key, new_list_element },
+            Tracked(cb),
+            Ghost(self.lock.pred()),
+            &self.inv
+        );
+        self.lock.write(writer)
     }
 
-    #[verifier::external_body]
-    exec fn append_to_list_and_update_item<CB, const STRICT_SPACE: bool>(
+    exec fn append_to_list_and_update_item<'a, CB, const STRICT_SPACE: bool>(
         &self,
-        key: &K,
+        key: &'a K,
         new_list_element: L,
-        new_item: &I,
+        new_item: &'a I,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(), KvError>, Tracked<CB::Completion>))
         where
             CB: MutatingLinearizer<K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>>,
     {
-        assume(false);
-        unimplemented!()
-            /*
         proof { use_type_invariant(self); }
-        let (mut kv_internal, write_handle) = self.lock.acquire_write();
-        let ghost op = AppendToListAndUpdateItemOp::<K, I, L, STRICT_SPACE>{ key: *key, new_list_element, new_item: *new_item };
-        let result = kv_internal.kv.tentatively_append_to_list_and_update_item(key, new_list_element, new_item);
-        let result = self.maybe_commit::<AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>, CB>(result, &mut kv_internal, Ghost(op), Tracked(cb));
-        write_handle.release_write(kv_internal);
-        result
-         */
+        let mut writer = ConcurrentKvStoreWriter::<PM, K, I, L, AppendToListAndUpdateItemOp<K, I, L, STRICT_SPACE>,
+                                                   AppendToListAndUpdateItemParameters<'a, K, I, L>, CB>::new(
+            AppendToListAndUpdateItemParameters::<'a, K, I, L>{ key, new_list_element, new_item },
+            Tracked(cb),
+            Ghost(self.lock.pred()),
+            &self.inv
+        );
+        self.lock.write(writer)
     }
 
     #[verifier::external_body]
