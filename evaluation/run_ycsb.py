@@ -56,9 +56,9 @@ def arg_parser():
         required=False,
         default=["A", "B", "C", "D", "E", "F", "X", "Y", "Z"])
     parser.add_argument("--experiment_config", type=str, 
-        help="path to the experiment config file to use", default="experiment_config.toml")
+        help="path to the experiment config file to use", default="config/experiment_config1.toml")
     parser.add_argument("--capybarakv_config", type=str, 
-        help="path to the capybarakv config file to use", default="capybarakv_config.toml")
+        help="path to the capybarakv config file to use", default="config/capybarakv_config.toml")
 
     return parser
 

@@ -379,15 +379,15 @@ fn main() {
     }
 
     for i in 1..config.op_iterations + 1 {
-        run_list_experiments::<RedisClient<TestKey, TestValue, TestListElem>>(
-            &config,
-            &redis_output_dir,
-            i,
-        )
-        .unwrap();
         run_list_experiments::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(
             &config,
             &capybara_output_dir,
+            i,
+        )
+        .unwrap();
+        run_list_experiments::<RedisClient<TestKey, TestValue, TestListElem>>(
+            &config,
+            &redis_output_dir,
             i,
         )
         .unwrap();
@@ -1005,7 +1005,7 @@ where
     let num_keys = config.experiment_keys;
     let list_len = config.per_record_list_len;
 
-    let exp_output_dir = output_dir.to_owned() + "/sequential_list_append/";
+    let exp_output_dir = output_dir.to_owned() + "/rand_list_append/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
@@ -1048,7 +1048,7 @@ where
 {
     let num_keys = config.experiment_keys;
 
-    let exp_output_dir = output_dir.to_owned() + "/sequential_list_read/";
+    let exp_output_dir = output_dir.to_owned() + "/rand_list_read/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
@@ -1084,7 +1084,7 @@ where
 {
     let num_keys = config.experiment_keys;
 
-    let exp_output_dir = output_dir.to_owned() + "/sequential_list_len/";
+    let exp_output_dir = output_dir.to_owned() + "/rand_list_len/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
@@ -1121,7 +1121,7 @@ where
     let num_keys = config.experiment_keys;
     let list_len = config.per_record_list_len;
 
-    let exp_output_dir = output_dir.to_owned() + "/sequential_list_trim/";
+    let exp_output_dir = output_dir.to_owned() + "/rand_list_trim/";
     let output_file = exp_output_dir.to_owned() + "Run" + &i.to_string();
     fs::create_dir_all(&exp_output_dir).unwrap();
     let mut out_stream = create_file_and_build_output_stream(&output_file);
