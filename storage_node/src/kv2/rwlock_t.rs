@@ -45,25 +45,6 @@ pub struct ExRwLock<T: ?Sized>(RwLock<T>);
 #[verifier::reject_recursive_types(T)]
 pub struct ExRwLockReadGuard<'a, T: ?Sized>(RwLockReadGuard<'a, T>);
 
-    /*
-
-pub trait RwLockReadGuardAdditionalSpecFns<T> {
-    spec fn view(&self) -> T;
-}
-
-impl<'a, T> RwLockReadGuardAdditionalSpecFns<T> for RwLockReadGuard<'a, T> {
-    uninterp spec fn view(&self) -> T;
-}
-
-pub assume_specification<'a, T> [ RwLockReadGuard::<'a, T>::borrow ](
-    g: &'a RwLockReadGuard<'a, T>
-) -> (result: &'a T)
-    ensures
-        result == g@,
-    ;
-
-    */
-
 #[verifier::reject_recursive_types(V)]
 pub struct RwLockReadGuardWithPredicate<'a, V>
 {

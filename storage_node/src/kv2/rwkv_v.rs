@@ -224,6 +224,20 @@ struct ConcurrentKvStoreCreateWriter<'a, PM, K, I, L, const STRICT_SPACE: bool, 
                                      ConcurrentKvStoreInvPred>>>,
 }
 
+impl<'a, PM, K, I, L, CB, const STRICT_SPACE: bool> ConcurrentKvStoreCreateWriter<'a, PM, K, I, L, STRICT_SPACE, CB>
+    where
+        PM: PersistentMemoryRegion,
+        K: Hash + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
+        L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+        CB: MutatingLinearizer<K, I, L, CreateOp<K, I, STRICT_SPACE>>,
+{
+    closed spec fn op(self) -> CreateOp<K, I, STRICT_SPACE>
+    {
+        CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item }
+    }
+}
+
 impl<'a, PM, K, I, L, CB, const STRICT_SPACE: bool>
         RwLockWriter<ConcurrentKvStoreInternal<PM, K, I, L>, (Result<(), KvError>, Tracked<CB::Completion>),
                      ConcurrentKvStorePredicate>
@@ -242,8 +256,7 @@ impl<'a, PM, K, I, L, CB, const STRICT_SPACE: bool>
 
     closed spec fn pre(self) -> bool
     {
-        let op = CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item };
-        &&& self.cb@.pre(self.inv@.constant().caller_id, op)
+        &&& self.cb@.pre(self.inv@.constant().caller_id, self.op())
         &&& !self.cb@.namespaces().contains(self.inv@.namespace())
         &&& self.inv@.constant().rwlock_id == self.pred@.id
         &&& self.inv@.constant().durable_id == self.pred@.powerpm_id
@@ -252,31 +265,18 @@ impl<'a, PM, K, I, L, CB, const STRICT_SPACE: bool>
     closed spec fn post(self, completion: (Result<(), KvError>, Tracked<CB::Completion>)) -> bool
     {
         let (exec_result, cb_completion) = completion;
-        let op = CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item };
-        self.cb@.post(cb_completion@, self.inv@.constant().caller_id, op, exec_result)
+        self.cb@.post(cb_completion@, self.inv@.constant().caller_id, self.op(), exec_result)
     }
 
     exec fn write(self, kv_internal: &mut ConcurrentKvStoreInternal<PM, K, I, L>)
                   -> (result_and_completion: (Result<(), KvError>, Tracked<CB::Completion>))
      {
-        let ghost op = CreateOp::<K, I, STRICT_SPACE>{ key: *self.key, item: *self.item };
         let exec_result = kv_internal.kv.tentatively_create(self.key, self.item);
-        let both_results =
-             maybe_commit::<PM, K, I, L, CreateOp<K, I, STRICT_SPACE>, CB>(self.inv, self.pred,
-                                                                           exec_result, kv_internal,
-                                                                           Ghost(op), self.cb);
-        both_results
+        maybe_commit::<PM, K, I, L, CreateOp<K, I, STRICT_SPACE>, CB>(self.inv, self.pred,
+                                                                      exec_result, kv_internal,
+                                                                      Ghost(self.op()), self.cb)
      }
 }
-
-    /*
-struct ConcurrentKvStoreWriter<K, I, L, Op: MutatingOperation<K, I, L>>
-{
-}
-
-impl<PM, K, I, L> RwLockWriter<ConcurrentKvStoreInternal<PM, K, I, L>> for ConcurrentKvStoreWriter {
-}
-    */
 
 #[verifier::reject_recursive_types(PM)]
 #[verifier::reject_recursive_types(K)]
