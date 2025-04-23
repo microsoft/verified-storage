@@ -2,10 +2,10 @@
 kv_file = "/mnt/pmem/capybarakv" 
 pm_dev = "/dev/pmem0"
 mount_point = "/mnt/pmem"
-results_dir = "../results/camera_ready_results/microbenchmark"
+results_dir = "results/artifact_evaluation_results/threads_4"
 experiment_keys = 15000000
 per_record_list_len = 64
-op_iterations = 5
+op_iterations = 1
 start_iterations = 5
 
 # capybarakv_region_size: 1024^3 * 59. this works well for 64GiB PM device
