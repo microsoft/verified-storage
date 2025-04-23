@@ -75,6 +75,7 @@ impl<V, Pred> RwLockWithPredicate<V, Pred>
     where
         Pred: RwLockPredicate<V>,
 {
+    /// Create a new read-write lock with a predicate that must hold on every update.
     #[verifier::external_body]
     pub fn new(val: V, Ghost(pred): Ghost<Pred>) -> (s: Self)
         requires
