@@ -10,6 +10,7 @@ use storage_node::kv2::spec_t::*;
 use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
+use storage_node::kv2::rwkv_t::ConcurrentKvStoreTrait;
 
 use storage_node::kv2::concurrentspec_t::*;
 use storage_node::kv2::rwkv_v;
@@ -150,9 +151,17 @@ where
             kvstore_id: KVSTORE_ID,
             logical_range_gaps_policy: LogicalRangeGapsPolicy::LogicalRangeGapsPermitted,
             max_keys: num_keys + 1,
-            max_list_elements: config.experiment_keys * config.per_record_list_len,
+            max_list_elements: num_keys * config.per_record_list_len,
             max_operations_per_transaction: config.max_operations_per_transaction,
         };
+
+        let space_needed = storage_node::kv2::rwkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion, K, V, L>::space_needed_for_setup(&setup_parameters)?;
+        if config.capybarakv_region_size < space_needed {
+            println!("Your requested configuration requires {:?}B but you have only specified a region size of {:?}B", space_needed, config.capybarakv_region_size);
+            return Err(KvError::OutOfSpace);
+        } else {
+            println!("Requested config uses {:?}B, region size {:?}B", space_needed, config.capybarakv_region_size);
+        }
 
         let pm = create_pm_region(&config.kv_file, config.capybarakv_region_size);
         let mut pms = VecDeque::new();
