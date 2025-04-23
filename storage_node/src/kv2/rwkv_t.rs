@@ -22,27 +22,6 @@ use super::recover_v::*;
 
 verus! {
 
-// TODO: this is probably not correct or safe to do
-// This can't live in rwkv_t.rs because lock is private, but it does something
-// that Verus doesn't like, so it has to be external.
-#[verus::trusted]
-#[verifier::external]
-impl<PM, K, I, L> Drop for ConcurrentKvStore<PM, K, I, L> 
-where
-    PM: PersistentMemoryRegion,
-    K: Hash + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Sized + std::fmt::Debug,
-    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
-{
-    fn drop(&mut self) 
-        opens_invariants none 
-        no_unwind
-    {
-        self.lock.acquire_write();
-    }
-}
-
-
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]

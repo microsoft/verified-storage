@@ -108,6 +108,7 @@ impl<K, I, L> InvariantPredicate<ShardingPredicate, ShardStates<K, I, L>> for Sh
     }
 }
 
+#[verifier::reject_recursive_types(PM)]
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]

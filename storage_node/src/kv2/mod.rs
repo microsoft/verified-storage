@@ -14,6 +14,7 @@ pub mod lists;
 pub mod recover_v;
 pub mod rwkv_t;
 pub mod rwkv_v;
+pub mod rwlock_t;
 pub mod setup_v;
 pub mod shardkv_t;
 pub mod shardkv_v;
