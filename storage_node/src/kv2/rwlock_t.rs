@@ -3,6 +3,30 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+/// This file wraps the standard-library `std::sync::RwLock` to
+/// provide a `RwLockWithPredicate`. Like `std::sync::RwLock`,
+/// `RwLockWithPredicate` allows, at any given time, either multiple
+/// concurrent readers or one concurrent writer to the underlying
+/// object of some arbitrary type `V`.
+///
+/// The interface to `RwLockWithPredicate` differs from that to
+/// `std::sync::RwLock` in two main ways:
+///
+/// First, as indicated by the type name, it associates a predicate
+/// with the lock that's guaranteed to always hold on the value when
+/// it is being read. This is enforced by requiring writers to ensure
+/// the predicate holds after they're done writing it and are about to
+/// release the lock.
+///
+/// Second, because Verus doesn't allow returning `&mut` references,
+/// its write interface differs. Instead of returning a guard that can
+/// be borrowed to get a `&mut` reference, instead `write` (1)
+/// acquires the write lock, (2) invokes a writer object by passing it
+/// an `&mut V`, (3) releases the write lock, then (4) returns the
+/// result returned by the writer. That writer must satisfy the
+/// `RwLockWriter` trait, the most important property of which is that
+/// its `write` method must ensure it maintains the predicate.
+
 use std::borrow::{Borrow, BorrowMut};
 use std::sync::{LockResult, PoisonError, RwLock, RwLockReadGuard};
 use vstd::invariant::*;
@@ -19,6 +43,8 @@ impl<V> RwLockPredicate<V> for spec_fn(V) -> bool {
     }
 }
 
+/// A `RwLockWriter` is an object representing a write operation that
+/// should be done on an object while a writer lock is held.
 pub trait RwLockWriter<V, Completion, Pred: RwLockPredicate<V>>: Sized {
     spec fn pred(self) -> Pred;
 
@@ -102,6 +128,8 @@ impl<V, Pred> RwLockWithPredicate<V, Pred>
         self.pred().inv(val)
     }
 
+    /// Acquire a read lock. This returns a guard that one can borrow a reference
+    /// to the `V` from. When that guard is dropped, the read lock is released.
     #[verifier::external_body]
     pub exec fn read<'a>(&'a self) -> (result: RwLockReadGuardWithPredicate<'a, V>)
         ensures
@@ -112,6 +140,9 @@ impl<V, Pred> RwLockWithPredicate<V, Pred>
         }
     }
 
+    /// Acquire a write lock, run the given writer on the resulting
+    /// `V` (mutating it in the process), and release the lock. Then
+    /// return the completion returned by the writer.
     #[verifier::external_body]
     pub exec fn write<Writer, Completion>(&self, writer: Writer) -> (completion: Completion)
         where
