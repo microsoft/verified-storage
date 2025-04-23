@@ -2,7 +2,7 @@
 kv_file = "/mnt/pmem/capybarakv" 
 pm_dev = "/dev/pmem0"
 mount_point = "/mnt/pmem"
-results_dir = "results/artifact_evaluation_results/threads_4"
+results_dir = "../results/artifact_evaluation_results/microbenchmark"
 experiment_keys = 15000000
 per_record_list_len = 64
 op_iterations = 1

@@ -38,15 +38,15 @@ for filename in configs/*; do
         if [[ $filename == *"mem_storage"* ]]; then 
             sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}mem_storage/\"!" $filename
         else 
-            if [[ $filename == *"1.toml"* ]]; then 
+            if [[ $filename == *"config1.toml" ]]; then 
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_1\"!" $filename
-            elif [[ $filename == *"2"* ]]; then
+            elif [[ $filename == *"config2.toml" ]]; then
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_2\"!" $filename
-            elif [[ $filename == *"4"* ]]; then
+            elif [[ $filename == *"config4"* ]]; then
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_4\"!" $filename
-            elif [[ $filename == *"8"* ]]; then
+            elif [[ $filename == *"config8"* ]]; then
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_8\"!" $filename
-            elif [[ $filename == *"16"* ]]; then
+            elif [[ $filename == *"config16"* ]]; then
                 sed -i "s!results_dir = \".*\"!results_dir = \"${RESULTS_DIR}threads_16\"!" $filename
             elif [[ $filename == *"microbenchmark"* ]]; then 
                 sed -i "s!results_dir = \".*\"!results_dir = \"../${RESULTS_DIR}microbenchmark\"!" $filename
