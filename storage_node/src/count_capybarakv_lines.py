@@ -6,7 +6,7 @@ from prettytable import PrettyTable
 import argparse
 import os
 
-categories = ["PoWER framework", "pmcopy crate", "Base log", "KV store"]
+categories = ["PoWER framework", "pmcopy crate", "Base log", "Concurrency layer", "Sharding layer", "KV store"]
 line_types = ["Trusted", "Spec+Proof", "Impl"]
 
 def split_line(line):
@@ -37,6 +37,9 @@ def count_lines(line_count_file):
     header_pattern = "Trusted"
     power_pattern = "pmem/"
     log_pattern = "journal/"
+    concurrent_spec = "concurrentspec"
+    rwkv_pattern = "rw"
+    shard_pattern = "shard"
     headers = []
 
     results = {k: {l: 0 for l in line_types} for k in categories}
@@ -48,21 +51,46 @@ def count_lines(line_count_file):
             if header_pattern in line:
                 headers = split_line(line)
             else:
+                row = ""
                 if power_pattern in line:
-                    line = split_line(line)
-                    loc = extract_line_counts(headers, line)
-                    for k in loc.keys():
-                        results["PoWER framework"][k] += loc[k]
+                    row = "PoWER framework"
                 elif log_pattern in line:
-                    line = split_line(line)
-                    loc = extract_line_counts(headers, line)
-                    for k in loc.keys():
-                        results["Base log"][k] += loc[k]
-                else: # everything else is kv
-                    line = split_line(line)
-                    loc = extract_line_counts(headers, line)
-                    for k in loc.keys():
-                        results["KV store"][k] += loc[k]
+                    row = "Base log"
+                elif concurrent_spec in line or rwkv_pattern in line:
+                    row = "Concurrency layer"
+                elif shard_pattern in line:
+                    row = "Sharding layer"
+                else:
+                    row = "KV store"
+                line = split_line(line)
+                loc = extract_line_counts(headers, line)
+                for k in loc.keys():
+                    results[row][k] += loc[k]
+                # if power_pattern in line:
+                #     line = split_line(line)
+                #     loc = extract_line_counts(headers, line)
+                #     for k in loc.keys():
+                #         results["PoWER framework"][k] += loc[k]
+                # elif log_pattern in line:
+                #     line = split_line(line)
+                #     loc = extract_line_counts(headers, line)
+                #     for k in loc.keys():
+                #         results["Base log"][k] += loc[k]
+                # elif concurrent_spec in line or rwkv_pattern in line:
+                #     line = split_line(line)
+                #     loc = extract_line_counts(headers, line)
+                #     for k in loc.keys():
+                #         results["Concurrency layer"][k] += loc[k]
+                # elif shard_pattern in line:
+                #     line = split_line(line)
+                #     loc = extract_line_counts(headers, line)
+                #     for k in loc.keys():
+                #         results["Concurrency layer"][k] += loc[k]
+                # else: # everything else is kv
+                #     line = split_line(line)
+                #     loc = extract_line_counts(headers, line)
+                #     for k in loc.keys():
+                #         results["KV store"][k] += loc[k]
     
     return results
 
