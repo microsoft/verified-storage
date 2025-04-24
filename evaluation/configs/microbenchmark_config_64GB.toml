@@ -11,7 +11,8 @@ start_iterations = 5
 # capybarakv_region_size: 1024^3 * 59. this works well for 64GiB PM device
 capybarakv_region_size = 63350767616 
 
-viper_region_size = 53687091200
+# viper_region_size: 1024^3 * 45. viper needs space for some additional files
+viper_region_size = 48318382080
 
 # each record has:
 # - a 64B key with about 40B metadata (CRCs, record metadata)
