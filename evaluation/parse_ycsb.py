@@ -20,7 +20,7 @@ def parse_file(filename, perf_list):
 
 def main():
     if len(sys.argv) < 6:
-        print('Usage: python3 parse_ycsb.py <num_fs> <fs1> <fs2> .. <num_runs> <start_run_id> <result_dir> <output_csv_file)')
+        print('Usage: python3 parse_ycsb.py <num_fs> <fs1> <fs2> .. <num_runs> <start_run_id> <result_dir> <output_csv_file>')
         return
 
     args = sys.argv[1:]

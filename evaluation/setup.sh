@@ -99,7 +99,8 @@ sudo apt -y install default-jdk default-jre libpmemobj-dev libsnappy-dev \
     pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev \
     daxctl libzstd-dev cmake build-essential liblz4-dev libpmempool-dev valgrind \
     python3-toml numactl llvm-dev libclang-dev clang libpmem1 libpmem-dev \
-    python3-pip python3-prettytable unzip curl wget gcc-12 g++-12
+    python3-pip python3-prettytable python3-numpy python3-matplotlib unzip curl \
+    wget gcc-12 g++-12
 printf "${BOLD}${MAGENTA}Done installing dependencies!${NC}\n\n\n"
 
 # 2. Find java installation and set JAVA_HOME

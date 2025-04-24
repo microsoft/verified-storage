@@ -131,7 +131,7 @@ def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 plot_ycsb.py <1 thread results csv> <16 thread results csv> <output pdf file>")
+        print("Usage: python3 plot_fig3.py <1 thread results csv> <16 thread results csv> <output pdf file>")
         exit(1)
     ycsb_results_file_1thread = sys.argv[1]
     ycsb_results_file_16thread = sys.argv[2]
