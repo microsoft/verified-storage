@@ -18,3 +18,9 @@ pub mod power_sound_t;
 pub mod power_v;
 // pub mod subregion_v;
 pub mod traits_t;
+
+// Proof of correspondence between prophecy-based model of persistent
+// memory durability and an explicit asynchronous model of persistent
+// memory writes.
+pub mod pmem_async_equiv_t;
+pub mod pmem_async_spec_t;
