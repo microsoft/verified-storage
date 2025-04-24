@@ -6,5 +6,5 @@ Cargo.lock
 .vscode/
 rmeta*
 lib.d
-verif_output.txt
+verif_output_*.txt
 line_count.txt
