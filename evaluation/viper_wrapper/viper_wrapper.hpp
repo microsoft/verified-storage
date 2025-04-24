@@ -8,12 +8,13 @@
 #include "benchmark.hpp"
 
 using KeyType32 = viper::kv_bm::BMRecord<uint8_t, 32>;
+using KeyType24 = viper::kv_bm::BMRecord<uint8_t, 24>;
 using ValueType1140 = viper::kv_bm::BMRecord<uint8_t, 1140>;
 using ValueType1050 = viper::kv_bm::BMRecord<uint8_t, 1050>;
 
 // TODO: better way to select what key type to use
 #ifdef CXX_COMPILATION
-using K = KeyType32;
+using K = KeyType24;
     #ifdef WORKLOADX
     using V = ValueType1050;
     #else
