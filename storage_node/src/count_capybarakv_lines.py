@@ -6,9 +6,6 @@ from prettytable import PrettyTable
 import argparse
 import os
 
-# TODO: this script should properly handle things if the _t files don't have the 
-# trusted annotations (or if they're commented out)
-
 categories = ["PoWER framework", "pmcopy crate", "Base log", "KV store"]
 line_types = ["Trusted", "Spec+Proof", "Impl"]
 
