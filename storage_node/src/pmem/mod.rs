@@ -22,6 +22,8 @@ pub mod traits_t;
 // Proof of correspondence between prophecy-based model of persistent
 // memory durability and an explicit asynchronous model of persistent
 // memory writes.
-pub mod pmem_async_equiv_t;
-pub mod pmem_async_equiv_v;
+
+// Commented out until https://github.com/verus-lang/verus/pull/1609 is merged
+//pub mod pmem_async_equiv_t;
+//pub mod pmem_async_equiv_v;
 pub mod pmem_async_spec_t;
