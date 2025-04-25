@@ -23,4 +23,5 @@ pub mod traits_t;
 // memory durability and an explicit asynchronous model of persistent
 // memory writes.
 pub mod pmem_async_equiv_t;
+pub mod pmem_async_equiv_v;
 pub mod pmem_async_spec_t;
