@@ -25,6 +25,11 @@ verus! {
 // and PersistentMemoryRegionAsync.  In particular, PMRegionProph keeps the
 // PersistentMemoryRegionAsync (PMRegion) internally, and provides an API that
 // satisfies PersistentMemoryRegion.
+//
+// pmem_async_equiv_v.rs provides an implementation of PersistentMemoryRegion
+// for PMRegionProph<PMRegion>, though the details of how that implementation
+// works are not immediately relevant for observing that a correspondence
+// exists (thus that implementation is in a _v file).
 
 pub struct PMRegionProph<PMRegion>
     where PMRegion: PersistentMemoryRegionAsync
