@@ -316,6 +316,8 @@ where
                 seqs_match_in_range(old(powerpm)@.read_state, powerpm@.read_state, 0, sm.app_area_start as int),
                 apply_journal_entries(powerpm@.read_state, entries.skip(num_entries_installed), *sm)
                     == Some(commit_state),
+            decreases
+                end - start,
         {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use pmcopy_axioms;

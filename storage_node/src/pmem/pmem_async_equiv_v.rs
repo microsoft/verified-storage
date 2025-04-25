@@ -28,7 +28,10 @@ impl<T: Structural> ProphecyVec<T> {
             res@.len() == len,
     {
         let mut vec: Vec<Prophecy<T>> = Vec::with_capacity(len);
-        while vec.len() != len {
+        while vec.len() != len
+            decreases
+                len - vec.len(),
+        {
             vec.push(Prophecy::<T>::new());
         }
         Self{

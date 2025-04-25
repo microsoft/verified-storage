@@ -90,6 +90,8 @@ where
                     &&& 0 <= sm.table.row_addr_to_index(any_row_addr) < row_index
                 } ==> recover_cdb(pm@.read_state, any_row_addr + sm.row_cdb_start) == Some(false),
                 seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
+            decreases
+                sm.table.num_rows - row_index,
         {
             proof {
                 broadcast use group_validate_row_addr;

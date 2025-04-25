@@ -263,6 +263,8 @@ where
                     self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int),
                 perm_factory.id() == self@.powerpm_id,
                 forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
+            decreases
+                end_pos - current_pos,
         {
             current_pos = self.write_journal_entry::<PermFactory>(Ghost(original_durable_state), Ghost(original_read_state),
                                                                   current_entry_index, current_pos,
@@ -619,6 +621,8 @@ where
                 self.powerpm.id() == old(self).powerpm.id(),
                 perm_factory.id() == self@.powerpm_id,
                 forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
+            decreases
+                end - num_entries_installed,
         {
             let ghost durable_state_at_start_of_loop = self.powerpm@.durable_state;
     

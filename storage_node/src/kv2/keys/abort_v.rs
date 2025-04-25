@@ -86,6 +86,8 @@ where
                 self.status@ is Inconsistent,
                 self.must_abort == old(self).must_abort,
                 self.sm == old(self).sm,
+            decreases
+                self.undo_records.len(),
         {
             self.apply_last_undo_record(Ghost(jv));
         }

@@ -144,6 +144,8 @@ where
                 forall|list_addr: u64| #[trigger] list_addrs@.contains(list_addr) ==>
                     recovery_mapping.list_info.contains_key(list_addr),
                 !list_addrs@.contains(0),
+            decreases
+                sm.table.num_rows - row_index,
         {
             proof {
                 broadcast use group_validate_row_addr;

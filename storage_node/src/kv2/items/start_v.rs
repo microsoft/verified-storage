@@ -99,6 +99,8 @@ where
                     },
                 forall|i: int| 0 <= i < free_list@.len() ==>
                     0 <= sm.table.row_addr_to_index(#[trigger] free_list@[i]) < row_index,
+            decreases
+                sm.table.num_rows - row_index,
         {
             proof {
                 broadcast use group_validate_row_addr;
