@@ -155,7 +155,6 @@ verus! {
         u64_to_le_bytes(digest.sum64())
     }
 
-    #[verifier::external_body]
     #[inline(always)]
     pub exec fn compare_crcs(crc1: &[u8], crc2: u64) -> (out: bool)
         requires 
@@ -164,7 +163,13 @@ verus! {
             out ==> crc1@ == crc2.spec_to_bytes(),
             !out ==> crc1@ != crc2.spec_to_bytes()
     {
+        broadcast use pmcopy_axioms;
         let crc1_u64 = u64_from_le_bytes(crc1);
+        if crc1_u64 == crc2 {
+            proof {
+                axiom_from_bytes_equal::<u64>(crc1@, crc2.spec_to_bytes());
+            }
+        }
         crc1_u64 == crc2
     }
 
