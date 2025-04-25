@@ -2,9 +2,9 @@
 kv_file = "/mnt/pmem/capybarakv" 
 pm_dev = "/dev/pmem0"
 mount_point = "/mnt/pmem"
-results_dir = "../results/artifact_evaluation_results/microbenchmark"
+results_dir = "../results/camera_ready_results/microbenchmark"
 experiment_keys = 15000000
-per_record_list_len = 64
+per_record_list_len = 16
 op_iterations = 1
 start_iterations = 5
 
@@ -19,8 +19,8 @@ viper_region_size = 48318382080
 # - a 1KiB item with 8B CRC
 # - per_record_list_len 8-byte list elements, each of which 
 #   has 24B metadata (next ptr and CRCs)
-# max keys: 1024^3 * 59 / (64 + 40 + 1024 + 8 + 32*64)
-max_keys = 19896590
+# max keys: 1024^3 * 59 / (64 + 40 + 1024 + 8 + 32*16)
+max_keys = 38440990
 
 run_full_setup = true
 max_operations_per_transaction = 1
