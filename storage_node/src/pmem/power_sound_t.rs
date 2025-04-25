@@ -1,6 +1,7 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::power_t::*;
+use super::pmemspec_t::*;
+use super::power_t::*;
+use super::crashinv_t::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
 use vstd::tokens::frac::*;
@@ -324,7 +325,10 @@ exec fn main_after_crash<PM, A>(pm: PM, app: A)
         _pm: core::marker::PhantomData,
     };
 
-    let tracked inv = invariant_recovery_axiom(pred);
+    let ghost namespace = arbitrary();
+    let tracked inv_rec = InvariantRecoverer::new(pred, namespace);
+    assume(inv_rec.held_before_crash());
+    let tracked inv = inv_rec.get();
 
     // Open the invariant to observe that the current state satisfies valid(),
     // because the resource in the invariant agrees with `pm_atomic`.
@@ -350,23 +354,6 @@ exec fn main_after_crash<PM, A>(pm: PM, app: A)
     // enforces that the durable state will still satisfy the application
     // predicate, at all points during the application's execution in
     // app.run().
-}
-
-// The invariant_recovery_axiom() states a key assumption for the
-// soundness argument: that an AtomicInvariant on the logically atomic
-// contents of the disk still holds after recovery.  The assumption is
-// that this axiom will be invoked only in situations where we know the
-// AtomicInvariant held before the crash.  This models the use of atomic
-// invariants that persist across crashes in Perennial.
-#[verifier::external_body]
-proof fn invariant_recovery_axiom<PM, A>(pred: DurablePredicate<PM, A>) -> (tracked result: AtomicInvariant::<DurablePredicate<PM, A>, DurableResource, DurablePredicate<PM, A>>)
-    where
-        PM: PersistentMemoryRegion,
-        A: PoWERApplication<PM>,
-    ensures
-        result.constant() == pred,
-{
-    unimplemented!()
 }
 
 }
