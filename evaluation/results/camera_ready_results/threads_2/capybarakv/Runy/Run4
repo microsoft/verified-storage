@@ -1,0 +1,37 @@
+Pre-experiment available mem: 131771858944
+Post-experiment available mem: 130585333760
+Mem usage: 1186525184
+[OVERALL], RunTime(ms), 39489
+[OVERALL], Throughput(ops/sec), 379852.6171845324
+[TOTAL_GCS_G1_Young_Generation], Count, 65
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 84
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.21271746562333813
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 65
+[TOTAL_GC_TIME], Time(ms), 84
+[TOTAL_GC_TIME_%], Time(%), 0.21271746562333813
+[READ], Operations, 7500720
+[READ], AverageLatency(us), 2.759753063705884
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 5159
+[READ], 95thPercentileLatency(us), 8
+[READ], 99thPercentileLatency(us), 11
+[READ], Return=OK, 7500720
+[CLEANUP], Operations, 2
+[CLEANUP], AverageLatency(us), 3609.0
+[CLEANUP], MinLatency(us), 8
+[CLEANUP], MaxLatency(us), 7211
+[CLEANUP], 95thPercentileLatency(us), 7211
+[CLEANUP], 99thPercentileLatency(us), 7211
+[UPDATE], Operations, 7499280
+[UPDATE], AverageLatency(us), 5.8953423528658755
+[UPDATE], MinLatency(us), 3
+[UPDATE], MaxLatency(us), 5103
+[UPDATE], 95thPercentileLatency(us), 11
+[UPDATE], 99thPercentileLatency(us), 14
+[UPDATE], Return=OK, 7499280

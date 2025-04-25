@@ -1,0 +1,71 @@
+Pre-experiment available mem: 131624202240
+Pre-experiment available mem: 131623686144
+Pre-experiment available mem: 131615297536
+127.0.0.1
+Pre-experiment available mem: 131623686144
+127.0.0.1
+Pre-experiment available mem: 131623686144
+Pre-experiment available mem: 131615297536
+Pre-experiment available mem: 131623686144
+127.0.0.1
+Pre-experiment available mem: 131613167616
+Pre-experiment available mem: 131611103232
+127.0.0.1
+Pre-experiment available mem: 131611103232
+Pre-experiment available mem: 131613167616
+127.0.0.1
+Pre-experiment available mem: 131615297536
+127.0.0.1
+Pre-experiment available mem: 131624202240
+127.0.0.1
+Pre-experiment available mem: 131615297536
+Pre-experiment available mem: 131615297536
+127.0.0.1
+Pre-experiment available mem: 131611103232
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+Post-experiment available mem: 126354923520
+Mem usage: 5256179712
+Post-experiment available mem: 126354923520
+Mem usage: 5256179712
+Post-experiment available mem: 126354923520
+Mem usage: 5256179712
+Post-experiment available mem: 126354923520
+Mem usage: 5256179712
+Post-experiment available mem: 126354923520
+Mem usage: 5256179712
+[OVERALL], RunTime(ms), 150838
+[OVERALL], Throughput(ops/sec), 99444.43707818985
+[TOTAL_GCS_G1_Young_Generation], Count, 82
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 125
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.08287036423182487
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 82
+[TOTAL_GC_TIME], Time(ms), 125
+[TOTAL_GC_TIME_%], Time(%), 0.08287036423182487
+[CLEANUP], Operations, 16
+[CLEANUP], AverageLatency(us), 630.0
+[CLEANUP], LatencyVariance(us), 249611.875
+[CLEANUP], MinLatency(us), 79
+[CLEANUP], MaxLatency(us), 1421
+[CLEANUP], 95thPercentileLatency(us), 1000
+[CLEANUP], 99thPercentileLatency(us), 1000
+[INSERT], Operations, 15000000
+[INSERT], AverageLatency(us), 158.9539354
+[INSERT], LatencyVariance(us), 18090.26130131929
+[INSERT], MinLatency(us), 30
+[INSERT], MaxLatency(us), 24854
+[INSERT], 95thPercentileLatency(us), 0
+[INSERT], 99thPercentileLatency(us), 1000
+[INSERT], Return=OK, 15000000

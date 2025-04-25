@@ -1,0 +1,43 @@
+Pre-experiment available mem: 131631828992
+viper init
+creating viper
+1073741824 pool size
+Post-experiment available mem: 130354601984
+Mem usage: 1277227008
+cleaning up
+viper cleanup
+done cleaning up
+[OVERALL], RunTime(ms), 58669
+[OVERALL], Throughput(ops/sec), 255671.6494230343
+[TOTAL_GCS_G1_Young_Generation], Count, 58
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 84
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.14317612367689922
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 58
+[TOTAL_GC_TIME], Time(ms), 84
+[TOTAL_GC_TIME_%], Time(%), 0.14317612367689922
+[READ], Operations, 7499009
+[READ], AverageLatency(us), 1.5652150837530665
+[READ], MinLatency(us), 0
+[READ], MaxLatency(us), 5151
+[READ], 95thPercentileLatency(us), 2
+[READ], 99thPercentileLatency(us), 3
+[READ], Return=OK, 7499009
+[CLEANUP], Operations, 1
+[CLEANUP], AverageLatency(us), 2043392.0
+[CLEANUP], MinLatency(us), 2042880
+[CLEANUP], MaxLatency(us), 2043903
+[CLEANUP], 95thPercentileLatency(us), 2043903
+[CLEANUP], 99thPercentileLatency(us), 2043903
+[UPDATE], Operations, 7500991
+[UPDATE], AverageLatency(us), 4.425192884513526
+[UPDATE], MinLatency(us), 2
+[UPDATE], MaxLatency(us), 21647
+[UPDATE], 95thPercentileLatency(us), 5
+[UPDATE], 99thPercentileLatency(us), 5
+[UPDATE], Return=OK, 7500991
