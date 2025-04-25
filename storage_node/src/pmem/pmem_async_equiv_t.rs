@@ -70,6 +70,7 @@ impl<PMRegion> PMRegionProph<PMRegion>
     // any set of events that happen on crash (resolved prophecy variables),
     // the resulting durable_state propecized by PersistentMemoryRegion
     // matches the durable state of the explicit PersistentMemoryRegionAsync.
+    #[cfg(verus_keep_ghost)]
     pub fn crash(self)
         requires
             self.inv()
@@ -140,6 +141,7 @@ impl<PMRegion> PMRegionProph<PMRegion>
 }
 
 #[verifier::external_body]
+#[cfg(verus_keep_ghost)]
 exec fn seq_to_vec(Ghost(s): Ghost<Seq<Seq<bool>>>) -> (result: Vec<Vec<bool>>)
     ensures
         result.deep_view() == s
