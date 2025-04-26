@@ -1,11 +1,11 @@
-Pre-experiment available mem: 131608408064
-Post-experiment available mem: 130376187904
-Mem usage: 1232220160
-[OVERALL], RunTime(ms), 59726
-[OVERALL], Throughput(ops/sec), 251146.9041958276
+Pre-experiment available mem: 131701772288
+Post-experiment available mem: 128827523072
+Mem usage: 2874249216
+[OVERALL], RunTime(ms), 58750
+[OVERALL], Throughput(ops/sec), 255319.1489361702
 [TOTAL_GCS_G1_Young_Generation], Count, 65
-[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 91
-[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.15236245521213543
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 88
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.14978723404255317
 [TOTAL_GCS_G1_Concurrent_GC], Count, 0
 [TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
@@ -13,25 +13,25 @@ Mem usage: 1232220160
 [TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
 [TOTAL_GCs], Count, 65
-[TOTAL_GC_TIME], Time(ms), 91
-[TOTAL_GC_TIME_%], Time(%), 0.15236245521213543
-[READ], Operations, 7502238
-[READ], AverageLatency(us), 1.7449763657191362
+[TOTAL_GC_TIME], Time(ms), 88
+[TOTAL_GC_TIME_%], Time(%), 0.14978723404255317
+[READ], Operations, 7497141
+[READ], AverageLatency(us), 1.7130767581935566
 [READ], MinLatency(us), 1
-[READ], MaxLatency(us), 4727
+[READ], MaxLatency(us), 3987
 [READ], 95thPercentileLatency(us), 2
 [READ], 99thPercentileLatency(us), 4
-[READ], Return=OK, 7502238
+[READ], Return=OK, 7497141
 [CLEANUP], Operations, 1
-[CLEANUP], AverageLatency(us), 7262.0
-[CLEANUP], MinLatency(us), 7260
-[CLEANUP], MaxLatency(us), 7263
-[CLEANUP], 95thPercentileLatency(us), 7263
-[CLEANUP], 99thPercentileLatency(us), 7263
-[UPDATE], Operations, 7497762
-[UPDATE], AverageLatency(us), 4.492904282637939
+[CLEANUP], AverageLatency(us), 7118.0
+[CLEANUP], MinLatency(us), 7116
+[CLEANUP], MaxLatency(us), 7119
+[CLEANUP], 95thPercentileLatency(us), 7119
+[CLEANUP], 99thPercentileLatency(us), 7119
+[UPDATE], Operations, 7502859
+[UPDATE], AverageLatency(us), 4.400742970113126
 [UPDATE], MinLatency(us), 3
-[UPDATE], MaxLatency(us), 7307
+[UPDATE], MaxLatency(us), 5947
 [UPDATE], 95thPercentileLatency(us), 6
 [UPDATE], 99thPercentileLatency(us), 8
-[UPDATE], Return=OK, 7497762
+[UPDATE], Return=OK, 7502859
