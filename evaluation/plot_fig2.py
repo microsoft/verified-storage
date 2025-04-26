@@ -13,7 +13,7 @@ import scipy.stats as st
 import json
 
 kvstores = ["redis", "pmemrocksdb", "viper", "capybarakv"]
-nice_kvstore_names = ["pmem-Redis", "pmem-RocksDB", "ViperDB", "CapybaraKV"]
+nice_kvstore_names = ["pmem-Redis", "pmem-RocksDB", "Viper", "CapybaraKV"]
 workloads = ["sequential_put", "sequential_get", "sequential_update", "sequential_delete", 
     "rand_put", "rand_get", "rand_update", "rand_delete"]
 nice_workload_names = ["Seq\nput", "Seq\nget", "Seq\nupdate", "Seq\ndelete",

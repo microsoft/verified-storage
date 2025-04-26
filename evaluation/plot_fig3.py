@@ -78,7 +78,7 @@ def plot_ycsb(ax, ycsb_results_file):
     autolabel(ax, r1, filesys_grouped_data["redis"])
     r2 = ax.bar(x-width*0.5, normalized_data_rocksdb, width, hatch="..", color="orange")
 
-    r3 = ax.bar(x+width*0.5, normalized_data_viper, width, hatch="xx", color="purple")
+    r3 = ax.bar(x+width*0.5, normalized_data_viper, width, hatch="xx", color="mediumpurple")
     # autolabel(ax, r2, filesys_grouped_data["RocksDB"])
     r4 = ax.bar(x+width*1.5, normalized_data_capybarakv, width, color="black")
     # autolabel(ax, r3, filesys_grouped_data["CapybaraKV"])
@@ -120,12 +120,12 @@ def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_
     axs[1].sharey(axs[0])
     axs[0].set_yticks([1, 5, 10, 15, 20, 25, 30, 35])
 
-    axs[0].set_ylabel("throughput relative to pmem-Redis")
+    axs[0].set_ylabel("throughput relative\n to pmem-Redis")
 
     fig.set_figwidth(10)
-    fig.set_figheight(2.5)
+    fig.set_figheight(1.8)
     # fig.legend(legend_names, ncol=3, loc="upper center", bbox_to_anchor=(0.5,1.2))
-    fig.legend(legend_names, ncol=4, loc="upper center", bbox_to_anchor=(0.5,1.1))
+    fig.legend(legend_names, ncol=4, loc="upper center", bbox_to_anchor=(0.5,1.15))
     fig.tight_layout(pad=0.75)
     plt.savefig(output_file, format="pdf", bbox_inches="tight")
 
