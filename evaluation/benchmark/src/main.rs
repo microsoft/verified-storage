@@ -1209,11 +1209,15 @@ where
                 // which we can't really handle from Rust, so instead of waiting for
                 // and error we'll periodically check if we're close to running out
                 // of space and break when we are
-                let mount_point_path = std::path::Path::new(mount_point);
-                let stat = sys::statvfs::statvfs(mount_point_path).unwrap();
-                if (stat.blocks_available() * 100) / stat.blocks() == 0 {
-                    println!("Full, stopping.");
-                    break;
+                if KV::db_name() == "viper" {
+                    let mount_point_path = std::path::Path::new(mount_point);
+                    let stat = sys::statvfs::statvfs(mount_point_path).unwrap();
+                    // blocks_available is given in 1K blocks and viper allocates
+                    // in 1G files, so stop when there is less than 1G available
+                    if stat.blocks_available() < 1048576 {
+                        println!("Full, stopping.");
+                        break;
+                    }
                 }
             }
         }
