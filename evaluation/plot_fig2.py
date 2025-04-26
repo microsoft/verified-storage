@@ -21,10 +21,8 @@ nice_workload_names = ["Seq\nput", "Seq\nget", "Seq\nupdate", "Seq\ndelete",
 
 list_kvstores = ["redis", "capybarakv"]
 nice_list_kvstore_names = ["pmem-Redis", "CapybaraKV"]
-# list_workloads = ["sequential_list_append", "sequential_list_len", "sequential_list_read", "sequential_list_trim",
 
 list_workloads = ["rand_list_append", "rand_list_len", "rand_list_read", "rand_list_trim",]
-# nice_list_workload_names = ["Seq\nappend", "Seq\nlen", "Seq\nread", "Seq\ntrim"
 nice_list_workload_names = ["Append", "Len", "Read list", "Trim"]
 
 def process_workload_file(file_path):
@@ -152,24 +150,10 @@ def plot_results(ax, results):
     ax.set_yscale("log")
     
     ax.set_xticks(x, nice_workload_names, fontsize="8")
-    # ax.legend(nice_kvstore_names, loc="upper center", fontsize="8", 
-    #     ncol=4, bbox_to_anchor=(0.5, 1.25))
-    # ax.tight_layout(pad=0)
-    
-    
-    # # Save the plot
-    # plt.savefig(output_file, bbox_inches="tight")
-    # print(f"Plot saved as '{output_file}'")
-    # plt.close()
 
 def plot_list_results(ax, results):
-    # mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "black"]) 
-
-    # Set up the plot
-    # plt.figure(figsize=(4.6, 1.8))
     x = np.arange(len(list_workloads))
     width = 0.8 / len(list_kvstores)
-    # plt.set_axisbelow(True)
     
     # Plot bars for each KV store
     for i, kvstore in enumerate(list_kvstores):
@@ -197,19 +181,8 @@ def plot_list_results(ax, results):
         
     ax.grid(True, zorder=3, axis="y")
     ax.set_xlabel('(b) List operations')
-    # ax.set_ylabel('Latency (us)')
     ax.set_yscale("log")
-    
     ax.set_xticks(x, nice_list_workload_names, fontsize="8")
-    # plt.legend(nice_list_kvstore_names, loc="upper center", fontsize="8", 
-    #     ncol=4, bbox_to_anchor=(0.5, 1.25))
-    # plt.tight_layout(pad=0)
-    
-    # # Save the plot
-    # plt.savefig(output_file, bbox_inches="tight")
-    # print(f"Plot saved as '{output_file}'")
-    # plt.close()
-
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -234,7 +207,6 @@ def parse_arguments():
 
 def plot(results, output_file):
     fig, axs = plt.subplots(1, 2, width_ratios=[2,1])
-    # ax.figure(figsize=(4.6, 1.8))
     fig.set_figwidth(10)
     fig.set_figheight(1.8)
 
@@ -243,9 +215,7 @@ def plot(results, output_file):
     plt.tight_layout(pad=1)
 
     fig.legend(nice_kvstore_names, loc="upper center", fontsize="9", 
-        ncol=4, bbox_to_anchor=(0.5, 1.07))
-    # fig.supxlabel("Workload")
-    
+        ncol=4, bbox_to_anchor=(0.5, 1.07))    
 
     # Save the plot
     plt.savefig(output_file, bbox_inches="tight")
@@ -266,8 +236,5 @@ def main():
         results = read_results_from_json(args.json)
     
     plot(results, args.output)
-    # plot_results(results, args.item_output)
-    # plot_list_results(results, args.list_output)
 
-if __name__ == "__main__":
-    main()
+main()
