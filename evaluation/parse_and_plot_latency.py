@@ -19,13 +19,19 @@ workloads = ["sequential_put", "sequential_get", "sequential_update", "sequentia
 nice_workload_names = ["Seq\nput", "Seq\nget", "Seq\nupdate", "Seq\ndelete",
     "Rand\nput", "Rand\nget", "Rand\nupdate", "Rand\ndelete"]
 
+list_kvstores = ["redis", "capybarakv"]
+nice_list_kvstore_names = ["pmem-Redis", "CapybaraKV"]
+# list_workloads = ["sequential_list_append", "sequential_list_len", "sequential_list_read", "sequential_list_trim",
+
+list_workloads = ["rand_list_append", "rand_list_len", "rand_list_read", "rand_list_trim",]
+# nice_list_workload_names = ["Seq\nappend", "Seq\nlen", "Seq\nread", "Seq\ntrim"
+nice_list_workload_names = ["Append", "Len", "Read list", "Trim"]
+
 def process_workload_file(file_path):
-    """Process a single workload file and return the values."""
     with open(file_path, 'r') as f:
         return [int(line.strip()) for line in f if line.strip()]
 
 def process_workload_directory(workload_dir):
-    """Process all files in a workload directory and return mean and std dev."""
     print("Processing directory", workload_dir)
     values = []
     
@@ -51,17 +57,16 @@ def process_workload_directory(workload_dir):
 
     return mean_latency, stdev_latency, conf_int_for_plot if len(values) > 1 else 0
 
-def analyze_kvstore_data(base_dir):
-    """Analyze data from all KV stores and their workloads."""
-    if not os.path.exists(base_dir):
-        print(f"Error: Directory '{base_dir}' does not exist")
+def parse_files(result_dir):
+    if not os.path.exists(result_dir):
+        print(f"Error: Directory '{result_dir}' does not exist")
         sys.exit(1)
         
     results = {}
     
     # Process each KV store directory
-    for kvstore in os.listdir(base_dir):
-        kvstore_path = os.path.join(base_dir, kvstore)
+    for kvstore in os.listdir(result_dir):
+        kvstore_path = os.path.join(result_dir, kvstore)
         if not os.path.isdir(kvstore_path):
             continue
             
@@ -76,9 +81,17 @@ def analyze_kvstore_data(base_dir):
                 
             mean_val, std_val, conf_int = process_workload_directory(workload_path)
             results[kvstore][workload] = (mean_val, std_val, conf_int)
+        
+        for workload in list_workloads:
+            workload_path = os.path.join(kvstore_path, workload)
+            if not os.path.isdir(workload_path):
+                continue
+                
+            mean_val, std_val, conf_int = process_workload_directory(workload_path)
+            results[kvstore][workload] = (mean_val, std_val, conf_int)
     
     if not results:
-        print(f"Error: No valid data found in directory '{base_dir}'")
+        print(f"Error: No valid data found in directory '{result_dir}'")
         sys.exit(1)
         
     return results
@@ -94,9 +107,7 @@ def read_results_from_json(input_file):
         results = json.loads(json_string)
     return results
 
-def plot_results(results, output_file='results.pdf'):
-    """Create a bar plot with error bars from the results."""
-
+def plot_results(results, output_file):
     mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "orange", "mediumpurple", "black"]) 
     
     # Set up the plot
@@ -146,17 +157,65 @@ def plot_results(results, output_file='results.pdf'):
     print(f"Plot saved as '{output_file}'")
     plt.close()
 
+def plot_list_results(results, output_file):
+    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "black"]) 
+
+    # Set up the plot
+    plt.figure(figsize=(4.6, 1.8))
+    x = np.arange(len(list_workloads))
+    width = 0.8 / len(list_kvstores)
+    # plt.set_axisbelow(True)
+    
+    # Plot bars for each KV store
+    for i, kvstore in enumerate(list_kvstores):
+        means = [results[kvstore][w][0] for w in list_workloads]
+        err1 = [results[kvstore][w][2][0] for w in list_workloads]
+        err2 = [results[kvstore][w][2][1] for w in list_workloads]
+        err = [err1, err2]
+
+        if kvstore == kvstores[0]:
+            hatch = "////"
+        else:
+            hatch = ""
+        
+        plt.bar(x + i*width - width*len(list_kvstores)/2 + width/2, 
+                means,
+                width,
+                label=kvstore,
+                yerr=err,
+                hatch=hatch,
+                error_kw=dict(ecolor="red", capsize=1), 
+                zorder=4)
+        
+    plt.grid(True, zorder=3, axis="y")
+    # plt.xlabel('Workload')
+    plt.ylabel('Latency (us)')
+    plt.yscale("log")
+    
+    plt.xticks(x, nice_list_workload_names, fontsize="8")
+    plt.legend(nice_list_kvstore_names, loc="upper center", fontsize="8", 
+        ncol=4, bbox_to_anchor=(0.5, 1.25))
+    plt.tight_layout(pad=0)
+    
+    # Save the plot
+    plt.savefig(output_file, bbox_inches="tight")
+    print(f"Plot saved as '{output_file}'")
+    plt.close()
+
+
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Process and visualize key-value store workload data',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument('base_dir', 
-                       help='Base directory containing KV store data')
-    parser.add_argument('-o', '--output',
-                       default='results.pdf',
-                       help='Output PDF file name')
+    parser.add_argument('result_dir', 
+                       help='Directory containing microbenchmark output data')
+    parser.add_argument('-i', '--item_output',
+                       default='item_results.pdf',
+                       help='Output file for plot of item operation results')
+    parser.add_argument('-l', '--list_output',
+                       default='list_results.pdf',
+                       help='Output file for plot of list operation results')
     parser.add_argument('-j', '--json',
                        default='results.json',
                        help='JSON file name')
@@ -174,14 +233,15 @@ def main():
     
     if not args.read:
         # Process the data
-        results = analyze_kvstore_data(args.base_dir)
+        results = parse_files(args.result_dir)
         # Store the data
         save_results_to_json(results, args.json)
     else: 
         results = read_results_from_json(args.json)
     
     # Create the visualization
-    plot_results(results, args.output)
+    plot_results(results, args.item_output)
+    plot_list_results(results, args.list_output)
 
 if __name__ == "__main__":
     main()

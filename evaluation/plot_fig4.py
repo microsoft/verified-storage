@@ -85,7 +85,7 @@ def plot_data_single_fig(fs, avg_results, output_file):
 
 def main():
     if len(sys.argv) < 4:
-        print("Usage: python3 parse_and_plot_ycsb2.py <num_runs> <start_run_id> <result_dir> <output_file>")
+        print("Usage: python3 plot_fig4.py <num_runs> <start_run_id> <result_dir> <output_file>")
         return
 
     args = sys.argv[1:]
