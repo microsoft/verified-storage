@@ -137,11 +137,11 @@ public class CapybaraKVClient extends DB {
       if (counter.get() == 1) {
         // If all threads but one have called cleanup, we can clean up 
         // the actual KV store
-        kv.cleanup();
-        kv = null;
         postAvailableMem = getAvailableMem();
         System.out.println("Post-experiment available mem: " + postAvailableMem);
         System.out.println("Mem usage: " + (preAvailableMem - postAvailableMem));
+        kv.cleanup();
+        kv = null;
       }
       counter.decrementAndGet();
     }
