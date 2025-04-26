@@ -132,11 +132,11 @@ impl<PMRegion> PMRegionProph<PMRegion>
             p.resolve(&predictions_vec[i]);
         }
 
-        assert forall |i| 0 <= i < dlen implies #[trigger] mself.durability.deep_view()[i] == predictions_vec.deep_view()[i] by {
-            assert(mself.durability.deep_view()[i] == mself.durability@[i]@);
+        assert forall |i| 0 <= i < dlen implies #[trigger] deep_view(mself.durability)[i] == predictions_vec.deep_view()[i] by {
+            assert(deep_view(mself.durability)[i] == mself.durability@[i]@);
             assert(predictions_vec.deep_view()[i] == predictions_vec@[i]@);
         }
-        assert(mself.durability.deep_view() =~= predictions_vec.deep_view());
+        assert(deep_view(mself.durability) =~= predictions_vec.deep_view());
 
         // With the propecies resolved, prove that our prophecy-based
         // durable_state is the same as the arbitrary crash state that
@@ -152,6 +152,13 @@ exec fn seq_to_vec(Ghost(s): Ghost<Seq<Seq<bool>>>) -> (result: Vec<Vec<bool>>)
         result.deep_view() == s
 {
     arbitrary()
+}
+
+// This could be removed and replaced by VecDeque::<T>::deep_view()
+// after https://github.com/verus-lang/verus/pull/1609 is merged.
+pub open spec fn deep_view<T: DeepView>(vd: VecDeque<T>) -> Seq<T::V> {
+    let v = vd.view();
+    Seq::new(v.len(), |i: int| v[i].deep_view())
 }
 
 }

@@ -29,6 +29,8 @@ impl<T: Structural> ProphecyVec<T> {
     {
         let mut vec: Vec<Prophecy<T>> = Vec::with_capacity(len);
         while vec.len() != len
+            invariant
+                vec.len() <= len,
             decreases
                 len - vec.len(),
         {
@@ -255,7 +257,7 @@ impl<PMRegion> PersistentMemoryRegion for PMRegionProph<PMRegion>
             durable_state: if self.flush@ {
                 self.pm@.flush().committed()
             } else {
-                self.pm@.flush_selective(self.durability.deep_view())
+                self.pm@.flush_selective(deep_view(self.durability))
             },
         }
     }
@@ -275,7 +277,7 @@ impl<PMRegion> PersistentMemoryRegion for PMRegionProph<PMRegion>
     proof fn lemma_inv_implies_view_valid(&self) {
         self.pm.lemma_inv_implies_view_valid();
         flush_preserves_len(self.pm@);
-        flush_selective_preserves_len(self.pm@, self.durability.deep_view());
+        flush_selective_preserves_len(self.pm@, deep_view(self.durability));
     }
 
     fn get_region_size(&self) -> u64 {
@@ -313,16 +315,16 @@ impl<PMRegion> PersistentMemoryRegion for PMRegionProph<PMRegion>
             let ghost w = Write{ addr: addr as int, data: bytes@ };
             self.pm.lemma_inv_implies_view_valid();
             flush_preserves_len(self.pm@);
-            flush_selective_preserves_len(self.pm@, self.durability.deep_view());
+            flush_selective_preserves_len(self.pm@, deep_view(self.durability));
             flush_push(self.pm@, w);
-            flush_selective_can_result_from_partial_write(self.pm@, self.durability.deep_view(), w, write_durable_chunks@);
+            flush_selective_can_result_from_partial_write(self.pm@, deep_view(self.durability), w, write_durable_chunks@);
         }
 
         self.pm.write(addr, bytes);
         self.durability.push_back(write_durable_chunks);
 
         proof {
-            assert(self.durability.deep_view() == old(self).durability.deep_view().push(write_durable_chunks@));
+            assert(deep_view(self.durability) == deep_view(old(self).durability).push(write_durable_chunks@));
         }
     }
 
@@ -335,16 +337,16 @@ impl<PMRegion> PersistentMemoryRegion for PMRegionProph<PMRegion>
             let ghost w = Write{ addr: addr as int, data: to_write.spec_to_bytes() };
             self.pm.lemma_inv_implies_view_valid();
             flush_preserves_len(self.pm@);
-            flush_selective_preserves_len(self.pm@, self.durability.deep_view());
+            flush_selective_preserves_len(self.pm@, deep_view(self.durability));
             flush_push(self.pm@, w);
-            flush_selective_can_result_from_partial_write(self.pm@, self.durability.deep_view(), w, write_durable_chunks@);
+            flush_selective_can_result_from_partial_write(self.pm@, deep_view(self.durability), w, write_durable_chunks@);
         }
 
         self.pm.serialize_and_write(addr, to_write);
         self.durability.push_back(write_durable_chunks);
 
         proof {
-            assert(self.durability.deep_view() == old(self).durability.deep_view().push(write_durable_chunks@));
+            assert(deep_view(self.durability) == deep_view(old(self).durability).push(write_durable_chunks@));
         }
     }
 
