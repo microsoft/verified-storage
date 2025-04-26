@@ -107,11 +107,11 @@ def read_results_from_json(input_file):
         results = json.loads(json_string)
     return results
 
-def plot_results(results, output_file):
-    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "orange", "mediumpurple", "black"]) 
+def plot_results(ax, results):
+    # mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "orange", "mediumpurple", "black"]) 
     
     # Set up the plot
-    plt.figure(figsize=(4.6, 1.8))
+    # ax.figure(figsize=(4.6, 1.8))
     x = np.arange(len(workloads))
     width = 0.8 / len(kvstores)
     # plt.set_axisbelow(True)
@@ -125,43 +125,48 @@ def plot_results(results, output_file):
 
         if kvstore == kvstores[0]:
             hatch = "////"
+            color = "cornflowerblue"
         elif kvstore == kvstores[1]:
             hatch= ".."
+            color = "orange"
         elif kvstore == kvstores[2]:
             hatch = "xx"
+            color = "mediumpurple"
         else:
             hatch = ""
+            color = "black"
         
-        plt.bar(x + i*width - width*len(kvstores)/2 + width/2, 
+        ax.bar(x + i*width - width*len(kvstores)/2 + width/2, 
                 means,
                 width,
                 label=kvstore,
                 yerr=err,
                 hatch=hatch,
                 error_kw=dict(ecolor="red", capsize=1), 
-                zorder=4)
+                zorder=4,
+                color=color)
         
-    plt.grid(True, zorder=3, axis="y")
-    # plt.xlabel('Workload')
-    plt.ylabel('Latency (us)')
-    plt.yscale("log")
+    ax.grid(True, zorder=3, axis="y")
+    ax.set_xlabel("(a) Item operations")
+    ax.set_ylabel('Latency (us)')
+    ax.set_yscale("log")
     
-    plt.xticks(x, nice_workload_names, fontsize="8")
-    plt.legend(nice_kvstore_names, loc="upper center", fontsize="8", 
-        ncol=4, bbox_to_anchor=(0.5, 1.25))
-    plt.tight_layout(pad=0)
+    ax.set_xticks(x, nice_workload_names, fontsize="8")
+    # ax.legend(nice_kvstore_names, loc="upper center", fontsize="8", 
+    #     ncol=4, bbox_to_anchor=(0.5, 1.25))
+    # ax.tight_layout(pad=0)
     
     
-    # Save the plot
-    plt.savefig(output_file, bbox_inches="tight")
-    print(f"Plot saved as '{output_file}'")
-    plt.close()
+    # # Save the plot
+    # plt.savefig(output_file, bbox_inches="tight")
+    # print(f"Plot saved as '{output_file}'")
+    # plt.close()
 
-def plot_list_results(results, output_file):
-    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "black"]) 
+def plot_list_results(ax, results):
+    # mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=["cornflowerblue", "black"]) 
 
     # Set up the plot
-    plt.figure(figsize=(4.6, 1.8))
+    # plt.figure(figsize=(4.6, 1.8))
     x = np.arange(len(list_workloads))
     width = 0.8 / len(list_kvstores)
     # plt.set_axisbelow(True)
@@ -175,32 +180,35 @@ def plot_list_results(results, output_file):
 
         if kvstore == kvstores[0]:
             hatch = "////"
+            color = "cornflowerblue"
         else:
             hatch = ""
+            color = "black"
         
-        plt.bar(x + i*width - width*len(list_kvstores)/2 + width/2, 
+        ax.bar(x + i*width - width*len(list_kvstores)/2 + width/2, 
                 means,
                 width,
                 label=kvstore,
                 yerr=err,
                 hatch=hatch,
                 error_kw=dict(ecolor="red", capsize=1), 
-                zorder=4)
+                zorder=4,
+                color=color)
         
-    plt.grid(True, zorder=3, axis="y")
-    # plt.xlabel('Workload')
-    plt.ylabel('Latency (us)')
-    plt.yscale("log")
+    ax.grid(True, zorder=3, axis="y")
+    ax.set_xlabel('(b) List operations')
+    # ax.set_ylabel('Latency (us)')
+    ax.set_yscale("log")
     
-    plt.xticks(x, nice_list_workload_names, fontsize="8")
-    plt.legend(nice_list_kvstore_names, loc="upper center", fontsize="8", 
-        ncol=4, bbox_to_anchor=(0.5, 1.25))
-    plt.tight_layout(pad=0)
+    ax.set_xticks(x, nice_list_workload_names, fontsize="8")
+    # plt.legend(nice_list_kvstore_names, loc="upper center", fontsize="8", 
+    #     ncol=4, bbox_to_anchor=(0.5, 1.25))
+    # plt.tight_layout(pad=0)
     
-    # Save the plot
-    plt.savefig(output_file, bbox_inches="tight")
-    print(f"Plot saved as '{output_file}'")
-    plt.close()
+    # # Save the plot
+    # plt.savefig(output_file, bbox_inches="tight")
+    # print(f"Plot saved as '{output_file}'")
+    # plt.close()
 
 
 def parse_arguments():
@@ -210,12 +218,9 @@ def parse_arguments():
     )
     parser.add_argument('result_dir', 
                        help='Directory containing microbenchmark output data')
-    parser.add_argument('-i', '--item_output',
-                       default='item_results.pdf',
-                       help='Output file for plot of item operation results')
-    parser.add_argument('-l', '--list_output',
-                       default='list_results.pdf',
-                       help='Output file for plot of list operation results')
+    parser.add_argument('-o', '--output',
+                       default='figure2.pdf',
+                       help='Output file for plot')
     parser.add_argument('-j', '--json',
                        default='results.json',
                        help='JSON file name')
@@ -226,6 +231,27 @@ def parse_arguments():
                             results from a JSON file or compute and store them \
                             in the file. Default false (compute and store).')
     return parser.parse_args()
+
+def plot(results, output_file):
+    fig, axs = plt.subplots(1, 2, width_ratios=[2,1])
+    # ax.figure(figsize=(4.6, 1.8))
+    fig.set_figwidth(10)
+    fig.set_figheight(1.8)
+
+    plot_results(axs[0], results)
+    plot_list_results(axs[1], results)
+    plt.tight_layout(pad=1)
+
+    fig.legend(nice_kvstore_names, loc="upper center", fontsize="9", 
+        ncol=4, bbox_to_anchor=(0.5, 1.07))
+    # fig.supxlabel("Workload")
+    
+
+    # Save the plot
+    plt.savefig(output_file, bbox_inches="tight")
+    print(f"Plot saved as '{output_file}'")
+    plt.close()
+    
 
 def main():
     # Parse command line arguments
@@ -239,9 +265,9 @@ def main():
     else: 
         results = read_results_from_json(args.json)
     
-    # Create the visualization
-    plot_results(results, args.item_output)
-    plot_list_results(results, args.list_output)
+    plot(results, args.output)
+    # plot_results(results, args.item_output)
+    # plot_list_results(results, args.list_output)
 
 if __name__ == "__main__":
     main()
