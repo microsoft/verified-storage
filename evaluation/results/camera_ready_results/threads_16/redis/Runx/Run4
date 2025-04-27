@@ -1,90 +1,94 @@
-Pre-experiment available mem: 127513690112
-Pre-experiment available mem: 127524687872
-Pre-experiment available mem: 127513690112
-Pre-experiment available mem: 127520493568
-Pre-experiment available mem: 127511592960
-Pre-experiment available mem: 127513690112
+Pre-experiment available mem: 127028224000
+Pre-experiment available mem: 127024029696
+127.0.0.1
+Pre-experiment available mem: 127024029696
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127032418304
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127028224000
+127.0.0.1
+Pre-experiment available mem: 127032418304
+127.0.0.1
+Pre-experiment available mem: 127028224000
+Pre-experiment available mem: 127032418304
+127.0.0.1
+127.0.0.1
+Pre-experiment available mem: 127024029696
 127.0.0.1
 127.0.0.1
 127.0.0.1
-127.0.0.1
-Pre-experiment available mem: 127512104960
-127.0.0.1
-Pre-experiment available mem: 127528882176
-127.0.0.1
-Pre-experiment available mem: 127512104960
-127.0.0.1
-Pre-experiment available mem: 127511592960
-127.0.0.1
-Pre-experiment available mem: 127511592960
-127.0.0.1
-Pre-experiment available mem: 127512104960
-Pre-experiment available mem: 127512104960
-127.0.0.1
-Pre-experiment available mem: 127524687872
-127.0.0.1
-127.0.0.1
-Pre-experiment available mem: 127513690112
-127.0.0.1
-127.0.0.1
-Pre-experiment available mem: 127513690112
-127.0.0.1
-127.0.0.1
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-Post-experiment available mem: 126306234368
-Mem usage: 1207455744
-[OVERALL], RunTime(ms), 157667
-[OVERALL], Throughput(ops/sec), 95137.21958304528
-[TOTAL_GCS_G1_Young_Generation], Count, 75
-[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 114
-[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.07230428688311441
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+Post-experiment available mem: 126085488640
+Mem usage: 938541056
+[OVERALL], RunTime(ms), 192562
+[OVERALL], Throughput(ops/sec), 77896.98902171769
+[TOTAL_GCS_G1_Young_Generation], Count, 76
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 119
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.061798277957229364
 [TOTAL_GCS_G1_Concurrent_GC], Count, 0
 [TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
 [TOTAL_GCS_G1_Old_Generation], Count, 0
 [TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
-[TOTAL_GCs], Count, 75
-[TOTAL_GC_TIME], Time(ms), 114
-[TOTAL_GC_TIME_%], Time(%), 0.07230428688311441
-[READ], Operations, 3750645
-[READ], AverageLatency(us), 148.61395173363516
-[READ], LatencyVariance(us), 1617.7622251995745
-[READ], MinLatency(us), 26
-[READ], MaxLatency(us), 26625
+[TOTAL_GCs], Count, 76
+[TOTAL_GC_TIME], Time(ms), 119
+[TOTAL_GC_TIME_%], Time(%), 0.061798277957229364
+[READ], Operations, 3749796
+[READ], AverageLatency(us), 180.1888014708
+[READ], LatencyVariance(us), 140445.13444779106
+[READ], MinLatency(us), 27
+[READ], MaxLatency(us), 12676
 [READ], 95thPercentileLatency(us), 0
 [READ], 99thPercentileLatency(us), 0
-[READ], Return=OK, 3750645
-[READ-MODIFY-WRITE], Operations, 750561
-[READ-MODIFY-WRITE], AverageLatency(us), 311.7825866252044
-[READ-MODIFY-WRITE], LatencyVariance(us), 4426.439402061485
-[READ-MODIFY-WRITE], MinLatency(us), 63
-[READ-MODIFY-WRITE], MaxLatency(us), 28234
+[READ], Return=OK, 3749796
+[READ-MODIFY-WRITE], Operations, 749718
+[READ-MODIFY-WRITE], AverageLatency(us), 382.06432285205904
+[READ-MODIFY-WRITE], LatencyVariance(us), 313374.5449063445
+[READ-MODIFY-WRITE], MinLatency(us), 69
+[READ-MODIFY-WRITE], MaxLatency(us), 13386
 [READ-MODIFY-WRITE], 95thPercentileLatency(us), 0
 [READ-MODIFY-WRITE], 99thPercentileLatency(us), 0
 [CLEANUP], Operations, 16
-[CLEANUP], AverageLatency(us), 1601.0
-[CLEANUP], LatencyVariance(us), 297517.25
-[CLEANUP], MinLatency(us), 670
-[CLEANUP], MaxLatency(us), 2532
-[CLEANUP], 95thPercentileLatency(us), 2000
-[CLEANUP], 99thPercentileLatency(us), 2000
-[UPDATE], Operations, 11999916
-[UPDATE], AverageLatency(us), 161.05481905040003
-[UPDATE], LatencyVariance(us), 1870.4791309133325
-[UPDATE], MinLatency(us), 25
-[UPDATE], MaxLatency(us), 26830
+[CLEANUP], AverageLatency(us), 2052.875
+[CLEANUP], LatencyVariance(us), 306135.859375
+[CLEANUP], MinLatency(us), 1053
+[CLEANUP], MaxLatency(us), 3117
+[CLEANUP], 95thPercentileLatency(us), 3000
+[CLEANUP], 99thPercentileLatency(us), 3000
+[UPDATE], Operations, 11999922
+[UPDATE], AverageLatency(us), 197.50986931415054
+[UPDATE], LatencyVariance(us), 158481.20057660935
+[UPDATE], MinLatency(us), 24
+[UPDATE], MaxLatency(us), 12533
 [UPDATE], 95thPercentileLatency(us), 0
 [UPDATE], 99thPercentileLatency(us), 0
-[UPDATE], Return=OK, 11999916
+[UPDATE], Return=OK, 11999922
