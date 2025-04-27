@@ -19,10 +19,14 @@ def parse_files(result_dir, iterations):
                 # each file only has one data point
                 val = int(f.readlines()[0])
                 results[kv]["empty"].append(val)
-            with open(full_file, "r") as f:
-                # each file only has one data point
-                val = int(f.readlines()[0])
-                results[kv]["full"].append(val)
+            if kv == "redis":
+                # placeholder 
+                results[kv]["full"].append(0)
+            else: 
+                with open(full_file, "r") as f:
+                    # each file only has one data point
+                    val = int(f.readlines()[0])
+                    results[kv]["full"].append(val)
 
     avg_results = {kv: {"full": sum(results[kv]["full"])/iterations, "empty": sum(results[kv]["empty"])/iterations} for kv in kvstores}
 
@@ -48,7 +52,10 @@ def main():
     table = PrettyTable()
     table.field_names = ["", "Empty setup (ms)", "Full setup (ms)"]
     for kv in kvstores:
-        table.add_row([kv, results[kv]["empty"]/1000, results[kv]["full"]/1000])
+        if kv == "redis":
+            table.add_row([kv, round(results[kv]["empty"]/1000), "--"])
+        else:
+            table.add_row([kv, round(results[kv]["empty"]/1000), round(results[kv]["full"]/1000)])
     print(table)
 
 main()

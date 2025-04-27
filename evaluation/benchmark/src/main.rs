@@ -395,8 +395,11 @@ fn main() {
 
     if config.run_full_setup {
         // full setup works differently so that we don't have to rebuild the full KV every iteration
-        run_full_setup::<RedisClient<TestKey, TestValue, TestListElem>>(&config, &redis_output_dir)
-            .unwrap();
+        
+        // full setup doesn't work for redis
+        // run_full_setup::<RedisClient<TestKey, TestValue, TestListElem>>(&config, &redis_output_dir)
+        //     .unwrap();
+        
         run_full_setup::<RocksDbClient<TestKey, TestValue>>(&config, &rocksdb_output_dir).unwrap();
         run_full_setup::<ShardedCapybaraKvClient<TestKey, TestValue, TestListElem>>(
             &config,
