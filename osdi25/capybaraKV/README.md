@@ -204,12 +204,11 @@ Note that the experiments did not run long enough to obtain accurate performance
 
 If you're able to run the kick-the-tires tests successfully, you should now be able run the full experiments described here.
 
-The full experiments we ran for the paper, particularly the macrobenchmarks, take a long time to run because we ran each experiment five times and averaged the results.
-Running more iterations reduces noise/variation but does not impact the actual performance of the systems, so we suggest that artifact evaluators run one iteration of the YCSB macrobenchmark to save time.
+The full experiments we ran for the paper take a long time to run because we ran the microbenchmarks on a large number of keys and the macrobenchmarks multiple times to reduce noise.
+Using fewer keys in the microbenchmarks and fewer iterations in the macrobenchmarks may result in more noise but takes much less time, so we suggest that artifact evaluators use 5M keys in the microbenchmarks and 1 iteration of each macrobenchmark.
 
-The default configuration files run one iteration of the macrobenchmark; if you would like to do multiple iterations, see [Changing configurations](#changing-configurations) for instructions on updating these files.
-The microbenchmark configuration file for 128GiB is the same one we used for the paper; the 64GiB version uses fewer keys, which may result in more noise/variation but should not change the results.
-The timing estimates we provide here are based on the default configurations.
+The default configuration files use these settings; if you would like to do multiple iterations, see [Changing configurations](#changing-configurations) for instructions on updating these files.
+The timing estimates we provide here are based on these default configurations.
 
 ##### Microbenchmarks (timing TODO)
 
@@ -356,11 +355,13 @@ If you'd like to use non-default settings, please use the provided `update_confi
 cd evaluation
 ./update_configs.sh <results dir relative to current location> <pm device>
 ```
-You may optionally specify a new number of iterations as a third command line argument.
+You may optionally specify a new number of iterations for the macrobenchmarks as a third command line argument.
 To reset to the defaults, run:
 ```bash
 ./update_configs results/artifact-evaluation /dev/pmem0 1
 ```
+
+To update the number of keys used in the microbenchmarks, please modify the `experiment_keys` value directly in `microbenchmark_config_{64,128}GB.toml`. 
 
 #### Emulated PM
 
