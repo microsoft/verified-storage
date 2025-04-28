@@ -83,6 +83,7 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         }
     }
 
+    #[verifier::exec_allows_no_decreases_clause]
     exec fn setup(&self, pm: &mut PM) {
         let len = pm.get_region_size();
         if self.addr >= len {
@@ -93,6 +94,7 @@ impl<PM> PoWERApplication<PM> for ExampleApp
         pm.flush();
     }
 
+    #[verifier::exec_allows_no_decreases_clause]
     exec fn run<PermFactory>(&self, pm: PersistentMemoryRegionAtomic<PM>, Tracked(perm_factory): Tracked<PermFactory>)
         where
             PermFactory: PermissionFactory<Seq<u8>>,

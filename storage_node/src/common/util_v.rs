@@ -159,6 +159,8 @@ pub exec fn clone_pmcopy_vec<T: PmCopy>(v: &Vec<T>) -> (result: Vec<T>)
     for pos in 0..v.len()
         invariant
             result@ == v@.take(pos as int),
+        decreases
+            v.len() - pos
     {
         assert(v@.take(pos as int).push(v@[pos as int]) =~= v@.take(pos + 1));
         result.push(v[pos].clone_provable());

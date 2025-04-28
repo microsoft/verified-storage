@@ -60,6 +60,8 @@ impl<T: Structural> ProphecyVec<T> {
                 self.v@.len() == len,
                 v@.len() == len,
                 forall |j| 0 <= j < i ==> self.v@[j]@ == #[trigger] v@[j],
+            decreases
+                len-i
         {
             let iproph = pv.remove(0);
             iproph.resolve(&v[i]);
