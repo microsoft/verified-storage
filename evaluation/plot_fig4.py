@@ -7,8 +7,8 @@ import numpy as np
 import pprint
 
 thread_counts = [1, 2, 4, 8, 16]
-workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Loade', 'Runf', 'Loadx', 'Runx', "Runy", "Runz"]
-workload_titles = ['LoadA', 'RunA', 'RunB', 'RunC', 'RunD', 'LoadE', 'RunF', 'LoadX', 'RunX', 'RunY', 'RunZ']
+workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Runf', 'Loadx', 'Runx', "Runy", "Runz"]
+workload_titles = ['LoadA', 'RunA', 'RunB', 'RunC', 'RunD', 'RunF', 'LoadX', 'RunX', 'RunY', 'RunZ']
 nice_names = {"redis": "pmem-Redis", "pmemrocksdb": "pmem-RocksDB", "viper": "Viper", "capybarakv": "CapybaraKV"}
 
 def parse_data(fs, runs, result_dir):
@@ -63,13 +63,13 @@ def plot_data_single_fig(fs, avg_results, output_file):
     )
     ax.plot(thread_counts, values)
     ax.set_xticks(thread_counts)
-    ax.legend(workload_titles, loc="center right", bbox_to_anchor=(1.35, 0.5))
+    ax.legend(workload_titles, loc="upper center", ncol=5, bbox_to_anchor=(0.46, 1.6), fontsize="8") #bbox_to_anchor=(1.75, 0.5), ncol=2)
     ax.set_xlabel("Thread count")
     ax.set_ylabel("Througput (Mops/s)")
     
 
-    fig.set_figwidth(5)
-    fig.set_figheight(2)
+    fig.set_figwidth(4.5)
+    fig.set_figheight(2.6)
     fig.tight_layout(pad=0)
     ax.grid(True, zorder=0, axis="y")
     # plt.gca().yscale("log")
