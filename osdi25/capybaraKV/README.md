@@ -49,11 +49,14 @@ For artifact evaluators, we recommend running steps 1-3 during the kick-the-tire
 4. Run the full performance experiments and generate plots/tables corresponding to those in the paper. We provide scripts and and configuration files for these experiments. **TODO timing**
 5. Optionally, manually auditing CapybaraKV's specification. We provide a guide for auditing in [Manual auditing](#manual-auditing). This step does not require running any code and can be done concurrently with step 4. 
 
+**All instructions in this document assume you are starting from `verified-storage/osdi25/capybaraKV`.**
+Note that the `setup.sh` script downloads/clones some dependencies as siblings of `verified-storage/`. 
+
 ### Setup instructions (~30 minutes)
 
 1. Install `git`: `sudo apt install git`
 2. Clone this repository: `git clone -b kv2 --single-branch https://github.com/microsoft/verified-storage.git`.
-3. `cd verified-storage/osdi25/capybaraKV/evaluation` and run `./setup.sh`. You may be prompted to enter a password for `sudo` partway through the script. This script will: 
+3. `cd evaluation` and run `./setup.sh`. You may be prompted to enter a password for `sudo` partway through the script. This script will: 
    1. Install `apt` dependencies for other key-value stores
    2. Install Rust
       1. **Note**: If you're using the provided PM machine, you may see errors about `$HOME` being different from the euid-obtained home directory. These errors don't impact installation and can safely be ignored.
@@ -77,14 +80,14 @@ The rest of these instructions assume that this script is used to prepare the sy
 #### Verifying CapybaraKV
 
 To verify CapybaraKV and collect verification time metrics:
-1. `cd` to `verified-storage/storage_node/src` 
+1. `cd` to `storage_node/src` 
 2. Run the following commands:
 ```bash
 ./verify-ae.sh --time --num-threads 1 # runs verification with one thread
 ./verify-ae.sh --time --num-threads 8 # runs verification with eight thread
 ```
 
-The script will store output from verification in `verified-storage/storage_node/src/verif_output_{timestamp}.txt` and print the main metrics (verification results and time) to the terminal.
+The script will store output from verification in `storage_node/src/verif_output_{timestamp}.txt` and print the main metrics (verification results and time) to the terminal.
 If everything worked as expected, the line starting with `verification results` will say `0 errors`.
 
 **Note**: In the `verif_output.txt` file, you may see messages like "function body check finished in 2 seconds" or "Some checks are taking longer than 2s", particularly in the 1 thread case. These are unrelated to the verification results and can be ignored.
@@ -110,13 +113,14 @@ We use Verus' built-in line-counting tool to count lines of code and categorize 
 We provide a python script, `count_capybarakv_lines.py`, that uses this tool to generate a table of line counts and a proof-to-code ratio for CapybaraKV.
 The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed by `setup.sh`) to count the lines of code in the `pmcopy` crate, which is implemented in regular Rust.
 
-1. From `verified-storage/storage_node/src`, run `./verify-ae.sh --emit=dep-info`. This will generate a `lib.d` file in that directory.
+1. From `storage_node/src`, run `./verify-ae.sh --emit=dep-info`. This will generate a `lib.d` file in that directory.
 2. In the same directory, run `python3 count_capybarakv_lines.py lib.d ../../pmcopy ../../../verus`. This will generate a table matching the CapybaraKV portion of Table 3 as well as the proof-to-code ratio based on line counts in the table.
 3. This script will output a table that looks similar to Table 3 in the paper. The values in the table and the proof-to-code ratio reported under the outputted table should match those in the paper.
 
 ### Manual auditing
 
 To gain confidence that what is being verified is indeed a reasonable specification of correctness for a key/value store, you may decide to audit the unverified parts of the code.
+All of the files referred to in this section are in `storage_node/src` except for the `pmcopy` crate, which has its source code in `pmcopy/src`.
 
 The untrusted code, which is verified by Verus, consists of various files ending in `_v.rs`, where the `v` stands for "verified". You don't have to read these files to have confidence in the correctness of the system; you just need to have Verus verify them, as described above. The other code files, i.e., the files ending in `_t.rs`, need to be read and understood to audit the system properly.
 
@@ -141,7 +145,7 @@ The full experiments take a long time to run, so each experiment has a mini kick
 
 All experiments require a mount point and a PM device to use. 
 These instructions (and the default configurations) use `/mnt/pmem` and `/dev/pmem0`, respectively.
-These instructions (and default configs) place all results in `verified-storage/evaluation/results/artifact-evaluation`.
+These instructions (and default configs) place all results in `evaluation/results/artifact-evaluation`.
 
 #### Suggested kick-the-tires tests 
 
@@ -151,11 +155,11 @@ These instructions explain how to run the mini version of experiments and check 
 The kick-the-tires version of this experiment runs our latency experiments on each KV store with a small number (25000) of records.
 To run this version, run the following commands:
 ```bash
-cd verified-storage/evaluation/benchmark
+cd evaluation/benchmark
 cargo run --release -- ../configs/mini_microbenchmark_config.toml
 ```
 
-The results from each system will be organized by system and operation under `verified-storage/evaluation/results/artifact-evaluation/microbenchmark`. 
+The results from each system will be organized by system and operation under `evaluation/results/artifact-evaluation/microbenchmark`. 
 There should be one file named `Run1` in each directory. 
 Each line of each of these files should contain one latency measurement.
 
@@ -168,7 +172,7 @@ The kick-the-tires version of this experiment runs several small YCSB experiment
 It runs workloads {Load,Run}A and {Load,Run}X on each evaluated system with 10000 records with 1 and 16 threads
 To run this version, run the following commands:
 ```bash
-cd verified-storage/evaluation
+cd evaluation
 ./run_ycsb_mini.sh
 ```
 This script uses configuration files in `configs/` to set up experiments. 
@@ -209,11 +213,11 @@ The timing estimates we provide here are based on the default configurations.
 
 ##### Microbenchmarks (timing TODO)
 
-The Rust crate at `verified-storage/evaluation/benchmark` runs our microbenchmarks (Figure 2) and collects startup times ("Mount time" columns in Table 4).
+The Rust crate at `evaluation/benchmark` runs our microbenchmarks (Figure 2) and collects startup times ("Mount time" columns in Table 4).
 
 To run these experiments on a device 128GiB or larger, run:
 ```bash
-cd verified-storage/evaluation/benchmark
+cd evaluation/benchmark
 cargo run --release -- ../configs/microbenchmark_config_128GB.toml
 ```
 We also provide a configuration file for 64GiB of PM; replace `128GB` with `64GB` to use it.
@@ -231,7 +235,7 @@ cd evaluation
 ./run_ycsb.sh
 ```
 This script runs YCSB workloads based on the config files mentioned above in [Performance Experiments](#performance-experiments).
-These experiments will collect throughput data as well as memory and storage utilization on several workloads and place it in the `verified-storage/evaluation/results/artifact-evaluation` directory (or the directory set using `update_configs.sh`).
+These experiments will collect throughput data as well as memory and storage utilization on several workloads and place it in the `evaluation/results/artifact-evaluation` directory (or the directory set using `update_configs.sh`).
 
 ### Processing data
 
@@ -388,8 +392,6 @@ If neither command returns anything, check `/etc/default/grub` and make sure tha
 If you need to make changes, run `sudo update-grub` and reboot again.
 
 You can now use the emulated PM as if it were Optane; the only difference will be in performance results.
-
-##### Performance differences from Optane PM
 
 #### Optane PM
 

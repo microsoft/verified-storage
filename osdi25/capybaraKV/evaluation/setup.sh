@@ -4,8 +4,8 @@
 set -e
 set -o pipefail
 
-PROJECT_DIR=`realpath $(pwd)/../..`
-VERIF_STORAGE_DIR=$PROJECT_DIR/capybaraKV
+PROJECT_DIR=`realpath $(pwd)/../../../..`
+VERIF_STORAGE_DIR=$PROJECT_DIR/verified-storage/osdi25/capybaraKV
 VERUS_DIR=$PROJECT_DIR/verus
 
 RED="\e[31m"
