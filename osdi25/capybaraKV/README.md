@@ -88,7 +88,7 @@ To verify CapybaraKV and collect verification time metrics:
 ```
 
 The script will store output from verification in `storage_node/src/verif_output_{timestamp}.txt` and print the main metrics (verification results and time) to the terminal.
-If everything worked as expected, the line starting with `verification results` will say `0 errors`.
+If everything worked as expected, the output will include a line like `verification results:: 707 verified, 0 errors`.
 
 **Note**: In the `verif_output.txt` file, you may see messages like "function body check finished in 2 seconds" or "Some checks are taking longer than 2s", particularly in the 1 thread case. These are unrelated to the verification results and can be ignored.
 
@@ -114,7 +114,7 @@ We provide a python script, `count_capybarakv_lines.py`, that uses this tool to 
 The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed by `setup.sh`) to count the lines of code in the `pmcopy` crate, which is implemented in regular Rust.
 
 1. From `storage_node/src`, run `./verify-ae.sh --emit=dep-info`. This will generate a `lib.d` file in that directory.
-2. In the same directory, run `python3 count_capybarakv_lines.py lib.d ../../pmcopy ../../../verus`. This will generate a table matching the CapybaraKV portion of Table 3 as well as the proof-to-code ratio based on line counts in the table.
+2. In the same directory, run `python3 count_capybarakv_lines.py lib.d ../../pmcopy ../../../../../verus`. This will generate a table matching the CapybaraKV portion of Table 3 as well as the proof-to-code ratio based on line counts in the table.
 3. This script will output a table that looks similar to Table 3 in the paper. The values in the table and the proof-to-code ratio reported under the outputted table should match those in the paper.
 
 ### Manual auditing
@@ -176,7 +176,7 @@ cd evaluation
 ./run_ycsb_mini.sh
 ```
 This script uses configuration files in `configs/` to set up experiments. 
-To change these configurations (e.g., to change results directory or mountpoint/PM device) see the instructions for the `update_configs.sh` script above.
+To change these configurations (e.g., to change results directory or mountpoint/PM device) see the instructions for the `update_configs.sh` script below in [Changing configurations](#changing-configurations).
 
 After running these experiments, `results/` contain two directories, `threads1` and `threads16`. Each of those contains a directory for each evaluated system; the directory for each system should contain directories `Load{a,e,x,y,z}` and `Run{a,b,c,d,f,x,y,z}`. Only `Load{a,x}` and `Run{a,x}` directories will contain anything; each should contain one file that looks something like this:
 ```bash

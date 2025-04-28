@@ -24,7 +24,7 @@ cd ../storage_node/src
 echo "Verifying"
 echo "Arguments: $@" >> $OUTPUT_FILE
 # The --compile flag is necessary to run checks like the compile-time assertions on size and alignment calculations.
-../../../verus/source/target-verus/release/verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib $@ >> $OUTPUT_FILE 2>&1
+../../../../../verus/source/target-verus/release/verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib $@ >> $OUTPUT_FILE 2>&1
 
 printf "\n\n${BOLD}${MAGENTA}Results:${NC}\n"
 grep "verification results:" $OUTPUT_FILE

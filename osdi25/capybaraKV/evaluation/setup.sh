@@ -19,6 +19,8 @@ current_step=0
 
 JAVA_HOME=""
 
+VERUS_HASH=717ad3e
+
 step() {
     printf "${MAGENTA}[${current_step}/${total_steps}]${NC} "
     current_step=$((current_step+1))
@@ -167,11 +169,14 @@ cd $PROJECT_DIR
 if [ -d verus ]; 
 then 
     printf "${MAGENTA}Verus is already present.${NC}\n"
+    cd $VERUS_DIR/source
 else 
     printf "${MAGENTA}Verus is not present, cloning...${NC}\n"
     git clone https://github.com/verus-lang/verus.git;
+    cd $VERUS_DIR/source
+    git checkout $VERUS_HASH
 fi
-cd $VERUS_DIR/source
+
 if [ ! -f z3 ];
 then
     printf "${MAGENTA}Z3 is not present, downloading...${NC}\n"
