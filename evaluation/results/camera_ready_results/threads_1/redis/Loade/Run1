@@ -1,31 +1,31 @@
-Pre-experiment available mem: 131602702336
+Pre-experiment available mem: 131736723456
 127.0.0.1
-Post-experiment available mem: 118221168640
-Mem usage: 13381533696
-[OVERALL], RunTime(ms), 1242369
-[OVERALL], Throughput(ops/sec), 12073.707569973172
-[TOTAL_GCS_G1_Young_Generation], Count, 121
-[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 166
-[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.01336156971077031
+Post-experiment available mem: 118247104512
+Mem usage: 13489618944
+[OVERALL], RunTime(ms), 1273956
+[OVERALL], Throughput(ops/sec), 11774.346994715674
+[TOTAL_GCS_G1_Young_Generation], Count, 120
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 159
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.012480807814398615
 [TOTAL_GCS_G1_Concurrent_GC], Count, 0
 [TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
 [TOTAL_GCS_G1_Old_Generation], Count, 0
 [TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
-[TOTAL_GCs], Count, 121
-[TOTAL_GC_TIME], Time(ms), 166
-[TOTAL_GC_TIME_%], Time(%), 0.01336156971077031
+[TOTAL_GCs], Count, 120
+[TOTAL_GC_TIME], Time(ms), 159
+[TOTAL_GC_TIME_%], Time(%), 0.012480807814398615
 [CLEANUP], Operations, 1
-[CLEANUP], AverageLatency(us), 2475.0
-[CLEANUP], MinLatency(us), 2474
-[CLEANUP], MaxLatency(us), 2475
-[CLEANUP], 95thPercentileLatency(us), 2475
-[CLEANUP], 99thPercentileLatency(us), 2475
+[CLEANUP], AverageLatency(us), 2683.0
+[CLEANUP], MinLatency(us), 2682
+[CLEANUP], MaxLatency(us), 2683
+[CLEANUP], 95thPercentileLatency(us), 2683
+[CLEANUP], 99thPercentileLatency(us), 2683
 [INSERT], Operations, 15000000
-[INSERT], AverageLatency(us), 80.67965633333333
-[INSERT], MinLatency(us), 25
-[INSERT], MaxLatency(us), 46367
-[INSERT], 95thPercentileLatency(us), 90
-[INSERT], 99thPercentileLatency(us), 100
+[INSERT], AverageLatency(us), 82.88094686666666
+[INSERT], MinLatency(us), 33
+[INSERT], MaxLatency(us), 51295
+[INSERT], 95thPercentileLatency(us), 95
+[INSERT], 99thPercentileLatency(us), 101
 [INSERT], Return=OK, 15000000

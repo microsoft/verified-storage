@@ -1,12 +1,12 @@
-Pre-experiment available mem: 119401476096
+Pre-experiment available mem: 119449300992
 127.0.0.1
-Post-experiment available mem: 117911527424
-Mem usage: 1489948672
-[OVERALL], RunTime(ms), 1490106
-[OVERALL], Throughput(ops/sec), 10066.39796095043
+Post-experiment available mem: 117621084160
+Mem usage: 1828216832
+[OVERALL], RunTime(ms), 1540491
+[OVERALL], Throughput(ops/sec), 9737.155231676134
 [TOTAL_GCS_G1_Young_Generation], Count, 121
-[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 173
-[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.011609912314962828
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 171
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.011100356964110793
 [TOTAL_GCS_G1_Concurrent_GC], Count, 0
 [TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
@@ -14,31 +14,31 @@ Mem usage: 1489948672
 [TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
 [TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
 [TOTAL_GCs], Count, 121
-[TOTAL_GC_TIME], Time(ms), 173
-[TOTAL_GC_TIME_%], Time(%), 0.011609912314962828
+[TOTAL_GC_TIME], Time(ms), 171
+[TOTAL_GC_TIME_%], Time(%), 0.011100356964110793
 [READ], Operations, 15000000
-[READ], AverageLatency(us), 53.33612946666667
-[READ], MinLatency(us), 23
-[READ], MaxLatency(us), 11479
-[READ], 95thPercentileLatency(us), 56
-[READ], 99thPercentileLatency(us), 61
+[READ], AverageLatency(us), 53.883146733333334
+[READ], MinLatency(us), 16
+[READ], MaxLatency(us), 11695
+[READ], 95thPercentileLatency(us), 57
+[READ], 99thPercentileLatency(us), 62
 [READ], Return=OK, 15000000
-[READ-MODIFY-WRITE], Operations, 7504397
-[READ-MODIFY-WRITE], AverageLatency(us), 141.10145118921614
-[READ-MODIFY-WRITE], MinLatency(us), 68
+[READ-MODIFY-WRITE], Operations, 7503325
+[READ-MODIFY-WRITE], AverageLatency(us), 147.40425318108973
+[READ-MODIFY-WRITE], MinLatency(us), 46
 [READ-MODIFY-WRITE], MaxLatency(us), 20047
-[READ-MODIFY-WRITE], 95thPercentileLatency(us), 149
-[READ-MODIFY-WRITE], 99thPercentileLatency(us), 160
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 158
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 168
 [CLEANUP], Operations, 1
-[CLEANUP], AverageLatency(us), 2475.0
-[CLEANUP], MinLatency(us), 2474
-[CLEANUP], MaxLatency(us), 2475
-[CLEANUP], 95thPercentileLatency(us), 2475
-[CLEANUP], 99thPercentileLatency(us), 2475
-[UPDATE], Operations, 7504397
-[UPDATE], AverageLatency(us), 86.27989017638592
-[UPDATE], MinLatency(us), 41
-[UPDATE], MaxLatency(us), 5971
-[UPDATE], 95thPercentileLatency(us), 93
-[UPDATE], 99thPercentileLatency(us), 103
-[UPDATE], Return=OK, 7504397
+[CLEANUP], AverageLatency(us), 2479.0
+[CLEANUP], MinLatency(us), 2478
+[CLEANUP], MaxLatency(us), 2479
+[CLEANUP], 95thPercentileLatency(us), 2479
+[CLEANUP], 99thPercentileLatency(us), 2479
+[UPDATE], Operations, 7503325
+[UPDATE], AverageLatency(us), 91.95103050980732
+[UPDATE], MinLatency(us), 28
+[UPDATE], MaxLatency(us), 5719
+[UPDATE], 95thPercentileLatency(us), 103
+[UPDATE], 99thPercentileLatency(us), 110
+[UPDATE], Return=OK, 7503325
