@@ -31,8 +31,8 @@ pub use memmap;
 
 pub use pmcopy::{PmCopy, pmcopy_primitive};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "pmem"))]
 pub mod pmem;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "pmem"))]
 include!("./bindings.rs");
