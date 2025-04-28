@@ -1,0 +1,11 @@
+.sconsign.dblite
+*.vdfy
+*.dtr
+*.tmp
+src/src.sln
+src/NotaryServer/obj
+src/NotaryServer/TrustedNotary_t.cs
+src/.vscode
+bin/
+notary.txt
+notary-line-counts.tex
