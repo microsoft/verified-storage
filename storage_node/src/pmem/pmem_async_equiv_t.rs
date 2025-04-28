@@ -124,8 +124,6 @@ impl<PMRegion> PMRegionProph<PMRegion>
                     ==> #[trigger] mself.durability@[j]@.len() == size_to_chunks(mself.pm@.len() as int),
                 forall |j| 0 <= j < i
                     ==> #[trigger] mself.durability@[j]@ == predictions_vec@[j]@
-            decreases
-                dlen - i
         {
             let p = durability.pop_front().unwrap();
             assert(durability@ == mself.durability@.subrange(i as int + 1, dlen as int));
