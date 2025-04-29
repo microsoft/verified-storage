@@ -19,7 +19,7 @@ current_step=0
 
 JAVA_HOME=""
 
-VERUS_HASH=717ad3e
+VERUS_HASH=a71d271765344ed821f563895c69ff4775718a85
 
 step() {
     printf "${MAGENTA}[${current_step}/${total_steps}]${NC} "
