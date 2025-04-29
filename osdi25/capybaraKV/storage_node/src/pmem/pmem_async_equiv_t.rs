@@ -8,6 +8,7 @@
 // (i.e., a PM region with a prophecy-based specification), implemented
 // by PMRegionProph::new().
 
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
 use super::pmcopy_t::*;
 use super::pmemspec_t::*;
 use super::pmem_async_spec_t::*;
