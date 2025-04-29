@@ -149,7 +149,7 @@ All experiments require a mount point and a PM device to use.
 These instructions (and the default configurations) use `/mnt/pmem` and `/dev/pmem0`, respectively.
 These instructions (and default configs) place all results in `evaluation/results/artifact-evaluation`.
 
-#### Suggested kick-the-tires tests 
+#### Suggested kick-the-tires tests (~15 minutes)
 
 These instructions explain how to run the mini version of experiments and check that their output looks reasonable.
 
@@ -210,9 +210,9 @@ The full experiments we ran for the paper take a long time to run because we ran
 Using fewer keys in the microbenchmarks and fewer iterations in the macrobenchmarks may result in more noise but takes much less time, so we suggest that artifact evaluators use 5M keys in the microbenchmarks and 1 iteration of each macrobenchmark.
 
 The default configuration files use these settings; if you would like to do multiple iterations, see [Changing configurations](#changing-configurations) for instructions on updating these files.
-The timing estimates we provide here are based on these default configurations.
+The timing estimates we provide here are based on these default configurations running on 128GiB Optane PM.
 
-##### Microbenchmarks (timing TODO)
+##### Microbenchmarks (~4 hours)
 
 The Rust crate at `evaluation/benchmark` runs our microbenchmarks (Figure 2) and collects startup times ("Mount time" columns in Table 4).
 
