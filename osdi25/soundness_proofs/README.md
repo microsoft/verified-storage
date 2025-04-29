@@ -11,14 +11,15 @@ occur, where the atomic invariant maintains the same predicate about the durable
 state that is implied by `perm.permits()` in the PoWER specification.
 
 The formalization can be found in
-[../capybaraKV/storage_node/src/pmem/power_sound_t.rs](`storage_node/src/pmem/power_sound_t.rs`).
+[`storage_node/src/pmem/power_sound_t.rs`](../capybaraKV/storage_node/src/pmem/power_sound_t.rs).
 The
 formal argument builds on a model of persistent storage that exposes a ghost
 resource representing the state of the durable storage at any given time, based
 on Perennial's model of reasoning about crash safety; this model is formalized
 in
-[../capybaraKV/storage_node/src/pmem/power_t.rs](`storage_node/src/pmem/power_t.rs`).
-The comments in [../capybaraKV/storage_node/src/pmem/power_sound_t.rs](`power_sound_t.rs`)
+[`storage_node/src/pmem/power_t.rs`](../capybaraKV/storage_node/src/pmem/power_t.rs).
+The comments in
+[`power_sound_t.rs`](../capybaraKV/storage_node/src/pmem/power_sound_t.rs)
 describe the soundness argument in more detail.
 
 The proofs in this formalization are checked as part of building and
@@ -53,9 +54,9 @@ to durable state on crash, at the granularity of each chunk in persistent
 memory.
 
 The explicit model of asynchronous persistent memory can be found in
-[../capybaraKV/storage_node/src/pmem/pmem_async_spec_t.rs](`storage_node/src/pmem/pmem_async_spec_t.rs`),
+[`storage_node/src/pmem/pmem_async_spec_t.rs`](../capybaraKV/storage_node/src/pmem/pmem_async_spec_t.rs),
 and the correspondence to the prophecy model can be found in
-[../capybaraKV/storage_node/src/pmem/pmem_async_equiv_t.rs](`storage_node/src/pmem/pmem_async_equiv_t.rs`);
+[`storage_node/src/pmem/pmem_async_equiv_t.rs`](../capybaraKV/storage_node/src/pmem/pmem_async_equiv_t.rs);
 the latter file describes the correspondence in more detail.
 
 The proofs in this formalization are checked as part of building and
