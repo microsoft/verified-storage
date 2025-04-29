@@ -2,7 +2,7 @@
 kv_file = "/mnt/pmem/capybarakv" 
 pm_dev = "/dev/pmem0"
 mount_point = "/mnt/pmem"
-results_dir = "../results/camera_ready_results/microbenchmark"
+results_dir = "../results/artifact_evaluation_results/microbenchmark"
 experiment_keys = 25000000
 per_record_list_len = 16
 op_iterations = 1
@@ -11,7 +11,8 @@ start_iterations = 5
 # capybarakv_region_size: 1024^3 * 115. this works well for 128GiB PM device
 capybarakv_region_size = 123480309760 
 
-viper_region_size = 53687091200
+# viper_region_size: 1024^3 * 100. viper needs space for some additional files
+viper_region_size = 107374182400
 
 # each record has:
 # - a 64B key with about 40B metadata (CRCs, record metadata)
