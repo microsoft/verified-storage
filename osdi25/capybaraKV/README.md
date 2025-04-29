@@ -43,7 +43,7 @@ The original experiments were run on the setup described above. We have also tes
 There are five main steps to evaluate the CapybaraKV part of this artifact.
 For artifact evaluators, we recommend running steps 1-3 during the kick-the-tires phase.
 
-1. Set up the chosen evaluation machine. We provide a script to install/build all required dependencies. This takes about 30 minutes.
+1. Set up the chosen evaluation machine. We provide a script to install/build all required dependencies. This takes about 15-30 minutes.
 2. Verify CapybaraKV and check its line counts. We provide scripts to run verification and calculate line counts. This should take 5-10 minutes.
 3. Run the provided ["mini" benchmarks](#suggested-kick-the-tires-tests) to check that everything works as expected. We provide scripts and configuration files for these experiments. It should take less than 30 minutes to run these.
 4. Run the full performance experiments and generate plots/tables corresponding to those in the paper. We provide scripts and and configuration files for these experiments. **TODO timing**
@@ -52,7 +52,9 @@ For artifact evaluators, we recommend running steps 1-3 during the kick-the-tire
 **All instructions in this document assume you are starting from `verified-storage/osdi25/capybaraKV`.**
 Note that the `setup.sh` script downloads/clones some dependencies as siblings of `verified-storage/`. 
 
-### Setup instructions (~30 minutes)
+We recommend running the evaluation in a `tmux` or `screen` session, as many steps take a while to run.
+
+### Setup instructions (~15-30 minutes)
 
 1. Install `git`: `sudo apt install git`
 2. Clone this repository: `git clone -b kv2 --single-branch https://github.com/microsoft/verified-storage.git`.
@@ -99,7 +101,7 @@ All Intel CPUs are running recent versions of Debian or Ubuntu unless otherwise 
 | Machine details                                                                            | 1 thread    | 8 threads  |
 | ------------------------------------------------------------------------------------------ | ----------- | ---------- |
 | 11th Gen Intel Core i7-11850H @ 2.50GHz, 16 cores (8 physical), 32GiB RAM                  | 54 seconds  | 23 seconds |
-| Intel Core i9-10885H @ 2.40GHz, 16 cores (8 physical), 64GiB RAM, Windows 11 in PowerShell | 191 seconds | 75 seconds |
+| Intel Core i9-10885H @ 2.40GHz, 16 cores (8 physical), 64GiB RAM, Windows 11 in PowerShell | 125 seconds | 41 seconds |
 | Intel Xeon Silver 4314 CPU @ 2.40GHz, 64 cores (32 physical), 128GiB RAM                   | 92 seconds  | 28 seconds |
 | Intel Xeon Gold 6242 CPU @ 2.80GHz, 64 cores (32 physical), 192 GiB RAM                    | 98 seconds  | 30 seconds |
 | Intel Xeon Gold 6126 CPU @ 2.60GHz, 48 cores (24 physical), 192 GiB RAM                    | 97 seconds  | 32 seconds |
@@ -151,7 +153,7 @@ These instructions (and default configs) place all results in `evaluation/result
 
 These instructions explain how to run the mini version of experiments and check that their output looks reasonable.
 
-##### Mini microbenchmarks (~1 minute)
+##### Mini microbenchmarks (~3 minutes)
 The kick-the-tires version of this experiment runs our latency experiments on each KV store with a small number (25000) of records.
 To run this version, run the following commands:
 ```bash
@@ -167,7 +169,7 @@ Each line of each of these files should contain one latency measurement.
 
 **Note**: You may have issues with typed input not appearing in your terminal after running this experiment. We have found that Redis can mess up the terminal in a way that hides input. You can type `reset` (you won't be able to see it), then hit Enter to reset the terminal and bring it back to normal; note that this will also clear the terminal output from the experiment.
 
-##### Mini macrobenchmarks (~15 minutes)
+##### Mini macrobenchmarks (~5-10 minutes)
 The kick-the-tires version of this experiment runs several small YCSB experiments.
 It runs workloads {Load,Run}A and {Load,Run}X on each evaluated system with 10000 records with 1 and 16 threads
 To run this version, run the following commands:
@@ -250,7 +252,6 @@ After running the full microbenchmarks, use the following to generate Figure 2.
 cd evaluation
 python3 plot_fig2.py results/artifact_evaluation_results/microbenchmark
 ```
-This script takes a while to run because it has to parse a lot of data before generating the plots.
 The first time it runs, it will save the results in a JSON file called `results.json`. 
 If you need to re-create the plot on the same data, you can use `python3 plot_fig2.py results/artifact_evaluation_results/microbenchmark -r` to have the script read from `results.json` instead of recalculating everything from scratch.
 
