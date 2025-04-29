@@ -1,5 +1,7 @@
 # Experiments
 
+**NOTE**: these are mostly superseded by the artifact READMEs and the `setup.sh` script. Artifact evaluators can ignore this file.
+
 ## YCSB
 
 Tested Linux environments:
