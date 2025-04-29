@@ -468,19 +468,19 @@ where
     let mount_point = &config.mount_point;
     let pm_dev = &config.pm_dev;
     let num_keys = config.experiment_keys;
-    {
-        KV::setup(config)?;
-        let mut client = KV::start(config)?;
-        if KV::db_name() == "capybarakv" {
-            // redis does not the keys to be pre-inserted
-            insert_keys_for_list_ops(&mut client, num_keys)?;
-        }
-        run_sequential_list_append(&mut client, output_dir, config, i)?;
-        run_sequential_list_read(&mut client, output_dir, config, i)?;
-        run_sequential_list_get_length(&mut client, output_dir, config, i)?;
-        run_sequential_list_trim(&mut client, output_dir, config, i)?;
-    }
-    KV::cleanup(&mount_point, &pm_dev);
+    // {
+    //     KV::setup(config)?;
+    //     let mut client = KV::start(config)?;
+    //     if KV::db_name() == "capybarakv" {
+    //         // redis does not the keys to be pre-inserted
+    //         insert_keys_for_list_ops(&mut client, num_keys)?;
+    //     }
+    //     run_sequential_list_append(&mut client, output_dir, config, i)?;
+    //     run_sequential_list_read(&mut client, output_dir, config, i)?;
+    //     run_sequential_list_get_length(&mut client, output_dir, config, i)?;
+    //     run_sequential_list_trim(&mut client, output_dir, config, i)?;
+    // }
+    // KV::cleanup(&mount_point, &pm_dev);
 
     {
         KV::setup(config)?;
@@ -1060,7 +1060,7 @@ where
     let mut key_vec = Vec::from_iter(0..num_keys);
     key_vec.shuffle(&mut thread_rng());
 
-    println!("SEQUENTIAL LIST READ");
+    println!("RANDOM LIST READ");
     for i in key_vec {
         let key = u64_to_test_key(i);
 
@@ -1071,7 +1071,7 @@ where
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
     }
-    println!("SEQUENTIAL LIST READ DONE");
+    println!("RANDOM LIST READ DONE");
 
     Ok(())
 }
@@ -1096,7 +1096,7 @@ where
     let mut key_vec = Vec::from_iter(0..num_keys);
     key_vec.shuffle(&mut thread_rng());
 
-    println!("SEQUENTIAL LIST LEN");
+    println!("RANDOM LIST LEN");
     for i in key_vec {
         let key = u64_to_test_key(i);
 
@@ -1107,7 +1107,7 @@ where
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
     }
-    println!("SEQUENTIAL LIST LEN DONE");
+    println!("RANDOM LIST LEN DONE");
 
     Ok(())
 }
@@ -1133,7 +1133,7 @@ where
     let mut key_vec = Vec::from_iter(0..num_keys);
     key_vec.shuffle(&mut thread_rng());
 
-    println!("SEQUENTIAL LIST TRIM");
+    println!("RANDOM LIST TRIM");
     for i in key_vec {
         let key = u64_to_test_key(i);
 
@@ -1144,7 +1144,7 @@ where
         let elapsed = format!("{:?}\n", t0.elapsed().as_micros());
         out_stream.write(&elapsed.into_bytes()).unwrap();
     }
-    println!("SEQUENTIAL LIST TRIM DONE");
+    println!("RANDOM LIST TRIM DONE");
 
     Ok(())
 }
