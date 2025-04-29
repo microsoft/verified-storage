@@ -1,5 +1,7 @@
 /*.gcov.*
 
+!/bin
+
 /autom4te.cache/
 
 /bin/jemalloc.sh
