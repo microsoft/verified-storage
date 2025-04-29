@@ -11,14 +11,14 @@
 
 include!("./bindings.rs");
 
-// use storage_node::kv::kvimpl_t::*;
-// use storage_node::pmem::linux_pmemfile_t::*;
+// use capybarakv::kv::kvimpl_t::*;
+// use capybarakvpmem::linux_pmemfile_t::*;
 use pmcopy::PmCopy;
 use std::thread::sleep;
 use std::time::Duration;
-use storage_node::kv2::spec_t::*;
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
+use capybarakv::kv2::spec_t::*;
+use capybarakvpmem::pmcopy_t::*;
+use capybarakv::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
 
 #[allow(unused_imports)]
 use builtin::*;

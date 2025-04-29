@@ -6,7 +6,7 @@ from prettytable import PrettyTable
 import argparse
 import os
 
-categories = ["PoWER framework", "pmcopy crate", "Base log", "Concurrency layer", "Sharding layer", "KV store"]
+categories = ["PoWER framework", "pmcopy crate", "Journal", "Concurrency layer", "Sharding layer", "KV store"]
 line_types = ["Trusted", "Spec+Proof", "Impl"]
 
 def split_line(line):

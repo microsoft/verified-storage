@@ -8,7 +8,7 @@ use rocksdb::{Options, DB};
 use std::path::Path;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use storage_node::pmem::pmcopy_t::PmCopy;
+use capybarakv::pmem::pmcopy_t::PmCopy;
 
 pub struct RocksDbClient<K, V>
 where

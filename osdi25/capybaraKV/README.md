@@ -82,14 +82,14 @@ The rest of these instructions assume that this script is used to prepare the sy
 #### Verifying CapybaraKV
 
 To verify CapybaraKV and collect verification time metrics:
-1. `cd` to `storage_node/src` 
+1. `cd` to `capybarakv/src` 
 2. Run the following commands:
 ```bash
 ./verify-ae.sh --time --num-threads 1 # runs verification with one thread
 ./verify-ae.sh --time --num-threads 8 # runs verification with eight thread
 ```
 
-The script will store output from verification in `storage_node/src/verif_output_{timestamp}.txt` and print the main metrics (verification results and time) to the terminal.
+The script will store output from verification in `capybarakv/src/verif_output_{timestamp}.txt` and print the main metrics (verification results and time) to the terminal.
 If everything worked as expected, the output will include a line like `verification results:: 707 verified, 0 errors`.
 
 **Note**: In the `verif_output.txt` file, you may see messages like "function body check finished in 2 seconds" or "Some checks are taking longer than 2s", particularly in the 1 thread case. These are unrelated to the verification results and can be ignored.
@@ -115,14 +115,14 @@ We use Verus' built-in line-counting tool to count lines of code and categorize 
 We provide a python script, `count_capybarakv_lines.py`, that uses this tool to generate a table of line counts and a proof-to-code ratio for CapybaraKV.
 The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed by `setup.sh`) to count the lines of code in the `pmcopy` crate, which is implemented in regular Rust.
 
-1. From `storage_node/src`, run `./verify-ae.sh --emit=dep-info`. This will generate a `lib.d` file in that directory.
+1. From `capybarakv/src`, run `./verify-ae.sh --emit=dep-info`. This will generate a `lib.d` file in that directory.
 2. In the same directory, run `python3 count_capybarakv_lines.py lib.d ../../pmcopy ../../../../../verus`. This will generate a table matching the CapybaraKV portion of Table 3 as well as the proof-to-code ratio based on line counts in the table.
 3. This script will output a table that looks similar to Table 3 in the paper. The values in the table and the proof-to-code ratio reported under the outputted table should match those in the paper.
 
 ### Manual auditing
 
 To gain confidence that what is being verified is indeed a reasonable specification of correctness for a key/value store, you may decide to audit the unverified parts of the code.
-All of the files referred to in this section are in `storage_node/src` except for the `pmcopy` crate, which has its source code in `pmcopy/src`.
+All of the files referred to in this section are in `capybarakv/src` except for the `pmcopy` crate, which has its source code in `pmcopy/src`.
 
 The untrusted code, which is verified by Verus, consists of various files ending in `_v.rs`, where the `v` stands for "verified". You don't have to read these files to have confidence in the correctness of the system; you just need to have Verus verify them, as described above. The other code files, i.e., the files ending in `_t.rs`, need to be read and understood to audit the system properly.
 

@@ -2,16 +2,16 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JByteArray};
 use jni::sys::jlong;
 
-use storage_node::kv2::spec_t::*;
-use storage_node::kv2::shardkv_t::*;
-use storage_node::kv2::shardkv_v::*;
-use storage_node::kv2::concurrentspec_t::*;
+use capybarakv::kv2::spec_t::*;
+use capybarakv::kv2::shardkv_t::*;
+use capybarakv::kv2::shardkv_v::*;
+use capybarakv::kv2::concurrentspec_t::*;
 #[cfg(target_os = "linux")]
-use storage_node::pmem::linux_pmemfile_t::*;
+use capybarakv::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
-use storage_node::pmem::windows_pmemfile_t::*;
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
+use capybarakv::pmem::windows_pmemfile_t::*;
+use capybarakv::pmem::pmcopy_t::*;
+use capybarakv::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmcopy::PmCopy;
 #[allow(unused_imports)]
 use builtin::*;

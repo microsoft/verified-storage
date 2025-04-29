@@ -160,7 +160,7 @@ printf "${BOLD}${MAGENTA}Done installing cargo dependencies!${NC}\n\n\n"
 step; printf "${BOLD}${MAGENTA}Building verified-storage crates...${NC}\n"
 cd $VERIF_STORAGE_DIR/deps_hack; cargo build --release
 cd $VERIF_STORAGE_DIR/pmcopy; cargo build --release
-cd $VERIF_STORAGE_DIR/storage_node/src; cargo build --release
+cd $VERIF_STORAGE_DIR/capybarakv/src; cargo build --release
 printf "${BOLD}${MAGENTA}Done building verified-storage crates!${NC}\n\n\n"
 
 # 6. Clone and build Verus
@@ -195,7 +195,7 @@ grep -qxF "${path_verus}" $HOME/.bashrc || echo $path_verus >> $HOME/.bashrc
 
 # # 7. Confirm that CapybaraKV verifies
 # printf "${BOLD}${MAGENTA}Verifying CapybaraKV...${NC}\n"
-# cd $VERIF_STORAGE_DIR/storage_node/src/; ./verify.sh
+# cd $VERIF_STORAGE_DIR/capybarakv/src/; ./verify.sh
 # printf "${BOLD}${MAGENTA}Done verifying CapybaraKV!${NC}\n\n\n"
 
 # 8. Download Maven for YCSB

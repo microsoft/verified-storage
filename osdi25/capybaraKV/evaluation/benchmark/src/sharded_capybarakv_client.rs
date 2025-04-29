@@ -3,18 +3,18 @@ use crate::{
     MicrobenchmarkConfig, Value,
 };
 use pmcopy::PmCopy;
-use storage_node::kv2::impl_t::*;
-use storage_node::kv2::shardkv_t::*;
-use storage_node::kv2::shardkv_v::*;
-use storage_node::kv2::spec_t::*;
-use storage_node::pmem::linux_pmemfile_t::*;
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
-use storage_node::kv2::rwkv_t::ConcurrentKvStoreTrait;
+use capybarakv::kv2::impl_t::*;
+use capybarakv::kv2::shardkv_t::*;
+use capybarakv::kv2::shardkv_v::*;
+use capybarakv::kv2::spec_t::*;
+use capybarakv::pmem::linux_pmemfile_t::*;
+use capybarakv::pmem::pmcopy_t::*;
+use capybarakv::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
+use capybarakv::kv2::rwkv_t::ConcurrentKvStoreTrait;
 
-use storage_node::kv2::concurrentspec_t::*;
-use storage_node::kv2::rwkv_v;
-// use storage_node::kv2::rwkv_t::*;
+use capybarakv::kv2::concurrentspec_t::*;
+use capybarakv::kv2::rwkv_v;
+// use capybarakv::kv2::rwkv_t::*;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -155,7 +155,7 @@ where
             max_operations_per_transaction: config.max_operations_per_transaction,
         };
 
-        let space_needed = storage_node::kv2::rwkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion, K, V, L>::space_needed_for_setup(&setup_parameters)?;
+        let space_needed = capybarakv::kv2::rwkv_v::ConcurrentKvStore::<FileBackedPersistentMemoryRegion, K, V, L>::space_needed_for_setup(&setup_parameters)?;
         if config.capybarakv_region_size < space_needed {
             println!("Your requested configuration requires {:?}B but you have only specified a region size of {:?}B", space_needed, config.capybarakv_region_size);
             return Err(KvError::OutOfSpace);

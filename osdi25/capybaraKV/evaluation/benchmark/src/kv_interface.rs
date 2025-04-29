@@ -1,4 +1,4 @@
-use storage_node::pmem::pmcopy_t::PmCopy;
+use capybarakv::pmem::pmcopy_t::PmCopy;
 use std::time::Duration;
 use crate::MicrobenchmarkConfig;
 

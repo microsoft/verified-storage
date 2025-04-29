@@ -20,7 +20,7 @@ cargo build
 cd ../pmcopy
 echo "Building pmcopy"
 cargo build
-cd ../storage_node/src
+cd ../capybarakv/src
 echo "Verifying"
 echo "Arguments: $@" >> $OUTPUT_FILE
 # The --compile flag is necessary to run checks like the compile-time assertions on size and alignment calculations.

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-storage_node = { path = "../../storage_node/" }
+capybarakv = { path = "../../capybarakv/" }
 pmcopy = { path = "../../pmcopy" }
 builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }

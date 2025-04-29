@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 jni = "0.21.1"
-storage_node = { path = "../../storage_node/" }
+capybarakv = { path = "../../capybarakv/" }
 pmcopy = { path = "../../pmcopy" }
 builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }

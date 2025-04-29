@@ -1,9 +1,9 @@
-use storage_node::kv2::impl_t::*;
-use storage_node::pmem::linux_pmemfile_t::*;
-use storage_node::kv2::spec_t::*;
+use capybarakv::kv2::impl_t::*;
+use capybarakv::pmem::linux_pmemfile_t::*;
+use capybarakv::kv2::spec_t::*;
 use crate::{Key, Value, KvInterface, init_and_mount_pm_fs, remount_pm_fs, unmount_pm_fs};
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
+use capybarakv::pmem::pmcopy_t::*;
+use capybarakv::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
 use pmcopy::PmCopy;
 
 use std::fmt::Debug;

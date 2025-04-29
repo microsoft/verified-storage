@@ -2,7 +2,7 @@
 
 ## Overview 
 
-The `storage_node` crate contains a verified persistent-memory key value store. It contains the following submodules:
+The `capybarakv` crate contains a verified persistent-memory key value store. It contains the following submodules:
 
 * `pmem`: a specification of how persistent memory is assumed to behave, including both normal operation and exceptional cases like crashes and bit corruiption. This submodule also contains a mock of persistent memory using volatile memory and implementations of the PM interface for use on Linux with a DAX-supported file system and on Winows.
 * `multilog`: a verified implementation of a "multilog", a structure that stores multiple circular logs on persistent memory and provides crash-atomic appends to multiple logs at a time. More documentation on the multilog can be found in its [README](multilog/README.md).
@@ -33,7 +33,7 @@ If you want to run the KV store in an environment where PMDK is not installed, a
 
 4. Verify the code with:
 ```
-cd storage_node
+cd capybarakv
 verus --crate-type=lib --compile -L dependency=../deps_hack/target/debug/deps --extern=deps_hack=../deps_hack/target/debug/libdeps_hack.rlib src/lib.rs
 ```
 Alternatively, set the `VERUS_PATH` variable in `verify.sh` to point to your local Verus installation, and run `./verify.sh`. 

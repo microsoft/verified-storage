@@ -450,7 +450,7 @@ fn generate_impls_for_union(
 // This function checks whether a given structure is PmSafe and, if it is, generates
 // an implementation of PmSafe.
 // All fields of the deriving type must be PmSafe. PmSafe primitive types are
-// defined in storage_node/src/pmem/traits_t.rs. 
+// defined in capybarakv/src/pmem/traits_t.rs. 
 // 
 // The PmSafe fields requirement is performed by adding trivial trait bounds to
 // the unsafe implementation of PmSafe generated for the deriving type.

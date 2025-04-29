@@ -6,7 +6,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::process::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use storage_node::pmem::pmcopy_t::PmCopy;
+use capybarakv::pmem::pmcopy_t::PmCopy;
 
 const INDEX_KEY: &str = "_indices";
 
