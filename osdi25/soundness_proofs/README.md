@@ -56,7 +56,7 @@ memory.
 The explicit model of asynchronous persistent memory can be found in
 [`capybaraKV/capybarakv/src/pmem/pmem_async_spec_t.rs`](../capybaraKV/capybarakv/src/pmem/pmem_async_spec_t.rs),
 and the correspondence to the prophecy model can be found in
-[`capybaraKV/capybarakv/src/pmem/pmem_async_equiv_t.rs`](../capybaraKV/storagecapybarakv_node/src/pmem/pmem_async_equiv_t.rs);
+[`capybaraKV/capybarakv/src/pmem/pmem_async_equiv_t.rs`](../capybaraKV/capybarakv/src/pmem/pmem_async_equiv_t.rs);
 the latter file describes the correspondence in more detail.
 
 The proofs in this formalization are checked as part of building and
