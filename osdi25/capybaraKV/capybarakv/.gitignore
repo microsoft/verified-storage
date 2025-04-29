@@ -8,3 +8,4 @@ rmeta*
 lib.d
 verif_output_*.txt
 line_count.txt
+target/

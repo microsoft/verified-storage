@@ -11,13 +11,11 @@
 
 include!("./bindings.rs");
 
-// use capybarakv::kv::kvimpl_t::*;
-// use capybarakvpmem::linux_pmemfile_t::*;
 use pmcopy::PmCopy;
 use std::thread::sleep;
 use std::time::Duration;
 use capybarakv::kv2::spec_t::*;
-use capybarakvpmem::pmcopy_t::*;
+use capybarakv::pmem::pmcopy_t::*;
 use capybarakv::pmem::traits_t::{ConstPmSized, PmSafe, PmSized, UnsafeSpecPmSized};
 
 #[allow(unused_imports)]
