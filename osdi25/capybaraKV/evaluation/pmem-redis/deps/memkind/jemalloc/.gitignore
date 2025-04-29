@@ -1,5 +1,6 @@
 /*.gcov.*
 
+!/bin
 /bin/jemalloc-config
 /bin/jemalloc.sh
 /bin/jeprof
