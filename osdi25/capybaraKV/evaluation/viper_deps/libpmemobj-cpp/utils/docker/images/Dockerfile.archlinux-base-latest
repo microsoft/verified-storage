@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2016-2022, Intel Corporation
+
+#
+# Dockerfile - a 'recipe' for Docker to build an image of archlinux-based
+#              environment prepared for running libpmemobj-cpp tests.
+#
+
+# Pull base image
+FROM registry.hub.docker.com/library/archlinux:base
+MAINTAINER igor.chorazewicz@intel.com
+
+# Set required environment variables
+ENV OS archlinux-base
+ENV OS_VER latest
+ENV PACKAGE_MANAGER pacman
+ENV NOTTY 1
+
+# Additional parameters to build docker without building components
+ARG SKIP_VALGRIND_BUILD
+ARG SKIP_PMDK_BUILD
+
+# Base development packages
+ARG BASE_DEPS="\
+	cmake \
+	gcc \
+	git \
+	make"
+
+# Dependencies for compiling libpmemobj-cpp project
+ARG LIBPMEMOBJ_CPP_DEPS="\
+	intel-tbb"
+
+# ndctl's dependencies (optional; ndctl package may be used instead)
+ARG NDCTL_DEPS="\
+	automake \
+	asciidoc \
+	bash-completion \
+	pkg-config \
+	xmlto"
+
+# PMDK's dependencies (optional; libpmemobj-devel package may be used instead)
+ARG PMDK_DEPS="\
+	autoconf \
+	automake \
+	gdb \
+	python3 \
+	which"
+
+# pmem's Valgrind dependencies (optional; valgrind package may be used instead)
+ARG VALGRIND_DEPS="\
+	autoconf \
+	automake"
+
+# Examples (optional)
+ARG EXAMPLES_DEPS="\
+	sfml"
+
+# Documentation (optional)
+ARG DOC_DEPS="\
+	doxygen \
+	graphviz"
+
+# Tests (optional)
+ARG TESTS_DEPS="\
+	gdb \
+	libunwind"
+
+# Misc for our builds/CI (optional)
+ARG MISC_DEPS="\
+	clang \
+	file \
+	perl-text-diff \
+	pkg-config \
+	sudo \
+	whois"
+
+# Update the pacman cache and install basic tools
+RUN pacman -Syu --noconfirm \
+ && pacman -S --noconfirm \
+	${BASE_DEPS} \
+	${LIBPMEMOBJ_CPP_DEPS} \
+	${NDCTL_DEPS} \
+	${PMDK_DEPS} \
+	${VALGRIND_DEPS} \
+	${EXAMPLES_DEPS} \
+	${DOC_DEPS} \
+	${TESTS_DEPS} \
+	${MISC_DEPS} \
+ && rm -rf /var/cache/pacman/pkg/*
+
+# Install libndctl
+COPY install-libndctl.sh install-libndctl.sh
+RUN ./install-libndctl.sh
+
+# Install valgrind
+COPY install-valgrind.sh install-valgrind.sh
+RUN ./install-valgrind.sh
+
+# Install pmdk
+COPY install-pmdk.sh install-pmdk.sh
+RUN ./install-pmdk.sh
+
+# Add user
+ENV USER user
+ENV USERPASS p1a2s3s4
+ENV PFILE ./password
+RUN useradd -m $USER \
+ && echo $USERPASS > $PFILE \
+ && echo $USERPASS >> $PFILE \
+ && passwd $USER < $PFILE \
+ && rm -f $PFILE \
+ && sed -i 's/# %wheel/%wheel/g' /etc/sudoers \
+ && gpasswd wheel -a $USER
+USER $USER

@@ -1,0 +1,61 @@
+Cleaning up
+Shard 0 was hit 983959 times.
+Shard 1 was hit 983317 times.
+Shard 2 was hit 984446 times.
+Shard 3 was hit 984674 times.
+Shard 4 was hit 986199 times.
+Shard 5 was hit 983235 times.
+Shard 6 was hit 984492 times.
+Shard 7 was hit 982044 times.
+Shard 8 was hit 984325 times.
+Shard 9 was hit 985752 times.
+Shard 10 was hit 985252 times.
+Shard 11 was hit 984736 times.
+Shard 12 was hit 985606 times.
+Shard 13 was hit 986007 times.
+Shard 14 was hit 983544 times.
+Shard 15 was hit 982737 times.
+[OVERALL], RunTime(ms), 39096
+[OVERALL], Throughput(ops/sec), 383670.963781461
+[TOTAL_GCS_G1_Young_Generation], Count, 67
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 90
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.23020257826887663
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 67
+[TOTAL_GC_TIME], Time(ms), 90
+[TOTAL_GC_TIME_%], Time(%), 0.23020257826887663
+[READ], Operations, 3751343
+[READ], AverageLatency(us), 31.14427526355228
+[READ], LatencyVariance(us), 2680.1074555102555
+[READ], MinLatency(us), 2
+[READ], MaxLatency(us), 29361
+[READ], 95thPercentileLatency(us), 0
+[READ], 99thPercentileLatency(us), 0
+[READ], Return=OK, 3751343
+[READ-MODIFY-WRITE], Operations, 750325
+[READ-MODIFY-WRITE], AverageLatency(us), 55.35848332389298
+[READ-MODIFY-WRITE], LatencyVariance(us), 3522.2996148522607
+[READ-MODIFY-WRITE], MinLatency(us), 7
+[READ-MODIFY-WRITE], MaxLatency(us), 16266
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 0
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 0
+[CLEANUP], Operations, 16
+[CLEANUP], AverageLatency(us), 284596.9375
+[CLEANUP], LatencyVariance(us), 22888.68359375
+[CLEANUP], MinLatency(us), 284364
+[CLEANUP], MaxLatency(us), 284866
+[CLEANUP], 95thPercentileLatency(us), 284000
+[CLEANUP], 99thPercentileLatency(us), 284000
+[UPDATE], Operations, 11998982
+[UPDATE], AverageLatency(us), 37.58126764420515
+[UPDATE], LatencyVariance(us), 3064.9680092080625
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 42883
+[UPDATE], 95thPercentileLatency(us), 0
+[UPDATE], 99thPercentileLatency(us), 0
+[UPDATE], Return=OK, 11998982

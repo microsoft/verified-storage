@@ -1,0 +1,53 @@
+Cleaning up
+Shard 0 was hit 1970690 times.
+Shard 1 was hit 1967443 times.
+Shard 2 was hit 1969507 times.
+Shard 3 was hit 1969174 times.
+Shard 4 was hit 1967190 times.
+Shard 5 was hit 1970316 times.
+Shard 6 was hit 1967107 times.
+Shard 7 was hit 1968752 times.
+[OVERALL], RunTime(ms), 62643
+[OVERALL], Throughput(ops/sec), 239452.13351850965
+[TOTAL_GCS_G1_Young_Generation], Count, 67
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 83
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.13249684721357535
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 67
+[TOTAL_GC_TIME], Time(ms), 83
+[TOTAL_GC_TIME_%], Time(%), 0.13249684721357535
+[READ], Operations, 3751025
+[READ], AverageLatency(us), 25.582322965056218
+[READ], LatencyVariance(us), 2361.380841047139
+[READ], MinLatency(us), 1
+[READ], MaxLatency(us), 53778
+[READ], 95thPercentileLatency(us), 0
+[READ], 99thPercentileLatency(us), 0
+[READ], Return=OK, 3751025
+[READ-MODIFY-WRITE], Operations, 750179
+[READ-MODIFY-WRITE], AverageLatency(us), 45.02349172664124
+[READ-MODIFY-WRITE], LatencyVariance(us), 1815.2130531583816
+[READ-MODIFY-WRITE], MinLatency(us), 6
+[READ-MODIFY-WRITE], MaxLatency(us), 2790
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 0
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 0
+[CLEANUP], Operations, 8
+[CLEANUP], AverageLatency(us), 284900.25
+[CLEANUP], LatencyVariance(us), 1184.4375
+[CLEANUP], MinLatency(us), 284839
+[CLEANUP], MaxLatency(us), 284952
+[CLEANUP], 95thPercentileLatency(us), 284000
+[CLEANUP], 99thPercentileLatency(us), 284000
+[UPDATE], Operations, 11999154
+[UPDATE], AverageLatency(us), 30.316048698099884
+[UPDATE], LatencyVariance(us), 1998.4486203068454
+[UPDATE], MinLatency(us), 3
+[UPDATE], MaxLatency(us), 55295
+[UPDATE], 95thPercentileLatency(us), 0
+[UPDATE], 99thPercentileLatency(us), 0
+[UPDATE], Return=OK, 11999154

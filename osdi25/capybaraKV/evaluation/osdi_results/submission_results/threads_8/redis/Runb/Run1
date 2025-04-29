@@ -1,0 +1,42 @@
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+[OVERALL], RunTime(ms), 145413
+[OVERALL], Throughput(ops/sec), 103154.46349363537
+[TOTAL_GCS_G1_Young_Generation], Count, 60
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 81
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.0557034102865631
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 60
+[TOTAL_GC_TIME], Time(ms), 81
+[TOTAL_GC_TIME_%], Time(%), 0.0557034102865631
+[READ], Operations, 14250246
+[READ], AverageLatency(us), 75.5638388277648
+[READ], MinLatency(us), 21
+[READ], MaxLatency(us), 12767
+[READ], 95thPercentileLatency(us), 92
+[READ], 99thPercentileLatency(us), 99
+[READ], Return=OK, 14250246
+[CLEANUP], Operations, 8
+[CLEANUP], AverageLatency(us), 1467.0
+[CLEANUP], MinLatency(us), 1365
+[CLEANUP], MaxLatency(us), 1564
+[CLEANUP], 95thPercentileLatency(us), 1564
+[CLEANUP], 99thPercentileLatency(us), 1564
+[UPDATE], Operations, 749754
+[UPDATE], AverageLatency(us), 69.6962897163603
+[UPDATE], MinLatency(us), 26
+[UPDATE], MaxLatency(us), 2381
+[UPDATE], 95thPercentileLatency(us), 86
+[UPDATE], 99thPercentileLatency(us), 131
+[UPDATE], Return=OK, 749754

@@ -1,0 +1,71 @@
+Pre-experiment storage stats: /dev/pmem0                         127425788       2072 120904628   1% /mnt/pmem
+Pre-experiment available mem: 131606994944
+Pre-experiment available mem: 131606994944
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+127.0.0.1
+Pre-experiment available mem: 131606994944
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+127.0.0.1
+Post-experiment available mem: 119351074816
+Mem usage: 12255920128
+Post-experiment available mem: 119351074816
+Post-experiment available mem: 119351074816
+Mem usage: 12255920128
+Post-experiment available mem: 119351074816
+Mem usage: 12255920128
+Post-experiment available mem: 119351074816
+Mem usage: 12255920128
+Mem usage: 12255920128
+[OVERALL], RunTime(ms), 255465
+[OVERALL], Throughput(ops/sec), 58716.45822323998
+[TOTAL_GCS_G1_Young_Generation], Count, 122
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 171
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.06693676237449357
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 122
+[TOTAL_GC_TIME], Time(ms), 171
+[TOTAL_GC_TIME_%], Time(%), 0.06693676237449357
+[CLEANUP], Operations, 16
+[CLEANUP], AverageLatency(us), 639.125
+[CLEANUP], MinLatency(us), 87
+[CLEANUP], MaxLatency(us), 1347
+[CLEANUP], 95thPercentileLatency(us), 1275
+[CLEANUP], 99thPercentileLatency(us), 1347
+[INSERT], Operations, 15000000
+[INSERT], AverageLatency(us), 269.7873232
+[INSERT], MinLatency(us), 48
+[INSERT], MaxLatency(us), 15751
+[INSERT], 95thPercentileLatency(us), 299
+[INSERT], 99thPercentileLatency(us), 1341
+[INSERT], Return=OK, 15000000
+Post-experiment storage stats: /dev/pmem0                         127425788   22654048  98252652  19% /mnt/pmem

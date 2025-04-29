@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <NoWarn>1701;1702;162;164;168;183;219;436;1717;1718;8981</NoWarn>
+    <StartupObject>NotaryServer.Program</StartupObject>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MathNet.Numerics" Version="4.15.0" />
+    <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
+    <Compile Include="..\Framework\ExternalMethods.cs" />
+    <Compile Include="..\Framework\PersistentMemory.cs" />
+    <Compile Include="TrustedNotary_t.cs" />
+    <Compile Include="NotaryServer.cs" />
+    <Compile Include="Params.cs" />
+  </ItemGroup>
+
+</Project>

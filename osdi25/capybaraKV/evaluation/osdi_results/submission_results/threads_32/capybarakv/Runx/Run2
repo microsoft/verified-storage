@@ -1,0 +1,77 @@
+Cleaning up
+Shard 0 was hit 475815 times.
+Shard 1 was hit 477525 times.
+Shard 2 was hit 477831 times.
+Shard 3 was hit 479920 times.
+Shard 4 was hit 481478 times.
+Shard 5 was hit 484614 times.
+Shard 6 was hit 487305 times.
+Shard 7 was hit 489725 times.
+Shard 8 was hit 492422 times.
+Shard 9 was hit 496190 times.
+Shard 10 was hit 497139 times.
+Shard 11 was hit 502332 times.
+Shard 12 was hit 504640 times.
+Shard 13 was hit 504607 times.
+Shard 14 was hit 505327 times.
+Shard 15 was hit 508048 times.
+Shard 16 was hit 507311 times.
+Shard 17 was hit 506695 times.
+Shard 18 was hit 507229 times.
+Shard 19 was hit 503466 times.
+Shard 20 was hit 504111 times.
+Shard 21 was hit 501088 times.
+Shard 22 was hit 497867 times.
+Shard 23 was hit 493197 times.
+Shard 24 was hit 491732 times.
+Shard 25 was hit 489390 times.
+Shard 26 was hit 486194 times.
+Shard 27 was hit 483386 times.
+Shard 28 was hit 481591 times.
+Shard 29 was hit 479120 times.
+Shard 30 was hit 476767 times.
+Shard 31 was hit 476572 times.
+[OVERALL], RunTime(ms), 24601
+[OVERALL], Throughput(ops/sec), 609731.3117352953
+[TOTAL_GCS_G1_Young_Generation], Count, 67
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 61
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.24795740010568676
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 67
+[TOTAL_GC_TIME], Time(ms), 61
+[TOTAL_GC_TIME_%], Time(%), 0.24795740010568676
+[READ], Operations, 3751185
+[READ], AverageLatency(us), 35.40089118505219
+[READ], LatencyVariance(us), 5628.049222317953
+[READ], MinLatency(us), 2
+[READ], MaxLatency(us), 34070
+[READ], 95thPercentileLatency(us), 0
+[READ], 99thPercentileLatency(us), 0
+[READ], Return=OK, 3751185
+[READ-MODIFY-WRITE], Operations, 750634
+[READ-MODIFY-WRITE], AverageLatency(us), 65.25068275617677
+[READ-MODIFY-WRITE], LatencyVariance(us), 6555.807074786231
+[READ-MODIFY-WRITE], MinLatency(us), 7
+[READ-MODIFY-WRITE], MaxLatency(us), 28201
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 0
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 0
+[CLEANUP], Operations, 32
+[CLEANUP], AverageLatency(us), 262684.375
+[CLEANUP], LatencyVariance(us), 71184.296875
+[CLEANUP], MinLatency(us), 262274
+[CLEANUP], MaxLatency(us), 263147
+[CLEANUP], 95thPercentileLatency(us), 263000
+[CLEANUP], 99thPercentileLatency(us), 263000
+[UPDATE], Operations, 11999449
+[UPDATE], AverageLatency(us), 48.27983309900313
+[UPDATE], LatencyVariance(us), 4760.757104879344
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 50430
+[UPDATE], 95thPercentileLatency(us), 0
+[UPDATE], 99thPercentileLatency(us), 0
+[UPDATE], Return=OK, 11999449
