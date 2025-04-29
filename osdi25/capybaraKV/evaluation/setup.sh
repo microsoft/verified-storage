@@ -224,7 +224,7 @@ printf "${BOLD}${MAGENTA}Done building YCSB FFI layer for CapybaraKV!${NC}\n\n\n
 # 10. Building pmem-RocksDB
 step; printf "${BOLD}${MAGENTA}Building pmem-RocksDB...${NC}\n"
 cd $VERIF_STORAGE_DIR/evaluation/pmem-rocksdb
-make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true JAVA_HOME=$JAVA_HOME
+make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true JAVA_HOME=$JAVA_HOME -j 16
 printf "${BOLD}${MAGENTA}Done building pmem-RocksDB!${NC}\n\n\n"
 
 # 11. Building pmem-Redis
