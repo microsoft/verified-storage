@@ -1,14 +1,12 @@
 #![allow(non_snake_case)]
 
 use crc64fast::Digest;
-use std::time::Instant;
+use std::time::{Instant, Duration};
+use std::thread::sleep;
 use std::process::Command;
 use std::fs::OpenOptions;
 use std::path::Path;
 use memmap::MmapOptions;
-
-
-
 
 const CRC_ITERS: u64 = 10000;
 const MMAP_ITERS: u64 = 100;
@@ -72,34 +70,83 @@ fn measure_crc() {
 }
 
 fn measure_mmap() {
-    let mut mmap_1G_timing = Vec::new();
+    let mut mmap_1G_timing: Vec<u128> = Vec::new();
+    let mut mmap_multiple_timing = Vec::new();
     let mut mmap_32G_timing = Vec::new();
 
     init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
 
     let file_size = 1024*1024*1024; // 1 GiB
+    // for i in 0..MMAP_ITERS {
+    //     let path = Path::new(MOUNT_POINT).join(i.to_string());
+    //     {
+    //         let file = OpenOptions::new()
+    //             .read(true)
+    //             .write(true)
+    //             .create(true)
+    //             .open(&path)
+    //             .unwrap();
+    //         file.set_len(file_size).unwrap();
+    //         let t0 = Instant::now();
+    //         let _mmap = unsafe { 
+    //             MmapOptions::new()
+    //                 .len(file_size.try_into().unwrap())
+    //                 .map(&file)
+    //                 .unwrap() 
+    //             };
+    //         file.sync_all().unwrap();
+    //         let t1 = t0.elapsed().as_micros();
+    //         mmap_1G_timing.push(t1);
+    //     }
+    //     init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
+    // }
+
+    // let mut sum = 0;
+    // for i in 0..mmap_1G_timing.len() {
+    //     sum += mmap_1G_timing[i];
+    // }
+    // println!("Average 1GiB mmap time: {:?} usec", sum / mmap_1G_timing.len() as u128);
+
+
+    let num_files = 16;
     for i in 0..MMAP_ITERS {
-        let path = Path::new(MOUNT_POINT).join(i.to_string());
         {
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&path)
-                .unwrap();
-            file.set_len(file_size).unwrap();
+            let mut mmaps = Vec::new();
+            let mut files = Vec::new();
             let t0 = Instant::now();
-            let _mmap = unsafe { 
-                MmapOptions::new()
-                    .len(file_size.try_into().unwrap())
-                    .map(&file)
-                    .unwrap() 
-                };
+            for j in 0..num_files {
+                let path = Path::new(MOUNT_POINT).join(j.to_string());
+                let file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(&path)
+                    .unwrap();
+                file.set_len(file_size).unwrap();
+                let mmap = unsafe { 
+                    MmapOptions::new()
+                        .len(file_size.try_into().unwrap())
+                        .map(&file)
+                        .unwrap() 
+                    };
+                files.push(file);
+                mmaps.push(mmap);
+            }
+
+            files[0].sync_all();
             let t1 = t0.elapsed().as_micros();
-            mmap_1G_timing.push(t1);
+            mmap_multiple_timing.push(t1);
         }
+
         init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
     }
+
+    let mut sum = 0;
+    for i in 0..mmap_multiple_timing.len() {
+        sum += mmap_multiple_timing[i];
+    }
+    println!("Average multiple mmap time: {:?} usec", sum / mmap_multiple_timing.len() as u128);
+
 
     init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
 
@@ -127,11 +174,6 @@ fn measure_mmap() {
         init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
     }
 
-    let mut sum = 0;
-    for i in 0..mmap_1G_timing.len() {
-        sum += mmap_1G_timing[i];
-    }
-    println!("Average 1GiB mmap time: {:?} usec", sum / mmap_1G_timing.len() as u128);
 
     let mut sum = 0;
     for i in 0..mmap_32G_timing.len() {
@@ -164,6 +206,6 @@ pub fn init_and_mount_pm_fs(mount_point: &str, pm_dev: &str) {
 
 
 pub fn unmount_pm_fs(pm_dev: &str) {
-    // sleep(Duration::from_secs(5));
+    sleep(Duration::from_secs(1));
     let _status = Command::new("sudo").args(["umount", pm_dev, "-f"]).output();
 }
