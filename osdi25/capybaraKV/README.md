@@ -57,7 +57,7 @@ We recommend running the evaluation in a `tmux` or `screen` session, as many ste
 ### Setup instructions (~15-30 minutes)
 
 1. Install `git`: `sudo apt install git`
-2. Clone this repository: `git clone -b kv2 --single-branch https://github.com/microsoft/verified-storage.git`.
+2. Clone this repository.
 3. `cd evaluation` and run `./setup.sh`. You may be prompted to enter a password for `sudo` partway through the script. This script will: 
    1. Install `apt` dependencies for other key-value stores
    2. Install Rust
