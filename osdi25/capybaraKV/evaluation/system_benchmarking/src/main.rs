@@ -77,35 +77,35 @@ fn measure_mmap() {
     init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
 
     let file_size = 1024*1024*1024; // 1 GiB
-    // for i in 0..MMAP_ITERS {
-    //     let path = Path::new(MOUNT_POINT).join(i.to_string());
-    //     {
-    //         let file = OpenOptions::new()
-    //             .read(true)
-    //             .write(true)
-    //             .create(true)
-    //             .open(&path)
-    //             .unwrap();
-    //         file.set_len(file_size).unwrap();
-    //         let t0 = Instant::now();
-    //         let _mmap = unsafe { 
-    //             MmapOptions::new()
-    //                 .len(file_size.try_into().unwrap())
-    //                 .map(&file)
-    //                 .unwrap() 
-    //             };
-    //         file.sync_all().unwrap();
-    //         let t1 = t0.elapsed().as_micros();
-    //         mmap_1G_timing.push(t1);
-    //     }
-    //     init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
-    // }
+    for i in 0..MMAP_ITERS {
+        let path = Path::new(MOUNT_POINT).join(i.to_string());
+        {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&path)
+                .unwrap();
+            file.set_len(file_size).unwrap();
+            let t0 = Instant::now();
+            let _mmap = unsafe { 
+                MmapOptions::new()
+                    .len(file_size.try_into().unwrap())
+                    .map(&file)
+                    .unwrap() 
+                };
+            file.sync_all().unwrap();
+            let t1 = t0.elapsed().as_micros();
+            mmap_1G_timing.push(t1);
+        }
+        init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
+    }
 
-    // let mut sum = 0;
-    // for i in 0..mmap_1G_timing.len() {
-    //     sum += mmap_1G_timing[i];
-    // }
-    // println!("Average 1GiB mmap time: {:?} usec", sum / mmap_1G_timing.len() as u128);
+    let mut sum = 0;
+    for i in 0..mmap_1G_timing.len() {
+        sum += mmap_1G_timing[i];
+    }
+    println!("Average 1GiB mmap time: {:?} usec", sum / mmap_1G_timing.len() as u128);
 
 
     let num_files = 16;

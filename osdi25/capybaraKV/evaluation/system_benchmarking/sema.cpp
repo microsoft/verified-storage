@@ -10,7 +10,7 @@
 using namespace std;
 
 atomic<uint64_t> sema = 0;
-const int iters = 1000;
+const int iters = 100000;
 mutex timing_lock;
 vector<int> timing;
 
