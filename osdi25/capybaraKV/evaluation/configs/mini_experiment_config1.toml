@@ -1,0 +1,9 @@
+[experiment_config]
+results_dir = "results/artifact_evaluation_results/threads_1"
+threads = 1
+mount_point = "/mnt/pmem"
+pm_device = "/dev/pmem0"
+iterations = 1
+op_count = 1000
+record_count = 1000
+viper_initial_size=1073741824

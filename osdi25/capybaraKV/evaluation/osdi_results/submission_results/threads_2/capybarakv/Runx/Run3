@@ -1,0 +1,47 @@
+Cleaning up
+Shard 0 was hit 7874952 times.
+Shard 1 was hit 7875836 times.
+[OVERALL], RunTime(ms), 89391
+[OVERALL], Throughput(ops/sec), 167802.12773097964
+[TOTAL_GCS_G1_Young_Generation], Count, 67
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 75
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.08390106386548982
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 67
+[TOTAL_GC_TIME], Time(ms), 75
+[TOTAL_GC_TIME_%], Time(%), 0.08390106386548982
+[READ], Operations, 3747781
+[READ], AverageLatency(us), 8.451512508334933
+[READ], LatencyVariance(us), 142.53551210136635
+[READ], MinLatency(us), 0
+[READ], MaxLatency(us), 3192
+[READ], 95thPercentileLatency(us), 0
+[READ], 99thPercentileLatency(us), 0
+[READ], Return=OK, 3747781
+[READ-MODIFY-WRITE], Operations, 750788
+[READ-MODIFY-WRITE], AverageLatency(us), 16.010362445856888
+[READ-MODIFY-WRITE], LatencyVariance(us), 237.68335319713583
+[READ-MODIFY-WRITE], MinLatency(us), 6
+[READ-MODIFY-WRITE], MaxLatency(us), 3205
+[READ-MODIFY-WRITE], 95thPercentileLatency(us), 0
+[READ-MODIFY-WRITE], 99thPercentileLatency(us), 0
+[CLEANUP], Operations, 2
+[CLEANUP], AverageLatency(us), 283430.0
+[CLEANUP], LatencyVariance(us), 49.0
+[CLEANUP], MinLatency(us), 283423
+[CLEANUP], MaxLatency(us), 283437
+[CLEANUP], 95thPercentileLatency(us), 283000
+[CLEANUP], 99thPercentileLatency(us), 283000
+[UPDATE], Operations, 12003007
+[UPDATE], AverageLatency(us), 10.136421814966866
+[UPDATE], LatencyVariance(us), 1237.0221182990065
+[UPDATE], MinLatency(us), 4
+[UPDATE], MaxLatency(us), 80974
+[UPDATE], 95thPercentileLatency(us), 0
+[UPDATE], 99thPercentileLatency(us), 0
+[UPDATE], Return=OK, 12003007

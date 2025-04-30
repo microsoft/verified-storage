@@ -1,0 +1,32 @@
+Pre-experiment storage stats: /dev/pmem0                         127425788       2072 120904628   1% /mnt/pmem
+Pre-experiment available mem: 131553533952
+Post-experiment available mem: 130366427136
+Mem usage: 1187106816
+[OVERALL], RunTime(ms), 38869
+[OVERALL], Throughput(ops/sec), 385911.6519591448
+[TOTAL_GCS_G1_Young_Generation], Count, 95
+[TOTAL_GC_TIME_G1_Young_Generation], Time(ms), 104
+[TOTAL_GC_TIME_%_G1_Young_Generation], Time(%), 0.26756541202500705
+[TOTAL_GCS_G1_Concurrent_GC], Count, 0
+[TOTAL_GC_TIME_G1_Concurrent_GC], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Concurrent_GC], Time(%), 0.0
+[TOTAL_GCS_G1_Old_Generation], Count, 0
+[TOTAL_GC_TIME_G1_Old_Generation], Time(ms), 0
+[TOTAL_GC_TIME_%_G1_Old_Generation], Time(%), 0.0
+[TOTAL_GCs], Count, 95
+[TOTAL_GC_TIME], Time(ms), 104
+[TOTAL_GC_TIME_%], Time(%), 0.26756541202500705
+[CLEANUP], Operations, 8
+[CLEANUP], AverageLatency(us), 2259.125
+[CLEANUP], MinLatency(us), 2
+[CLEANUP], MaxLatency(us), 18031
+[CLEANUP], 95thPercentileLatency(us), 18031
+[CLEANUP], 99thPercentileLatency(us), 18031
+[INSERT], Operations, 15000000
+[INSERT], AverageLatency(us), 18.6164566
+[INSERT], MinLatency(us), 3
+[INSERT], MaxLatency(us), 137983
+[INSERT], 95thPercentileLatency(us), 27
+[INSERT], 99thPercentileLatency(us), 140
+[INSERT], Return=OK, 15000000
+Post-experiment storage stats: /dev/pmem0                         127425788   20973624  99933076  18% /mnt/pmem
