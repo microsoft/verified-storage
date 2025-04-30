@@ -6,8 +6,13 @@ This repository contains code for verified storage systems. The code is
 written in, and its correctness properties are verified with,
 [Verus](https://github.com/verus-lang/verus).
 
-This project contains the following crates: 
+This project contains the following: 
 
+* `osdi25` contains the artifact for our OSDI 2025 paper, "PoWER Never Corrupts: 
+  Tool-Agnostic Verification of Crash Consistency and Corruption Detection". 
+  It contains the verified persistent-memory key-value store CapybaraKV, the 
+  verified notary service CapybaraNS, and instructions how to run/verify these 
+  systems and how to check all associated proofs.
 * `pmemlog` implements an append-only log on persistent memory. The
   implementation handles crash consistency, ensuring that even if the process
   or machine crashes, it acts like an append-only log across the crashes. It
