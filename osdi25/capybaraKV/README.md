@@ -149,6 +149,12 @@ All experiments require a mount point and a PM device to use.
 These instructions (and the default configurations) use `/mnt/pmem` and `/dev/pmem0`, respectively.
 These instructions (and default configs) place all results in `evaluation/results/artifact-evaluation`.
 
+While running these experiments, you may see the following expected warnings/messages. These do not impact the functionality of the experiments and can be safely ignored.
+- RocksDB-related compiler warnings in the microbenchmark
+- Messages about `/dev/pmem0` not being mounted
+- Messages about the pmem-Redis server being terminated
+
+
 #### Suggested kick-the-tires tests (~15 minutes)
 
 These instructions explain how to run the mini version of experiments and check that their output looks reasonable.
