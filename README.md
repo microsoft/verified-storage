@@ -1,5 +1,7 @@
 # Project
 
+**The OSDI 2025 artifact is located in the `osdi25/` directory. Please see the `osdi25-artifact` branch for the most up-to-date version of the artifact.**
+
 This repository contains code for verified storage systems. The code is
 written in, and its correctness properties are verified with,
 [Verus](https://github.com/verus-lang/verus).
