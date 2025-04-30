@@ -11,7 +11,6 @@ using namespace std;
 
 atomic<uint64_t> sema = 0;
 const int iters = 1000;
-int num_threads = 16;
 mutex timing_lock;
 vector<int> timing;
 
@@ -30,7 +29,7 @@ void sema_cas(void) {
     }
 }
 
-int main(void) {
+void run_benchmark(int num_threads) {
     vector<thread> threads;
 
     for (int i = 0; i < num_threads; i++) {
@@ -46,5 +45,13 @@ int main(void) {
     for (int i = 0; i < timing.size(); i++) {
         sum += timing[i];
     }
-    cout << "average time: " << sum / timing.size() << endl;
+    cout << "average time " << num_threads << " threads: " << sum / timing.size() << endl;
+}
+
+int main(void) {
+    run_benchmark(1);
+    run_benchmark(2);
+    run_benchmark(4);
+    run_benchmark(8);
+    run_benchmark(16);
 }
