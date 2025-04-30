@@ -34,16 +34,16 @@ Perennial framework to model a simple representation of an arbitrary program
 that follows PoWER's precondition requirements, and using that to demonstrate
 that the resulting program also maintains a corresponding CHL crash invariant.
 
-This formalization can be found in the Perennial repo, at [https://github.com/mit-pdos/perennial/blob/master/src/program_proof/verus/wrs.v](https://github.com/mit-pdos/perennial/blob/master/src/program_proof/verus/wrs.v).
+This formalization can be found in the Perennial repo, at [src/program_proof/verus/wrs.v](https://github.com/mit-pdos/perennial/blob/65884f2494ce65c5369094050dfb7eca19299152/src/program_proof/verus/wrs.v).
 
 The proofs in this formalization can be checked by building
 Perennial, following the instructions in the [Perennial
-repo](https://github.com/mit-pdos/perennial).  Building Perennial 
-can take up to 2 hours. Alternatively, this
+repo](https://github.com/mit-pdos/perennial) and checking out commit `65884f2494ce65c5369094050dfb7eca19299152`.
+Building Perennial can take up to 2 hours. Alternatively, this
 proof is built and checked as part of the Perennial CI setup, so you can
 check whether the latest CI checks in Perennial completed successfully,
 as represented by a green or red CI badge at the top of the [Perennial
-Github page](https://github.com/mit-pdos/perennial).
+Github page for commit 65884f2](https://github.com/mit-pdos/perennial/tree/65884f2494ce65c5369094050dfb7eca19299152).
 
 ## Soundness of the PoWER API's prophecy model of durable state
 
