@@ -10,7 +10,7 @@ use memmap::MmapOptions;
 
 
 
-const CRC_ITERS: u64 = 1000;
+const CRC_ITERS: u64 = 10000;
 const MMAP_ITERS: u64 = 100;
 const MOUNT_POINT: &str = "/mnt/pmem/";
 const PM_DEV: &str = "/dev/pmem0";
@@ -80,22 +80,25 @@ fn measure_mmap() {
     let file_size = 1024*1024*1024; // 1 GiB
     for i in 0..MMAP_ITERS {
         let path = Path::new(MOUNT_POINT).join(i.to_string());
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-        file.set_len(file_size).unwrap();
-        let t0 = Instant::now();
-        let _mmap = unsafe { 
-            MmapOptions::new()
-                .len(file_size.try_into().unwrap())
-                .map(&file)
-                .unwrap() 
-            };
-        let t1 = t0.elapsed().as_micros();
-        mmap_1G_timing.push(t1);
+        {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&path)
+                .unwrap();
+            file.set_len(file_size).unwrap();
+            let t0 = Instant::now();
+            let _mmap = unsafe { 
+                MmapOptions::new()
+                    .len(file_size.try_into().unwrap())
+                    .map(&file)
+                    .unwrap() 
+                };
+            let t1 = t0.elapsed().as_micros();
+            mmap_1G_timing.push(t1);
+        }
+        init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
     }
 
     init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
@@ -121,8 +124,7 @@ fn measure_mmap() {
             let t1 = t0.elapsed().as_micros();
             mmap_32G_timing.push(t1);
         }
-        // remove the file to make space for next iteration
-        std::fs::remove_file(path).unwrap();
+        init_and_mount_pm_fs(MOUNT_POINT, PM_DEV);
     }
 
     let mut sum = 0;
