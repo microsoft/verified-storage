@@ -8,7 +8,7 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use memmap::MmapOptions;
 
-const CRC_ITERS: u64 = 10000;
+const CRC_ITERS: u64 = 1000000;
 const MMAP_ITERS: u64 = 100;
 const MOUNT_POINT: &str = "/mnt/pmem/";
 const PM_DEV: &str = "/dev/pmem0";

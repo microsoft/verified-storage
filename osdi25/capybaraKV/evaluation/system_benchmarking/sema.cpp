@@ -10,9 +10,9 @@
 using namespace std;
 
 atomic<uint64_t> sema = 0;
-const int iters = 100000;
+const int iters = 1000000;
 mutex timing_lock;
-vector<int> timing;
+vector<uint64_t> timing;
 
 
 void sema_cas(void) {
@@ -41,7 +41,7 @@ void run_benchmark(int num_threads) {
         threads[i].join();
     }
 
-    int sum = 0;
+    uint64_t sum = 0;
     for (int i = 0; i < timing.size(); i++) {
         sum += timing[i];
     }
