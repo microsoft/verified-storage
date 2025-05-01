@@ -55,7 +55,7 @@ def count_lines(line_count_file):
                 if power_pattern in line:
                     row = "PoWER framework"
                 elif log_pattern in line:
-                    row = "Base log"
+                    row = "Journal"
                 elif concurrent_spec in line or rwkv_pattern in line:
                     row = "Concurrency layer"
                 elif shard_pattern in line:
@@ -66,31 +66,6 @@ def count_lines(line_count_file):
                 loc = extract_line_counts(headers, line)
                 for k in loc.keys():
                     results[row][k] += loc[k]
-                # if power_pattern in line:
-                #     line = split_line(line)
-                #     loc = extract_line_counts(headers, line)
-                #     for k in loc.keys():
-                #         results["PoWER framework"][k] += loc[k]
-                # elif log_pattern in line:
-                #     line = split_line(line)
-                #     loc = extract_line_counts(headers, line)
-                #     for k in loc.keys():
-                #         results["Base log"][k] += loc[k]
-                # elif concurrent_spec in line or rwkv_pattern in line:
-                #     line = split_line(line)
-                #     loc = extract_line_counts(headers, line)
-                #     for k in loc.keys():
-                #         results["Concurrency layer"][k] += loc[k]
-                # elif shard_pattern in line:
-                #     line = split_line(line)
-                #     loc = extract_line_counts(headers, line)
-                #     for k in loc.keys():
-                #         results["Concurrency layer"][k] += loc[k]
-                # else: # everything else is kv
-                #     line = split_line(line)
-                #     loc = extract_line_counts(headers, line)
-                #     for k in loc.keys():
-                #         results["KV store"][k] += loc[k]
     
     return results
 

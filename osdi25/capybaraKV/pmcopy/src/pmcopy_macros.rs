@@ -112,7 +112,7 @@ fn generate_pmsized_for_fieldless_enum(
     name: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let gen = quote! {
-        ::builtin_macros::verus!(
+        verus!{
             impl SpecPmSized for #name {
                 open spec fn spec_size_of() -> ::builtin::nat
                 { 
@@ -124,7 +124,7 @@ fn generate_pmsized_for_fieldless_enum(
                     #C_ABI_ENUM_ALIGN as ::builtin::nat
                 }
             }
-        );
+        }
 
         unsafe impl PmSized for #name {
             fn size_of() -> usize { Self::SIZE }
@@ -169,7 +169,7 @@ fn generate_pmsized_for_enums_with_fields(
         match variant_fields {
             EnumVariantFields::Unit => {
                 let gen = quote! {
-                    ::builtin_macros::verus! {
+                    verus!{
                         #[repr(C)]
                         #[derive(Copy)]
                         struct #struct_name {}
@@ -215,7 +215,7 @@ fn generate_pmsized_for_enums_with_fields(
             EnumVariantFields::Unnamed(types) => {
                 let impls = generate_impls_for_unnamed_struct(&struct_name, types);
                 let gen = quote! {
-                    ::builtin_macros::verus! {
+                    verus!{
                         #[repr(C)]
                         #[derive(Copy)]
                         struct #struct_name( #( #types, )* );
@@ -232,7 +232,7 @@ fn generate_pmsized_for_enums_with_fields(
                     lowercase_names.push(syn::Ident::new(&n.to_string().to_lowercase(), n.span()));
                 }
                 let gen = quote! {
-                    ::builtin_macros::verus! {
+                    verus!{
                         #[repr(C)]
                         #[derive(Copy)]
                         struct #struct_name {
@@ -256,7 +256,7 @@ fn generate_pmsized_for_enums_with_fields(
     let union_name = syn::Ident::new(&format!("{}FieldUnion", name.to_string()), name.span());
     let union_impls = generate_impls_for_union(&union_name, &payload_struct_types, &lowercase_variant_names);
     let payload_union = quote! {
-        ::builtin_macros::verus! {
+        verus!{
             #[repr(C)]
             #[derive(Copy)]
             union #union_name {
@@ -271,7 +271,7 @@ fn generate_pmsized_for_enums_with_fields(
     let discriminant_enum_name = syn::Ident::new(&format!("{}EnumDiscriminant", name.to_string()), name.span());
     let discriminant_enum_impls = generate_impls_for_fieldless_enum(&discriminant_enum_name, &variants);
     let discriminant_enum = quote! {
-        ::builtin_macros::verus!{ 
+        verus!{ 
             #[repr(C)]
             #[derive(Copy)]
             enum #discriminant_enum_name {
@@ -290,7 +290,7 @@ fn generate_pmsized_for_enums_with_fields(
         &final_struct_name, &final_struct_field_types, &final_struct_field_names);
 
     let final_struct = quote! {
-        ::builtin_macros::verus! {
+        verus!{
             #[repr(C)]
             #[derive(Copy)]
             struct #final_struct_name {
@@ -307,7 +307,7 @@ fn generate_pmsized_for_enums_with_fields(
     // Now we can implement everything for the initial enum itself
     // using the structs and impls we have just generated.
     let enum_impls = quote! {
-        ::builtin_macros::verus!{
+        verus!{
             impl SpecPmSized for #name {
                 open spec fn spec_size_of() -> ::builtin::nat 
                 {
@@ -762,7 +762,7 @@ pub fn generate_pmsized_for_structs(name: &syn::Ident, types: &Vec<syn::Type>) -
     let static_assertions = generate_static_assertions(&name);
 
     let gen = quote! {
-        ::builtin_macros::verus!(
+        verus!{
 
             impl SpecPmSized for #name {
                 open spec fn spec_size_of() -> ::builtin::nat 
@@ -777,7 +777,7 @@ pub fn generate_pmsized_for_structs(name: &syn::Ident, types: &Vec<syn::Type>) -
                     #spec_alignment
                 }
             }  
-        );
+        }
 
         unsafe impl PmSized for #name {
             fn size_of() -> usize { Self::SIZE }
@@ -826,7 +826,7 @@ fn generate_pmsized_for_unions(
     let static_assertions = generate_static_assertions(&name);
 
     let gen = quote! {
-        ::builtin_macros::verus!(
+        verus!{
             impl SpecPmSized for #name {
                 open spec fn spec_size_of() -> ::builtin::nat
                 {
@@ -838,7 +838,7 @@ fn generate_pmsized_for_unions(
                     #spec_alignment
                 }
             }
-        );
+        }
 
         unsafe impl PmSized for #name {
             fn size_of() -> usize { Self::SIZE }
@@ -1103,7 +1103,7 @@ fn generate_eq_and_clone_specs(name: &syn::Ident) -> proc_macro2::TokenStream {
     let gen = quote! {
         impl Eq for #name {}
 
-        ::builtin_macros::verus!{
+        verus!{
             #[verifier::external_fn_specification]
             pub fn #clone_spec_name(b: &#name) -> (res: #name)
                 ensures
@@ -1221,7 +1221,7 @@ pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
 
     // Primitive types have hardcoded size and alignment values
     let gen = quote!{
-        ::builtin_macros::verus!(
+        verus!{
             impl SpecPmSized for #ty {
                 open spec fn spec_size_of() -> ::builtin::nat { #size as ::builtin::nat }
                 open spec fn spec_align_of() -> ::builtin::nat { #align as ::builtin::nat }
@@ -1245,7 +1245,7 @@ pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
                     self == other
                 }
             }
-        );
+        }
 
         unsafe impl PmSized for #ty {
             fn size_of() -> usize { Self::SIZE }

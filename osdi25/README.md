@@ -19,10 +19,10 @@ Here is a rough estimate of how much time it takes to run the experiments in eac
    1. Initial setup: ~5 minutes
    2. Verifying CapybaraNS and getting line counts: <5 minutes
    3. Running CapybaraNS: ~30 seconds
-2. CapybaraKV: TODO minutes total
+2. CapybaraKV: ~14 hours total
    1. Initial setup: ~30 minutes
    2. Verifying CapybaraKV and getting line counts: ~5-10 minutes
    3. Running recommended kick-the-tires mini experiments: ~20 minutes
-   4. Running all full experiments: TODO
+   4. Running all full experiments: ~12 hours (one 4-hour experiment, one 8-hour experiment)
    5. Processing data: ~15 minutes
-3. Soundness proofs: 2/3 soundness proofs are checked when verifying CapybaraKV. The third is checked by building Perennial locally and/or checking the current status of its CI on GitHub; building Perennial locally can take ~2-3 hours depending on your setup.
+3. Soundness proofs: 2/3 soundness proofs are checked when verifying CapybaraKV. The third is checked by building Perennial locally and/or checking the status of its CI on GitHub; building Perennial locally can take ~2-3 hours depending on your setup. See this section's [README](soundness_proofs/README.md) for more info.
