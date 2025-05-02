@@ -28,6 +28,8 @@ jobs:
           unzip dafny-4.10.0-x64-ubuntu-20.04.zip
       - name: build-and-verify
         working-directory: osdi25/capybaraNS
-        run: scons --dafny-path=../../dafny
+        run:
+          dotnet project update 
+          scons --dafny-path=../../dafny
 
           
