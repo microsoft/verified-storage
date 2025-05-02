@@ -10,12 +10,9 @@ jobs:
       - name: setenv
         run: |
           echo "TERM=linux" >> $GITHUB_ENV
-      - name: javahome
-        run: |
-          echo $JAVA_HOME
-          echo $JAVA_HOME_21_X86
-          echo $JAVA_HOME_17_X86
-          ls /usr/lib/jvm
       - name: setup
         working-directory: osdi25/capybaraKV/evaluation
         run: JAVA_HOME=$JAVA_HOME_21_X64 ./setup.sh
+      - name: verify
+        working-directory: osdi25/capybaraKV/capybarakv/src
+        run: ./verify.sh
