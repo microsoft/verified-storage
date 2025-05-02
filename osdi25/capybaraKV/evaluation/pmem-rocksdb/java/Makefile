@@ -238,7 +238,7 @@ javadocs: java
 	$(AM_V_GEN)mkdir -p $(JAVADOC)
 	$(AM_V_at)javadoc -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
 
-javalib: java java_test javadocs
+javalib: java java_test #javadocs
 
 java:
 	$(AM_V_GEN)mkdir -p $(MAIN_CLASSES)
