@@ -1,0 +1,14 @@
+name: GitHub Actions Demo
+run-name: CapybaraKV CI
+on: [push]
+jobs:
+  run-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout 
+        uses: actions/checkout@v4
+      - name: setenv
+        run: echo "TERM=linux" >> $GITHUB_ENV
+      - name: setup
+        working-directory: osdi25/capybaraKV/evaluation
+        run: ./setup.sh
