@@ -1,8 +1,7 @@
-name: GitHub Actions Demo
-run-name: CapybaraKV CI
+name: artifact-ci
 on: [push]
 jobs:
-  run-setup:
+  capybarakv-setup-and-verify:
     runs-on: ubuntu-latest
     steps:
       - name: checkout 
@@ -16,3 +15,22 @@ jobs:
       - name: verify
         working-directory: osdi25/capybaraKV/capybarakv/src
         run: ./verify.sh
+  capybarans-setup-and-verify:
+    runs-on: ubuntu-latest
+    steps: 
+      - name: checkout 
+        uses: actions/checkout@v4
+      - name: setup
+        run: |
+          wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt update
+          sudo apt install sloccount scons dotnet-sdk-8.0
+          wget https://github.com/dafny-lang/dafny/releases/download/v4.10.0/dafny-4.10.0-x64-ubuntu-20.04.zip
+          unzip dafny-4.10.0-x64-ubuntu-20.04.zip
+      - name: build-and-verify
+        working-directory: osdi25/capybaraNS
+        run: scons --dafny-path=$HOME/dafny/dafny
+
+          
