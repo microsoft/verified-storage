@@ -8,7 +8,14 @@ jobs:
       - name: checkout 
         uses: actions/checkout@v4
       - name: setenv
-        run: echo "TERM=linux" >> $GITHUB_ENV
+        run: |
+          echo "TERM=linux" >> $GITHUB_ENV
+      - name: javahome
+        run: |
+          echo $JAVA_HOME
+          echo $JAVA_HOME_21_X86
+          echo $JAVA_HOME_17_X86
+          ls /usr/lib/jvm
       - name: setup
         working-directory: osdi25/capybaraKV/evaluation
-        run: ./setup.sh
+        run: JAVA_HOME=$JAVA_HOME_21_X64 ./setup.sh

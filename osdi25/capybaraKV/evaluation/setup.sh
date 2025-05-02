@@ -58,7 +58,7 @@ if [[ $OS == "Debian"* ]]; then
         while [[ $continue != "y" ]]; do 
             if [[ $continue == "n" ]]; then 
                 echo "Exiting"
-                exit 
+                exit 1
             else
                 printf "Unrecognized input. Please entry y or n: "
             fi
@@ -72,7 +72,7 @@ elif [[ $OS == "Ubuntu" ]]; then
         while [[ $continue != "y" ]]; do 
             if [[ $continue == "n" ]]; then 
                 echo "Exiting"
-                exit
+                exit 1
             else
                 printf "Unrecognized input. Please entry y or n: "
             fi
@@ -85,7 +85,7 @@ else
     while [[ $continue != "y" ]]; do 
         if [[ $continue == "n" ]]; then 
             echo "Exiting"
-            exit
+            exit 1
         else
             printf "Unrecognized input. Please entry y or n: "
         fi
@@ -116,7 +116,7 @@ if [ -z $JAVA_HOME ]; then
         _java="$JAVA_HOME/bin/java"
     else
         printf "${BOLD}${RED}Unable to find Java. Please check that it has been successfully installed.${NC}\n"
-        exit
+        exit 1
     fi
 
     if [[ "$_java" ]]; then
@@ -128,8 +128,15 @@ if [ -z $JAVA_HOME ]; then
     if [ -n $JAVA_HOME ]; then 
         # check that the directory we set JAVA_HOME to actually exists
         if [ ! -d $JAVA_HOME ]; then 
-            printf "${BOLD}${RED}Automatically-obtained JAVA_HOME ${JAVA_HOME} does not exist. Please manually set JAVA_HOME in the setup.sh script.${NC}\n"
-            exit
+            # github runner uses a different JDK
+            JAVA_HOME2="/usr/lib/jvm/temurin-${major_version}-jdk-amd64/"
+            if [ ! -d $JAVA_HOME2 ]; then 
+                printf "${BOLD}${RED}Automatically-obtained JAVA_HOME ${JAVA_HOME} and ${JAVA_HOME2} does not exist. Please manually set JAVA_HOME in the setup.sh script.${NC}\n"
+                exit 1
+            else 
+                JAVA_HOME=$JAVA_HOME2
+                printf "${MAGENTA}JAVA_HOME is set to ${JAVA_HOME}${NC}\n"
+            fi
         else 
             printf "${MAGENTA}JAVA_HOME is set to ${JAVA_HOME}${NC}\n"
         fi 
