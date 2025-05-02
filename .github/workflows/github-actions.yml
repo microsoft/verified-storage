@@ -29,7 +29,7 @@ jobs:
       - name: build-and-verify
         working-directory: osdi25/capybaraNS
         run: |
-          dotnet project update 
+          scons -c --dafny-path=../../dafny
           scons --dafny-path=../../dafny
 
           
