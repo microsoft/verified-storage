@@ -20,7 +20,7 @@ default = [ "pmem" ]
 builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }
 vstd = { git = "https://github.com/verus-lang/verus.git" }
-deps_hack = { path = "../deps_hack" }
+deps_hack = { path = "../deps_hack", default-features = false }
 pmcopy = { path = "../pmcopy" }
 
 [lints.rust]
