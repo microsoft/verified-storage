@@ -59,9 +59,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         self.pm.constants()
     }
 
-    #[inline(always)]
-    #[verifier::atomic]
-    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+    pub proof fn agree(tracked &self, tracked r: &GhostVar<Seq<u8>>)
         requires
             self.inv(),
             self.id() == r.id(),
@@ -69,11 +67,8 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             self@.durable_state == r@,
         opens_invariants
             none
-        no_unwind
     {
-        proof {
-            self.res.borrow().agree(r);
-        }
+        self.res.borrow().agree(r);
     }
 
     pub exec fn new(pm: PM) -> (result: (Self, Tracked<GhostVar<Seq<u8>>>))

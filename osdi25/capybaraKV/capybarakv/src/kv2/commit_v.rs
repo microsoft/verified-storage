@@ -80,9 +80,7 @@ where
         Ok(complete)
     }
 
-    #[inline(always)]
-    #[verifier::atomic]
-    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+    pub proof fn agree(tracked &self, tracked r: &GhostVar<Seq<u8>>)
         requires
             self.valid(),
             r.id() == self@.powerpm_id,
@@ -90,13 +88,9 @@ where
             Self::recover(r@) == Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable })
         opens_invariants
             none
-        no_unwind
     {
-        self.journal.agree(Tracked(r));
-
-        proof {
-            self.lemma_recover_to_durable_state();
-        }
+        self.journal.agree(r);
+        self.lemma_recover_to_durable_state();
     }
 }
 
