@@ -185,9 +185,8 @@ exec fn maybe_commit<PM, K, I, L, Op, CB>(
             let ghost ckv = ConcurrentKvStoreView::<K, I, L>::from_kvstore_view(kv_internal.kv@);
 
             open_atomic_invariant!(inv.borrow() => inner => {
-                kv_internal.kv.agree(Tracked(&inner.durable_res));
-
                 proof {
+                    kv_internal.kv.agree(&inner.durable_res);
                     inner.rwlock_auth.agree(kv_internal.invariant_resource.borrow());
 
                     // We can provably unwrap, because if it was None, that means
@@ -752,9 +751,8 @@ where
         let tracked mut rwlock_res = rwlock_res;
 
         open_atomic_invariant!(&inv => inner => {
-            atomicpm.agree(Tracked(&inner.durable_res));
-
             proof {
+                atomicpm.agree(&inner.durable_res);
                 inner.rwlock_auth.update(&mut rwlock_res, inner.caller_auth@);
             }
         });

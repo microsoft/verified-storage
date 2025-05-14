@@ -77,9 +77,7 @@ where
         &&& seqs_match_in_range(j1.state, j2.state, j1.constants.app_area_start as int, j1.constants.app_area_end as int)
     }
 
-    #[inline(always)]
-    #[verifier::atomic]
-    pub exec fn agree(&self, Tracked(r): Tracked<&GhostVar<Seq<u8>>>)
+    pub proof fn agree(tracked &self, tracked r: &GhostVar<Seq<u8>>)
         requires
             self.valid(),
             self@.powerpm_id == r.id(),
@@ -87,9 +85,8 @@ where
             self@.durable_state == r@,
         opens_invariants
             none
-        no_unwind
     {
-        self.powerpm.agree(Tracked(r));
+        self.powerpm.agree(r);
     }
 
     pub exec fn remaining_capacity(&self) -> (result: u64)
