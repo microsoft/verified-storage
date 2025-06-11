@@ -43,7 +43,7 @@ verus! {
     impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion
     {
         #[verifier::external_body]
-        closed spec fn view(&self) -> PersistentMemoryRegionView;
+        uninterp spec fn view(&self) -> PersistentMemoryRegionView;
 
         closed spec fn inv(&self) -> bool
         {
@@ -57,7 +57,7 @@ verus! {
             &&& self.contents@ == self@.flush().committed()
         }
 
-        closed spec fn constants(&self) -> PersistentMemoryConstants;
+        uninterp spec fn constants(&self) -> PersistentMemoryConstants;
 
         fn get_region_size(&self) -> (result: u64)
         {
@@ -169,7 +169,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        closed spec fn constants(&self) -> PersistentMemoryConstants;
+        uninterp spec fn constants(&self) -> PersistentMemoryConstants;
 
         #[verifier::external_body]
         fn get_num_regions(&self) -> usize
