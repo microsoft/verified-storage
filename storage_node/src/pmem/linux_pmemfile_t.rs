@@ -237,11 +237,11 @@ impl FileBackedPersistentMemoryRegion
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
-    closed spec fn view(&self) -> PersistentMemoryRegionView;
+    uninterp spec fn view(&self) -> PersistentMemoryRegionView;
 
-    closed spec fn inv(&self) -> bool;
+    uninterp spec fn inv(&self) -> bool;
 
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
+    uninterp spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
     fn get_region_size(&self) -> u64
@@ -437,9 +437,9 @@ impl FileBackedPersistentMemoryRegions {
 }
 
 impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
-    closed spec fn view(&self) -> PersistentMemoryRegionsView;
-    closed spec fn inv(&self) -> bool;
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
+    uninterp spec fn view(&self) -> PersistentMemoryRegionsView;
+    uninterp spec fn inv(&self) -> bool;
+    uninterp spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
     fn get_num_regions(&self) -> usize

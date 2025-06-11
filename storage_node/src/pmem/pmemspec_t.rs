@@ -84,7 +84,7 @@ verus! {
     // A byte `byte` read from address `addr` is a possible corruption
     // of the actual last-written byte `true_byte` to that address if
     // they're related by `maybe_corrupted_byte`.
-    pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
+    pub uninterp spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
     pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
         forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
@@ -104,7 +104,7 @@ verus! {
         spec_crc_u64(bytes).spec_to_bytes()
     }
 
-    pub closed spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
+    pub uninterp spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
 
     // This executable method can be called to compute the CRC of a
     // sequence of bytes. It uses the `crc` crate.

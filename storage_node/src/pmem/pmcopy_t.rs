@@ -86,7 +86,7 @@ verus! {
     }
 
     impl<T> PmCopyHelper for T where T: PmCopy {
-        closed spec fn spec_to_bytes(self) -> Seq<u8>;
+        uninterp spec fn spec_to_bytes(self) -> Seq<u8>;
 
         // The definition is closed because no one should need to reason about it,
         // thanks to `axiom_to_from_bytes`.
@@ -176,7 +176,7 @@ verus! {
         // This spec fn is uninterpreted; its relationship to S's `spec_to_bytes`
         // is established in the postconditions of other `MaybeCorruptedBytes`
         // methods.
-        pub closed spec fn view(self) -> Seq<u8>;
+        pub uninterp spec fn view(self) -> Seq<u8>;
 
         // `copy_from_slice` copies bytes from a location on PM to a 
         // `MaybeCorruptedBytes<S>`. The precondition requires that we 
