@@ -1,6 +1,6 @@
 use crate::infinitelog_t::*;
 use crate::main_t::*;
-use crate::math::*;
+use crate::math_v::*;
 use crate::pmemspec_t::*;
 use crate::sccf::CheckPermission;
 use builtin::*;
@@ -8,6 +8,7 @@ use builtin_macros::*;
 use core::convert::TryInto;
 use std::f32::consts::E;
 use std::fmt::Write;
+use vstd::arithmetic::div_mod::lemma_mod_division_less_than_divisor;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::seq::*;
@@ -378,7 +379,7 @@ verus! {
         where
             Perm: CheckPermission<Seq<u8>>,
         requires
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
             perm.check_permission(pm),
@@ -398,7 +399,7 @@ verus! {
                 }
             }),
         ensures
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             forall |chunks_flushed| {
                 let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                     pm, write_addr, bytes, chunks_flushed);
@@ -442,7 +443,7 @@ verus! {
         &&& new_data.subrange(0, write_addr - contents_offset) =~= old_data.subrange(0, write_addr - contents_offset)
         &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~=
                 old_data.subrange(write_addr - contents_offset + new_bytes.len(), old_data.len() as int)
-        &&& UntrustedLogImpl::recover(new_pm).is_Some()
+        &&& UntrustedLogImpl::recover(new_pm) is Some
 
         &&& physical_head < physical_tail ==>
                 new_data.subrange(physical_head - contents_offset, physical_tail - contents_offset) =~= old_data.subrange(physical_head - contents_offset, physical_tail - contents_offset)
@@ -455,7 +456,7 @@ verus! {
     /// Proves that a non-crashing data write updates data bytes but no log metadata.
     pub proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int)
         requires
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
             ({
@@ -473,7 +474,7 @@ verus! {
                 }
             }),
         ensures
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             update_data_view_postcond(pm, new_bytes, write_addr),
     {
         let live_header = spec_get_live_header(pm);
@@ -495,7 +496,7 @@ verus! {
     /// Proves that a crashing data write updates data bytes but no log metadata.
     pub proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>)
         requires
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
             ({
@@ -507,7 +508,7 @@ verus! {
                 &&& physical_tail < physical_head ==> write_addr + new_bytes.len() < physical_head
             })
         ensures
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             ({
                 let new_pm = update_contents_to_reflect_partially_flushed_write(pm, write_addr, new_bytes, chunks_flushed);
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
@@ -518,7 +519,7 @@ verus! {
                 &&& new_data.subrange(0, write_addr - contents_offset) =~= old_data.subrange(0, write_addr - contents_offset)
                 &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~=
                         old_data.subrange(write_addr - contents_offset + new_bytes.len(), old_data.len() as int)
-                &&& UntrustedLogImpl::recover(new_pm).is_Some()
+                &&& UntrustedLogImpl::recover(new_pm) is Some
             })
     {
         let live_header = spec_get_live_header(pm);
@@ -534,7 +535,7 @@ verus! {
     /// Proves that a non-crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int)
         requires
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             header_pos == header1_pos || header_pos == header2_pos,
             ({
                 // the new bytes must be written to the inactive header
@@ -555,7 +556,7 @@ verus! {
                     old_headers.header2 == new_headers.header2
                 &&& header_pos == header2_pos ==>
                     old_headers.header1 == new_headers.header1
-                &&& UntrustedLogImpl::recover(new_pm).is_Some()
+                &&& UntrustedLogImpl::recover(new_pm) is Some
             })
     {
         let new_pm = update_contents_to_reflect_write(pm, header_pos, new_header_bytes);
@@ -581,7 +582,7 @@ verus! {
     /// Proves that a crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view_crash(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int, chunks_flushed: Set<int>)
         requires
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             header_pos == header1_pos || header_pos == header2_pos,
             ({
                 // the new bytes must be written to the inactive header
@@ -603,7 +604,7 @@ verus! {
                     old_headers.header2 == new_headers.header2
                 &&& header_pos == header2_pos ==>
                     old_headers.header1 == new_headers.header1
-                &&& UntrustedLogImpl::recover(new_pm).is_Some()
+                &&& UntrustedLogImpl::recover(new_pm) is Some
             })
     {
         let new_pm = update_contents_to_reflect_partially_flushed_write(
@@ -638,7 +639,7 @@ verus! {
     )
         requires
             pm.len() > contents_offset,
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             new_ib == cdb0_val || new_ib == cdb1_val,
             new_ib == cdb0_val ==>
                 pm.subrange(header1_pos as int, header1_pos + header_size) == new_header_bytes,
@@ -810,8 +811,8 @@ verus! {
 
     pub proof fn lemma_same_log_state(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires
-            UntrustedLogImpl::recover(old_pm).is_Some(),
-            UntrustedLogImpl::recover(new_pm).is_Some(),
+            UntrustedLogImpl::recover(old_pm) is Some,
+            UntrustedLogImpl::recover(new_pm) is Some,
             live_data_view_eq(old_pm, new_pm),
             ({
                 let (old_ib, old_headers, old_data) = pm_to_views(old_pm);
@@ -834,8 +835,8 @@ verus! {
         let (old_ib, old_headers, old_data) = pm_to_views(old_pm);
         let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
 
-        assert(old_state.is_Some());
-        assert(new_state.is_Some());
+        assert(old_state is Some);
+        assert(new_state is Some);
         match (old_state, new_state) {
             (Some(old_state), Some(new_state)) => {
                 let (old_live_header, new_live_header) = if old_ib == cdb0_val {
@@ -1024,7 +1025,7 @@ verus! {
 
     pub proof fn lemma_pm_state_header(pm: Seq<u8>)
         requires
-            UntrustedLogImpl::recover(pm).is_Some(),
+            UntrustedLogImpl::recover(pm) is Some,
             ({
                 let header = spec_get_live_header(pm);
                 header.metadata.tail - header.metadata.head < header.metadata.log_size
@@ -1044,8 +1045,8 @@ verus! {
     {
         let pm_state = UntrustedLogImpl::recover(pm);
         let header = spec_get_live_header(pm);
-        lemma_mod_range(header.metadata.head as int, header.metadata.log_size as int);
-        lemma_mod_range(header.metadata.tail as int, header.metadata.log_size as int);
+        lemma_mod_division_less_than_divisor(header.metadata.head as int, header.metadata.log_size as int);
+        lemma_mod_division_less_than_divisor(header.metadata.tail as int, header.metadata.log_size as int);
         let head = header.metadata.head as int;
         let tail = header.metadata.tail as int;
         let log_size = header.metadata.log_size as int;
@@ -1201,7 +1202,7 @@ verus! {
 
         pub exec fn read_incorruptible_boolean<PM: PersistentMemory>(pm: &PM) -> (result: Result<u64, InfiniteLogErr>)
             requires
-                Self::recover(pm@).is_Some(),
+                Self::recover(pm@) is Some,
                 pm.inv(),
                 pm@.len() > contents_offset
             ensures
@@ -1245,7 +1246,7 @@ verus! {
                 permissions_depend_only_on_recovery_view(perm),
                 contents_offset < old(wrpm)@.len(),
                 old(self).inv(&*old(wrpm)),
-                Self::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@) is Some,
                 new_header_bytes@.subrange(header_crc_offset as int, header_crc_offset + 8) =~=
                     spec_crc_bytes(new_header_bytes@.subrange(header_head_offset as int, header_size as int)),
                 new_header_bytes.len() == header_size,
@@ -1255,7 +1256,7 @@ verus! {
                 }
             ensures
                 self.inv(wrpm),
-                Self::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@) is Some,
                 wrpm.constants() == old(wrpm).constants(),
                 match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
@@ -1317,7 +1318,7 @@ verus! {
             wrpm.write(header_pos, new_header_bytes.as_slice(), Tracked(perm));
             proof {
                 // TODO: clean up once ib update is done. put this all in a lemma
-                assert(Self::recover(wrpm@).is_Some());
+                assert(Self::recover(wrpm@) is Some);
                 let (_, headers, _) = pm_to_views(wrpm@);
                 assert(wrpm@.subrange(header_pos as int, header_pos + header_size) =~= new_header_bytes@);
                 lemma_header_correct(wrpm@, new_header_bytes@, header_pos as int);
@@ -1416,7 +1417,7 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemory
             requires
-                Self::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@) is Some,
                 old(wrpm).inv(),
                 old(wrpm)@.len() == device_size,
                 header_crc_offset < header_crc_offset + crc_size <= header_head_offset < header_tail_offset < header_log_size_offset,
@@ -1506,7 +1507,7 @@ verus! {
                 PM: PersistentMemory
             requires
                 old(self).inv(&*old(wrpm)),
-                Self::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@) is Some,
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
@@ -1626,7 +1627,7 @@ verus! {
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
-                Self::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@) is Some,
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
                 // TODO: clean up
                 ({
@@ -1643,7 +1644,7 @@ verus! {
             ensures
                 self.inv(wrpm),
                 wrpm.constants() == old(wrpm).constants(),
-                Self::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@) is Some,
                 match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
@@ -1683,7 +1684,7 @@ verus! {
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
-                Self::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@) is Some,
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
                 ({
                     let physical_head = spec_addr_logical_to_physical(old_header.head as int, old_header.log_size as int);
@@ -1696,7 +1697,7 @@ verus! {
                 }),
             ensures
                 self.inv(wrpm),
-                Self::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@) is Some,
                 wrpm.constants() == old(wrpm).constants(),
                 match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
@@ -1751,7 +1752,7 @@ verus! {
                 PM: PersistentMemory
             requires
                 old(self).inv(&*old(wrpm)),
-                Self::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@) is Some,
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
@@ -1879,7 +1880,7 @@ verus! {
                 PM: PersistentMemory
             requires
                 self.inv(wrpm),
-                Self::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@) is Some,
             ensures
                 ({
                     let log = Self::recover(wrpm@).unwrap();
@@ -1986,7 +1987,7 @@ verus! {
                 PM: PersistentMemory
             requires
                 self.inv(wrpm),
-                Self::recover(wrpm@).is_Some()
+                Self::recover(wrpm@) is Some
             ensures
                 match result {
                     Ok((result_head, result_tail, result_capacity)) =>

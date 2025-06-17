@@ -24,7 +24,7 @@ verus! {
         forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
     }
 
-    pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
+    pub uninterp spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
     pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
         &&& bytes.len() == true_bytes.len() == addrs.len()
@@ -33,7 +33,7 @@ verus! {
 
     pub const crc_size: u64 = 8;
 
-    pub closed spec fn spec_crc_bytes(header_bytes: Seq<u8>) -> Seq<u8>;
+    pub uninterp spec fn spec_crc_bytes(header_bytes: Seq<u8>) -> Seq<u8>;
 
     #[verifier::external_body]
     pub exec fn bytes_crc(header_bytes: &Vec<u8>) -> (out: Vec<u8>)

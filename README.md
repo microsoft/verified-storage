@@ -1,27 +1,33 @@
 # Project
 
-**The OSDI 2025 artifact is located in the `osdi25/` directory. Please see the `osdi25-artifact` branch for the most up-to-date version of the artifact.**
-
-This repository contains code for verified storage systems. The code is
-written in, and its correctness properties are verified with,
+This repository contains code for verified storage systems. Most of the code
+is written in, and its correctness properties are verified with,
 [Verus](https://github.com/verus-lang/verus).
+
+For the artifact associated with our OSDI 2025 paper, "PoWER Never Corrupts:
+Tool-Agnostic Verification of Crash Consistency and Corruption Detection", go
+to the directory `osdi25` in the `osdi25-artifact` branch.
 
 This project contains the following: 
 
-* `osdi25` contains the artifact for our OSDI 2025 paper, "PoWER Never Corrupts: 
-  Tool-Agnostic Verification of Crash Consistency and Corruption Detection". 
-  It contains the verified persistent-memory key-value store CapybaraKV, the 
-  verified notary service CapybaraNS, and instructions how to run/verify these 
-  systems and how to check all associated proofs.
-* `pmemlog` implements an append-only log on persistent memory. The
-  implementation handles crash consistency, ensuring that even if the process
-  or machine crashes, it acts like an append-only log across the crashes. It
-  also handles bit corruption, detecting if metadata read from persistent
-  memory is corrupted.
-* `storage_node` is an in-progress persistent memory key-value store. Its structure 
-  is further described in its [README](storage_node/README.md).
-* `unverified` contains unverified mocks and tests related to the `storage_node` key value store. 
-* `deps_hack` contains unverified dependencies that are imported by `storage_node`.
+* `pmemlog` implements a persistent-memory append-only log. It handles crash
+  consistency, ensuring that even if the process or machine crashes, it acts
+  like an append-only log across the crashes. It also handles bit corruption,
+  detecting if metadata read from persistent memory is corrupted.
+
+* `multilog` is like `pmemlog` except it implements a collection of logs, each
+  in its own region of persistent memory. Its transactional interface allows
+  atomically committing appends across those logs.
+  
+* `capybaraKV` is a persistent-memory key-value store, handling crash
+  consistency and bit corruption.
+
+* `capybaraNS` is a persistent-memory notary service written in Dafny.
+  
+* `unverified` contains unverified mocks and tests.
+
+* `soundness_proofs` contains formalized arguments of soundness for the PoWER
+  specification approach used to prove crash consistency.
 
 ## Contributing
 
