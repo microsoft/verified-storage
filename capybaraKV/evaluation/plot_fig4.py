@@ -11,6 +11,9 @@ workloads = ['Loada', 'Runa', 'Runb', 'Runc', 'Rund', 'Runf', 'Loadx', 'Runx', "
 workload_titles = ['LoadA', 'RunA', 'RunB', 'RunC', 'RunD', 'RunF', 'LoadX', 'RunX', 'RunY', 'RunZ']
 nice_names = {"redis": "pmem-Redis", "pmemrocksdb": "pmem-RocksDB", "viper": "Viper", "capybarakv": "CapybaraKV"}
 
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
+
 def parse_data(fs, runs, result_dir):
     raw_results = {w: {} for w in workloads}
     avg_results = {w: {} for w in workloads}
@@ -63,14 +66,15 @@ def plot_data_single_fig(fs, avg_results, output_file):
     )
     ax.plot(thread_counts, values)
     ax.set_xticks(thread_counts)
-    ax.legend(workload_titles, loc="upper center", ncol=5, bbox_to_anchor=(0.46, 1.6), fontsize="8") #bbox_to_anchor=(1.75, 0.5), ncol=2)
+    leg = ax.legend(workload_titles, loc="upper center", ncol=5, bbox_to_anchor=(0.46, 1.5), fontsize="8") #bbox_to_anchor=(1.75, 0.5), ncol=2)
+    leg.get_frame().set_alpha(0)
     ax.set_xlabel("Thread count")
     ax.set_ylabel("Througput (Mops/s)")
     
 
     fig.set_figwidth(4.5)
     fig.set_figheight(2.6)
-    fig.tight_layout(pad=0)
+    fig.tight_layout(pad=0.5)
     ax.grid(True, zorder=0, axis="y")
     # plt.gca().yscale("log")
     # plt.yscale("log")

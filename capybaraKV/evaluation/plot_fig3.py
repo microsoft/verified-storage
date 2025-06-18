@@ -1,7 +1,7 @@
 #!/bin/python3 
 
 import matplotlib.pyplot as plt
-import matplotlib.pylab as pylab
+import matplotlib
 import csv
 import numpy as np
 import sys
@@ -10,6 +10,9 @@ ycsb_run_names = ["LoadA", "RunA", "RunB", "RunC", "RunD", "LoadE", "RunF", "Loa
 ycsb_runs = {"Loada": [], "Runa": [], "Runb": [], "Runc": [], "Rund": [], "Loade": [], "Runf": [], "Loadx": [], "Runx": []}
 kv_stores = ["redis", "RocksDB", "Viper", "CapybaraKV"]
 legend_names = ["pmem-Redis", "pmem-RocksDB", "Viper", "CapybaraKV"]
+
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 
 def plot_ycsb(ax, ycsb_results_file):
     with open(ycsb_results_file, "r") as f:
@@ -67,6 +70,10 @@ def plot_ycsb(ax, ycsb_results_file):
     normalized_data_capybarakv = [ filesys_grouped_data["CapybaraKV"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["CapybaraKV"]))]
     normalized_data_viper = [ filesys_grouped_data["Viper"][i] / filesys_grouped_data["redis"][i] for i in range(0, len(filesys_grouped_data["Viper"]))]
 
+    print(normalized_data_rocksdb)
+    print(normalized_data_capybarakv)
+    print(normalized_data_viper)
+    print("")
 
     x = np.arange(len(ycsb_run_names))
 
@@ -100,7 +107,7 @@ def autolabel(ax, rects, data):
     for rect in rects:
         throughput = data[i]
         ax.annotate("{}".format(int(round(throughput, 0))),
-            xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()),
+            xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()+0.5),
             rotation=90,
             ha="center", va="bottom",
             fontsize=10
@@ -124,8 +131,8 @@ def plot_ycsb_all(ycsb_results_file_1thread, ycsb_results_file_16thread, output_
 
     fig.set_figwidth(10)
     fig.set_figheight(1.8)
-    # fig.legend(legend_names, ncol=3, loc="upper center", bbox_to_anchor=(0.5,1.2))
-    fig.legend(legend_names, ncol=4, loc="upper center", bbox_to_anchor=(0.5,1.15))
+    leg = fig.legend(legend_names, ncol=4, loc="upper center", bbox_to_anchor=(0.5,1.1))
+    leg.get_frame().set_alpha(0)
     fig.tight_layout(pad=0.75)
     plt.savefig(output_file, format="pdf", bbox_inches="tight")
 
