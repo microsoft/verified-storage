@@ -127,6 +127,16 @@ lemma Lemma_StartHelper4(
                        state[0 .. KEY_PAIR_POS][dataPos + i];
                 assert MaybeCorruptedByte(bytes[dataPos + i], state[0 .. KEY_PAIR_POS][dataPos + i], dataPos + i);
             }
+            forall i: int {:trigger bytes[crcPos .. crcPos + CRC_SIZE][i]}
+                | 0 <= i < CRC_SIZE
+                ensures MaybeCorruptedByte(bytes[crcPos .. crcPos + CRC_SIZE][i],
+                                           state[crcPos .. crcPos + CRC_SIZE][i],
+                                           seq(CRC_SIZE, i => i as int + crcPos)[i])
+            {
+                assert bytes[crcPos .. crcPos + CRC_SIZE][i] == bytes[crcPos + i];
+                assert state[crcPos .. crcPos + CRC_SIZE][i] == state[0 .. KEY_PAIR_POS][crcPos + i];
+                assert MaybeCorruptedByte(bytes[crcPos + i], state[0 .. KEY_PAIR_POS][crcPos + i], crcPos + i);
+            }
             Axiom_BytesUncorrupted(bytes[dataPos .. dataPos + SIZEOF_UINT64 + NOTARIZED_MESSAGE_LENGTH],
                                    state[dataPos .. dataPos + SIZEOF_UINT64 + NOTARIZED_MESSAGE_LENGTH],
                                    seq(SIZEOF_UINT64 + NOTARIZED_MESSAGE_LENGTH, i => i as int + dataPos as int),
