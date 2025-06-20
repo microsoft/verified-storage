@@ -11,26 +11,6 @@ use crate::pmem::pmemutil_v::*;
 
 verus! {
 
-// Computes the maximum value in a sequence of natural numbers.
-pub open spec fn nat_seq_max(seq: Seq<nat>) -> nat 
-    recommends 
-        0 < seq.len(),
-    decreases seq.len()
-{
-    if seq.len() == 1 {
-        seq[0]
-    } else if seq.len() == 0 {
-        0
-    } else {
-        let later_max = nat_seq_max(seq.drop_first());
-        if seq[0] >= later_max {
-            seq[0]
-        } else {
-            later_max
-        }
-    }
-}
-
 // This lemma proves that a subrange of a subrange is equal to just obtaining the final subrange using its 
 // absolute start index. This is obvious and requires no body, but having a dedicated lemma helps
 // Z3 establish the equality

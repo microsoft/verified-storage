@@ -661,7 +661,8 @@ fn max_alignment_of_fields(types: &Vec<syn::Type>) -> (proc_macro2::TokenStream,
     // side code generation will have to include proof code.
     let spec_alignment = quote! {
         let alignment_seq = seq![#(<#types>::spec_align_of(),)*];
-        nat_seq_max(alignment_seq)
+        let max: ::builtin::nat = alignment_seq.max_via(|x: ::builtin::nat, y: ::builtin::nat| x <= y);
+        max
     };
 
     (exec_alignment, spec_alignment)
@@ -689,7 +690,7 @@ fn max_size_of_fields(name: &syn::Ident, types: &Vec<syn::Type>) -> (proc_macro2
 
     let spec_size = quote! {
         let size_seq = seq![#(<#types>::spec_size_of(),)*];
-        let largest_size = nat_seq_max(size_seq);
+        let largest_size = size_seq.max_via(|x: ::builtin::nat, y: ::builtin::nat| x <= y);
         let largest_size = largest_size + spec_padding_needed(largest_size, <#name>::spec_align_of());
         largest_size
     };
