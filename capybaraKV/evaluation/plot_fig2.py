@@ -25,6 +25,9 @@ nice_list_kvstore_names = ["pmem-Redis", "CapybaraKV"]
 list_workloads = ["rand_list_append", "rand_list_len", "rand_list_read", "rand_list_trim",]
 nice_list_workload_names = ["Append", "Len", "Read list", "Trim"]
 
+mpl.rcParams['pdf.fonttype'] = 42
+mpl.rcParams['ps.fonttype'] = 42
+
 def process_workload_file(file_path):
     with open(file_path, 'r') as f:
         return [int(line.strip()) for line in f if line.strip()]
@@ -214,8 +217,9 @@ def plot(results, output_file):
     plot_list_results(axs[1], results)
     plt.tight_layout(pad=1)
 
-    fig.legend(nice_kvstore_names, loc="upper center", fontsize="9", 
-        ncol=4, bbox_to_anchor=(0.5, 1.07))    
+    leg = fig.legend(nice_kvstore_names, loc="upper center", fontsize="9", 
+        ncol=4, bbox_to_anchor=(0.5, 1.1))    
+    leg.get_frame().set_alpha(0)
 
     # Save the plot
     plt.savefig(output_file, bbox_inches="tight")
