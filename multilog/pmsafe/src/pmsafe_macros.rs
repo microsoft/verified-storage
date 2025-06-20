@@ -202,8 +202,9 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     // alignments and find the maximum. If we ever want to prove that the alignment calculation is correct, the exec
     // side code generation will have to include proof code.
     let spec_alignment = quote! {
-        let alignment_seq = seq![#(<#types>::spec_align_of(),)*];
-        nat_seq_max(alignment_seq)
+        let alignment_seq: Seq<::builtin::nat> = seq![#(<#types>::spec_align_of(),)*];
+        let max: ::builtin::nat = alignment_seq.max_via(|x: ::builtin::nat, y: ::builtin::nat| x <= y);
+        max
     };
 
     // This is the name of the constant that will perform the compile-time assertion that the calculated size of the struct
