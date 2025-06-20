@@ -34,9 +34,9 @@ To verify the multilog, run the following.
 ```
 cd deps_hack
 cargo build
-cd ..\pmsafe
+cd ../pmsafe
 cargo build
-cd ..\multilog\src
+cd ../multilog/src
 verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib
 ```
 
