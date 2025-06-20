@@ -1,9 +1,0 @@
-[package]
-name = "system_benchmarking"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-crc64fast = "1.0.0"
-memmap = "0.7.0"
-nix = "0.27.1"

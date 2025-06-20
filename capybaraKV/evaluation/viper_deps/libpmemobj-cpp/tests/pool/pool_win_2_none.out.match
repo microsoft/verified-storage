@@ -1,3 +1,0 @@
-$(nW)testfile: pool::create: Success
-$(nW)testfile: pool.close: Success
-$(nW)testfile: pool.close: Pool already closed
