@@ -1,7 +1,0 @@
-# We have to use 1.82.0 to be compatible with Verus.
-# (We used to need a nightly release to use the
-# unstable feature `new_uninit`, but that's a stable
-# feature in 1.82.0.)
-
-[toolchain]
-channel = "1.82.0"

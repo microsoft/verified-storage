@@ -12,7 +12,7 @@ use vstd::slice::*;
 
 verus! {
 
-    pub open spec fn recovery_view() -> (result: FnSpec(Seq<u8>) -> Option<AbstractInfiniteLogState>)
+    pub open spec fn recovery_view() -> (result: spec_fn(Seq<u8>) -> Option<AbstractInfiniteLogState>)
     {
         |c| UntrustedLogImpl::recover(c)
     }
@@ -38,7 +38,7 @@ verus! {
     /// the constructor `TrustedPermission::new` isn't public.
 
     struct TrustedPermission {
-        ghost is_state_allowable: FnSpec(Seq<u8>) -> bool
+        ghost is_state_allowable: spec_fn(Seq<u8>) -> bool
     }
 
     impl CheckPermission<Seq<u8>> for TrustedPermission {
@@ -48,7 +48,7 @@ verus! {
     }
 
     impl TrustedPermission {
-        proof fn new(cur: Seq<u8>, next: FnSpec(AbstractInfiniteLogState, AbstractInfiniteLogState) -> bool)
+        proof fn new(cur: Seq<u8>, next: spec_fn(AbstractInfiniteLogState, AbstractInfiniteLogState) -> bool)
                      -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
@@ -91,7 +91,7 @@ verus! {
 
         pub closed spec fn valid(self) -> bool {
             &&& self.untrusted_log_impl.inv(&self.wrpm)
-            &&& recovery_view()(self.wrpm@).is_Some()
+            &&& recovery_view()(self.wrpm@) is Some
         }
 
         /// This static function takes a `PersistentMemory` and writes
@@ -124,7 +124,7 @@ verus! {
             requires
                 pm.inv(),
                 pm@.len() == device_size,
-                recovery_view()(pm@).is_Some()
+                recovery_view()(pm@) is Some
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
