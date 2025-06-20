@@ -29,7 +29,7 @@ pub use winapi::um::winnt::{
 #[cfg(target_family = "unix")]
 pub use memmap;
 
-pub use pmsafe::{nat_seq_max, PmSafe, PmSized, pmsized_primitive};
+pub use pmsafe::{PmSafe, PmSized, pmsized_primitive};
 
 #[cfg(all(target_os = "linux", feature = "pmem"))]
 pub mod pmem;
