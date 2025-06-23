@@ -26,8 +26,6 @@ To verify CapybaraKV, run the following. If you don't plan to do line counting a
 ```
 cd deps_hack
 cargo build
-cd ../pmcopy
-cargo build
 cd ../capybarakv/src
 verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib --emit=dep-info
 ```
