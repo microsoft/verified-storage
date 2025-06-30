@@ -630,6 +630,7 @@ verus! {
     /// Proves that an update to the incorruptible boolean is crash-safe and switches the log's
     /// active header. This lemma does most of the work to prove that untrusted_append is
     /// implemented correctly.
+    #[verifier::rlimit(20)]
     pub proof fn lemma_append_ib_update<Perm: CheckPermission<Seq<u8>>>(
         pm: Seq<u8>,
         new_ib: u64,
