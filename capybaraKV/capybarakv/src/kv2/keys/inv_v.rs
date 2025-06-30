@@ -198,7 +198,7 @@ impl<K> KeyMemoryMapping<K>
         }
     }
 
-    pub open spec fn as_recovery_mapping(self) -> KeyRecoveryMapping<K>
+    pub(super) open spec fn as_recovery_mapping(self) -> KeyRecoveryMapping<K>
     {
         KeyRecoveryMapping::<K>{
             row_info: Map::<u64, Option<(K, KeyTableRowMetadata)>>::new(
