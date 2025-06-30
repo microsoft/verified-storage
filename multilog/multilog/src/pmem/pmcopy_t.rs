@@ -226,7 +226,7 @@ verus! {
             // copy bytes from the given slice to the mutable slice of `MaybeUninit<u8>`.
             // This returns a slice of initialized bytes, but it does NOT change the fact that 
             // the original S is still MaybeUninit
-            MaybeUninit::copy_from_slice(self_bytes, bytes);
+            self_bytes.write_copy_of_slice(bytes);
         }
 
 
@@ -243,7 +243,7 @@ verus! {
             let bytes = self.val.as_bytes();
             // SAFETY: even if we haven't initialized the bytes, there are no invalid values of u8, so we can 
             // safely assume that these bytes are initialized (even if the S may not be)
-            unsafe { MaybeUninit::slice_assume_init_ref(bytes) }
+            unsafe { bytes.assume_init_ref() }
         }
 
         // This method assumes that the `MaybeUninit` value of S in self is, in fact, init. 
