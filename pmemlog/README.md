@@ -16,6 +16,6 @@ Install Verus from `https://github.com/verus-lang/verus`.
 To verify the log, run the following.
 
 ```
-cd pmemlog/src
+cd src
 verus lib.rs --crate-type=lib
 ```
