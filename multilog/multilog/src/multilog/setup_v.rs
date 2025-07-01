@@ -16,7 +16,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::size_of;
 use builtin::*;
 use builtin_macros::*;
-use super::util_v::lemma_auto_smaller_range_of_seq_is_subrange;
+use super::util_v::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 

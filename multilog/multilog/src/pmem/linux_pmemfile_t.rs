@@ -88,13 +88,6 @@ impl MemoryMappedFile
     }
 }
 
-#[verifier::external_body]
-pub struct MemoryMappedFileSection {
-    mmf: Rc<RefCell<MemoryMappedFile>>,
-    virt_addr: *mut u8,
-    size: usize,
-}
-
 impl MemoryMappedFileSection
 {
     fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
@@ -129,6 +122,17 @@ impl MemoryMappedFileSection
 }
 
 verus! {
+
+// This struct must be declared in the verus! macro so Verus knows it exists,
+// but its new() fn must live outside the macro because Verus does not currently 
+// support RefCell
+#[verifier::external_body]
+pub struct MemoryMappedFileSection {
+    mmf: Rc<RefCell<MemoryMappedFile>>,
+    virt_addr: *mut u8,
+    size: usize,
+}
+
 
 #[derive(Clone, Copy)]
 pub enum FileOpenBehavior {
