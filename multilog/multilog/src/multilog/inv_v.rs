@@ -15,7 +15,7 @@ use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-use super::util_v::lemma_auto_smaller_range_of_seq_is_subrange;
+use super::util_v::*;
 
 verus! {
 

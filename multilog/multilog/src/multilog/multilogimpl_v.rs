@@ -20,7 +20,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t::size_of;
-use super::util_v::lemma_auto_smaller_range_of_seq_is_subrange;
+use super::util_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;

@@ -9,7 +9,7 @@ edition = "2021"
 builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }
 vstd = { git = "https://github.com/verus-lang/verus.git" }
-deps_hack = { path = "../deps_hack", default-features = false }
+deps_hack = { path = "../deps_hack", default-features = true }
 pmsafe = { path = "../pmsafe" }
 
 [lints.rust]
