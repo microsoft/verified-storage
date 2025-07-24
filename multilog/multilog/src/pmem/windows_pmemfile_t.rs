@@ -3,8 +3,6 @@
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
 
-use builtin::*;
-use builtin_macros::*;
 use crate::pmem::pmemspec_t::{
     copy_from_slice, maybe_corrupted, PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,

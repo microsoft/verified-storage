@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use crate::pmemspec_t::*;
 use std::convert::*;
 use vstd::prelude::*;

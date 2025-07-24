@@ -8,8 +8,6 @@
 */
 
 use crate::sccf::CheckPermission;
-use builtin::*;
-use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::set::*;

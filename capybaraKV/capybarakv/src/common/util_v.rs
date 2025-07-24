@@ -1,6 +1,4 @@
 // This file contains miscellaneous utility functions.
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::set_lib::*;

@@ -21,8 +21,6 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t::size_of;
 use super::util_v::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;

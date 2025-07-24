@@ -5,8 +5,6 @@
 // remains within the bounds of a u64. It maintains a ghost variable to track the true,
 // unbounded value as a mathematical integer, and uses this as its view.
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use crate::common::align_v::{get_space_needed_for_alignment, get_space_needed_for_alignment_usize};
 #[cfg(verus_keep_ghost)]

@@ -44,8 +44,6 @@ use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use deps_hack::rand::Rng;

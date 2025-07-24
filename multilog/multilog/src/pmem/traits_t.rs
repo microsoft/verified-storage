@@ -21,8 +21,6 @@
 //! that the calculated size is correct, which helps us ensure 
 //! that proofs use the correct size for structures. 
 
-use builtin_macros::*;
-use builtin::*;
 use vstd::prelude::*;
 use deps_hack::PmSafe;
 

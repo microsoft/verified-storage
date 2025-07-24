@@ -2,8 +2,6 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::invariant::*;
 use vstd::tokens::frac::*;

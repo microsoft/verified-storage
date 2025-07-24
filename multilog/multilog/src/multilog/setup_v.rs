@@ -14,8 +14,6 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::size_of;
-use builtin::*;
-use builtin_macros::*;
 use super::util_v::*;
 use vstd::bytes::*;
 use vstd::prelude::*;

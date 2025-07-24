@@ -7,8 +7,6 @@
 // then their rows don't overlap.
 
 #![allow(unused_imports)]
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::common::util_v::*;

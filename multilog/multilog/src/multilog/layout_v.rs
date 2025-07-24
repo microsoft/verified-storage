@@ -62,8 +62,6 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
 use super::util_v::*;
-use builtin::*;
-use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;

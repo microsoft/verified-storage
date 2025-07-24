@@ -6,8 +6,6 @@
 */
 
 use crate::pmemspec_t::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set::*;
 

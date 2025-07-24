@@ -1,8 +1,6 @@
 // This file contains utility functions and specifications for memory alignment operations.
 // It includes methods for calculating alignment, reserving space, and ensuring proper alignment for memory operations.
 
-use builtin::*;
-use builtin_macros::*;
 use crate::pmem::pmcopy_t::{pmcopy_axioms, PmCopy};
 use crate::pmem::traits_t::{align_of, size_of};
 use vstd::arithmetic::overflow::CheckedU64;

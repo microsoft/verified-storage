@@ -22,8 +22,6 @@
 //! that proofs use the correct size for structures. 
 
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use builtin_macros::*;
-use builtin::*;
 use vstd::prelude::*;
 use deps_hack::PmCopy;
 

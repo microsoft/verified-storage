@@ -19,8 +19,6 @@ use std::fs::OpenOptions;
 use std::sync::Arc;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use deps_hack::rand::Rng;

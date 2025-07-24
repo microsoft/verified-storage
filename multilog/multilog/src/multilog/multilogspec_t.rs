@@ -37,8 +37,6 @@
 //! explicitly invoked by clients; it's a model of what clients should
 //! consider to have happened during a crash.
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {

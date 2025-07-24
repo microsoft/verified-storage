@@ -4,8 +4,6 @@ use crate::infinitelog_t::*;
 use crate::logimpl_v::*;
 use crate::pmemspec_t::*;
 use crate::sccf::CheckPermission;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set::*;
 use vstd::slice::*;

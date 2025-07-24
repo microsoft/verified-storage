@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmcopy_t::*;
