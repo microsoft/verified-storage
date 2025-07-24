@@ -3,8 +3,6 @@
 // the effects of partial writes on sequences and persistent memory views. It includes several broadcast
 // lemmas and broadcast groups for ease of use.
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set_lib::*;
 use vstd::seq::*;

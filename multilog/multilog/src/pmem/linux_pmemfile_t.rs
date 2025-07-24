@@ -4,8 +4,6 @@ use core::ffi::c_void;
 use core::slice;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use deps_hack::{

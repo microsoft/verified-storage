@@ -8,8 +8,6 @@
 // it's typically used after a crash and restart to restore system state.
 
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use builtin::*;
-use builtin_macros::*;
 use crate::pmem::pmemspec_t::{
     copy_from_slice, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PmemError,

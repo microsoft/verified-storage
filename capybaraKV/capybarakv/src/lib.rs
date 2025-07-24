@@ -9,8 +9,6 @@
 #![allow(dead_code)]
 #![allow(unused_mut)]
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 pub mod common;

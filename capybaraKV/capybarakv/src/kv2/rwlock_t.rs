@@ -1,7 +1,5 @@
 #![allow(unused_imports)]
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 /// This file wraps the standard-library `std::sync::RwLock` to

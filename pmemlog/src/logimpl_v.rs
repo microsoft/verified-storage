@@ -3,8 +3,6 @@ use crate::main_t::*;
 use crate::math_v::*;
 use crate::pmemspec_t::*;
 use crate::sccf::CheckPermission;
-use builtin::*;
-use builtin_macros::*;
 use core::convert::TryInto;
 use std::f32::consts::E;
 use std::fmt::Write;

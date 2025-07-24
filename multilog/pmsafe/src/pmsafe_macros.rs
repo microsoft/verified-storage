@@ -178,7 +178,7 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     let mut spec_tokens_vec = Vec::new();
     for ty in types.iter() {
         let new_tokens = quote! {
-            let offset: ::builtin::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
+            let offset: ::vstd::prelude::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
         };
         spec_tokens_vec.push(new_tokens);
     }
@@ -202,8 +202,8 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     // alignments and find the maximum. If we ever want to prove that the alignment calculation is correct, the exec
     // side code generation will have to include proof code.
     let spec_alignment = quote! {
-        let alignment_seq: Seq<::builtin::nat> = seq![#(<#types>::spec_align_of(),)*];
-        let max: ::builtin::nat = alignment_seq.max_via(|x: ::builtin::nat, y: ::builtin::nat| x <= y);
+        let alignment_seq: Seq<::vstd::prelude::nat> = seq![#(<#types>::spec_align_of(),)*];
+        let max: ::vstd::prelude::nat = alignment_seq.max_via(|x: ::vstd::prelude::nat, y: ::vstd::prelude::nat| x <= y);
         max
     };
 
@@ -215,17 +215,17 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     let align_check = syn::Ident::new(&format!("ALIGN_CHECK_{}", name.to_string().to_uppercase()), name.span());
 
     let gen = quote! {
-        ::builtin_macros::verus!(
+        ::vstd::prelude::verus!(
 
             impl SpecPmSized for #name {
-                open spec fn spec_size_of() -> ::builtin::nat 
+                open spec fn spec_size_of() -> ::vstd::prelude::nat 
                 {
-                    let offset: ::builtin::nat = 0;
+                    let offset: ::vstd::prelude::nat = 0;
                     #( #spec_tokens_vec )*
                     offset
                 }      
 
-                open spec fn spec_align_of() -> ::builtin::nat 
+                open spec fn spec_align_of() -> ::vstd::prelude::nat 
                 {
                     #spec_alignment
                 }
@@ -336,10 +336,10 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
 
     // Primitive types have hardcoded size and alignment values
     let gen = quote!{
-        ::builtin_macros::verus!(
+        ::vstd::prelude::verus!(
             impl SpecPmSized for #ty {
-                open spec fn spec_size_of() -> ::builtin::nat { #size as ::builtin::nat }
-                open spec fn spec_align_of() -> ::builtin::nat { #align as ::builtin::nat }
+                open spec fn spec_size_of() -> ::vstd::prelude::nat { #size as ::vstd::prelude::nat }
+                open spec fn spec_align_of() -> ::vstd::prelude::nat { #align as ::vstd::prelude::nat }
             }
         );
 

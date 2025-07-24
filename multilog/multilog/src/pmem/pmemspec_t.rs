@@ -33,8 +33,6 @@
 //! as showing evidence of an absence of corruption.
 
 use crate::pmem::pmcopy_t::*;
-use builtin::*;
-use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;

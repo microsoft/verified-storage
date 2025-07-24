@@ -24,8 +24,6 @@
 //! axioms for dealing with such structures.
 
 use crate::pmem::pmemspec_t::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::bytes;
 use vstd::bytes::*;
 use vstd::prelude::*;

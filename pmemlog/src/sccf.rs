@@ -2,8 +2,6 @@
   Simple crash-consistency framework (open source)
 */
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {

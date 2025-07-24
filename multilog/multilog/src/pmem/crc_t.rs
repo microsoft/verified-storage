@@ -1,7 +1,5 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 

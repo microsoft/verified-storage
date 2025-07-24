@@ -45,8 +45,6 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::hamming_t::*;
-use builtin::*;
-use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;

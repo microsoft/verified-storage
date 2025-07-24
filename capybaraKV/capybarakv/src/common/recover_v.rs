@@ -1,8 +1,6 @@
 // This file provides functions for recovering objects, corruption-detecting Booleans (CDB), and byte sequences from persistent memory regions.
 // It includes both specification and executable functions for recovery operations with CRC validation.
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set_lib::*;
 use vstd::seq::*;

@@ -3,8 +3,6 @@
 #![feature(maybe_uninit_write_slice)]
 #![allow(unused_imports)]
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 

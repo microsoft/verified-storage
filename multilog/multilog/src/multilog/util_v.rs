@@ -2,8 +2,6 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {

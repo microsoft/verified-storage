@@ -4,8 +4,6 @@
 
 #![allow(unused_imports)]
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::pmem::pmemspec_t::*;

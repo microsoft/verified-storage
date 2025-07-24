@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use crate::common::align_v::*;
 use crate::common::recover_v::*;

@@ -3,8 +3,6 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::power_t::*;
 use crate::pmem::crc_t::*;
-use builtin::*;
-use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::invariant::*;

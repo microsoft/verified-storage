@@ -11,8 +11,6 @@ use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::PersistentMemoryRegionsView;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {

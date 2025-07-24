@@ -6,8 +6,6 @@
 //! of the system's correctness.
 //!
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_v::LogInfo;

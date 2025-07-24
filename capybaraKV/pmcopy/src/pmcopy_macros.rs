@@ -114,14 +114,14 @@ fn generate_pmsized_for_fieldless_enum(
     let gen = quote! {
         verus!{
             impl SpecPmSized for #name {
-                open spec fn spec_size_of() -> ::builtin::nat
+                open spec fn spec_size_of() -> ::vstd::prelude::nat
                 { 
-                    #C_ABI_ENUM_SIZE as ::builtin::nat
+                    #C_ABI_ENUM_SIZE as ::vstd::prelude::nat
                 }
 
-                open spec fn spec_align_of() -> ::builtin::nat
+                open spec fn spec_align_of() -> ::vstd::prelude::nat
                 {
-                    #C_ABI_ENUM_ALIGN as ::builtin::nat
+                    #C_ABI_ENUM_ALIGN as ::vstd::prelude::nat
                 }
             }
         }
@@ -175,8 +175,8 @@ fn generate_pmsized_for_enums_with_fields(
                         struct #struct_name {}
 
                         impl SpecPmSized for #struct_name {
-                            open spec fn spec_size_of() -> ::builtin::nat { #ZST_SIZE as ::builtin::nat }
-                            open spec fn spec_align_of() -> ::builtin::nat { #ZST_ALIGN as ::builtin::nat }
+                            open spec fn spec_size_of() -> ::vstd::prelude::nat { #ZST_SIZE as ::vstd::prelude::nat }
+                            open spec fn spec_align_of() -> ::vstd::prelude::nat { #ZST_ALIGN as ::vstd::prelude::nat }
                         }
                     }
 
@@ -309,12 +309,12 @@ fn generate_pmsized_for_enums_with_fields(
     let enum_impls = quote! {
         verus!{
             impl SpecPmSized for #name {
-                open spec fn spec_size_of() -> ::builtin::nat 
+                open spec fn spec_size_of() -> ::vstd::prelude::nat 
                 {
                     #final_struct_name::spec_size_of()
                 }
 
-                open spec fn spec_align_of() -> ::builtin::nat 
+                open spec fn spec_align_of() -> ::vstd::prelude::nat 
                 {
                     #final_struct_name::spec_align_of()
                 }
@@ -661,7 +661,7 @@ fn max_alignment_of_fields(types: &Vec<syn::Type>) -> (proc_macro2::TokenStream,
     // side code generation will have to include proof code.
     let spec_alignment = quote! {
         let alignment_seq = seq![#(<#types>::spec_align_of(),)*];
-        let max: ::builtin::nat = alignment_seq.max_via(|x: ::builtin::nat, y: ::builtin::nat| x <= y);
+        let max: ::vstd::prelude::nat = alignment_seq.max_via(|x: ::vstd::prelude::nat, y: ::vstd::prelude::nat| x <= y);
         max
     };
 
@@ -690,7 +690,7 @@ fn max_size_of_fields(name: &syn::Ident, types: &Vec<syn::Type>) -> (proc_macro2
 
     let spec_size = quote! {
         let size_seq = seq![#(<#types>::spec_size_of(),)*];
-        let largest_size = size_seq.max_via(|x: ::builtin::nat, y: ::builtin::nat| x <= y);
+        let largest_size = size_seq.max_via(|x: ::vstd::prelude::nat, y: ::vstd::prelude::nat| x <= y);
         let largest_size = largest_size + spec_padding_needed(largest_size, <#name>::spec_align_of());
         largest_size
     };
@@ -714,7 +714,7 @@ fn spec_struct_size(types: &Vec<syn::Type>) -> Vec<proc_macro2::TokenStream> {
     let mut spec_tokens_vec = Vec::new();
     for ty in types.iter() {
         let new_tokens = quote! {
-            let offset: ::builtin::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
+            let offset: ::vstd::prelude::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
         };
         spec_tokens_vec.push(new_tokens);
     }
@@ -754,7 +754,7 @@ pub fn generate_pmsized_for_structs(name: &syn::Ident, types: &Vec<syn::Type>) -
     // spec functions to obtain the size, alignment, and padding needed. 
     let mut spec_tokens_vec = spec_struct_size(types);
     let final_token = quote! {
-        let offset: ::builtin::nat = offset + spec_padding_needed(offset, <#name>::spec_align_of());
+        let offset: ::vstd::prelude::nat = offset + spec_padding_needed(offset, <#name>::spec_align_of());
     };
     spec_tokens_vec.push(final_token);
 
@@ -766,14 +766,14 @@ pub fn generate_pmsized_for_structs(name: &syn::Ident, types: &Vec<syn::Type>) -
         verus!{
 
             impl SpecPmSized for #name {
-                open spec fn spec_size_of() -> ::builtin::nat 
+                open spec fn spec_size_of() -> ::vstd::prelude::nat 
                 {
-                    let offset: ::builtin::nat = 0;
+                    let offset: ::vstd::prelude::nat = 0;
                     #( #spec_tokens_vec )*
                     offset
                 }      
 
-                open spec fn spec_align_of() -> ::builtin::nat 
+                open spec fn spec_align_of() -> ::vstd::prelude::nat 
                 {
                     #spec_alignment
                 }
@@ -829,12 +829,12 @@ fn generate_pmsized_for_unions(
     let gen = quote! {
         verus!{
             impl SpecPmSized for #name {
-                open spec fn spec_size_of() -> ::builtin::nat
+                open spec fn spec_size_of() -> ::vstd::prelude::nat
                 {
                     #spec_size
                 }
 
-                open spec fn spec_align_of() -> ::builtin::nat 
+                open spec fn spec_align_of() -> ::vstd::prelude::nat 
                 {
                     #spec_alignment
                 }
@@ -1224,8 +1224,8 @@ pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
     let gen = quote!{
         verus!{
             impl SpecPmSized for #ty {
-                open spec fn spec_size_of() -> ::builtin::nat { #size as ::builtin::nat }
-                open spec fn spec_align_of() -> ::builtin::nat { #align as ::builtin::nat }
+                open spec fn spec_size_of() -> ::vstd::prelude::nat { #size as ::vstd::prelude::nat }
+                open spec fn spec_align_of() -> ::vstd::prelude::nat { #align as ::vstd::prelude::nat }
             }
 
             impl CloneProof for #ty {
