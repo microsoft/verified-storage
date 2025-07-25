@@ -191,6 +191,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
         MaybeCorruptedBytes<S>,
         PmemError,
     >) where S: PmCopy {
+        let addr = addr + self.section.offset;
         let mut mmf_borrowed = self.section.mmf.borrow_mut();
         let pm_slice: &[u8] = &mmf_borrowed.mmap[addr as usize..addr as usize + S::size_of()];
 
@@ -211,6 +212,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
 
     #[verifier::external_body]
     fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) {
+        let addr = addr + self.section.offset;
         let mut mmf_borrowed = self.section.mmf.borrow_mut();
         let pm_slice: &[u8] = &mmf_borrowed.mmap[addr as usize..(addr + num_bytes) as usize];
 
@@ -222,6 +224,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
 
     #[verifier::external_body]
     fn write(&mut self, addr: u64, bytes: &[u8]) {
+        let addr = addr + self.section.offset;
         let mut mmf_borrowed = self.section.mmf.borrow_mut();
         mmf_borrowed.mmap[addr as usize..addr as usize + bytes.len()].copy_from_slice(bytes);
     }
@@ -229,6 +232,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
     #[verifier::external_body]
     #[allow(unused_variables)]
     fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S) where S: PmCopy + Sized {
+        let addr = addr + self.section.offset;
         let num_bytes: usize = S::size_of() as usize;
 
         // convert the given &S to a pointer, then a slice of bytes
