@@ -17,6 +17,8 @@ use crate::multilog::multilogspec_t::*;
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
+#[cfg(target_os = "macos")]
+use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -124,6 +126,11 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
         &file_name,
         region_sizes.as_slice(),
         PersistentMemoryCheck::DontCheckForPersistentMemory,
+    ).ok()?;
+    #[cfg(target_os = "macos")]
+    let mut pm_regions = FileBackedPersistentMemoryRegions::new(
+        &file_name,
+        region_sizes.as_slice(),
     ).ok()?;
 
     // Set up the memory regions to contain a multilog. The capacities will be less

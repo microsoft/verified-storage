@@ -2,6 +2,8 @@
 pub mod linux_pmemfile_t;
 #[cfg(target_os = "windows")]
 pub mod windows_pmemfile_t;
+#[cfg(target_family = "unix")]
+pub mod mmap_pmemfile_t;
 pub mod pmemmock_t;
 pub mod pmemspec_t;
 pub mod pmemutil_v;

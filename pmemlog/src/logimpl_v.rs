@@ -6,7 +6,7 @@ use crate::sccf::CheckPermission;
 use core::convert::TryInto;
 use std::f32::consts::E;
 use std::fmt::Write;
-use vstd::arithmetic::div_mod::lemma_mod_division_less_than_divisor;
+use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::seq::*;

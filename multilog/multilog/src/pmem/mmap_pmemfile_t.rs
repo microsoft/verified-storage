@@ -3,25 +3,23 @@
 // MacOSX does not support PMDK, so we simply support mmap-based
 // memory-mapped files, for development purposes.
 //
-// This file implements the `FileBackedPersistentMemoryRegion` type, which
+// This file implements the `FileBackedPersistentMemoryRegions` type, which
 // simulates a persistent memory region backed by a file. The type implements the
-// `PersistentMemoryRegion` trait, allowing operations like reading, writing, and flushing.
+// `PersistentMemoryRegions` trait, allowing operations like reading, writing, and flushing.
 // Besides that, it also implements static functions `new` and `restore`. `new` creates
 // a new file with unknown contents; `restore` opens an existing file, so named because
 // it's typically used after a crash and restart to restore system state.
 
-use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmcopy_t::*;
 use core::ffi::c_void;
 use core::slice;
-use deps_hack::memmap::MmapMut;
-use std::fs::OpenOptions;
-use std::sync::Arc;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
-use vstd::prelude::*;
+use deps_hack::memmap::MmapMut;
+use std::fs::OpenOptions;
 
-use deps_hack::rand::Rng;
+use vstd::prelude::*;
 
 pub struct MemoryMappedFile {
     mmap: MmapMut,
@@ -34,7 +32,7 @@ impl MemoryMappedFile {
         size: usize,
         file_open_behavior: FileOpenBehavior,
     ) -> Result<Self, PmemError> {
-        let mut file;
+        let file;
         match file_open_behavior {
             FileOpenBehavior::CreateNew => {
                 file = match OpenOptions::new()
@@ -116,7 +114,7 @@ impl MemoryMappedFileSection {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub enum FileOpenBehavior {
     CreateNew,
     OpenExisting,
@@ -132,7 +130,7 @@ impl FileBackedPersistentMemoryRegion {
         Result<Self, PmemError>)
         ensures
             match result {
-                Ok(region) => region.inv() && region@.valid() && region@.len() == region_size,
+                Ok(region) => region.inv() && region@.len() == region_size,
                 Err(_) => true,
             },
     {
@@ -145,7 +143,7 @@ impl FileBackedPersistentMemoryRegion {
     pub fn new(path: &str, region_size: u64) -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(region) => region.inv() && region@.valid() && region@.len() == region_size,
+                Ok(region) => region.inv() && region@.len() == region_size,
                 Err(_) => true,
             },
     {
@@ -155,7 +153,7 @@ impl FileBackedPersistentMemoryRegion {
     pub fn restore(path: &str, region_size: u64) -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(region) => region.inv() && region@.valid() && region@.len() == region_size,
+                Ok(region) => region.inv() && region@.len() == region_size,
                 Err(_) => true,
             },
     {
@@ -173,13 +171,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
 
     uninterp spec fn constants(&self) -> PersistentMemoryConstants;
 
-    closed spec fn inv(&self) -> bool {
-        self.constants().valid()
-    }
-
-    #[verifier::external_body]
-    proof fn lemma_inv_implies_view_valid(&self) {
-    }
+    uninterp spec fn inv(&self) -> bool;
 
     #[verifier::external_body]
     fn get_region_size(&self) -> u64 {
@@ -192,11 +184,11 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
         PmemError,
     >) where S: PmCopy {
         let addr = addr + self.section.offset;
-        let mut mmf_borrowed = self.section.mmf.borrow_mut();
+        let mmf_borrowed = self.section.mmf.borrow_mut();
         let pm_slice: &[u8] = &mmf_borrowed.mmap[addr as usize..addr as usize + S::size_of()];
 
         let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
-        let ghost true_bytes = self@.read_state.subrange(addr as int, addr + S::spec_size_of());
+        let ghost true_bytes = self@.committed().subrange(addr as int, addr + S::spec_size_of());
         let ghost true_val = S::spec_from_bytes(true_bytes);
         let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
 
@@ -204,7 +196,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
             pm_slice,
             Ghost(true_val),
             Ghost(addrs),
-            Ghost(self.constants()),
+            Ghost(self.constants().impervious_to_corruption),
         );
 
         Ok(maybe_corrupted_val)
@@ -213,7 +205,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
     #[verifier::external_body]
     fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) {
         let addr = addr + self.section.offset;
-        let mut mmf_borrowed = self.section.mmf.borrow_mut();
+        let mmf_borrowed = self.section.mmf.borrow_mut();
         let pm_slice: &[u8] = &mmf_borrowed.mmap[addr as usize..(addr + num_bytes) as usize];
 
         // Allocate an unaligned buffer to copy the bytes into
@@ -245,7 +237,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
 
     #[verifier::external_body]
     fn flush(&mut self) {
-        let mut mmf_borrowed = self.section.mmf.borrow_mut();
+        let mmf_borrowed = self.section.mmf.borrow_mut();
         match mmf_borrowed.mmap.flush() {
             Ok(_) => (),
             Err(e) => {
@@ -255,4 +247,136 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion {
     }
 }
 
-} // verus!
+pub struct FileBackedPersistentMemoryRegions {
+    regions: Vec<FileBackedPersistentMemoryRegion>,
+}
+
+impl FileBackedPersistentMemoryRegions {
+    // TODO: detailed information for error returns
+    #[verifier::external_body]
+    #[allow(dead_code)]
+    pub fn new_internal(path: &str, region_sizes: &[u64], open_behavior: FileOpenBehavior) 
+            -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(regions) => {
+                    &&& regions.inv()
+                    &&& regions@.no_outstanding_writes()
+                    &&& regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < regions@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
+                },
+                Err(_) => true,
+            }
+    {
+        let mut total_size: usize = 0;
+        for &region_size in region_sizes {
+            let region_size = region_size as usize;
+            if region_size >= usize::MAX - total_size {
+                return Err(PmemError::AccessOutOfRange);
+            }
+            total_size += region_size;
+        }
+        let mmf = MemoryMappedFile::from_file(
+            path,
+            total_size,
+            open_behavior
+        )?;
+        let mmf = Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
+        let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
+        for &region_size in region_sizes {
+            let region_size: usize = region_size as usize;
+            let section = MemoryMappedFileSection::new(mmf.clone(), region_size)?;
+            let region = FileBackedPersistentMemoryRegion::new_from_section(section);
+            regions.push(region);
+        }
+        Ok(Self { regions })
+    }
+    
+    pub fn new(path: &str, region_sizes: &[u64])
+               -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(regions) => {
+                    &&& regions.inv()
+                    &&& regions@.no_outstanding_writes()
+                    &&& regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < regions@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
+                },
+                Err(_) => true,
+            }
+    {
+        Self::new_internal(path, region_sizes, FileOpenBehavior::CreateNew)
+    }
+    
+    pub fn restore(path: &str, region_sizes: &[u64])
+                   -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(regions) => {
+                    &&& regions.inv()
+                    &&& regions@.no_outstanding_writes()
+                    &&& regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < regions@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
+                },
+                Err(_) => true,
+            }
+    {
+        Self::new_internal(path, region_sizes, FileOpenBehavior::OpenExisting)
+    }
+}
+
+impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
+    uninterp spec fn view(&self) -> PersistentMemoryRegionsView;
+    uninterp spec fn inv(&self) -> bool;
+    uninterp spec fn constants(&self) -> PersistentMemoryConstants;
+
+    #[verifier::external_body]
+    fn get_num_regions(&self) -> usize
+    {
+        self.regions.len()
+    }
+
+    #[verifier::external_body]
+    fn get_region_size(&self, index: usize) -> u64
+    {
+        self.regions[index].get_region_size()
+    }
+
+    #[verifier::external_body]
+    fn read_aligned<S>(&self, index: usize, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
+        where
+            S: PmCopy
+    {
+        self.regions[index].read_aligned::<S>(addr)
+    }
+
+    #[verifier::external_body]
+    fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
+    {
+        self.regions[index].read_unaligned(addr, num_bytes)
+    }
+
+    #[verifier::external_body]
+    fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
+    {
+        self.regions[index].write(addr, bytes)
+    }
+
+    #[verifier::external_body]
+    fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
+        where
+            S: PmCopy + Sized
+    {
+        self.regions[index].serialize_and_write(addr, to_write);
+    }
+
+    #[verifier::external_body]
+    fn flush(&mut self)
+    {
+        for region in &mut self.regions {
+            region.flush();
+        }
+    }
+}
+
+}
