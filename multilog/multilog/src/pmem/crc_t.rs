@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use vstd::bytes::*;

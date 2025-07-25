@@ -5,6 +5,8 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+#![allow(unused_variables)]
+
 use crate::multilog::append_v::*;
 use crate::multilog::inv_v::*;
 use crate::multilog::layout_v::*;

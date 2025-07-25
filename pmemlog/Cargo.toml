@@ -10,3 +10,6 @@ builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 crc64fast = "1.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }

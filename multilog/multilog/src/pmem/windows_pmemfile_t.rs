@@ -3,8 +3,10 @@
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
 
+#![allow(dead_code)]
+
 use crate::pmem::pmemspec_t::{
-    copy_from_slice, maybe_corrupted, PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
+    copy_from_slice, PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
     PmemError,
 };
@@ -170,7 +172,6 @@ impl Drop for MemoryMappedFile {
 // It contains a reference to the `MemoryMappedFile` it's a section of so that the
 // `MemoryMappedFile` isn't dropped until this `MemoryMappedFileSection1 is dropped.
 
-#[verifier::external_body]
 pub struct MemoryMappedFileSection {
     mmf: Rc<RefCell<MemoryMappedFile>>,     // the memory-mapped file this is a section of
     media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
@@ -336,7 +337,7 @@ impl FileBackedPersistentMemoryRegion
                     slice@ == self@.committed().subrange(addr as int, addr + len)
                 } else {
                     let addrs = Seq::new(len as nat, |i: int| addr + i);
-                    maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
+                    crate::pmem::pmemspec_t::maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
                 }
                 _ => false
             }
