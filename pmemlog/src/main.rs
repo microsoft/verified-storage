@@ -1,4 +1,5 @@
 #![allow(unused_imports)]
+#![allow(unused_variables)]
 use vstd::prelude::*;
 use vstd::slice::*;
 

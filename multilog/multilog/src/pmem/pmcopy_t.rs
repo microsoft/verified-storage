@@ -23,6 +23,8 @@
 //! a type is safe to copy from PM and defines some methods and 
 //! axioms for dealing with such structures.
 
+#![allow(unused_braces)]
+
 use crate::pmem::pmemspec_t::*;
 use vstd::bytes;
 use vstd::bytes::*;
@@ -220,7 +222,7 @@ verus! {
         ) 
         {
             // convert the MaybeUninit<S> to a mutable slice of `MaybeUninit<u8>`
-            let mut self_bytes = self.val.as_bytes_mut();
+            let self_bytes = self.val.as_bytes_mut();
             // copy bytes from the given slice to the mutable slice of `MaybeUninit<u8>`.
             // This returns a slice of initialized bytes, but it does NOT change the fact that 
             // the original S is still MaybeUninit
