@@ -168,15 +168,20 @@ impl Drop for MemoryMappedFile {
     }
 }
 
+verus! {
+
 // The `MemoryMappedFileSection` struct represents a section of a memory-mapped file.
 // It contains a reference to the `MemoryMappedFile` it's a section of so that the
 // `MemoryMappedFile` isn't dropped until this `MemoryMappedFileSection1 is dropped.
 
+#[verifier::external_body]
 pub struct MemoryMappedFileSection {
     mmf: Rc<RefCell<MemoryMappedFile>>,     // the memory-mapped file this is a section of
     media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
     size: usize,                            // number of bytes in the section
     h_map_addr: HANDLE,                     // address of the first byte of the section
+}
+
 }
 
 impl MemoryMappedFileSection {
