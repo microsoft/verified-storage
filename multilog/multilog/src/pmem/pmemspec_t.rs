@@ -55,7 +55,7 @@ verus! {
             out@ == bytes@
     {
         let mut buffer = vec![0; bytes.len()];
-        let mut buffer_slice = buffer.as_mut_slice();
+        let buffer_slice = buffer.as_mut_slice();
         buffer_slice.copy_from_slice(bytes);
         buffer
     }

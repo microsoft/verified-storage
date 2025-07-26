@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(non_upper_case_globals)]
+#![allow(unused_variables)]
+
 use crate::infinitelog_t::*;
 use crate::main_t::*;
 use crate::math_v::*;
