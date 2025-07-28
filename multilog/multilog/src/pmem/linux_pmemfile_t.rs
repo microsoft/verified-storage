@@ -124,6 +124,7 @@ verus! {
 // This struct must be declared in the verus! macro so Verus knows it exists,
 // but its new() fn must live outside the macro because Verus does not currently 
 // support RefCell
+#[allow(dead_code)]
 #[verifier::external_body]
 pub struct MemoryMappedFileSection {
     mmf: Rc<RefCell<MemoryMappedFile>>,
