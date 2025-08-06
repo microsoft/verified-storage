@@ -13,8 +13,7 @@ Install Verus from `https://github.com/verus-lang/verus`.
 
 ### Verification
 
-To verify the log, run the following.
-
+To verify the log, `cd` to the `pmemlog/` directory and run the following.
 ```
 cd src
 cargo verus verify
