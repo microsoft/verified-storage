@@ -22,15 +22,16 @@ repo in the `osdi25-artifact` branch.
 
 ### Verification
 
-To verify CapybaraKV, make sure Verus (usually at `verus/source/target-verus/release`) is in your path and run one of the following, depending on your setup:
-1. If you are using MacOS, Windows, or Linux/WSL with the dependencies from Setup Step 3 installed, run `cargo verus verify`.
-2. Otherwise (i.e., Linux/WSL without PM dependencies), run `cargo verus verify --no-default-features`.
+To verify CapybaraKV:
+1. Make sure Verus (usually at `verus/source/target-verus/release`) is in your `PATH`.
+2. From the top-level directory of this repository, `cd` to `capybaraKV/capybarakv`.
+3. Run one of the following commands depending on your setup:
+    1. If you are using MacOS, Windows, or Linux/WSL with the dependencies from Setup Step 3 installed, run `cargo verus verify`.
+    2. Otherwise (i.e., Linux/WSL without PM dependencies), run `cargo verus verify --no-default-features`.
 
 ### Compiling for execution
 
-If you are using Linux/WSL with the dependencies from Setup Step 3, MacOS, or Windows: build with `cargo build`.
-
-Otherwise: build with `cargo build --no-default-features`.
+From the top-level directory of this repository, `cd` to `capybaraKV/capybarakv`. If you are using Linux/WSL with the dependencies from Setup Step 3, MacOS, or Windows: build with `cargo build`. Otherwise: build with `cargo build --no-default-features`.
 
 ### Computing code size
 

@@ -31,9 +31,12 @@ have gotten corrupted on that memory.
 
 ### Verification
 
-To verify the multilog, make sure Verus (usually at `verus/source/target-verus/release`) is in your path and run one of the following, depending on your setup:
-1. If you are using  Linux/WSL with the dependencies from Setup Step 2 installed, MacOS, or Windows: run `cargo verus verify`.
-2. Otherwise (i.e., Linux/WSL without PM dependencies): run `cargo verus verify --no-default-features`.
+To verify the multilog:
+1. Make sure Verus (usually at `verus/source/target-verus/release`) is in your `PATH`.
+2. From the top-level directory of this repository, `cd` to `multilog/multilog`.
+3. Run one of the following commands depending on your setup:
+    1. If you are using  Linux/WSL with the dependencies from Setup Step 2 installed, MacOS, or Windows: run `cargo verus verify`.
+    2. Otherwise (i.e., Linux/WSL without PM dependencies): run `cargo verus verify --no-default-features`.
 
 Note that the `--compile` flag above is necessary to perform some non-Verus compile time checks that are part of the verification process. 
 Specifically, it checks compile-time assertions, which help check that we use the correct size for structures in proofs, are run by the Rust compiler, not by Verus.
