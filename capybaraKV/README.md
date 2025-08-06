@@ -23,12 +23,14 @@ repo in the `osdi25-artifact` branch.
 ### Verification
 
 To verify CapybaraKV, make sure Verus (usually at `verus/source/target-verus/release`) is in your path and run one of the following, depending on your setup:
-1. If you are on Linux/WSL and installed the optional dependencies in step 3 above, run: `cargo verus verify`
-2. Otherwise, run: `cargo verus verify --no-default-features`
+1. If you are using MacOS, Windows, or Linux/WSL with the dependencies from Setup Step 3 installed, run `cargo verus verify`.
+2. Otherwise (i.e., Linux/WSL without PM dependencies), run `cargo verus verify --no-default-features`.
 
 ### Compiling for execution
 
-CapybaraKV can be built using `cargo build --no-default-features`. Exclude `--no-default-features` if you installed the dependencies in Setup Step 3 and would like to use real/emulated PM.
+If you are using Linux/WSL with the dependencies from Setup Step 3, MacOS, or Windows: build with `cargo build`.
+
+Otherwise: build with `cargo build --no-default-features`.
 
 ### Computing code size
 
@@ -37,7 +39,7 @@ We provide a python script, `count_capybarakv_lines.py`, that uses this tool to 
 The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed in the setup instructions above) to count the lines of code in the `pmcopy` crate, which is implemented in regular Rust.
 
 To use the script, run the following commands. These differ from the standard verification instructions because `cargo verus` does not currently support the required options.
-1. `cd deps_hack` and run `cargo build --no-default-features`. Omit `--no-default-features` if you installed the dependencies in Setup Step 3. 
+1. `cd deps_hack` and run `cargo build`. Include `--no-default-features` if on Linux/WSL without PM dependencies installed.
 2. Run the following:
     ```bash
     cd ../capybarakv/src
