@@ -17,5 +17,5 @@ To verify the log, run the following.
 
 ```
 cd src
-verus lib.rs --crate-type=lib
+cargo verus verify
 ```
