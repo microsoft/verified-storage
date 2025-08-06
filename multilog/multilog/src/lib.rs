@@ -13,11 +13,11 @@ use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
 use crate::multilog::multilogspec_t::*;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "pmem"))]
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
-#[cfg(target_os = "macos")]
+#[cfg(target_family = "unix")]
 use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -121,13 +121,13 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
         region_sizes.as_slice(),
         FileCloseBehavior::TestingSoDeleteOnClose
     ).ok()?;
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "pmem"))]
     let mut pm_regions = FileBackedPersistentMemoryRegions::new(
         &file_name,
         region_sizes.as_slice(),
         PersistentMemoryCheck::DontCheckForPersistentMemory,
     ).ok()?;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", not(feature = "pmem")))]
     let mut pm_regions = FileBackedPersistentMemoryRegions::new(
         &file_name,
         region_sizes.as_slice(),

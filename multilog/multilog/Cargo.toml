@@ -3,13 +3,24 @@ name = "multilog"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+## The "pmem" feature enables actual persistent memory libraries, such as
+## PMDK on Linux.  Not enabling this feature is helpful when testing with
+## memory-mapped files that are not backed by PMDK.  This feature enables
+## the "pmem" feature in deps_hack, which links in PMDK.
+pmem = [ "deps_hack/pmem" ]
+
+## The "pmem" feature is enabled by default, but can be disabled; e.g.,
+## to run tests without PMDK, run `cargo test --no-default-features`.
+default = [ "pmem" ]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
 builtin = { git = "https://github.com/verus-lang/verus.git" }
 vstd = { git = "https://github.com/verus-lang/verus.git" }
-deps_hack = { path = "../deps_hack", default-features = true }
+deps_hack = { path = "../deps_hack", default-features = false }
 pmsafe = { path = "../pmsafe" }
 
 [lints.rust]
