@@ -235,7 +235,7 @@ where
                Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
     }
 
-    pub(super) proof fn lemma_prepare_for_key_table_update(&self) -> (result: Self)
+    pub(super) proof fn lemma_prepare_for_key_table_update(self) -> (result: Self)
         requires
             self.inv(),
             self.status@ is ComponentsDontCorrespond,
@@ -281,7 +281,7 @@ where
             assert(Self::recover(s2) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
 
-        *self
+        self
     }
 
     pub(super) proof fn lemma_reflect_key_table_update(self, old_self: Self)
@@ -319,7 +319,7 @@ where
         self.lemma_recover_static_metadata_depends_only_on_my_area(old_self.journal@, self.journal@);
     }
 
-    pub(super) proof fn lemma_prepare_for_item_table_update(&self) -> (result: Self)
+    pub(super) proof fn lemma_prepare_for_item_table_update(self) -> (result: Self)
         requires
             self.inv(),
             self.status@ is ComponentsDontCorrespond,
@@ -367,7 +367,7 @@ where
             assert(Self::recover(s2) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
 
-        *self
+        self
     }
 
     pub(super) proof fn lemma_reflect_item_table_update(self, old_self: Self)
@@ -405,7 +405,7 @@ where
         self.lemma_recover_static_metadata_depends_only_on_my_area(old_self.journal@, self.journal@);
     }
 
-    pub(super) proof fn lemma_prepare_for_list_table_update(&self) -> (result: Self)
+    pub(super) proof fn lemma_prepare_for_list_table_update(self) -> (result: Self)
         requires
             self.inv(),
             self.status@ is ComponentsDontCorrespond,
@@ -453,7 +453,7 @@ where
             assert(Self::recover(s2) =~= Some(RecoveredKvStore::<K, I, L>{ ps: self@.ps, kv: self@.durable }));
         }
 
-        *self
+        self
     }
 
     pub(super) proof fn lemma_reflect_list_table_update(self, old_self: Self)
