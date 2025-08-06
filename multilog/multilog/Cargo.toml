@@ -17,8 +17,8 @@ default = [ "pmem" ]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
-builtin = { git = "https://github.com/verus-lang/verus.git" }
+verus_builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
+verus_builtin = { git = "https://github.com/verus-lang/verus.git" }
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 deps_hack = { path = "../deps_hack", default-features = false }
 pmsafe = { path = "../pmsafe" }
