@@ -71,8 +71,6 @@ def count_lines(line_count_file):
 
 def count_pmcopy_lines(pmcopy_directory):
     # pmcopy is in a separate crate so we'll handle it separately
-    # TODO: tokei install instructions or use a different tool
-    # TODO: change name of the crate
     output = subprocess.check_output(["tokei", pmcopy_directory, "--output", "json"])
     output_dict = json.loads(output)
     return output_dict["Rust"]["code"]
