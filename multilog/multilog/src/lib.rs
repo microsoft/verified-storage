@@ -17,7 +17,7 @@ use crate::multilog::multilogspec_t::*;
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
 use crate::pmem::windows_pmemfile_t::*;
-#[cfg(target_family = "unix")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", not(feature = "pmem"))))]
 use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
