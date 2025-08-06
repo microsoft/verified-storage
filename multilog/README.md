@@ -25,18 +25,15 @@ have gotten corrupted on that memory.
 
 ### Setup instructions
 
-Install Verus from `https://github.com/verus-lang/verus`.
+1. Install Verus from `https://github.com/verus-lang/verus`.
+2. **Optional**: If you are on Linux or WSL2 and would like to run CapybaraKV on (real or emulated) PM via Linux's DAX feature, run the following to install PMDK to access PM and LLVM/Clang to generate Rust bindings to PMDK: `sudo apt install libpmem1 libpmemlog1 libpmem-dev libpmemlog-dev llvm-dev clang libclang-dev`
+
 
 ### Verification
 
-To verify the multilog, run the following.
-
-```
-cd deps_hack
-cargo build
-cd ../multilog/src
-verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib
-```
+To verify the multilog, make sure Verus (usually at `verus/source/target-verus/release`) is in your path and run one of the following, depending on your setup:
+1. If you are using  Linux/WSL with the dependencies from Setup Step 2 installed, MacOS, or Windows: run `cargo verus verify`.
+2. Otherwise (i.e., Linux/WSL without PM dependencies): run `cargo verus verify --no-default-features`.
 
 Note that the `--compile` flag above is necessary to perform some non-Verus compile time checks that are part of the verification process. 
 Specifically, it checks compile-time assertions, which help check that we use the correct size for structures in proofs, are run by the Rust compiler, not by Verus.
