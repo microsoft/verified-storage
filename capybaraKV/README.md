@@ -18,22 +18,17 @@ repo in the `osdi25-artifact` branch.
 
 1. Install Verus from `https://github.com/verus-lang/verus`.
 2. If you want to do line counting, run `cargo install tokei` and `pip install prettytable`.
+3. **Optional**: If you are on Linux (or WSL2) and would like to run CapybaraKV on (real or emulated) PM via Linux's DAX feature, run the following to install PMDK to access PM and LLVM/Clang to generate Rust bindings to PMDK: `sudo apt install libpmem1 libpmemlog1 libpmem-dev libpmemlog-dev llvm-dev clang libclang-dev`
 
 ### Verification
 
-To verify CapybaraKV, run the following. If you don't plan to do line counting as discussed in the [next section](#computing-code-size), you can leave off the `--emit=dep-info` from the last command.
+To verify CapybaraKV, make sure Verus (usually at `verus/source/target-verus/release`) is in your path and run one of the following, depending on your setup:
+1. If you are on Linux/WSL and installed the optional dependencies in step 3 above, run: `cargo verus verify`
+2. Otherwise, run: `cargo verus verify --no-default-features`
 
-```
-cd deps_hack
-cargo build
-cd ../capybarakv/src
-verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib --emit=dep-info
-```
+### Compiling for execution
 
-Note that the `--compile` flag above is necessary to perform some non-Verus compile time checks that are part of the verification process. 
-Specifically, it checks compile-time assertions, which help check that we use the correct size for structures in proofs, are run by the Rust compiler, not by Verus.
-
-When building `deps_hack` in WSL/Ubuntu on Windows, use `cargo build --no-default-features` instead of the first `cargo build` line above.
+CapybaraKV can be built using `cargo build --no-default-features`. Exclude `--no-default-features` if you installed the dependencies in Setup Step 3 and would like to use real/emulated PM.
 
 ### Computing code size
 
@@ -41,7 +36,17 @@ We use Verus's built-in line-counting tool to count lines of code and categorize
 We provide a python script, `count_capybarakv_lines.py`, that uses this tool to generate a table of line counts and a proof-to-code ratio for CapybaraKV.
 The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed in the setup instructions above) to count the lines of code in the `pmcopy` crate, which is implemented in regular Rust.
 
-To use the script, first make sure you've followed the [verification instructions above](#verification), including the `--emit=dep-info` part. Then, from `capybarakv/src`, run `python3 count_capybarakv_lines.py lib.d ../../pmcopy <path-to-verus-directory>`. This will output a table.
+To use the script, run the following commands. These differ from the standard verification instructions because `cargo verus` does not currently support the required options.
+1. `cd deps_hack` and run `cargo build --no-default-features`. Omit `--no-default-features` if you installed the dependencies in Setup Step 3. 
+2. Run the following:
+    ```bash
+    cd ../capybarakv/src
+    verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib --emit=dep-info
+
+    # `path-to-verus-directory` should be the path to the top-level directory in Verus' source code
+    python3 count_capybarakv_lines.py lib.d ../../pmcopy <path-to-verus-directory>
+    ```
+The final command will output a table of line counts for different components of the system and the systems proof-to-code ratio.
 
 ### Manual auditing
 
