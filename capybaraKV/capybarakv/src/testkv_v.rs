@@ -32,7 +32,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
 use deps_hack::PmCopy;
-use deps_hack::rand::Rng;
+use rand::Rng;
 use std::hash::Hash;
 use std::collections::VecDeque;
 use vstd::pcm::*;
@@ -44,15 +44,15 @@ verus! {
 #[verifier::external_body]
 pub exec fn generate_fresh_id() -> (out: u128)
 {
-    deps_hack::rand::thread_rng().gen::<u128>()
+    rand::thread_rng().gen::<u128>()
 }
 
 // TODO @hayley
-// - move PmCopy and related trait defs in to pmcopy crate
+// - move deps_hack::PmCopy and related trait defs in to pmcopy crate
 
-// These definitions test PmCopy-generated static assertions for various different types
+// These definitions test deps_hack::PmCopy-generated static assertions for various different types
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 union TestUnion {
     a: u8,
     b: u64,
@@ -60,13 +60,13 @@ union TestUnion {
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum1 {
     V1,
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum2 {
     V1,
     V2,
@@ -75,13 +75,13 @@ enum TestEnum2 {
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum3 {
     V1(u16),
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum4 {
     V1(u16),
     V2(u8),
@@ -89,7 +89,7 @@ enum TestEnum4 {
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum5 {
     V1,
     V2(u128),
@@ -97,14 +97,14 @@ enum TestEnum5 {
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum6 {
     V1 {f0: u64, f1: u8, f3: u128, f4: u16}
 }
 
 #[allow(inconsistent_fields)]
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 enum TestEnum7 {
     V1 {f0: u64, f1: u8, f3: u128, f4: u16},
     V2,
@@ -113,19 +113,19 @@ enum TestEnum7 {
 }
 
 // #[repr(C,u8)]
-// #[derive(PmCopy, Copy)]
+// #[derive(deps_hack::PmCopy, Copy)]
 // enum TestEnum8 {
 //     V1,
 // }
 
 #[repr(C)]
-#[derive(PmCopy, Copy)]
+#[derive(deps_hack::PmCopy, Copy)]
 struct TestUnnamedFieldStruct(u8, u128, u16);
 
 
 pub type PmemOffset = u128;
 #[repr(C)]
-#[derive(Copy, Debug, PmCopy)]
+#[derive(Copy, Debug, deps_hack::PmCopy)]
 pub enum BlockOffsetType {
     None,
     InPMem(PmemOffset),
@@ -390,19 +390,19 @@ pub enum BlockOffsetType {
 // }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Debug, Hash)]
+#[derive(deps_hack::PmCopy, Copy, Debug, Hash)]
 pub struct TestKey {
     pub val: u64,
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Debug)]
+#[derive(deps_hack::PmCopy, Copy, Debug)]
 pub struct TestItem {
     pub val: u64,
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Debug)]
+#[derive(deps_hack::PmCopy, Copy, Debug)]
 pub struct TestListElement {
     pub val: u64,
     pub start: usize,

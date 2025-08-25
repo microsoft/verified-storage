@@ -11,12 +11,13 @@ use crate::pmem::pmcopy_t::*;
 use core::ffi::c_void;
 use core::slice;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
+use rand::Rng;
 
 use vstd::prelude::*;
 
 use deps_hack::{
     pmem::pmem_memcpy_nodrain_helper, pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file,
-    pmem_memcpy_nodrain, pmem_unmap, rand::Rng, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
+    pmem_memcpy_nodrain, pmem_unmap, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
 };
 
 pub struct MemoryMappedFile {

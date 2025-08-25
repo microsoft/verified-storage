@@ -642,7 +642,7 @@ impl<K, I, L, Op, Lin> MutatingLinearizer<K, I, L, Op> for ShardedMutatingLinear
         new_state: ConcurrentKvStoreView<K, I, L>,
         result: Result<Op::KvResult, KvError>,
         tracked r: &mut GhostVarAuth<ConcurrentKvStoreView<K, I, L>>,
-    ) -> (tracked result: Self::Completion) {
+    ) -> (tracked out: Self::Completion) {
         let ghost key = op.key();
         let tracked mut completion;
         open_atomic_invariant_in_proof!(self.credit => &self.inv => inner => {
