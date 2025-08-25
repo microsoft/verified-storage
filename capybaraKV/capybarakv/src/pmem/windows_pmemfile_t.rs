@@ -13,7 +13,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryRegionView, PmemError,
 };
 use crate::pmem::pmcopy_t::*;
-use deps_hack::rand::Rng;
+use rand::Rng;
 use deps_hack::winapi::ctypes::c_void;
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
 use deps_hack::winapi::um::errhandlingapi::GetLastError;

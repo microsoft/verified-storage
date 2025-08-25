@@ -17,11 +17,15 @@ default = [ "pmem" ]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-verus_builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
-verus_builtin = { git = "https://github.com/verus-lang/verus.git" }
-vstd = { git = "https://github.com/verus-lang/verus.git" }
+crc64fast = "1.0.0"
+rand = "0.8.5"
+vstd = "0.0.0-2025-08-12-1837"
+verus_builtin = "0.0.0-2025-08-12-1837"
+verus_builtin_macros = "0.0.0-2025-08-12-1837"
 deps_hack = { path = "../deps_hack", default-features = false }
-pmcopy = { path = "../pmcopy" }
+
+[target.'cfg(target_family = "unix")'.dependencies]
+memmap = "0.7.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
