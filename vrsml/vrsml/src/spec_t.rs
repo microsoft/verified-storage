@@ -105,7 +105,7 @@ verus! {
         pub c: AbstractSystemStateConstants<S>,
         pub client_messages: Set<Seq<u8>>,
         pub server_messages: Set<Seq<u8>>,
-        pub ordered_requests: Seq<Seq<u8>>,
+        pub ordered_requests: Map<int, Seq<u8>>,
     }
 
     #[verifier::ext_equal]
@@ -113,15 +113,14 @@ verus! {
     {
         Stutter,
         ReceiveClientMessage{ client_message: Seq<u8> },
-        ExecuteRequest{ client_message: Seq<u8>, server_message: Seq<u8>, request: Seq<u8>, response: Seq<u8> },
-        SendInternalMessage{ server_message: Seq<u8> },
+        OrderRequest{ client_message: Seq<u8>, request: Seq<u8>, request_number: int },
+        AuthorizeResponse{ server_message: Seq<u8>, response: Seq<u8>, request_number: int },
+        AuthorizeInternalMessage{ server_message: Seq<u8> },
     }
 
     impl<S: ApplicationStateMachineSpec> AbstractSystemState<S>
     {
         pub open spec fn get_nth_state(self, n: int) -> Seq<u8>
-            recommends
-                0 <= n <= self.ordered_requests.len(),
             decreases n
         {
             if n <= 0 {
@@ -133,15 +132,8 @@ verus! {
         }
 
         pub open spec fn get_response_to_nth_request(self, n: int) -> Seq<u8>
-            recommends
-                0 <= n < self.ordered_requests.len(),
         {
             S::handle_request(self.get_nth_state(n), self.ordered_requests[n]).1
-        }
-
-        pub open spec fn get_current_state(self) -> Seq<u8>
-        {
-            self.get_nth_state(self.ordered_requests.len() as int)
         }
 
         pub open spec fn update_with_received_client_message(self, client_message: Seq<u8>) -> Self
@@ -159,25 +151,35 @@ verus! {
             other == self.update_with_received_client_message(client_message)
         }
 
-        pub open spec fn next_execute_request(
+        pub open spec fn next_order_request(
             self,
             other: Self,
             client_message: Seq<u8>,
-            server_message: Seq<u8>,
             request: Seq<u8>,
-            response: Seq<u8>
+            request_number: int
         ) -> bool
         {
             &&& self.client_messages.contains(client_message)
             &&& is_formatted_request(client_message, request)
-            &&& is_formatted_response(server_message, response, self.ordered_requests.len() as int)
-            &&& response == S::handle_request(self.get_current_state(), request).1
-            &&& other == Self{ ordered_requests: self.ordered_requests.push(request),
-                              server_messages: self.server_messages.insert(server_message),
-                              ..self }
+            &&& self.ordered_requests.contains_key(request_number) ==> self.ordered_requests[request_number] == request
+            &&& other == Self{ ordered_requests: self.ordered_requests.insert(request_number, request), ..self }
         }
 
-        pub open spec fn next_send_internal_message(self, other: Self, server_message: Seq<u8>) -> bool
+        pub open spec fn next_authorize_response(
+            self,
+            other: Self,
+            server_message: Seq<u8>,
+            response: Seq<u8>,
+            request_number: int,
+        ) -> bool
+        {
+            &&& is_formatted_response(server_message, response, request_number)
+            &&& forall|n: int| 0 <= n <= request_number ==> self.ordered_requests.contains_key(n)
+            &&& response == self.get_response_to_nth_request(request_number)
+            &&& other == Self{ server_messages: self.server_messages.insert(server_message), ..self }
+        }
+
+        pub open spec fn next_authorize_internal_message(self, other: Self, server_message: Seq<u8>) -> bool
         {
             // An internal message must not be misinterpretable as a response
             &&& forall|response, request_number| !is_formatted_response(server_message, response, request_number)
@@ -192,10 +194,12 @@ verus! {
                     self == other,
                 AbstractSystemStep::ReceiveClientMessage{ client_message } =>
                     self.next_receive_client_message(other, client_message),
-                AbstractSystemStep::ExecuteRequest{ client_message, server_message, request, response } =>
-                    self.next_execute_request(other, client_message, server_message, request, response),
-                AbstractSystemStep::SendInternalMessage{ server_message } =>
-                    self.next_send_internal_message(other, server_message),
+                AbstractSystemStep::OrderRequest{ client_message, request, request_number } =>
+                    self.next_order_request(other, client_message, request, request_number),
+                AbstractSystemStep::AuthorizeResponse{ server_message, response, request_number } =>
+                    self.next_authorize_response(other, server_message, response, request_number),
+                AbstractSystemStep::AuthorizeInternalMessage{ server_message } =>
+                    self.next_authorize_internal_message(other, server_message),
             }
         }
 
@@ -238,7 +242,7 @@ verus! {
         pub open spec fn update_with_ordered_request(self, request: Seq<u8>, request_number: int) -> Self
         {
             Self { k: |s: AbstractSystemState<S>| {
-                       &&& s.ordered_requests.len() > request_number
+                       &&& s.ordered_requests.contains_key(request_number)
                        &&& s.ordered_requests[request_number] == request
                        &&& (self.k)(s)
                    } }
@@ -378,7 +382,7 @@ verus! {
                 forall|s: AbstractSystemState<S>| {
                     &&& #[trigger] old_knowledge.value().contains(s)
                     &&& P::permits(s)
-                    &&& s.ordered_requests.len() > request_number
+                    &&& s.ordered_requests.contains_key(request_number)
                 } ==> s.ordered_requests[request_number] == request,
             ensures
                 new_knowledge.loc() == old_knowledge.loc(),
@@ -397,8 +401,9 @@ verus! {
         ) -> (tracked new_knowledge: Resource<AbstractSystemStateKnowledge<S>>)
             requires
                 old_knowledge.loc() == self.spec_knowledge_loc(),
+                0 <= request_number,
                 forall|s: AbstractSystemState<S>| #[trigger] old_knowledge.value().contains(s) && P::permits(s) ==> {
-                    &&& 0 <= request_number < s.ordered_requests.len()
+                    &&& s.ordered_requests.contains_key(request_number)
                     &&& s.get_response_to_nth_request(request_number) == response
                     &&& P::permits(s.update_with_authorized_server_message(formatted_response))
                 },
