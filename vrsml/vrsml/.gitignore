@@ -1,0 +1,12 @@
+lib
+test_multilog
+lib.exe
+liblib.rlib
+Cargo.lock
+.vscode/
+rmeta*
+lib.d
+verif_output_*.txt
+line_count.txt
+target/
+.clinerules/
