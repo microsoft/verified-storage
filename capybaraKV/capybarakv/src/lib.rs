@@ -8,8 +8,12 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unused_mut)]
+#![allow(non_camel_case_types)] // suppress warnings about variable names in PMDK
 
 use vstd::prelude::*;
+
+#[cfg(all(target_os = "linux", feature = "pmem"))]
+include!("./bindings.rs");
 
 pub mod common;
 pub mod journal;

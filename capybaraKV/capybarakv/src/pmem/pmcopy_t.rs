@@ -32,7 +32,7 @@ use vstd::layout::*;
 use crate::pmem::traits_t::{PmSized, PmSafe, ConstPmSized, UnsafeSpecPmSized};
 
 use crc64fast::Digest;
-use deps_hack::pmcopy_primitive;
+use pmcopy::pmcopy_primitive;
 use core::slice;
 use std::convert::TryInto;
 use std::ptr;

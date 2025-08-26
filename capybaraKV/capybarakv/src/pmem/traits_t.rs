@@ -23,7 +23,7 @@
 
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 use vstd::prelude::*;
-use deps_hack::PmCopy;
+use pmcopy::PmCopy;
 
 use super::pmcopy_t::SpecPmSized;
 

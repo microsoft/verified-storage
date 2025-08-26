@@ -14,14 +14,14 @@ use crate::pmem::pmemspec_t::{
 };
 use crate::pmem::pmcopy_t::*;
 use rand::Rng;
-use deps_hack::winapi::ctypes::c_void;
-use deps_hack::winapi::shared::winerror::SUCCEEDED;
-use deps_hack::winapi::um::errhandlingapi::GetLastError;
-use deps_hack::winapi::um::fileapi::{CreateFileA, CREATE_NEW, DeleteFileA, OPEN_EXISTING};
-use deps_hack::winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
-use deps_hack::winapi::um::memoryapi::{FILE_MAP_ALL_ACCESS, FlushViewOfFile, MapViewOfFile, UnmapViewOfFile};
-use deps_hack::winapi::um::winbase::CreateFileMappingA;
-use deps_hack::winapi::um::winnt::{
+use winapi::ctypes::c_void;
+use winapi::shared::winerror::SUCCEEDED;
+use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::fileapi::{CreateFileA, CREATE_NEW, DeleteFileA, OPEN_EXISTING};
+use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
+use winapi::um::memoryapi::{FILE_MAP_ALL_ACCESS, FlushViewOfFile, MapViewOfFile, UnmapViewOfFile};
+use winapi::um::winbase::CreateFileMappingA;
+use winapi::um::winnt::{
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ,
     FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE, HANDLE, PAGE_READWRITE, ULARGE_INTEGER,
 };

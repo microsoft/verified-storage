@@ -12,7 +12,7 @@ use vstd::prelude::*;
 use crate::common::util_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
-use deps_hack::PmCopy;
+use pmcopy::PmCopy;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::div_mod::{
     lemma_div_of0, lemma_div_plus_one, lemma_fundamental_div_mod_converse,
