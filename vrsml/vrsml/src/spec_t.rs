@@ -229,22 +229,21 @@ verus! {
             forall|s1, s2| (self.k)(s1) && s1.next(s2) ==> (self.k)(s2)
         }
 
-        pub open spec fn update_with_received_client_message(self, client_message: Seq<u8>) -> Self
+        pub open spec fn contains_received_client_message(client_message: Seq<u8>) -> Self
         {
-            Self { k: |s: AbstractSystemState<S>| s.client_messages.contains(client_message) && (self.k)(s) }
+            Self { k: |s: AbstractSystemState<S>| s.client_messages.contains(client_message) }
         }
 
-        pub open spec fn update_with_authorized_server_message(self, server_message: Seq<u8>) -> Self
+        pub open spec fn contains_authorized_server_message(server_message: Seq<u8>) -> Self
         {
-            Self { k: |s: AbstractSystemState<S>| s.server_messages.contains(server_message) && (self.k)(s) }
+            Self { k: |s: AbstractSystemState<S>| s.server_messages.contains(server_message) }
         }
 
-        pub open spec fn update_with_ordered_request(self, request: Seq<u8>, request_number: int) -> Self
+        pub open spec fn has_ordered_request(request: Seq<u8>, request_number: int) -> Self
         {
             Self { k: |s: AbstractSystemState<S>| {
                        &&& s.ordered_requests.contains_key(request_number)
                        &&& s.ordered_requests[request_number] == request
-                       &&& (self.k)(s)
                    } }
         }
     }
@@ -332,35 +331,33 @@ verus! {
         }
 
         #[verifier::external_body]
-        pub proof fn receive_client_message(
+        pub exec fn receive_client_message(
             &self,
-            client_message: Seq<u8>,
-            client_signature: Seq<u8>,
-            tracked old_knowledge: Resource<AbstractSystemStateKnowledge<S>>,
-        ) -> (tracked new_knowledge: Resource<AbstractSystemStateKnowledge<S>>)
+            client_message: &[u8],
+            client_signature: &[u8],
+        ) -> (new_knowledge: Tracked<Resource<AbstractSystemStateKnowledge<S>>>)
             requires
-                is_valid_signature(client_signature, self.spec_client_public_key(), client_message),
-                old_knowledge.loc() == self.spec_knowledge_loc(),
+                is_valid_signature(client_signature@, self.spec_client_public_key(), client_message@),
             ensures
-                new_knowledge.loc() == old_knowledge.loc(),
-                new_knowledge.value() == old_knowledge.value().update_with_received_client_message(client_message)
+                new_knowledge@.loc() == self.spec_knowledge_loc(),
+                new_knowledge@.value() ==
+                    AbstractSystemStateKnowledge::<S>::contains_received_client_message(client_message@),
         {
             arbitrary()
         }
 
         #[verifier::external_body]
-        pub proof fn receive_server_message(
+        pub exec fn receive_server_message(
             &self,
-            server_message: Seq<u8>,
-            server_signature: Seq<u8>,
-            tracked old_knowledge: Resource<AbstractSystemStateKnowledge<S>>,
-        ) -> (tracked new_knowledge: Resource<AbstractSystemStateKnowledge<S>>)
+            server_message: &[u8],
+            server_signature: &[u8],
+        ) -> (new_knowledge: Tracked<Resource<AbstractSystemStateKnowledge<S>>>)
             requires
-                is_valid_signature(server_signature, self.spec_server_public_key(), server_message),
-                old_knowledge.loc() == self.spec_knowledge_loc(),
+                is_valid_signature(server_signature@, self.spec_server_public_key(), server_message@),
             ensures
-                new_knowledge.loc() == old_knowledge.loc(),
-                new_knowledge.value() == old_knowledge.value().update_with_authorized_server_message(server_message)
+                new_knowledge@.loc() == self.spec_knowledge_loc(),
+                new_knowledge@.value() ==
+                    AbstractSystemStateKnowledge::<S>::contains_authorized_server_message(server_message@),
         {
             arbitrary()
         }
@@ -371,22 +368,24 @@ verus! {
             client_message: Seq<u8>,
             request: Seq<u8>,
             request_number: int,
-            tracked old_knowledge: Resource<AbstractSystemStateKnowledge<S>>,
-        ) -> (tracked new_knowledge: Resource<AbstractSystemStateKnowledge<S>>)
+            tracked knowledge: &mut Resource<AbstractSystemStateKnowledge<S>>,
+        )
             requires
-                old_knowledge.loc() == self.spec_knowledge_loc(),
-                forall|s: AbstractSystemState<S>| #[trigger] old_knowledge.value().contains(s) && P::permits(s) ==>
+                old(knowledge).loc() == self.spec_knowledge_loc(),
+                forall|s: AbstractSystemState<S>| #[trigger] old(knowledge).value().contains(s) && P::permits(s) ==>
                     s.client_messages.contains(client_message),
                 is_formatted_request(client_message, request),
                 0 <= request_number,
                 forall|s: AbstractSystemState<S>| {
-                    &&& #[trigger] old_knowledge.value().contains(s)
+                    &&& #[trigger] old(knowledge).value().contains(s)
                     &&& P::permits(s)
                     &&& s.ordered_requests.contains_key(request_number)
                 } ==> s.ordered_requests[request_number] == request,
             ensures
-                new_knowledge.loc() == old_knowledge.loc(),
-                new_knowledge.value() == old_knowledge.value().update_with_ordered_request(request, request_number),
+                knowledge.loc() == self.spec_knowledge_loc(),
+                knowledge.value() == old(knowledge).value().op(
+                    AbstractSystemStateKnowledge::<S>::has_ordered_request(request, request_number)
+                ),
         {
             arbitrary()
         }
@@ -397,21 +396,22 @@ verus! {
             response: Seq<u8>,
             request_number: int,
             formatted_response: Seq<u8>,
-            tracked old_knowledge: Resource<AbstractSystemStateKnowledge<S>>,
-        ) -> (tracked new_knowledge: Resource<AbstractSystemStateKnowledge<S>>)
+            tracked knowledge: &mut Resource<AbstractSystemStateKnowledge<S>>,
+        )
             requires
-                old_knowledge.loc() == self.spec_knowledge_loc(),
+                old(knowledge).loc() == self.spec_knowledge_loc(),
                 0 <= request_number,
-                forall|s: AbstractSystemState<S>| #[trigger] old_knowledge.value().contains(s) && P::permits(s) ==> {
+                forall|s: AbstractSystemState<S>| #[trigger] old(knowledge).value().contains(s) && P::permits(s) ==> {
                     &&& s.ordered_requests.contains_key(request_number)
                     &&& s.get_response_to_nth_request(request_number) == response
                     &&& P::permits(s.update_with_authorized_server_message(formatted_response))
                 },
                 is_formatted_response(formatted_response, response, request_number),
             ensures
-                new_knowledge.loc() == self.spec_knowledge_loc(),
-                new_knowledge.value() ==
-                    old_knowledge.value().update_with_authorized_server_message(formatted_response),
+                knowledge.loc() == self.spec_knowledge_loc(),
+                knowledge.value() == old(knowledge).value().op(
+                    AbstractSystemStateKnowledge::<S>::contains_authorized_server_message(formatted_response)
+                ),
         {
             arbitrary()
         }
@@ -420,18 +420,19 @@ verus! {
         pub proof fn authorize_sending_internal_message(
             &self,
             server_message: Seq<u8>,
-            tracked old_knowledge: Resource<AbstractSystemStateKnowledge<S>>,
-        ) -> (tracked new_knowledge: Resource<AbstractSystemStateKnowledge<S>>)
+            tracked knowledge: &mut Resource<AbstractSystemStateKnowledge<S>>,
+        )
             requires
-                old_knowledge.loc() == self.spec_knowledge_loc(),
-                forall|s: AbstractSystemState<S>| #[trigger] old_knowledge.value().contains(s) && P::permits(s) ==>
+                old(knowledge).loc() == self.spec_knowledge_loc(),
+                forall|s: AbstractSystemState<S>| #[trigger] old(knowledge).value().contains(s) && P::permits(s) ==>
                     P::permits(s.update_with_authorized_server_message(server_message)),
                 forall|response: Seq<u8>, request_number: int|
                     !is_formatted_response(server_message, response, request_number),
             ensures
-                new_knowledge.loc() == self.spec_knowledge_loc(),
-                new_knowledge.value() ==
-                    old_knowledge.value().update_with_authorized_server_message(server_message),
+                knowledge.loc() == self.spec_knowledge_loc(),
+                knowledge.value() == old(knowledge).value().op(
+                    AbstractSystemStateKnowledge::<S>::contains_authorized_server_message(server_message)
+                ),
         {
             arbitrary()
         }
