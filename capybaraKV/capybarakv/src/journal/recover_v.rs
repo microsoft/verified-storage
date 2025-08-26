@@ -7,7 +7,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::power_t::*;
 use crate::pmem::traits_t::*;
-use deps_hack::PmCopy;
+use pmcopy::PmCopy;
 use super::entry_v::*;
 use super::impl_v::*;
 use super::spec_v::*;

@@ -10,7 +10,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
-use deps_hack::PmCopy;
+use pmcopy::PmCopy;
 use std::collections::hash_map::HashMap;
 use super::inv_v::*;
 use super::recover_v::*;

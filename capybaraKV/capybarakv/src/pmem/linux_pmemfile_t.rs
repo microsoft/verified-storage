@@ -15,10 +15,11 @@ use rand::Rng;
 
 use vstd::prelude::*;
 
-use deps_hack::{
-    pmem::pmem_memcpy_nodrain_helper, pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file,
+use crate::{
+    pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file,
     pmem_memcpy_nodrain, pmem_unmap, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
 };
+// pmem::pmem_memcpy_nodrain_helper,
 
 pub struct MemoryMappedFile {
     virt_addr: *mut u8,
@@ -316,7 +317,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // a raw pointer, so we define a wrapper around pmem_memcpy_nodrain in deps_hack
         // that does not return anything and call that instead
         unsafe {
-            pmem_memcpy_nodrain_helper(
+            pmem_memcpy_nodrain(
                 addr_on_pm as *mut c_void,
                 bytes.as_ptr() as *const c_void,
                 bytes.len()
@@ -355,7 +356,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // a raw pointer, so we define a wrapper around pmem_memcpy_nodrain in deps_hack
         // that does not return anything and call that instead
         unsafe {
-            pmem_memcpy_nodrain_helper(
+            pmem_memcpy_nodrain(
                 addr_on_pm as *mut c_void,
                 s_pointer as *const c_void,
                 num_bytes
