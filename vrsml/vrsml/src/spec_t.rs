@@ -76,6 +76,45 @@ verus! {
 
     pub uninterp spec fn is_valid_signature(signature: Seq<u8>, public_key: Seq<u8>, message: Seq<u8>) -> bool;
 
+    #[verifier::ext_equal]
+    pub struct DurableStorageView
+    {
+        pub guid: u128,
+        pub public_key: Seq<u8>,
+        pub durable_state: Map<Seq<u8>, Seq<u8>>,
+        pub read_state: Map<Seq<u8>, Seq<u8>>,
+    }
+
+    impl DurableStorageView
+    {
+        pub open spec fn flushed(self) -> bool
+        {
+            self.durable_state == self.read_state
+        }
+
+        pub open spec fn updated_with_created_file(self, old_self: Self, file_name: Seq<u8>) -> bool
+        {
+            &&& self == Self{
+                read_state: self.read_state.insert(file_name, Seq::empty()),
+                durable_state: self.durable_state,
+                ..old_self
+            }
+            &&& {
+                ||| self.durable_state == old_self.durable_state
+                ||| self.durable_state == old_self.durable_state.insert(file_name, Seq::empty())
+            }
+        }
+    }
+
+    #[verifier::ext_equal]
+    pub trait DurableStorage: View<V = DurableStorageView>
+    {
+        exec fn create_file(&mut self, file_name: Seq<u8>)
+            ensures
+                self@.updated_with_created_file(old(self)@, file_name),
+        ;
+    }
+
     pub open spec fn is_formatted_request(s: Seq<u8>, request: Seq<u8>) -> bool
     {    
         &&& request.len() <= u64::MAX
