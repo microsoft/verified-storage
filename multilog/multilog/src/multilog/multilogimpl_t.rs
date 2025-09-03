@@ -46,7 +46,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 use vstd::prelude::*;
 
-use deps_hack::rand::Rng;
+use rand::Rng;
 
 verus! {
 
@@ -179,7 +179,7 @@ verus! {
     #[verifier::external_body]
     pub exec fn generate_fresh_multilog_id() -> (out: u128)
     {
-        deps_hack::rand::thread_rng().gen::<u128>()
+        rand::thread_rng().gen::<u128>()
     }
 
     /// A `MultiLogImpl` wraps one `UntrustedMultiLogImpl` and a

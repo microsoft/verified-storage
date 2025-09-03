@@ -60,7 +60,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
-use deps_hack::{PmSafe, PmSized};
+use pmsafe::{PmSafe, PmSized};
 use super::util_v::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
