@@ -14,14 +14,14 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use core::ffi::c_void;
 use core::slice;
-use deps_hack::memmap::MmapMut;
+use memmap::MmapMut;
 use std::fs::OpenOptions;
 use std::sync::Arc;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
 use vstd::prelude::*;
 
-use deps_hack::rand::Rng;
+use rand::Rng;
 
 pub struct MemoryMappedFile {
     mmap: MmapMut,

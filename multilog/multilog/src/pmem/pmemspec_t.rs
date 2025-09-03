@@ -37,7 +37,7 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
-use deps_hack::crc64fast::Digest;
+use crc64fast::Digest;
 
 verus! {
 

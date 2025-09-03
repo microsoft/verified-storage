@@ -2,6 +2,7 @@
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 #![allow(unused_imports)]
+#![allow(non_camel_case_types)] // suppress warnings about variable names in PMDK
 
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
@@ -22,6 +23,9 @@ use crate::pmem::mmap_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+
+#[cfg(all(target_os = "linux", feature = "pmem"))]
+include!("./bindings.rs");
 
 mod tests {
 
@@ -127,7 +131,7 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
         region_sizes.as_slice(),
         PersistentMemoryCheck::DontCheckForPersistentMemory,
     ).ok()?;
-    #[cfg(any(target_os = "macos", not(feature = "pmem")))]
+    #[cfg(any(target_os = "macos", all(not(feature = "pmem"), target_os = "linux")))]
     let mut pm_regions = FileBackedPersistentMemoryRegions::new(
         &file_name,
         region_sizes.as_slice(),

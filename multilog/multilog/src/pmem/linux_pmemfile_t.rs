@@ -6,10 +6,11 @@ use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
 use vstd::prelude::*;
 
-use deps_hack::{
-    pmem::pmem_memcpy_nodrain_helper, pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file,
-    pmem_memcpy_nodrain, pmem_unmap, rand::Rng, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
+use crate::{
+    pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file,
+    pmem_memcpy_nodrain, pmem_unmap, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
 };
+use rand::Rng;
 
 pub struct MemoryMappedFile {
     virt_addr: *mut u8,
@@ -297,11 +298,8 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // ordering; it makes no guarantees about durability. pmem_flush() does cache
         // line flushes but does not use an ordering primitive, so updates are still
         // not guaranteed to be durable yet.
-        // Verus doesn't like calling pmem_memcpy_nodrain directly because it returns
-        // a raw pointer, so we define a wrapper around pmem_memcpy_nodrain in deps_hack
-        // that does not return anything and call that instead
         unsafe {
-            pmem_memcpy_nodrain_helper(
+            pmem_memcpy_nodrain(
                 addr_on_pm as *mut c_void,
                 bytes.as_ptr() as *const c_void,
                 bytes.len()
@@ -336,11 +334,8 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // ordering; it makes no guarantees about durability. pmem_flush() does cache
         // line flushes but does not use an ordering primitive, so updates are still
         // not guaranteed to be durable yet.
-        // Verus doesn't like calling pmem_memcpy_nodrain directly because it returns
-        // a raw pointer, so we define a wrapper around pmem_memcpy_nodrain in deps_hack
-        // that does not return anything and call that instead
         unsafe {
-            pmem_memcpy_nodrain_helper(
+            pmem_memcpy_nodrain(
                 addr_on_pm as *mut c_void,
                 s_pointer as *const c_void,
                 num_bytes

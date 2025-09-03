@@ -35,8 +35,8 @@ def extract_line_counts(headers, line):
 
 def count_lines(line_count_file):
     header_pattern = "Trusted"
-    power_pattern = "pmem/"
-    log_pattern = "journal/"
+    power_pattern = "pmem"
+    log_pattern = "journal"
     concurrent_spec = "concurrentspec"
     rwkv_pattern = "rw"
     shard_pattern = "shard"

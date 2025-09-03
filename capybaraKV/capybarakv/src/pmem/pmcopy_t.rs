@@ -31,7 +31,8 @@ use vstd::prelude::*;
 use vstd::layout::*;
 use crate::pmem::traits_t::{PmSized, PmSafe, ConstPmSized, UnsafeSpecPmSized};
 
-use deps_hack::{crc64fast::Digest, pmcopy_primitive};
+use crc64fast::Digest;
+use pmcopy::pmcopy_primitive;
 use core::slice;
 use std::convert::TryInto;
 use std::ptr;

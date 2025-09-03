@@ -9,3 +9,4 @@ lib.d
 verif_output_*.txt
 line_count.txt
 target/
+src/bindings.rs
