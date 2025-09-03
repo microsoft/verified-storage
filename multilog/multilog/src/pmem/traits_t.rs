@@ -22,7 +22,7 @@
 //! that proofs use the correct size for structures. 
 
 use vstd::prelude::*;
-use deps_hack::PmSafe;
+use pmsafe::PmSafe;
 
 use super::pmcopy_t::SpecPmSized;
 
