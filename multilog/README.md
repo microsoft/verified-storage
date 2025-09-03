@@ -26,7 +26,7 @@ have gotten corrupted on that memory.
 ### Setup instructions
 
 1. Install Verus from `https://github.com/verus-lang/verus`.
-2. **Optional**: If you are on Linux or WSL2 and would like to run multilog on (real or emulated) PM via Linux's DAX feature, run the following to install PMDK to access PM and LLVM/Clang to generate Rust bindings to PMDK: `sudo apt install libpmem1 libpmemlog1 libpmem-dev libpmemlog-dev llvm-dev clang libclang-dev`
+2. **Optional**: If you are on Linux or WSL2 and would like to run the multilog on (real or emulated) PM via Linux's DAX feature, run the following to install PMDK to access PM and LLVM/Clang to generate Rust bindings to PMDK: `sudo apt install libpmem1 libpmemlog1 libpmem-dev libpmemlog-dev llvm-dev clang libclang-dev`
 
 
 ### Verification
