@@ -42,7 +42,8 @@ The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed in 
 To use the script, run the following commands:
 ```bash
     cd capybaraKV/capybarakv/src
-    cargo verus verify -- --emit=dep-info # or cargo verus verify --no-default-features -- --emit=dep-info
+    cargo clean
+    cargo verus build -- --emit=dep-info # or cargo verus build --no-default-features -- --emit=dep-info
 
     # `path-to-verus-directory` should be the path to the top-level directory in Verus' source code
     python3 count_capybarakv_lines.py ../target/debug/libcapybarakv.d ../../pmcopy <path-to-verus-directory>
