@@ -131,7 +131,7 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
         region_sizes.as_slice(),
         PersistentMemoryCheck::DontCheckForPersistentMemory,
     ).ok()?;
-    #[cfg(any(target_os = "macos", not(feature = "pmem")))]
+    #[cfg(any(target_os = "macos", all(not(feature = "pmem"), target_os = "linux")))]
     let mut pm_regions = FileBackedPersistentMemoryRegions::new(
         &file_name,
         region_sizes.as_slice(),
