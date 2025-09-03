@@ -16,7 +16,7 @@ use core::ffi::c_void;
 use core::slice;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
-use deps_hack::memmap::MmapMut;
+use memmap::MmapMut;
 use std::fs::OpenOptions;
 
 use vstd::prelude::*;
