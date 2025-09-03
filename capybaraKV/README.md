@@ -39,16 +39,14 @@ We use Verus's built-in line-counting tool to count lines of code and categorize
 We provide a python script, `count_capybarakv_lines.py`, that uses this tool to generate a table of line counts and a proof-to-code ratio for CapybaraKV.
 The script also uses `tokei` (https://github.com/XAMPPRocky/tokei, installed in the setup instructions above) to count the lines of code in the `pmcopy` crate, which is implemented in regular Rust.
 
-To use the script, run the following commands. These differ from the standard verification instructions because `cargo verus` does not currently support the required options.
-1. `cd deps_hack` and run `cargo build`. Include `--no-default-features` if on Linux/WSL without PM dependencies installed.
-2. Run the following:
-    ```bash
-    cd ../capybarakv/src
-    verus lib.rs --compile --expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib --emit=dep-info
+To use the script, run the following commands:
+```bash
+    cd capybaraKV/capybarakv/src
+    cargo verus verify -- --emit=dep-info # or cargo verus verify --no-default-features -- --emit=dep-info
 
     # `path-to-verus-directory` should be the path to the top-level directory in Verus' source code
-    python3 count_capybarakv_lines.py lib.d ../../pmcopy <path-to-verus-directory>
-    ```
+    python3 count_capybarakv_lines.py ../target/debug/libcapybarakv.d ../../pmcopy <path-to-verus-directory>
+```
 The final command will output a table of line counts for different components of the system and the systems proof-to-code ratio.
 
 ### Manual auditing
