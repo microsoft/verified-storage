@@ -7,7 +7,7 @@ edition = "2021"
 ## The "pmem" feature enables actual persistent memory libraries, such as
 ## PMDK on Linux.  Not enabling this feature is helpful when testing with
 ## memory-mapped files that are not backed by PMDK.  This feature enables
-## the "pmem" feature in deps_hack, which links in PMDK.
+## the "pmem" feature, which links in PMDK.
 pmem = [ ]
 
 ## The "pmem" feature is enabled by default, but can be disabled; e.g.,
@@ -41,4 +41,4 @@ unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
 verify = true
 
 [package.metadata.verus.ide]
-extra_args = "--crate-type=lib --expand-errors -L dependency=../../deps_hack/target/release/deps --extern=deps_hack=../../deps_hack/target/release/libdeps_hack.rlib"
+extra_args = "--crate-type=lib --expand-errors"
