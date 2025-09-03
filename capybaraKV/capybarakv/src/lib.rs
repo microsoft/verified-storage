@@ -8,7 +8,10 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unused_mut)]
-#![allow(non_camel_case_types)] // suppress warnings about variable names in PMDK
+
+// suppress warnings about variable names in PMDK
+#![allow(non_camel_case_types)] 
+#![allow(non_upper_case_globals)]
 
 use vstd::prelude::*;
 
