@@ -49,7 +49,7 @@ Allowed keys:
 
             var rsa = RSA.Create();
             rsa.ImportRSAPublicKey(publicKey, out _);
-            var verified = rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var verified = rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
             if (verified) {
                 Console.WriteLine("Signature is verified.");
             }

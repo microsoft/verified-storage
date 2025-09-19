@@ -88,7 +88,7 @@ namespace ExternalMethodsModule {
     public byte[] Sign(byte[] bytes, int start, int length)
     {
       var span = new ReadOnlySpan<byte>(bytes, start, length);
-      return rsa.SignData(span, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+      return rsa.SignData(span, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
     }
   }
 
