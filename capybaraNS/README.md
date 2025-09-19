@@ -19,7 +19,7 @@ earlier version in the artifact for that paper, available on this repo in the
 
 To replicate our results, you'll need the following tools:
   * .NET 8.0 SDK (available at `https://dotnet.microsoft.com/download`)
-  * Dafny v4.10.0 (available at `https://github.com/dafny-lang/dafny`)
+  * Dafny v4.11.0 (available at `https://github.com/dafny-lang/dafny`)
   * Python 3
   * scons (installable by running `pip3 install scons`)
   * sloccount (available at `https://dwheeler.com/sloccount/`)
