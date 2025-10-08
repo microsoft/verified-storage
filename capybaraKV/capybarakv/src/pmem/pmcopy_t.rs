@@ -44,7 +44,6 @@ verus! {
         axiom_to_from_bytes,
         axiom_u64_to_le_bytes,
         axiom_u64_from_le_bytes,
-        // axiom_from_bytes_equal,
     }
 
     // PmCopy provides functions to help reason about copying data to and from persistent memory.
