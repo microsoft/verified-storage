@@ -198,17 +198,6 @@ verus! {
         admit();
     }
 
-    // TODO @hayley discuss adding this axiom
-    // should it be broadcast?
-    pub broadcast proof fn axiom_from_bytes_equal<S: PmCopy>(s1: Seq<u8>, s2: Seq<u8>)
-        requires
-            #[trigger] S::spec_from_bytes(s1) == #[trigger] S::spec_from_bytes(s2)
-        ensures 
-            s1 == s2
-    {
-        admit();
-    }
-
     // u64 must implement PmCopy for CRC management
     impl PmCopy for u64 {}
 

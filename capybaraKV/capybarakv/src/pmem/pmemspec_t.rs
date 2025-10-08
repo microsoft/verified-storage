@@ -153,21 +153,17 @@ verus! {
     }
 
     #[inline(always)]
-    pub exec fn compare_crcs(crc1: &[u8], crc2: u64) -> (out: bool)
+    pub exec fn compare_crcs(crc1_bytes: &[u8], crc2: u64) -> (out: bool)
         requires 
-            crc1@.len() == u64::spec_size_of()
+            crc1_bytes@.len() == u64::spec_size_of(),
         ensures 
-            out ==> crc1@ == crc2.spec_to_bytes(),
-            !out ==> crc1@ != crc2.spec_to_bytes()
+            out <==> crc1_bytes@ == crc2.spec_to_bytes(),
     {
         broadcast use pmcopy_axioms;
-        let crc1_u64 = u64_from_le_bytes(crc1);
-        if crc1_u64 == crc2 {
-            proof {
-                axiom_from_bytes_equal::<u64>(crc1@, crc2.spec_to_bytes());
-            }
+        assert(spec_u64_to_le_bytes(spec_u64_from_le_bytes(crc1_bytes@)) == crc1_bytes@) by {
+            lemma_auto_spec_u64_to_from_le_bytes();
         }
-        crc1_u64 == crc2
+        u64_from_le_bytes(crc1_bytes) == crc2
     }
 
     pub const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
