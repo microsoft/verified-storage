@@ -580,7 +580,7 @@ impl PoWERPersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(powerpm, perm),
-            relative_addr + num_bytes <= self.len(),
+            relative_addr + num_bytes <= self.end(),
         ensures
             match result {
                 Ok(bytes) => {
@@ -651,7 +651,7 @@ impl PoWERPersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(powerpm, perm),
-            relative_addr + S::spec_size_of() <= self.len(),
+            relative_addr + S::spec_size_of() <= self.end(),
             self.view(powerpm).read_state.subrange(relative_addr as int, relative_addr + S::spec_size_of()) == true_val.spec_to_bytes(),
         ensures
             match result {
@@ -752,7 +752,7 @@ impl PoWERPersistentMemorySubregion
         requires
             self.inv(&*old(powerpm), perm),
             self.start() <= absolute_addr,
-            absolute_addr + bytes@.len() <= self.len(),
+            absolute_addr + bytes@.len() <= self.end(),
             forall |i: int| absolute_addr <= i < absolute_addr + bytes@.len() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
@@ -815,7 +815,7 @@ impl PoWERPersistentMemorySubregion
         requires
             self.inv(&*old(powerpm), perm),
             self.start() <= absolute_addr,
-            absolute_addr + S::spec_size_of() <= self.len(),
+            absolute_addr + S::spec_size_of() <= self.end(),
             forall |i: int| absolute_addr <= i < absolute_addr + S::spec_size_of() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
@@ -946,7 +946,7 @@ impl PersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(pm),
-            relative_addr + num_bytes <= self.len(),
+            relative_addr + num_bytes <= self.end(),
         ensures
             pm.constants().valid(),
             match result {
@@ -1025,7 +1025,7 @@ impl PersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(pm),
-            relative_addr + S::spec_size_of() <= self.len(),
+            relative_addr + S::spec_size_of() <= self.end(),
             S::bytes_parseable(extract_bytes(self.view(pm).read_state, relative_addr as nat, S::spec_size_of())),
         ensures
             pm.constants().valid(),
@@ -1343,7 +1343,7 @@ impl WritablePersistentMemorySubregion
     ) ->(result: Result<Vec<u8>, PmemError>)
         requires
             self.inv(pm),
-            relative_addr + num_bytes <= self.len(),
+            relative_addr + num_bytes <= self.end(),
         ensures
             match result {
                 Ok(bytes) => {
@@ -1418,7 +1418,7 @@ impl WritablePersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(pm),
-            relative_addr < relative_addr + S::spec_size_of() <= self.len(),
+            relative_addr < relative_addr + S::spec_size_of() <= self.end(),
             <S as PmCopyHelper>::bytes_parseable(
                 self.view(pm).read_state.subrange(relative_addr as int, relative_addr + S::spec_size_of())
             ),
@@ -1513,7 +1513,7 @@ impl WritablePersistentMemorySubregion
         requires
             self.inv(&*old(pm)),
             self.start() <= absolute_addr,
-            absolute_addr + bytes@.len() <= self.len(),
+            absolute_addr + bytes@.len() <= self.end(),
             forall |i: int| absolute_addr <= i < absolute_addr + bytes@.len() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
@@ -1573,7 +1573,7 @@ impl WritablePersistentMemorySubregion
         requires
             self.inv(&*old(pm)),
             self.start() <= absolute_addr,
-            absolute_addr + S::spec_size_of() <= self.len(),
+            absolute_addr + S::spec_size_of() <= self.end(),
             forall |i: int| absolute_addr <= i < absolute_addr + S::spec_size_of() ==>
                 #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
