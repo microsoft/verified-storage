@@ -155,7 +155,7 @@ where
                     },
                     Err(JournalError::NotEnoughSpace) => {
                         &&& space_needed > old(self)@.remaining_capacity
-                        &&& self == old(self)
+                        &&& *self == *old(self)
                     },
                     Err(_) => false,
                 }

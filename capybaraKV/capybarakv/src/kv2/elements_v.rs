@@ -153,8 +153,8 @@ where
                 Ok(list_addr) => {
                     let old_list = if former_rm.list_addr == 0 { Seq::<L>::empty() }
                                    else { old(self).lists@.tentative.unwrap().m[former_rm.list_addr] };
-                    &&& self == Self{ status: Ghost(KvStoreStatus::ComponentsDontCorrespond),
-                                     journal: self.journal, lists: self.lists, ..*old(self) }
+                    &&& *self == Self{ status: Ghost(KvStoreStatus::ComponentsDontCorrespond),
+                                      journal: self.journal, lists: self.lists, ..*old(self) }
                     &&& self.inv()
                     &&& list_addr != 0
                     &&& list_addr == former_rm.list_addr || !old(self).lists@.tentative.unwrap().m.contains_key(list_addr)

@@ -96,7 +96,7 @@ where
                     &&& !(old(self).m@[list_addr] is Durable)
                 }),
         ensures
-            self == (Self{ m: self.m, ..*old(self) }),
+            *self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
             forall|i: int| 0 <= i < self.modifications.len() ==>
                 (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
@@ -113,7 +113,7 @@ where
 
         for which_modification in 0..num_modifications
             invariant
-                self == (Self{ m: self.m, ..*old(self) }),
+                *self == (Self{ m: self.m, ..*old(self) }),
                 num_modifications == self.modifications.len(),
                 forall|i: int| 0 <= i < old(self).modifications.len() ==>
                     (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
@@ -154,7 +154,7 @@ where
                 },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> old(self).m@[list_addr] is Durable,
         ensures
-            self == (Self{ m: self.m, ..*old(self) }),
+            *self == (Self{ m: self.m, ..*old(self) }),
             forall|i: int| #![trigger self.deletes[i]] 0 <= i < self.deletes.len() ==> {
                 let summary = self.deletes[i];
                 &&& self.m@.contains_key(summary.head)
@@ -188,7 +188,7 @@ where
 
         for which_delete in 0..num_deletes
             invariant
-                self == (Self{ m: self.m, ..*old(self) }),
+                *self == (Self{ m: self.m, ..*old(self) }),
                 num_deletes == self.deletes.len(),
                 forall|list_addr: u64| #[trigger] self.deletes_inverse@.contains_key(list_addr) ==> {
                     let which_delete = self.deletes_inverse@[list_addr];
@@ -244,7 +244,7 @@ where
         requires
             old(self).valid(jv),
         ensures
-            self == (Self{ m: self.m, ..*old(self) }),
+            *self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view().m == old(self).internal_view().abort().m,
     {
         self.update_m_to_reflect_abort_of_modifications();

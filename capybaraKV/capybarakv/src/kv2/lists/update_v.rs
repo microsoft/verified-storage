@@ -519,7 +519,7 @@ where
         requires
             prev_self.valid(journal@),
             journal.valid(),
-            old(self) == (Self{
+            *old(self) == (Self{
                 m: old(self).m,
                 ..prev_self
             }),
@@ -530,8 +530,8 @@ where
             old(self).m@ == prev_self.m@.remove(list_addr),
         ensures
             journal.valid(),
-            self == (Self{ m: self.m, deletes: self.deletes, deletes_inverse: self.deletes_inverse,
-                           modifications: self.modifications, ..*old(self) }),
+            *self == (Self{ m: self.m, deletes: self.deletes, deletes_inverse: self.deletes_inverse,
+                            modifications: self.modifications, ..*old(self) }),
             ({
                 let (success, new_entry) = result;
                 if success {
@@ -551,7 +551,7 @@ where
                 }
                 else {
                     &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& self == old(self)
+                    &&& *self == *old(self)
                     &&& new_entry == entry
                 }
             }),
