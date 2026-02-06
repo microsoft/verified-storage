@@ -153,7 +153,7 @@ where
                 Ok(row_addr) => {
                     &&& 0 < self.free_list@.len()
                     &&& row_addr == self.free_list@.last()
-                    &&& self == (Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) })
+                    &&& *self == (Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) })
                     &&& recover_cdb(journal@.commit_state, row_addr + self.sm.row_cdb_start) == Some(true)
                     &&& seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
                                                  row_addr as int, row_addr + self.sm.table.row_size)
@@ -524,7 +524,7 @@ where
             journal@.powerpm_id == old(journal)@.powerpm_id,
             match result {
                 Ok(()) => {
-                    &&& self == Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) }
+                    &&& *self == Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) }
                     &&& self.inv(journal@)
                     &&& self.internal_view().consistent_with_journaled_addrs(journal@.journaled_addrs, self.sm)
                     &&& journal@.matches_except_in_range(old(journal)@, row_addr + self.sm.row_metadata_start,

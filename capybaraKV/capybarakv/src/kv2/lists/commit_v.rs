@@ -97,7 +97,7 @@ where
                 (#[trigger] old(self).modifications[which_modification] matches Some(list_addr) ==>
                  old(self).m@.contains_key(list_addr)),
         ensures
-            self == (Self{ m: self.m, ..*old(self) }),
+            *self == (Self{ m: self.m, ..*old(self) }),
             forall|i: int| 0 <= i < self.modifications.len() ==>
                 (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
                     &&& self.m@.contains_key(list_addr)
@@ -115,7 +115,7 @@ where
         let num_modifications = self.modifications.len();
         for which_modification in 0..num_modifications
             invariant
-                self == (Self{ m: self.m, ..*old(self) }),
+                *self == (Self{ m: self.m, ..*old(self) }),
                 num_modifications == self.modifications.len(),
                 forall|i: int| 0 <= i < old(self).modifications.len() ==>
                     (#[trigger] old(self).modifications[i] matches Some(list_addr) ==>
@@ -153,7 +153,7 @@ where
         requires
             old(self).valid(jv),
         ensures
-            self == (Self{ m: self.m, ..*old(self) }),
+            *self == (Self{ m: self.m, ..*old(self) }),
             self.internal_view().m == old(self).internal_view().commit().m,
     {
         self.update_m_to_reflect_commit_of_modifications();

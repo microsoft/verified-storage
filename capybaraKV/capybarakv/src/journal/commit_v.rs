@@ -91,7 +91,7 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
-            self == (Self{
+            *self == (Self{
                 powerpm: self.powerpm,
                 ..*old(self)
             }),
@@ -207,7 +207,7 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
-            self == (Self{
+            *self == (Self{
                 powerpm: self.powerpm,
                 ..*old(self)
             }),
@@ -256,7 +256,7 @@ where
                                   self.sm.app_area_start as int, self.sm.app_area_end as int),
                 seqs_match_in_range(original_read_state, self.powerpm@.read_state,
                 self.sm.app_area_start as int, self.sm.app_area_end as int),
-                self == (Self{ powerpm: self.powerpm, ..*old(self) }),
+                *self == (Self{ powerpm: self.powerpm, ..*old(self) }),
                 crc_digest.bytes_in_digest() ==
                     self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int, current_pos as int),
                 perm_factory.id() == self@.powerpm_id,
@@ -290,7 +290,7 @@ where
             self.inv(),
             self.powerpm.constants() == old(self).powerpm.constants(),
             self.powerpm.id() == old(self).powerpm.id(),
-            self == (Self{
+            *self == (Self{
                 powerpm: self.powerpm,
                 ..*old(self)
             }),
@@ -366,7 +366,7 @@ where
             self.inv(),
             self.powerpm.constants() == old(self).powerpm.constants(),
             self.powerpm.id() == old(self).powerpm.id(),
-            self == (Self{
+            *self == (Self{
                 status: Ghost(JournalStatus::Committed),
                 powerpm: self.powerpm,
                 ..*old(self)
@@ -471,7 +471,7 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
-            self == (Self{
+            *self == (Self{
                 powerpm: self.powerpm,
                 ..*old(self)
             }),
@@ -563,7 +563,7 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
             self.inv(),
-            self == (Self{
+            *self == (Self{
                 powerpm: self.powerpm,
                 ..*old(self)
             }),
@@ -614,7 +614,7 @@ where
                 seqs_match_in_range(original_commit_state, desired_commit_state,
                                     self.sm.app_area_start as int, self.sm.app_area_end as int),
                 recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
-                self == (Self{ powerpm: self.powerpm, ..*old(self) }),
+                *self == (Self{ powerpm: self.powerpm, ..*old(self) }),
                 self.powerpm.constants() == old(self).powerpm.constants(),
                 self.powerpm.id() == old(self).powerpm.id(),
                 perm_factory.id() == self@.powerpm_id,

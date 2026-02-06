@@ -423,7 +423,7 @@ where
         Ghost(prev_jv): Ghost<JournalView>,
     ) -> (result: Result<u64, KvError>)
         requires
-            old(self) == (Self{
+            *old(self) == (Self{
                 free_list: old(self).free_list,
                 m: old(self).m,
                 ..prev_self
@@ -580,7 +580,7 @@ where
         Ghost(prev_jv): Ghost<JournalView>,
     ) -> (result: Result<u64, KvError>)
         requires
-            old(self) == (Self{
+            *old(self) == (Self{
                 free_list: old(self).free_list,
                 m: old(self).m,
                 ..prev_self
