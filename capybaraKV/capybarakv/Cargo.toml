@@ -19,7 +19,7 @@ default = [ "pmem" ]
 [dependencies]
 crc64fast = "1.0.0"
 rand = "0.8.5"
-vstd = "0.0.0-2026-01-25-0057"
+vstd = "0.0.0-2026-02-24-1505"
 pmcopy = { path = "../pmcopy" }
 
 [target.'cfg(target_family = "unix")'.dependencies]

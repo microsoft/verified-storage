@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8"
-vstd = "0.0.0-2026-01-25-0057"
+vstd = "0.0.0-2026-02-24-1505"
 proptest = "1.4"
