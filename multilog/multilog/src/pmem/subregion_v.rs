@@ -136,7 +136,6 @@ pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
         );
         assert(memories_differ_only_where_subregion_allows(crash_state, alt_crash_state, start as nat, len,
                                                            is_writable_absolute_addr_fn));
-        assert(region_view.can_crash_as(crash_state));
         assert(region_view.can_crash_as(crash_state)) by {
             assert forall |chunk| {
                 ||| region_view.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state)
