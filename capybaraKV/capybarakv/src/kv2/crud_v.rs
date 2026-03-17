@@ -106,7 +106,7 @@ where
 
         assert(self.perm_factory == old(self).perm_factory);
         let ghost self_before_item_create = self.lemma_prepare_for_item_table_update();
-        let result = self.items.create::<PermFactory>(item, &mut self.journal, Tracked::<PermFactory>(self.perm_factory.borrow()));
+        let result = self.items.create::<PermFactory>(item, &mut self.journal, Tracked(self.perm_factory.borrow()));
         proof { self.lemma_reflect_item_table_update(self_before_item_create); }
 
         let item_addr = match result {
