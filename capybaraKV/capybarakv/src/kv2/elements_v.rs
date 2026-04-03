@@ -153,46 +153,46 @@ where
                 Ok(list_addr) => {
                     let old_list = if former_rm.list_addr == 0 { Seq::<L>::empty() }
                                    else { old(self).lists@.tentative.unwrap().m[former_rm.list_addr] };
-                    &&& *self == Self{ status: Ghost(KvStoreStatus::ComponentsDontCorrespond),
-                                      journal: self.journal, lists: self.lists, ..*old(self) }
-                    &&& self.inv()
+                    &&& *final(self) == Self{ status: Ghost(KvStoreStatus::ComponentsDontCorrespond),
+                                      journal: final(self).journal, lists: final(self).lists, ..*old(self) }
+                    &&& final(self).inv()
                     &&& list_addr != 0
                     &&& list_addr == former_rm.list_addr || !old(self).lists@.tentative.unwrap().m.contains_key(list_addr)
-                    &&& self.lists.validate_list_addr(list_addr)
-                    &&& self.lists@ == ListTableView {
-                        tentative: self.lists@.tentative,
-                        used_slots: self.lists@.used_slots,
+                    &&& final(self).lists.validate_list_addr(list_addr)
+                    &&& final(self).lists@ == ListTableView {
+                        tentative: final(self).lists@.tentative,
+                        used_slots: final(self).lists@.used_slots,
                         ..old(self).lists@
                     }
-                    &&& self.lists@.used_slots <= old(self).lists@.used_slots + 1
-                    &&& self.lists@.tentative is Some
-                    &&& self.lists@.tentative.unwrap() == if former_rm.list_addr == 0 {
+                    &&& final(self).lists@.used_slots <= old(self).lists@.used_slots + 1
+                    &&& final(self).lists@.tentative is Some
+                    &&& final(self).lists@.tentative.unwrap() == if former_rm.list_addr == 0 {
                         old(self).lists@.tentative.unwrap().create_singleton(list_addr, new_list_element)
                     } else {
                         old(self).lists@.tentative.unwrap().append(former_rm.list_addr, list_addr, new_list_element)
                     }
                     &&& old_list.len() < usize::MAX
-                    &&& match self.lists@.logical_range_gaps_policy {
+                    &&& match final(self).lists@.logical_range_gaps_policy {
                         LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
                             new_list_element.start() == end_of_range(old_list),
                         LogicalRangeGapsPolicy::LogicalRangeGapsPermitted =>
                             new_list_element.start() >= end_of_range(old_list),
                     }
-                    &&& self.journal@.matches_except_in_range(old(self).journal@, self.lists@.sm.start() as int,
-                                                            self.lists@.sm.end() as int)
-                    &&& self.journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
+                    &&& final(self).journal@.matches_except_in_range(old(self).journal@, final(self).lists@.sm.start() as int,
+                                                            final(self).lists@.sm.end() as int)
+                    &&& final(self).journal@.remaining_capacity >= old(self).journal@.remaining_capacity -
                            spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
-                    &&& self.journal@.powerpm_id == old(self).journal@.powerpm_id
+                    &&& final(self).journal@.powerpm_id == old(self).journal@.powerpm_id
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self).valid()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self).valid()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
@@ -200,8 +200,8 @@ where
                     }
                 },
                 Err(e) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@
+                    &&& final(self).valid()
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -266,25 +266,25 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_list_element_slots: old(self)@.used_list_element_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
                         ..old(self)@
                     }
                     &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
@@ -292,7 +292,7 @@ where
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.append_to_list(*key, new_list_element) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -356,11 +356,11 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_list_element_slots: old(self)@.used_list_element_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
@@ -368,14 +368,14 @@ where
                     }
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item)
                         matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
@@ -383,7 +383,7 @@ where
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.append_to_list_and_update_item(*key, new_list_element, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec
@@ -469,11 +469,11 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_list_element_slots: old(self)@.used_list_element_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
@@ -481,14 +481,14 @@ where
                     }
                     &&& old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element)
                         matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
@@ -496,7 +496,7 @@ where
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.update_list_element_at_index(*key, idx as nat, new_list_element)
                         matches Err(e_spec)
                     &&& e == e_spec
@@ -595,11 +595,11 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_list_element_slots: old(self)@.used_list_element_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
@@ -607,14 +607,14 @@ where
                     }
                     &&& old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat, new_list_element,
                                                                               *new_item) matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_list_element_slots >= old(self)@.ps.max_list_elements
@@ -622,7 +622,7 @@ where
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.update_list_element_at_index_and_item(*key, idx as nat, new_list_element,
                                                                              *new_item) matches Err(e_spec)
                     &&& e == e_spec
@@ -740,31 +740,31 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
                         ..old(self)@
                     }
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.trim_list(*key, trim_length as nat) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -869,32 +869,32 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
                         ..old(self)@
                     }
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.trim_list_and_update_item(*key, trim_length as nat, *new_item)
                         matches Err(e_spec)
                     &&& e == e_spec

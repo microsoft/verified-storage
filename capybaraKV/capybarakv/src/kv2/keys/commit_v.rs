@@ -30,10 +30,10 @@ where
             jv_after_commit.valid(),
             jv_after_commit.committed_from(jv_before_commit),
         ensures
-            self.valid(jv_after_commit),
-            self@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
-            self@.durable.key_info.dom().finite(),
-            self@.used_slots == self@.durable.key_info.dom().len(),
+            final(self).valid(jv_after_commit),
+            final(self)@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: final(self)@.used_slots, ..old(self)@ }),
+            final(self)@.durable.key_info.dom().finite(),
+            final(self)@.used_slots == final(self)@.durable.key_info.dom().len(),
     {
         // Delete all the undo records, and move everything in the pending deallocations
         // list to the free list.

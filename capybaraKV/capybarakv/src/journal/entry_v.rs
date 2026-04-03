@@ -200,7 +200,7 @@ impl ConcreteJournalEntries
     #[inline]
     pub exec fn push(&mut self, e: ConcreteJournalEntry)
         ensures
-            self@ == old(self)@.push(e@)
+            final(self)@ == old(self)@.push(e@)
     {
         self.entries.push(e);
         assert(self@ =~= old(self)@.push(e@));
@@ -217,7 +217,7 @@ impl ConcreteJournalEntries
     #[inline]
     pub exec fn clear(&mut self)
         ensures
-            self@ == Seq::<JournalEntry>::empty(),
+            final(self)@ == Seq::<JournalEntry>::empty(),
     {
         self.entries.clear();
         assert(self@ =~= Seq::<JournalEntry>::empty());

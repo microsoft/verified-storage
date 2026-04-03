@@ -351,21 +351,21 @@ where
             old(self)@.tentative.unwrap().m.contains_key(list_addr),
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.remaining_capacity == old(journal)@.remaining_capacity,
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
+            final(journal)@.remaining_capacity == old(journal)@.remaining_capacity,
             match result {
                 Ok(_) => {
-                    &&& self@ == (ListTableView {
+                    &&& final(self)@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().delete(list_addr)),
                         ..old(self)@
                     })
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& self@ == (ListTableView {
+                    &&& !final(journal)@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == (ListTableView {
                         tentative: None,
                         ..old(self)@
                     })

@@ -142,10 +142,10 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
-            self@.valid(),
-            self.recover_idempotent(),
-            self@ == old(self)@.abort(),
+            final(self).valid(),
+            final(self)@.valid(),
+            final(self).recover_idempotent(),
+            final(self)@ == old(self)@.abort(),
     {
         self.journal_length = 0;
         self.journaled_addrs = Ghost(Set::<int>::empty());
@@ -156,9 +156,9 @@ where
         requires
             old(self).valid(),
         ensures
-            self.valid(),
-            self@ == old(self)@,
-            self@.durable_state == self@.read_state,
+            final(self).valid(),
+            final(self)@ == old(self)@,
+            final(self)@.durable_state == final(self)@.read_state,
     {
         self.powerpm.flush();
     }

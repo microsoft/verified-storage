@@ -256,7 +256,7 @@ verus! {
                 pmc.maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs),
                 bytes@.len() == S::spec_size_of(),
             ensures 
-                self@ == bytes@
+                final(self)@ == bytes@
         {
             self.copy_from_slice_helper(bytes);
         }

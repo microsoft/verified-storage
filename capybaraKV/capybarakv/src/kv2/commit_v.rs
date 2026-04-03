@@ -38,10 +38,10 @@ where
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
             }) ==> #[trigger] perm.permits(s1, s2),
         ensures 
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(complete) => {
-                    &&& self@ == old(self)@.commit()
+                    &&& final(self)@ == old(self)@.commit()
                     &&& perm.completed(complete@)
                 },
                 Err(_) => false,

@@ -44,10 +44,10 @@ where
                 Ok(summary) => {
                     let row_addrs = mapping.list_info[list_addr];
                     &&& forall|row_addr: u64| #[trigger] old(row_addrs_used)@.contains(row_addr)
-                            ==> row_addrs_used@.contains(row_addr)
+                            ==> final(row_addrs_used)@.contains(row_addr)
                     &&& forall|i: int| 0 <= i < row_addrs.len()
-                           ==> row_addrs_used@.contains(#[trigger] row_addrs[i])
-                    &&& forall|row_addr: u64| #[trigger] row_addrs_used@.contains(row_addr)
+                           ==> final(row_addrs_used)@.contains(#[trigger] row_addrs[i])
+                    &&& forall|row_addr: u64| #[trigger] final(row_addrs_used)@.contains(row_addr)
                             ==> {
                                 ||| old(row_addrs_used)@.contains(row_addr)
                                 ||| row_addrs.contains(row_addr)

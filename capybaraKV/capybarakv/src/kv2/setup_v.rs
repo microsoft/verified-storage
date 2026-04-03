@@ -105,11 +105,11 @@ where
             jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of() <= jc.app_area_end,
             jc.app_area_end <= old(pm)@.len(),
         ensures
-            pm.inv(),
-            pm.constants() == old(pm).constants(),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, jc.app_area_start as int,
+            final(pm).inv(),
+            final(pm).constants() == old(pm).constants(),
+            seqs_match_except_in_range(old(pm)@.read_state, final(pm)@.read_state, jc.app_area_start as int,
                                        jc.app_area_start + KvStaticMetadata::spec_size_of() + u64::spec_size_of()),
-            recover_static_metadata::<K, I, L>(pm@.read_state, *jc) == Some(*sm),
+            recover_static_metadata::<K, I, L>(final(pm)@.read_state, *jc) == Some(*sm),
     {
         broadcast use pmcopy_axioms;
         broadcast use broadcast_can_result_from_write_effect_on_read_state;
@@ -133,25 +133,25 @@ where
         requires 
             old(pm).inv(),
         ensures
-            pm.inv(),
-            pm.constants() == old(pm).constants(),
+            final(pm).inv(),
+            final(pm).constants() == old(pm).constants(),
             match result {
                 Ok(()) => {
-                    &&& pm@.flush_predicted()
+                    &&& final(pm)@.flush_predicted()
                     &&& ps.valid()
-                    &&& Self::recover(pm@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
+                    &&& Self::recover(final(pm)@.durable_state) == Some(RecoveredKvStore::<K, I, L>::init(*ps))
                 },
                 Err(KvError::InvalidParameter) => !ps.valid(),
                 Err(KvError::KeySizeTooSmall) => K::spec_size_of() == 0,
-                Err(KvError::OutOfSpace) => pm@.len() < Self::spec_space_needed_for_setup(*ps),
+                Err(KvError::OutOfSpace) => final(pm)@.len() < Self::spec_space_needed_for_setup(*ps),
                 Err(_) => false,
             },
             match result {
                 Ok(_) => true,
                 Err(_) => {
-                    &&& pm.inv()
-                    &&& pm.constants() == old(pm).constants()
-                    &&& pm@.len() == old(pm)@.len()
+                    &&& final(pm).inv()
+                    &&& final(pm).constants() == old(pm).constants()
+                    &&& final(pm)@.len() == old(pm)@.len()
                 },
             },
     {

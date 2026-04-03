@@ -155,9 +155,9 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
             self.pre(old(r).id(), op),
             op.result_valid(old(r)@, new_ckv, exec_result),
         ensures
-            r.id() == old(r).id(),
-            r@ == new_ckv,
-            self.post(complete, r.id(), op, exec_result),
+            final(r).id() == old(r).id(),
+            final(r)@ == new_ckv,
+            self.post(complete, final(r).id(), op, exec_result),
         opens_invariants self.namespaces()
     ;
 }

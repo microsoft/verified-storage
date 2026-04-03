@@ -203,27 +203,27 @@ where
         requires
             old(pm).inv(),
         ensures
-            pm.inv(),
-            pm.constants() == old(pm).constants(),
+            final(pm).inv(),
+            final(pm).constants() == old(pm).constants(),
             match result {
                 Ok(constants) => {
-                    &&& pm@.flush_predicted()
-                    &&& Self::recover(pm@.durable_state)
-                        == Some(RecoveredJournal{ constants: *jc, state: pm@.durable_state })
+                    &&& final(pm)@.flush_predicted()
+                    &&& Self::recover(final(pm)@.durable_state)
+                        == Some(RecoveredJournal{ constants: *jc, state: final(pm)@.durable_state })
                     &&& jc.app_area_start <= jc.app_area_end
-                    &&& jc.app_area_end == pm@.len()
-                    &&& seqs_match_in_range(old(pm)@.read_state, pm@.read_state, jc.app_area_start as int,
+                    &&& jc.app_area_end == final(pm)@.len()
+                    &&& seqs_match_in_range(old(pm)@.read_state, final(pm)@.read_state, jc.app_area_start as int,
                                            jc.app_area_end as int)
                 },
                 Err(JournalError::InvalidSetupParameters) => {
-                    &&& pm@ == old(pm)@
+                    &&& final(pm)@ == old(pm)@
                     &&& {
                            ||| jc.app_area_start > jc.app_area_end
-                           ||| jc.app_area_end != pm@.len()
+                           ||| jc.app_area_end != final(pm)@.len()
                        }
                 },
                 Err(JournalError::NotEnoughSpace) => {
-                    &&& pm@ == old(pm)@
+                    &&& final(pm)@ == old(pm)@
                     &&& jc.app_area_start < Self::spec_space_needed_for_setup(jc.journal_capacity as nat)
                 },
                 Err(_) => false,

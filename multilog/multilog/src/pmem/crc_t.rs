@@ -48,7 +48,7 @@ verus! {
             where
                 S: PmCopy,
             ensures
-                self.bytes_in_digest() == old(self).bytes_in_digest().push(val.spec_to_bytes())
+                final(self).bytes_in_digest() == old(self).bytes_in_digest().push(val.spec_to_bytes())
         {
             // Cast `val` to bytes, then add them to the digest.
             // The crc64fast crate that we use computes the CRC iteratively and does
@@ -70,7 +70,7 @@ verus! {
         #[verifier::external_body]
         pub fn write_bytes(&mut self, val: &[u8])
             ensures 
-                self.bytes_in_digest() == old(self).bytes_in_digest().push(val@)
+                final(self).bytes_in_digest() == old(self).bytes_in_digest().push(val@)
         {
             self.digest.digest.write(val);
         }

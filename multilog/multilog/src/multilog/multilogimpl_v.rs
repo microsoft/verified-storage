@@ -160,38 +160,38 @@ verus! {
             requires
                 old(pm_regions).inv(),
             ensures
-                pm_regions.inv(),
-                pm_regions.constants() == old(pm_regions).constants(),
-                pm_regions@.no_outstanding_writes(),
+                final(pm_regions).inv(),
+                final(pm_regions).constants() == old(pm_regions).constants(),
+                final(pm_regions)@.no_outstanding_writes(),
                 match result {
                     Ok(log_capacities) => {
                         let state = AbstractMultiLogState::initialize(log_capacities@);
-                        &&& pm_regions@.len() == old(pm_regions)@.len()
-                        &&& pm_regions@.len() >= 1
-                        &&& pm_regions@.len() <= u32::MAX
-                        &&& log_capacities@.len() == pm_regions@.len()
-                        &&& forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] log_capacities@[i] <= pm_regions@[i].len()
-                        &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
-                               #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
-                        &&& can_only_crash_as_state(pm_regions@, multilog_id, state)
-                        &&& Self::recover(pm_regions@.committed(), multilog_id) == Some(state)
-                        &&& Self::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
+                        &&& final(pm_regions)@.len() == old(pm_regions)@.len()
+                        &&& final(pm_regions)@.len() >= 1
+                        &&& final(pm_regions)@.len() <= u32::MAX
+                        &&& log_capacities@.len() == final(pm_regions)@.len()
+                        &&& forall |i: int| 0 <= i < final(pm_regions)@.len() ==> #[trigger] log_capacities@[i] <= final(pm_regions)@[i].len()
+                        &&& forall |i: int| 0 <= i < final(pm_regions)@.len() ==>
+                               #[trigger] final(pm_regions)@[i].len() == old(pm_regions)@[i].len()
+                        &&& can_only_crash_as_state(final(pm_regions)@, multilog_id, state)
+                        &&& Self::recover(final(pm_regions)@.committed(), multilog_id) == Some(state)
+                        &&& Self::recover(final(pm_regions)@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@[which_log as int].len() < required_space
+                        &&& final(pm_regions)@ == flushed_regions
+                        &&& final(pm_regions)@[which_log as int].len() < required_space
                     },
                     Err(MultiLogErr::CantSetupWithFewerThanOneRegion { }) => {
                         let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@.len() < 1
+                        &&& final(pm_regions)@ == flushed_regions
+                        &&& final(pm_regions)@.len() < 1
                     },
                     Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
                         let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@.len() > u32::MAX
+                        &&& final(pm_regions)@ == flushed_regions
+                        &&& final(pm_regions)@.len() > u32::MAX
                     },
                     _ => false
                 }
@@ -295,20 +295,20 @@ verus! {
                 old(wrpm_regions).inv(),
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, multilog_id) == Some(state),
             ensures
-                wrpm_regions.inv(),
-                wrpm_regions.constants() == old(wrpm_regions).constants(),
+                final(wrpm_regions).inv(),
+                final(wrpm_regions).constants() == old(wrpm_regions).constants(),
                 match result {
                     Ok(log_impl) => {
-                        &&& log_impl.inv(wrpm_regions, multilog_id)
+                        &&& log_impl.inv(final(wrpm_regions), multilog_id)
                         &&& log_impl@ == state
-                        &&& can_only_crash_as_state(wrpm_regions@, multilog_id, state.drop_pending_appends())
+                        &&& can_only_crash_as_state(final(wrpm_regions)@, multilog_id, state.drop_pending_appends())
                     },
-                    Err(MultiLogErr::CRCMismatch) => !wrpm_regions.constants().impervious_to_corruption,
+                    Err(MultiLogErr::CRCMismatch) => !final(wrpm_regions).constants().impervious_to_corruption,
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(wrpm_regions)@.flush();
                         &&& 0 <= which_log < flushed_regions.len()
-                        &&& wrpm_regions@ == flushed_regions
-                        &&& wrpm_regions@[which_log as int].len() < required_space
+                        &&& final(wrpm_regions)@ == flushed_regions
+                        &&& final(wrpm_regions)@[which_log as int].len() < required_space
                     },
                     _ => false
                 }
@@ -399,26 +399,26 @@ verus! {
                 forall |s| #[trigger] perm.check_permission(s) <==>
                     Self::recover(s, multilog_id) == Some(old(self)@.drop_pending_appends()),
             ensures
-                self.inv(wrpm_regions, multilog_id),
-                wrpm_regions.constants() == old(wrpm_regions).constants(),
-                can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends()),
+                final(self).inv(final(wrpm_regions), multilog_id),
+                final(wrpm_regions).constants() == old(wrpm_regions).constants(),
+                can_only_crash_as_state(final(wrpm_regions)@, multilog_id, final(self)@.drop_pending_appends()),
                 match result {
                     Ok(offset) => {
                         let state = old(self)@[which_log as int];
                         &&& which_log < old(self)@.num_logs()
                         &&& offset == state.head + state.log.len() + state.pending.len()
-                        &&& self@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
+                        &&& final(self)@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
                     },
                     Err(MultiLogErr::InvalidLogIndex { }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log >= self@.num_logs()
+                        &&& final(self)@ == old(self)@
+                        &&& which_log >= final(self)@.num_logs()
                     },
                     Err(MultiLogErr::InsufficientSpaceForAppend { available_space }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
+                        &&& final(self)@ == old(self)@
+                        &&& which_log < final(self)@.num_logs()
                         &&& available_space < bytes_to_append@.len()
                         &&& {
-                               let state = self@[which_log as int];
+                               let state = final(self)@[which_log as int];
                                ||| available_space == state.capacity - state.log.len() - state.pending.len()
                                ||| available_space == u128::MAX - state.head - state.log.len() - state.pending.len()
                            }
@@ -653,9 +653,9 @@ verus! {
                     ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len(),
                 old(wrpm_regions)@.len() > 0,
             ensures
-                self.inv(wrpm_regions, multilog_id),
-                wrpm_regions.constants() == old(wrpm_regions).constants(),
-                self.state == old(self).state,
+                final(self).inv(final(wrpm_regions), multilog_id),
+                final(wrpm_regions).constants() == old(wrpm_regions).constants(),
+                final(self).state == old(self).state,
         {
             broadcast use pmcopy_axioms;
                 
@@ -835,33 +835,33 @@ verus! {
                     ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len(),
                 old(wrpm_regions)@.len() > 0,
             ensures
-                wrpm_regions.inv(),
-                self.state == old(self).state,
-                wrpm_regions.constants() == old(wrpm_regions).constants(),
-                memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
-                each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
-                each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
-                each_info_consistent_with_log_area(wrpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
+                final(wrpm_regions).inv(),
+                final(self).state == old(self).state,
+                final(wrpm_regions).constants() == old(wrpm_regions).constants(),
+                memory_matches_deserialized_cdb(final(wrpm_regions)@, final(self).cdb),
+                each_metadata_consistent_with_info(final(wrpm_regions)@, multilog_id, final(self).num_logs, final(self).cdb, prev_infos),
+                each_info_consistent_with_log_area(final(wrpm_regions)@, final(self).num_logs, prev_infos, prev_state),
+                each_info_consistent_with_log_area(final(wrpm_regions)@.flush(), final(self).num_logs, final(self).infos@, final(self).state@),
                 forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
                     #[trigger] perm.check_permission(s),
-                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < self.num_logs ==>
-                    self.infos@[i].log_area_len == prev_infos[i].log_area_len,
-                forall |which_log: u32| #[trigger] log_index_trigger(which_log as int) && which_log < self.num_logs ==> {
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < final(self).num_logs ==>
+                    final(self).infos@[i].log_area_len == prev_infos[i].log_area_len,
+                forall |which_log: u32| #[trigger] log_index_trigger(which_log as int) && which_log < final(self).num_logs ==> {
                     let w = which_log as int;
-                    let flushed = wrpm_regions@.flush();
-                    metadata_consistent_with_info(flushed[w], multilog_id, self.num_logs, which_log,
-                                                  !self.cdb, self.infos@[w])
+                    let flushed = final(wrpm_regions)@.flush();
+                    metadata_consistent_with_info(flushed[w], multilog_id, final(self).num_logs, which_log,
+                                                  !final(self).cdb, final(self).infos@[w])
                 },
-                no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb),
-                metadata_types_set(wrpm_regions@.committed()),
-                active_metadata_is_equal(old(wrpm_regions)@, wrpm_regions@),
-                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
-                    wrpm_regions@[i].len() == old(wrpm_regions)@[i].len(),
-                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
-                    ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
-                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
-                    inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
-                wrpm_regions@.len() > 0,
+                no_outstanding_writes_to_active_metadata(final(wrpm_regions)@, final(self).cdb),
+                metadata_types_set(final(wrpm_regions)@.committed()),
+                active_metadata_is_equal(old(wrpm_regions)@, final(wrpm_regions)@),
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < final(wrpm_regions)@.len() ==>
+                    final(wrpm_regions)@[i].len() == old(wrpm_regions)@[i].len(),
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < final(wrpm_regions)@.len() ==>
+                    ABSOLUTE_POS_OF_LOG_AREA < final(wrpm_regions)@[i].len(),
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < final(wrpm_regions)@.len() ==>
+                    inactive_metadata_types_set_in_region(final(wrpm_regions)@.flush().committed()[i], final(self).cdb),
+                final(wrpm_regions)@.len() > 0,
                 
         {
             broadcast use pmcopy_axioms;
@@ -1102,11 +1102,11 @@ verus! {
                     ||| Self::recover(s, multilog_id) == Some(old(self)@.commit().drop_pending_appends())
                 },
             ensures
-                self.inv(wrpm_regions, multilog_id),
-                wrpm_regions.constants() == old(wrpm_regions).constants(),
-                can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends()),
+                final(self).inv(final(wrpm_regions), multilog_id),
+                final(wrpm_regions).constants() == old(wrpm_regions).constants(),
+                can_only_crash_as_state(final(wrpm_regions)@, multilog_id, final(self)@.drop_pending_appends()),
                 result is Ok,
-                self@ == old(self)@.commit(),
+                final(self)@ == old(self)@.commit(),
         {
             let ghost prev_infos = self.infos@;
             let ghost prev_state = self.state@;
@@ -1203,30 +1203,30 @@ verus! {
                         Some(old(self)@.advance_head(which_log as int, new_head as int).drop_pending_appends())
                 },
             ensures
-                self.inv(wrpm_regions, multilog_id),
-                wrpm_regions.constants() == old(wrpm_regions).constants(),
-                can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends()),
+                final(self).inv(final(wrpm_regions), multilog_id),
+                final(wrpm_regions).constants() == old(wrpm_regions).constants(),
+                can_only_crash_as_state(final(wrpm_regions)@, multilog_id, final(self)@.drop_pending_appends()),
                 match result {
                     Ok(()) => {
                         let w = which_log as int;
-                        &&& which_log < self@.num_logs()
+                        &&& which_log < final(self)@.num_logs()
                         &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
-                        &&& self@ == old(self)@.advance_head(w, new_head as int)
+                        &&& final(self)@ == old(self)@.advance_head(w, new_head as int)
                     },
                     Err(MultiLogErr::InvalidLogIndex{ }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log >= self@.num_logs()
+                        &&& final(self)@ == old(self)@
+                        &&& which_log >= final(self)@.num_logs()
                     },
                     Err(MultiLogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
-                        &&& head == self@[which_log as int].head
+                        &&& final(self)@ == old(self)@
+                        &&& which_log < final(self)@.num_logs()
+                        &&& head == final(self)@[which_log as int].head
                         &&& new_head < head
                     },
                     Err(MultiLogErr::CantAdvanceHeadPositionBeyondTail { tail }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
-                        &&& tail == self@[which_log as int].head + self@[which_log as int].log.len()
+                        &&& final(self)@ == old(self)@
+                        &&& which_log < final(self)@.num_logs()
+                        &&& tail == final(self)@[which_log as int].head + final(self)@[which_log as int].log.len()
                         &&& new_head > tail
                     },
                     _ => false

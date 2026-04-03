@@ -49,12 +49,12 @@ where
             sm.valid::<I>(),
             sm.table.end <= old(pm)@.len(),
         ensures
-            pm.inv(),
-            pm.constants() == old(pm).constants(),
-            pm@.valid(),
-            pm@.len() == old(pm)@.len(),
-            Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
-            seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.table.start as int, sm.table.end as int),
+            final(pm).inv(),
+            final(pm).constants() == old(pm).constants(),
+            final(pm)@.valid(),
+            final(pm)@.len() == old(pm)@.len(),
+            Self::recover(final(pm)@.read_state, Set::<u64>::empty(), *sm) == Some(ItemTableSnapshot::<I>::init()),
+            seqs_match_except_in_range(old(pm)@.read_state, final(pm)@.read_state, sm.table.start as int, sm.table.end as int),
     {
         assert(Self::recover(pm@.read_state, Set::<u64>::empty(), *sm) =~= Some(ItemTableSnapshot::<I>::init()));
     }
@@ -71,14 +71,14 @@ where
             ps.valid(),
             min_start <= max_end <= old(pm)@.len(),
         ensures
-            pm.inv(),
-            pm.constants() == old(pm).constants(),
-            pm@.valid(),
-            pm@.len() == old(pm)@.len(),
+            final(pm).inv(),
+            final(pm).constants() == old(pm).constants(),
+            final(pm)@.valid(),
+            final(pm)@.len() == old(pm)@.len(),
             match result {
                 Ok(sm) => {
-                    &&& Self::recover(pm@.read_state, Set::<u64>::empty(), sm) == Some(ItemTableSnapshot::<I>::init())
-                    &&& seqs_match_except_in_range(old(pm)@.read_state, pm@.read_state, sm.start() as int, sm.end() as int)
+                    &&& Self::recover(final(pm)@.read_state, Set::<u64>::empty(), sm) == Some(ItemTableSnapshot::<I>::init())
+                    &&& seqs_match_except_in_range(old(pm)@.read_state, final(pm)@.read_state, sm.start() as int, sm.end() as int)
                     &&& sm.valid::<I>()
                     &&& min_start <= sm.start() <= sm.end() <= max_end
                     &&& sm.end() - min_start == Self::spec_space_needed_for_setup(*ps, min_start as nat)

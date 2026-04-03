@@ -63,31 +63,31 @@ where
         requires 
             old(self).valid(),
         ensures 
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
                         ..old(self)@
                     }
                     &&& old(self)@.tentative.create(*key, *item) matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
                     }
                 }
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.create(*key, *item) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -156,27 +156,27 @@ where
         requires 
             old(self).valid(),
         ensures 
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
                         ..old(self)@
                     }
                     &&& old(self)@.tentative.delete(*key) matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
                 }
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.delete(*key) matches Err(e_spec)
                     &&& e == e_spec
                 },
@@ -267,31 +267,31 @@ where
         requires 
             old(self).valid(),
         ensures 
-            self.valid(),
+            final(self).valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == KvStoreView{
-                        tentative: self@.tentative,
+                    &&& final(self)@ == KvStoreView{
+                        tentative: final(self)@.tentative,
                         used_key_slots: old(self)@.used_key_slots + 1,
                         used_transaction_operation_slots: old(self)@.used_transaction_operation_slots + 1,
                         ..old(self)@
                     }
                     &&& old(self)@.tentative.update_item(*key, *new_item) matches Ok(new_self)
-                    &&& self@.tentative == new_self
+                    &&& final(self)@.tentative == new_self
                 }
                 Err(KvError::CRCMismatch) => {
-                    &&& self@ == old(self)@.abort()
-                    &&& !self@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == old(self)@.abort()
+                    &&& !final(self)@.pm_constants.impervious_to_corruption()
                 }, 
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == old(self)@.abort()
+                    &&& final(self)@ == old(self)@.abort()
                     &&& {
                         ||| old(self)@.used_key_slots >= old(self)@.ps.max_keys
                         ||| old(self)@.used_transaction_operation_slots >= old(self)@.ps.max_operations_per_transaction
                     }
                 },
                 Err(e) => {
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& old(self)@.tentative.update_item(*key, *new_item) matches Err(e_spec)
                     &&& e_spec == e
                 },
