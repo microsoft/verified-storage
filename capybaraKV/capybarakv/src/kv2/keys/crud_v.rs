@@ -144,34 +144,34 @@ where
             !old(self)@.tentative.unwrap().key_info.contains_key(*k),
             !old(self)@.tentative.unwrap().item_addrs().contains(item_addr),
         ensures
-            self.inv(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.durable_state == old(journal)@.durable_state,
+            final(self).inv(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
+            final(journal)@.durable_state == old(journal)@.durable_state,
             match result {
                 Ok(row_addr) => {
-                    &&& 0 < self.free_list@.len()
-                    &&& row_addr == self.free_list@.last()
-                    &&& *self == (Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) })
-                    &&& recover_cdb(journal@.commit_state, row_addr + self.sm.row_cdb_start) == Some(true)
-                    &&& seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
-                                                 row_addr as int, row_addr + self.sm.table.row_size)
-                    &&& journal@.journaled_addrs == old(journal)@.journaled_addrs +
-                        Set::<int>::new(|i: int| row_addr + self.sm.row_cdb_start <= i
-                                      < row_addr + self.sm.row_cdb_start + u64::spec_size_of())
-                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                    &&& 0 < final(self).free_list@.len()
+                    &&& row_addr == final(self).free_list@.last()
+                    &&& *final(self) == (Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) })
+                    &&& recover_cdb(final(journal)@.commit_state, row_addr + final(self).sm.row_cdb_start) == Some(true)
+                    &&& seqs_match_except_in_range(old(journal)@.commit_state, final(journal)@.commit_state,
+                                                 row_addr as int, row_addr + final(self).sm.table.row_size)
+                    &&& final(journal)@.journaled_addrs == old(journal)@.journaled_addrs +
+                        Set::<int>::new(|i: int| row_addr + final(self).sm.row_cdb_start <= i
+                                      < row_addr + final(self).sm.row_cdb_start + u64::spec_size_of())
+                    &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity -
                            spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self.valid(journal@)
-                    &&& self@ == (KeyTableView { tentative: None, ..old(self)@ })
-                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
+                    &&& final(self).valid(final(journal)@)
+                    &&& final(self)@ == (KeyTableView { tentative: None, ..old(self)@ })
+                    &&& final(journal)@.remaining_capacity == old(journal)@.remaining_capacity
                     &&& {
                            ||| old(journal)@.remaining_capacity <
                                   spec_journal_entry_overhead() +
                                   u64::spec_size_of()
-                           ||| self@.used_slots == self@.sm.num_rows()
+                           ||| final(self)@.used_slots == final(self)@.sm.num_rows()
                     }
                 },
                 _ => false,
@@ -245,19 +245,19 @@ where
             perm_factory.id() == old(journal)@.powerpm_id,
             self.perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.inv(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.journaled_addrs == old(journal)@.journaled_addrs,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.remaining_capacity == old(journal)@.remaining_capacity,
-            recover_object::<K>(journal@.commit_state, row_addr + self.sm.row_key_start,
+            self.inv(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.journaled_addrs == old(journal)@.journaled_addrs,
+            final(journal)@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            final(journal)@.remaining_capacity == old(journal)@.remaining_capacity,
+            recover_object::<K>(final(journal)@.commit_state, row_addr + self.sm.row_key_start,
                                 row_addr + self.sm.row_key_crc_start as u64) == Some(*k),
             recover_object::<KeyTableRowMetadata>(
-                journal@.commit_state, row_addr + self.sm.row_metadata_start,
+                final(journal)@.commit_state, row_addr + self.sm.row_metadata_start,
                 row_addr + self.sm.row_metadata_crc_start
             ) == Some(KeyTableRowMetadata{ item_addr, list_addr: 0 }),
-            seqs_match_except_in_range(old(journal)@.commit_state, journal@.commit_state,
+            seqs_match_except_in_range(old(journal)@.commit_state, final(journal)@.commit_state,
                                        row_addr + self.sm.row_metadata_start,
                                        row_addr + self.sm.table.row_size),
     {
@@ -325,23 +325,23 @@ where
             perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
             match result {
                 Ok(()) => {
-                    &&& self@ == (KeyTableView {
+                    &&& final(self)@ == (KeyTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create(*k, item_addr)),
-                        used_slots: self@.used_slots,
+                        used_slots: final(self)@.used_slots,
                         ..old(self)@
                     })
-                    &&& self@.used_slots <= old(self)@.used_slots + 1
-                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                    &&& final(self)@.used_slots <= old(self)@.used_slots + 1
+                    &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity -
                            spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == (KeyTableView {
+                    &&& final(self)@ == (KeyTableView {
                         tentative: None,
                         ..old(self)@
                     })
@@ -349,7 +349,7 @@ where
                            ||| old(journal)@.remaining_capacity <
                                   spec_journal_entry_overhead() +
                                   u64::spec_size_of()
-                           ||| self@.used_slots == self@.sm.num_rows()
+                           ||| final(self)@.used_slots == final(self)@.sm.num_rows()
                     }
                 },
                 _ => false,
@@ -415,21 +415,21 @@ where
             old(self).key_corresponds_to_key_addr(*k, row_addr),
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
             match result {
                 Ok(()) => {
-                    &&& self@ == (KeyTableView {
+                    &&& final(self)@ == (KeyTableView {
                         tentative: Some(old(self)@.tentative.unwrap().delete(*k)),
                         ..old(self)@
                     })
-                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                    &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity -
                            spec_journal_entry_overhead() - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == (KeyTableView {
+                    &&& final(self)@ == (KeyTableView {
                         tentative: None,
                         ..old(self)@
                     })
@@ -520,29 +520,29 @@ where
                 ||| !old(self)@.tentative.unwrap().list_addrs().contains(new_rm.list_addr)
             }),
         ensures
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
             match result {
                 Ok(()) => {
-                    &&& *self == Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) }
-                    &&& self.inv(journal@)
-                    &&& self.internal_view().consistent_with_journaled_addrs(journal@.journaled_addrs, self.sm)
-                    &&& journal@.matches_except_in_range(old(journal)@, row_addr + self.sm.row_metadata_start,
-                                                       row_addr + self.sm.row_metadata_crc_start + u64::spec_size_of())
+                    &&& *final(self) == Self{ status: Ghost(KeyTableStatus::Inconsistent), ..*old(self) }
+                    &&& final(self).inv(final(journal)@)
+                    &&& final(self).internal_view().consistent_with_journaled_addrs(final(journal)@.journaled_addrs, final(self).sm)
+                    &&& final(journal)@.matches_except_in_range(old(journal)@, row_addr + final(self).sm.row_metadata_start,
+                                                       row_addr + final(self).sm.row_metadata_crc_start + u64::spec_size_of())
                     &&& recover_object::<KeyTableRowMetadata>(
-                        journal@.commit_state, row_addr + self.sm.row_metadata_start,
-                        row_addr + self.sm.row_metadata_crc_start
+                        final(journal)@.commit_state, row_addr + final(self).sm.row_metadata_start,
+                        row_addr + final(self).sm.row_metadata_crc_start
                     ) == Some(new_rm)
-                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
+                    &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity
                           - spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
                           - spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int)
-                    &&& self.valid(journal@)
-                    &&& self@ == KeyTableView { tentative: None, ..old(self)@ }
+                    &&& final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int)
+                    &&& final(self).valid(final(journal)@)
+                    &&& final(self)@ == KeyTableView { tentative: None, ..old(self)@ }
                     &&& old(journal)@.remaining_capacity <
                           spec_journal_entry_overhead()
                           + KeyTableRowMetadata::spec_size_of()
@@ -629,26 +629,26 @@ where
             }),
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
             match result {
                 Ok(()) => {
-                    &&& self@ == (KeyTableView {
+                    &&& final(self)@ == (KeyTableView {
                         tentative: Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)),
-                        used_slots: self@.used_slots,
+                        used_slots: final(self)@.used_slots,
                         ..old(self)@
                     })
-                    &&& self@.used_slots <= old(self)@.used_slots + 1
-                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity
+                    &&& final(self)@.used_slots <= old(self)@.used_slots + 1
+                    &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity
                           - spec_journal_entry_overhead()
                           - KeyTableRowMetadata::spec_size_of()
                           - spec_journal_entry_overhead()
                           - u64::spec_size_of()
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == (KeyTableView {
+                    &&& final(self)@ == (KeyTableView {
                         tentative: None,
                         ..old(self)@
                     })

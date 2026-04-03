@@ -22,8 +22,8 @@ pub trait CheckPermission<State> : Sized
             self.id() == old(r).id(),
             self.permits(old(r)@, new_state),
         ensures
-            r.id() == old(r).id(),
-            r@ == new_state,
+            final(r).id() == old(r).id(),
+            final(r)@ == new_state,
             self.completed(complete),
         opens_invariants
             any;
@@ -98,10 +98,10 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
                     ==> #[trigger] perm.permits(old(self)@.durable_state, s),
         ensures
-            self.inv(),
-            self.id() == old(self).id(),
-            self.constants() == old(self).constants(),
-            self@.can_result_from_write(old(self)@, addr as int, bytes@),
+            final(self).inv(),
+            final(self).id() == old(self).id(),
+            final(self).constants() == old(self).constants(),
+            final(self)@.can_result_from_write(old(self)@, addr as int, bytes@),
             perm.completed(result@),
     {
         self.pm.write(addr, bytes);
@@ -124,10 +124,10 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
                     ==> #[trigger] perm.permits(old(self)@.durable_state, s),
         ensures
-            self.inv(),
-            self.id() == old(self).id(),
-            self.constants() == old(self).constants(),
-            self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
+            final(self).inv(),
+            final(self).id() == old(self).id(),
+            final(self).constants() == old(self).constants(),
+            final(self)@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
             perm.completed(result@),
     {
         broadcast use pmcopy_axioms;
@@ -145,11 +145,11 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         requires
             old(self).inv(),
         ensures
-            self.inv(),
-            self.id() == old(self).id(),
-            self.constants() == old(self).constants(),
-            self@ == old(self)@,
-            self@.flush_predicted(),
+            final(self).inv(),
+            final(self).id() == old(self).id(),
+            final(self).constants() == old(self).constants(),
+            final(self)@ == old(self)@,
+            final(self)@.flush_predicted(),
     {
         self.pm.flush()
     }

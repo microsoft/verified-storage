@@ -22,9 +22,9 @@ where
         requires 
             old(self).valid(),
         ensures 
-            self.valid(),
+            final(self).valid(),
             match result {
-                Ok(()) => self@ == old(self)@.abort(),
+                Ok(()) => final(self)@ == old(self)@.abort(),
                 Err(_) => false,
             }
     {
@@ -39,9 +39,9 @@ where
             old(self).inv(),
             old(self).status@ is MustAbort,
         ensures 
-            self.valid(),
-            self@ == old(self)@.abort(),
-            self.journal@.durable_state == self.journal@.read_state,
+            final(self).valid(),
+            final(self)@ == old(self)@.abort(),
+            final(self).journal@.durable_state == final(self).journal@.read_state,
     {
         let ghost jv_before_abort = self.journal@;
         self.journal.abort();

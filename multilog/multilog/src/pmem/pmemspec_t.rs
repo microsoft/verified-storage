@@ -467,9 +467,9 @@ verus! {
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(addr as int, bytes@),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@.write(addr as int, bytes@),
         ;
 
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
@@ -480,10 +480,10 @@ verus! {
                 addr + S::spec_size_of() <= old(self)@.len(),
                 old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
-                self@.flush().committed().subrange(addr as int, addr + S::spec_size_of()) == to_write.spec_to_bytes(),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
+                final(self)@.flush().committed().subrange(addr as int, addr + S::spec_size_of()) == to_write.spec_to_bytes(),
         ;
 
 
@@ -491,9 +491,9 @@ verus! {
             requires
                 old(self).inv()
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.flush(),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@.flush(),
         ;
     }
 
@@ -587,9 +587,9 @@ verus! {
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, bytes@),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@.write(index as int, addr as int, bytes@),
         ;
 
         // Note that addr is a regular offset in terms of bytes, but to_write is type S
@@ -602,18 +602,18 @@ verus! {
                 addr + S::spec_size_of() <= old(self)@[index as int].len(),
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()),
         ;
 
         fn flush(&mut self)
             requires
                 old(self).inv(),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.flush(),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@.flush(),
         ;
     }
 

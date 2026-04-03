@@ -265,40 +265,40 @@ verus! {
             requires
                 old(pm_regions).inv(),
             ensures
-                pm_regions.inv(),
-                pm_regions@.no_outstanding_writes(),
+                final(pm_regions).inv(),
+                final(pm_regions)@.no_outstanding_writes(),
                 match result {
                     Ok((log_capacities, multilog_id)) => {
                         let state = AbstractMultiLogState::initialize(log_capacities@);
-                        &&& pm_regions@.len() == old(pm_regions)@.len()
-                        &&& pm_regions@.len() >= 1
-                        &&& pm_regions@.len() <= u32::MAX
-                        &&& log_capacities@.len() == pm_regions@.len()
-                        &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
-                               #[trigger] log_capacities@[i] <= pm_regions@[i].len()
-                        &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
-                               #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
-                        &&& can_only_crash_as_state(pm_regions@, multilog_id, state)
-                        &&& UntrustedMultiLogImpl::recover(pm_regions@.committed(), multilog_id) == Some(state)
+                        &&& final(pm_regions)@.len() == old(pm_regions)@.len()
+                        &&& final(pm_regions)@.len() >= 1
+                        &&& final(pm_regions)@.len() <= u32::MAX
+                        &&& log_capacities@.len() == final(pm_regions)@.len()
+                        &&& forall |i: int| 0 <= i < final(pm_regions)@.len() ==>
+                               #[trigger] log_capacities@[i] <= final(pm_regions)@[i].len()
+                        &&& forall |i: int| 0 <= i < final(pm_regions)@.len() ==>
+                               #[trigger] final(pm_regions)@[i].len() == old(pm_regions)@[i].len()
+                        &&& can_only_crash_as_state(final(pm_regions)@, multilog_id, state)
+                        &&& UntrustedMultiLogImpl::recover(final(pm_regions)@.committed(), multilog_id) == Some(state)
                         // Required by the `start` function's precondition. Putting this in the
                         // postcond of `setup` ensures that the trusted caller doesn't have to prove it
-                        &&& UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
+                        &&& UntrustedMultiLogImpl::recover(final(pm_regions)@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@[which_log as int].len() < required_space
+                        &&& final(pm_regions)@ == flushed_regions
+                        &&& final(pm_regions)@[which_log as int].len() < required_space
                     },
                     Err(MultiLogErr::CantSetupWithFewerThanOneRegion { }) => {
                         let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@.len() < 1
+                        &&& final(pm_regions)@ == flushed_regions
+                        &&& final(pm_regions)@.len() < 1
                     },
                     Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
                         let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@.len() > u32::MAX
+                        &&& final(pm_regions)@ == flushed_regions
+                        &&& final(pm_regions)@.len() > u32::MAX
                     },
                     _ => false
                 }
@@ -367,25 +367,25 @@ verus! {
             requires
                 old(self).valid(),
             ensures
-                self.valid(),
-                self.constants() == old(self).constants(),
+                final(self).valid(),
+                final(self).constants() == old(self).constants(),
                 match result {
                     Ok(offset) => {
                         let state = old(self)@[which_log as int];
                         &&& which_log < old(self)@.num_logs()
                         &&& offset == state.head + state.log.len() + state.pending.len()
-                        &&& self@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
+                        &&& final(self)@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
                     },
                     Err(MultiLogErr::InvalidLogIndex { }) => {
-                        &&& which_log >= self@.num_logs()
-                        &&& self@ == old(self)@
+                        &&& which_log >= final(self)@.num_logs()
+                        &&& final(self)@ == old(self)@
                     },
                     Err(MultiLogErr::InsufficientSpaceForAppend { available_space }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
+                        &&& final(self)@ == old(self)@
+                        &&& which_log < final(self)@.num_logs()
                         &&& available_space < bytes_to_append@.len()
                         &&& {
-                               let state = self@[which_log as int];
+                               let state = final(self)@[which_log as int];
                                ||| available_space == state.capacity - state.log.len() - state.pending.len()
                                ||| available_space == u128::MAX - state.head - state.log.len() - state.pending.len()
                            }
@@ -413,10 +413,10 @@ verus! {
             requires
                 old(self).valid(),
             ensures
-                self.valid(),
-                self.constants() == old(self).constants(),
+                final(self).valid(),
+                final(self).constants() == old(self).constants(),
                 match result {
-                    Ok(()) => self@ == old(self)@.commit(),
+                    Ok(()) => final(self)@ == old(self)@.commit(),
                     _ => false,
                 }
         {
@@ -442,29 +442,29 @@ verus! {
             requires
                 old(self).valid(),
             ensures
-                self.valid(),
-                self.constants() == old(self).constants(),
+                final(self).valid(),
+                final(self).constants() == old(self).constants(),
                 match result {
                     Ok(()) => {
                         let w = which_log as int;
-                        &&& which_log < self@.num_logs()
+                        &&& which_log < final(self)@.num_logs()
                         &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
-                        &&& self@ == old(self)@.advance_head(w, new_head as int)
+                        &&& final(self)@ == old(self)@.advance_head(w, new_head as int)
                     },
                     Err(MultiLogErr::InvalidLogIndex{ }) => {
-                        &&& which_log >= self@.num_logs()
-                        &&& self@ == old(self)@
+                        &&& which_log >= final(self)@.num_logs()
+                        &&& final(self)@ == old(self)@
                     },
                     Err(MultiLogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
-                        &&& head == self@[which_log as int].head
+                        &&& final(self)@ == old(self)@
+                        &&& which_log < final(self)@.num_logs()
+                        &&& head == final(self)@[which_log as int].head
                         &&& new_head < head
                     },
                     Err(MultiLogErr::CantAdvanceHeadPositionBeyondTail { tail }) => {
-                        &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
-                        &&& tail == self@[which_log as int].head + self@[which_log as int].log.len()
+                        &&& final(self)@ == old(self)@
+                        &&& which_log < final(self)@.num_logs()
+                        &&& tail == final(self)@[which_log as int].head + final(self)@[which_log as int].log.len()
                         &&& new_head > tail
                     },
                     _ => false,

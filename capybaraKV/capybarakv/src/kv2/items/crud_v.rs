@@ -153,28 +153,28 @@ where
             perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.remaining_capacity == old(journal)@.remaining_capacity,
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
+            final(journal)@.remaining_capacity == old(journal)@.remaining_capacity,
             match result {
                 Ok(row_addr) => {
-                    &&& self@ == (ItemTableView {
+                    &&& final(self)@ == (ItemTableView {
                         tentative: Some(old(self)@.tentative.unwrap().create(row_addr, *item)),
-                        used_slots: self@.used_slots,
+                        used_slots: final(self)@.used_slots,
                         ..old(self)@
                     })
-                    &&& self@.used_slots <= old(self)@.used_slots + 1
+                    &&& final(self)@.used_slots <= old(self)@.used_slots + 1
                     &&& !old(self)@.tentative.unwrap().m.contains_key(row_addr)
-                    &&& self.validate_item_addr(row_addr)
+                    &&& final(self).validate_item_addr(row_addr)
                 },
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ItemTableView {
+                    &&& final(self)@ == (ItemTableView {
                         tentative: None,
                         ..old(self)@
                     })
-                    &&& self@.used_slots == self@.sm.num_rows()
+                    &&& final(self)@.used_slots == final(self)@.sm.num_rows()
                 },
                 _ => false,
             },
@@ -236,8 +236,8 @@ where
             old(self)@.tentative.is_some(),
             old(self)@.tentative.unwrap().m.contains_key(row_addr),
         ensures
-            self.valid(journal@),
-            self@ == (ItemTableView {
+            final(self).valid(journal@),
+            final(self)@ == (ItemTableView {
                 tentative: Some(old(self)@.tentative.unwrap().delete(row_addr)),
                 ..old(self)@
             }),

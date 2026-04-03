@@ -35,10 +35,10 @@ where
             jv_after_commit.valid(),
             jv_after_commit.committed_from(jv_before_commit),
         ensures
-            self.valid(jv_after_commit),
-            self@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
-            self@.durable.m.dom().finite(),
-            self@.used_slots == self@.durable.m.dom().len(),
+            final(self).valid(jv_after_commit),
+            final(self)@ == (ItemTableView{ durable: old(self)@.tentative.unwrap(), used_slots: final(self)@.used_slots, ..old(self)@ }),
+            final(self)@.durable.m.dom().finite(),
+            final(self)@.used_slots == final(self)@.durable.m.dom().len(),
     {
         let ghost new_row_info =
             Map::<u64, ItemRowDisposition<I>>::new(

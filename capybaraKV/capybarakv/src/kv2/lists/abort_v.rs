@@ -96,18 +96,18 @@ where
                     &&& !(old(self).m@[list_addr] is Durable)
                 }),
         ensures
-            *self == (Self{ m: self.m, ..*old(self) }),
-            self.internal_view() == (ListTableInternalView{ m: self.internal_view().m, ..old(self).internal_view() }),
-            forall|i: int| 0 <= i < self.modifications.len() ==>
-                (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> !self.m@.contains_key(list_addr)),
-            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+            *final(self) == (Self{ m: final(self).m, ..*old(self) }),
+            final(self).internal_view() == (ListTableInternalView{ m: final(self).internal_view().m, ..old(self).internal_view() }),
+            forall|i: int| 0 <= i < final(self).modifications.len() ==>
+                (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> !final(self).m@.contains_key(list_addr)),
+            forall|list_addr: u64| #[trigger] final(self).m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
-                &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                &&& final(self).m@[list_addr]@ == old(self).m@[list_addr]@
             },
             forall|list_addr: u64| {
                 &&& #[trigger] old(self).m@.contains_key(list_addr)
                 &&& old(self).m[list_addr] is Durable
-            } ==> self.m@.contains_key(list_addr),
+            } ==> final(self).m@.contains_key(list_addr),
     {
         let num_modifications = self.modifications.len();
 
@@ -154,33 +154,33 @@ where
                 },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> old(self).m@[list_addr] is Durable,
         ensures
-            *self == (Self{ m: self.m, ..*old(self) }),
-            forall|i: int| #![trigger self.deletes[i]] 0 <= i < self.deletes.len() ==> {
-                let summary = self.deletes[i];
-                &&& self.m@.contains_key(summary.head)
-                &&& self.m@[summary.head] == ListTableEntry::<L>::Durable{ summary }
+            *final(self) == (Self{ m: final(self).m, ..*old(self) }),
+            forall|i: int| #![trigger final(self).deletes[i]] 0 <= i < final(self).deletes.len() ==> {
+                let summary = final(self).deletes[i];
+                &&& final(self).m@.contains_key(summary.head)
+                &&& final(self).m@[summary.head] == ListTableEntry::<L>::Durable{ summary }
             },
-            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
-                if self.deletes_inverse@.contains_key(list_addr) {
-                    let summary = self.deletes@[self.deletes_inverse@[list_addr] as int];
-                    &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{ summary }
+            forall|list_addr: u64| #[trigger] final(self).m@.contains_key(list_addr) ==> {
+                if final(self).deletes_inverse@.contains_key(list_addr) {
+                    let summary = final(self).deletes@[final(self).deletes_inverse@[list_addr] as int];
+                    &&& final(self).m@[list_addr] == ListTableEntry::<L>::Durable{ summary }
                 }
                 else {
                     &&& old(self).m@.contains_key(list_addr)
-                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@
+                    &&& final(self).m@[list_addr]@ == old(self).m@[list_addr]@
                 }
             },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> {
                 ||| {
                        &&& old(self).deletes_inverse@.contains_key(list_addr)
-                       &&& self.m@.contains_key(list_addr)
-                       &&& self.m@[list_addr] == ListTableEntry::<L>::Durable{
-                           summary: self.deletes@[self.deletes_inverse@[list_addr] as int]
+                       &&& final(self).m@.contains_key(list_addr)
+                       &&& final(self).m@[list_addr] == ListTableEntry::<L>::Durable{
+                           summary: final(self).deletes@[final(self).deletes_inverse@[list_addr] as int]
                        }
                     }
                 ||| {
-                       &&& self.m@.contains_key(list_addr)
-                       &&& self.m@[list_addr] == old(self).m@[list_addr]
+                       &&& final(self).m@.contains_key(list_addr)
+                       &&& final(self).m@[list_addr] == old(self).m@[list_addr]
                    }
             },
     {
@@ -244,8 +244,8 @@ where
         requires
             old(self).valid(jv),
         ensures
-            *self == (Self{ m: self.m, ..*old(self) }),
-            self.internal_view().m == old(self).internal_view().abort().m,
+            *final(self) == (Self{ m: final(self).m, ..*old(self) }),
+            final(self).internal_view().m == old(self).internal_view().abort().m,
     {
         self.update_m_to_reflect_abort_of_modifications();
 
@@ -277,12 +277,12 @@ where
             jv_after_abort.valid(),
             jv_after_abort == jv_before_abort.abort(),
         ensures
-            self.valid(jv_after_abort),
-            self@ == (ListTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
+            final(self).valid(jv_after_abort),
+            final(self)@ == (ListTableView{ tentative: Some(old(self)@.durable), used_slots: final(self)@.used_slots, ..old(self)@ }),
             ({
-                let m = self@.durable.m;
+                let m = final(self)@.durable.m;
                 &&& m.dom().finite()
-                &&& self@.used_slots ==
+                &&& final(self)@.used_slots ==
                        m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
             }),
     {

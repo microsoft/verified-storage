@@ -29,11 +29,11 @@ where
             old(self).undo_records@.len() > 0,
             old(self).internal_view().apply_undo_record(old(self).undo_records@.last()).unwrap().valid(old(self).sm),
         ensures
-            self.inv(jv),
-            self.status == old(self).status,
-            self.must_abort == old(self).must_abort,
-            self.sm == old(self).sm,
-            self.undo_records@ == old(self).undo_records@.drop_last(),
+            final(self).inv(jv),
+            final(self).status == old(self).status,
+            final(self).must_abort == old(self).must_abort,
+            final(self).sm == old(self).sm,
+            final(self).undo_records@ == old(self).undo_records@.drop_last(),
     {
         broadcast use group_hash_axioms;
 
@@ -72,11 +72,11 @@ where
             old(self).inv(jv),
             old(self).status@ is Inconsistent,
         ensures
-            self.inv(jv),
-            self.status == old(self).status,
-            self.must_abort == old(self).must_abort,
-            self.sm == old(self).sm,
-            self.undo_records@.len() == 0,
+            final(self).inv(jv),
+            final(self).status == old(self).status,
+            final(self).must_abort == old(self).must_abort,
+            final(self).sm == old(self).sm,
+            final(self).undo_records@.len() == 0,
     {
         while self.undo_records.len() > 0
             invariant
@@ -103,10 +103,10 @@ where
             jv_after_abort == jv_before_abort.abort(),
             jv_before_abort.durable_state == jv_before_abort.read_state,
         ensures
-            self.valid(jv_after_abort),
-            self@ == (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: self@.used_slots, ..old(self)@ }),
-            self@.durable.key_info.dom().finite(),
-            self@.used_slots == self@.durable.key_info.dom().len(),
+            final(self).valid(jv_after_abort),
+            final(self)@ == (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: final(self)@.used_slots, ..old(self)@ }),
+            final(self)@.durable.key_info.dom().finite(),
+            final(self)@.used_slots == final(self)@.durable.key_info.dom().len(),
     {
         self.status = Ghost(KeyTableStatus::Inconsistent);
         self.apply_all_undo_records(Ghost(jv_before_abort));

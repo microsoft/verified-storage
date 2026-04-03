@@ -173,14 +173,14 @@ verus! {
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
             which_log != 0,
         ensures
-            pm_regions.inv(),
-            pm_regions.constants() == old(pm_regions).constants(),
-            pm_regions@.len() == old(pm_regions)@.len(),
-            forall |i: int| 0 <= i < pm_regions@.len() && i != which_log ==> pm_regions@[i] =~= old(pm_regions)@[i],
+            final(pm_regions).inv(),
+            final(pm_regions).constants() == old(pm_regions).constants(),
+            final(pm_regions)@.len() == old(pm_regions)@.len(),
+            forall |i: int| 0 <= i < final(pm_regions)@.len() && i != which_log ==> final(pm_regions)@[i] =~= old(pm_regions)@[i],
             memory_correctly_set_up_on_single_region(
-                pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
+                final(pm_regions)@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
+            metadata_types_set_in_region(final(pm_regions)@[which_log as int].flush().committed(), false),
     {
         broadcast use pmcopy_axioms;
         reveal(spec_padding_needed);
@@ -269,17 +269,17 @@ verus! {
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
             
         ensures
-            pm_regions.inv(),
-            pm_regions.constants() == old(pm_regions).constants(),
-            pm_regions@.len() == old(pm_regions)@.len(),
-            forall |i: int| 1 <= i < pm_regions@.len() ==> pm_regions@[i] =~= old(pm_regions)@[i],
+            final(pm_regions).inv(),
+            final(pm_regions).constants() == old(pm_regions).constants(),
+            final(pm_regions)@.len() == old(pm_regions)@.len(),
+            forall |i: int| 1 <= i < final(pm_regions)@.len() ==> final(pm_regions)@[i] =~= old(pm_regions)@[i],
             memory_correctly_set_up_on_single_region(
-                pm_regions@[0].flush().committed(), // it'll be correct after the next flush
+                final(pm_regions)@[0].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, 0),
-            metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
-            metadata_types_set_in_region(pm_regions@[0].flush().committed(), false),
-            deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()) is Some,
-            !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
+            metadata_types_set_in_first_region(final(pm_regions)@[0].flush().committed()),
+            metadata_types_set_in_region(final(pm_regions)@[0].flush().committed(), false),
+            deserialize_and_check_log_cdb(final(pm_regions)@[0].flush().committed()) is Some,
+            !deserialize_and_check_log_cdb(final(pm_regions)@[0].flush().committed()).unwrap(),
     {
         broadcast use pmcopy_axioms;
         reveal(spec_padding_needed);
@@ -399,14 +399,14 @@ verus! {
                 old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
         ensures
-            pm_regions.inv(),
-            pm_regions.constants() == old(pm_regions).constants(),
-            pm_regions@.len() == old(pm_regions)@.len(),
-            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
-                pm_regions@[i].len() == old(pm_regions)@[i].len(),
-            pm_regions@.no_outstanding_writes(),
-            recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            metadata_types_set(pm_regions@.committed()),
+            final(pm_regions).inv(),
+            final(pm_regions).constants() == old(pm_regions).constants(),
+            final(pm_regions)@.len() == old(pm_regions)@.len(),
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < final(pm_regions)@.len() ==>
+                final(pm_regions)@[i].len() == old(pm_regions)@[i].len(),
+            final(pm_regions)@.no_outstanding_writes(),
+            recover_all(final(pm_regions)@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
+            metadata_types_set(final(pm_regions)@.committed()),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.

@@ -90,28 +90,28 @@ where
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            self.inv(),
-            *self == (Self{
-                powerpm: self.powerpm,
+            final(self).inv(),
+            *final(self) == (Self{
+                powerpm: final(self).powerpm,
                 ..*old(self)
             }),
-            self.powerpm.constants() == old(self).powerpm.constants(),
-            self.powerpm.id() == old(self).powerpm.id(),
-            next_pos == current_pos + self.entries@[current_entry_index as int].space_needed(),
-            seqs_match_in_range(original_durable_state, self.powerpm@.durable_state,
-                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
-            seqs_match_in_range(original_read_state, self.powerpm@.read_state,
-                                self.sm.app_area_start as int, self.sm.app_area_end as int),
-            parse_journal_entries(self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int,
+            final(self).powerpm.constants() == old(self).powerpm.constants(),
+            final(self).powerpm.id() == old(self).powerpm.id(),
+            next_pos == current_pos + final(self).entries@[current_entry_index as int].space_needed(),
+            seqs_match_in_range(original_durable_state, final(self).powerpm@.durable_state,
+                                  final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            seqs_match_in_range(original_read_state, final(self).powerpm@.read_state,
+                                final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            parse_journal_entries(final(self).powerpm@.read_state.subrange(final(self).sm.journal_entries_start as int,
                                                                  next_pos as int))
-                == Some(self.entries@.take(current_entry_index + 1)),
-            current_pos < next_pos <= self.sm.journal_entries_start + self.journal_length,
-            next_pos == self.sm.journal_entries_start +
-                       space_needed_for_journal_entries_list(self.entries@.take(current_entry_index + 1)),
-            next_pos == self.sm.journal_entries_start + self.journal_length
-                <==> current_entry_index == self.entries@.len() - 1,
-            crc_digest.bytes_in_digest() ==
-                self.powerpm@.read_state.subrange(self.sm.journal_entries_start as int, next_pos as int),
+                == Some(final(self).entries@.take(current_entry_index + 1)),
+            current_pos < next_pos <= final(self).sm.journal_entries_start + final(self).journal_length,
+            next_pos == final(self).sm.journal_entries_start +
+                       space_needed_for_journal_entries_list(final(self).entries@.take(current_entry_index + 1)),
+            next_pos == final(self).sm.journal_entries_start + final(self).journal_length
+                <==> current_entry_index == final(self).entries@.len() - 1,
+            final(crc_digest).bytes_in_digest() ==
+                final(self).powerpm@.read_state.subrange(final(self).sm.journal_entries_start as int, next_pos as int),
     {
         broadcast use axiom_bytes_len;
         broadcast use group_can_result_from_write_effect;
@@ -206,23 +206,23 @@ where
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            self.inv(),
-            *self == (Self{
-                powerpm: self.powerpm,
+            final(self).inv(),
+            *final(self) == (Self{
+                powerpm: final(self).powerpm,
                 ..*old(self)
             }),
-            self.powerpm.constants() == old(self).powerpm.constants(),
-            self.powerpm.id() == old(self).powerpm.id(),
-            seqs_match_in_range(old(self).powerpm@.durable_state, self.powerpm@.durable_state,
-                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
-            seqs_match_in_range(old(self).powerpm@.read_state, self.powerpm@.read_state,
-                                  self.sm.app_area_start as int, self.sm.app_area_end as int),
-            parse_journal_entries(extract_section(self.powerpm@.read_state, self.sm.journal_entries_start as int,
-                                                 self.journal_length as nat))
-                == Some(self.entries@),
+            final(self).powerpm.constants() == old(self).powerpm.constants(),
+            final(self).powerpm.id() == old(self).powerpm.id(),
+            seqs_match_in_range(old(self).powerpm@.durable_state, final(self).powerpm@.durable_state,
+                                  final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            seqs_match_in_range(old(self).powerpm@.read_state, final(self).powerpm@.read_state,
+                                  final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            parse_journal_entries(extract_section(final(self).powerpm@.read_state, final(self).sm.journal_entries_start as int,
+                                                 final(self).journal_length as nat))
+                == Some(final(self).entries@),
             journal_entries_crc ==
-                spec_crc_u64(extract_section(self.powerpm@.read_state, self.sm.journal_entries_start as int,
-                                            self.journal_length as nat)),
+                spec_crc_u64(extract_section(final(self).powerpm@.read_state, final(self).sm.journal_entries_start as int,
+                                            final(self).journal_length as nat)),
     {
         let mut current_entry_index: usize = 0;
         let mut current_pos = self.sm.journal_entries_start;
@@ -287,20 +287,20 @@ where
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            self.inv(),
-            self.powerpm.constants() == old(self).powerpm.constants(),
-            self.powerpm.id() == old(self).powerpm.id(),
-            *self == (Self{
-                powerpm: self.powerpm,
+            final(self).inv(),
+            final(self).powerpm.constants() == old(self).powerpm.constants(),
+            final(self).powerpm.id() == old(self).powerpm.id(),
+            *final(self) == (Self{
+                powerpm: final(self).powerpm,
                 ..*old(self)
             }),
-            self.powerpm@.flush_predicted(),
-            seqs_match_in_range(old(self).powerpm@.durable_state, self.powerpm@.durable_state,
-                                self.sm.app_area_start as int, self.sm.app_area_end as int),
-            seqs_match_in_range(old(self).powerpm@.read_state, self.powerpm@.read_state,
-                                self.sm.app_area_start as int, self.sm.app_area_end as int),
-            recover_journal_length(self.powerpm@.read_state, self.sm) == Some(self.journal_length),
-            recover_journal_entries(self.powerpm@.read_state, self.sm, self.journal_length) == Some(self.entries@),
+            final(self).powerpm@.flush_predicted(),
+            seqs_match_in_range(old(self).powerpm@.durable_state, final(self).powerpm@.durable_state,
+                                final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            seqs_match_in_range(old(self).powerpm@.read_state, final(self).powerpm@.read_state,
+                                final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            recover_journal_length(final(self).powerpm@.read_state, final(self).sm) == Some(final(self).journal_length),
+            recover_journal_entries(final(self).powerpm@.read_state, final(self).sm, final(self).journal_length) == Some(final(self).entries@),
     {
         broadcast use group_can_result_from_write_effect;
         broadcast use pmcopy_axioms;
@@ -363,27 +363,27 @@ where
                 ==> #[trigger] perm.permits(s1, s2),
             recovers_to(original_commit_state, old(self).vm@, old(self).sm, old(self).constants),
         ensures
-            self.inv(),
-            self.powerpm.constants() == old(self).powerpm.constants(),
-            self.powerpm.id() == old(self).powerpm.id(),
-            *self == (Self{
+            final(self).inv(),
+            final(self).powerpm.constants() == old(self).powerpm.constants(),
+            final(self).powerpm.id() == old(self).powerpm.id(),
+            *final(self) == (Self{
                 status: Ghost(JournalStatus::Committed),
-                powerpm: self.powerpm,
+                powerpm: final(self).powerpm,
                 ..*old(self)
             }),
-            seqs_match_in_range(original_durable_state, self.powerpm@.durable_state,
-                                self.sm.app_area_start as int, self.sm.app_area_end as int),
-            seqs_match_in_range(original_read_state, self.powerpm@.read_state,
-                                self.sm.app_area_start as int, self.sm.app_area_end as int),
-            self.powerpm@.flush_predicted(),
-            recover_committed_cdb(self.powerpm@.read_state, self.sm) == Some(true),
-            recover_journal_length(self.powerpm@.read_state, self.sm) == Some(self.journal_length),
-            recover_journal_entries(self.powerpm@.read_state, self.sm, self.journal_length) == Some(self.entries@),
+            seqs_match_in_range(original_durable_state, final(self).powerpm@.durable_state,
+                                final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            seqs_match_in_range(original_read_state, final(self).powerpm@.read_state,
+                                final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            final(self).powerpm@.flush_predicted(),
+            recover_committed_cdb(final(self).powerpm@.read_state, final(self).sm) == Some(true),
+            recover_journal_length(final(self).powerpm@.read_state, final(self).sm) == Some(final(self).journal_length),
+            recover_journal_entries(final(self).powerpm@.read_state, final(self).sm, final(self).journal_length) == Some(final(self).entries@),
             ({
-                &&& recover_journal(self.powerpm@.read_state) matches Some(j)
-                &&& j.constants == self.constants
-                &&& seqs_match_in_range(j.state, original_commit_state, self.sm.app_area_start as int,
-                                      self.sm.app_area_end as int)
+                &&& recover_journal(final(self).powerpm@.read_state) matches Some(j)
+                &&& j.constants == final(self).constants
+                &&& seqs_match_in_range(j.state, original_commit_state, final(self).sm.app_area_start as int,
+                                      final(self).sm.app_area_end as int)
             }),
             perm.completed(result@),
     {
@@ -470,26 +470,26 @@ where
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            self.inv(),
-            *self == (Self{
-                powerpm: self.powerpm,
+            final(self).inv(),
+            *final(self) == (Self{
+                powerpm: final(self).powerpm,
                 ..*old(self)
             }),
-            self.powerpm.constants() == old(self).powerpm.constants(),
-            self.powerpm.id() == old(self).powerpm.id(),
-            journal_entries_valid(self.entries@, self.sm),
-            apply_journal_entries(original_read_state, self.entries@, self.sm) is Some,
-            recover_version_metadata(self.powerpm@.durable_state) == Some(self.vm@),
-            recover_static_metadata(self.powerpm@.durable_state, self.vm@) == Some(self.sm),
-            recover_committed_cdb(self.powerpm@.durable_state, self.sm) == Some(true),
-            recover_journal_length(self.powerpm@.durable_state, self.sm) == Some(self.journal_length),
-            recover_journal_entries(self.powerpm@.durable_state, self.sm, self.journal_length) == Some(self.entries@),
-            recover_journal(self.powerpm@.durable_state) == recover_journal(original_read_state),
-            seqs_match_except_in_range(original_read_state, self.powerpm@.durable_state,
-                                       self.sm.app_area_start as int, self.sm.app_area_end as int),
-            seqs_match_except_in_range(original_read_state, self.powerpm@.read_state,
-                                       self.sm.app_area_start as int, self.sm.app_area_end as int),
-            apply_journal_entries(self.powerpm@.read_state, self.entries@.skip(num_entries_installed + 1), self.sm)
+            final(self).powerpm.constants() == old(self).powerpm.constants(),
+            final(self).powerpm.id() == old(self).powerpm.id(),
+            journal_entries_valid(final(self).entries@, final(self).sm),
+            apply_journal_entries(original_read_state, final(self).entries@, final(self).sm) is Some,
+            recover_version_metadata(final(self).powerpm@.durable_state) == Some(final(self).vm@),
+            recover_static_metadata(final(self).powerpm@.durable_state, final(self).vm@) == Some(final(self).sm),
+            recover_committed_cdb(final(self).powerpm@.durable_state, final(self).sm) == Some(true),
+            recover_journal_length(final(self).powerpm@.durable_state, final(self).sm) == Some(final(self).journal_length),
+            recover_journal_entries(final(self).powerpm@.durable_state, final(self).sm, final(self).journal_length) == Some(final(self).entries@),
+            recover_journal(final(self).powerpm@.durable_state) == recover_journal(original_read_state),
+            seqs_match_except_in_range(original_read_state, final(self).powerpm@.durable_state,
+                                       final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            seqs_match_except_in_range(original_read_state, final(self).powerpm@.read_state,
+                                       final(self).sm.app_area_start as int, final(self).sm.app_area_end as int),
+            apply_journal_entries(final(self).powerpm@.read_state, final(self).entries@.skip(num_entries_installed + 1), final(self).sm)
                 == Some(desired_commit_state),
     {
         broadcast use group_can_result_from_write_effect;
@@ -562,20 +562,20 @@ where
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            self.inv(),
-            *self == (Self{
-                powerpm: self.powerpm,
+            final(self).inv(),
+            *final(self) == (Self{
+                powerpm: final(self).powerpm,
                 ..*old(self)
             }),
-            self.powerpm.constants() == old(self).powerpm.constants(),
-            self.powerpm.id() == old(self).powerpm.id(),
-            self.powerpm@.flush_predicted(),
-            seqs_match_in_range(self.powerpm@.read_state, original_commit_state, self.sm.app_area_start as int,
-                                self.sm.app_area_end as int),
+            final(self).powerpm.constants() == old(self).powerpm.constants(),
+            final(self).powerpm.id() == old(self).powerpm.id(),
+            final(self).powerpm@.flush_predicted(),
+            seqs_match_in_range(final(self).powerpm@.read_state, original_commit_state, final(self).sm.app_area_start as int,
+                                final(self).sm.app_area_end as int),
             ({
-                &&& recover_journal(self.powerpm@.read_state) matches Some(j)
-                &&& j.constants == self.constants
-                &&& j.state == self.powerpm@.read_state
+                &&& recover_journal(final(self).powerpm@.read_state) matches Some(j)
+                &&& j.constants == final(self).constants
+                &&& j.state == final(self).powerpm@.read_state
             }),
     {
         let mut num_entries_installed: usize = 0;
@@ -688,10 +688,10 @@ where
             perm_factory.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2) ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            self.valid(),
-            self@.valid(),
-            self.recover_idempotent(),
-            self@.committed_from(old(self)@),
+            final(self).valid(),
+            final(self)@.valid(),
+            final(self).recover_idempotent(),
+            final(self)@.committed_from(old(self)@),
             perm.completed(result@),
     {
         proof {

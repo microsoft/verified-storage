@@ -55,7 +55,7 @@ pub trait RwLockWriter<V, Completion, Pred: RwLockPredicate<V>>: Sized {
             self.pre(),
             self.pred().inv(*old(v)),
         ensures
-            self.pred().inv(*v),
+            self.pred().inv(*final(v)),
             self.post(completion),
     ;
 }

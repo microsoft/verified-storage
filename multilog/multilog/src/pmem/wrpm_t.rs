@@ -91,9 +91,9 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
             forall |s| old(self)@.write(index as int, addr as int, bytes@).can_crash_as(s)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self@ == old(self)@.write(index as int, addr as int, bytes@),
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self)@ == old(self)@.write(index as int, addr as int, bytes@),
     {
         self.pm_regions.write(index, addr, bytes)
     }
@@ -111,9 +111,9 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
             forall |s| old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()).can_crash_as(s)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self@ == old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()),
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self)@ == old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()),
     {
         self.pm_regions.serialize_and_write(index, addr, to_write);
     }
@@ -127,10 +127,10 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
         requires
             old(self).inv(),
         ensures
-            self.inv(),
-            self@ == old(self)@.flush(),
-            self.constants() == old(self).constants(),
-            forall |i: int| #![auto] 0 <= i < self@.len() ==> old(self)@[i].len() == self@[i].len()
+            final(self).inv(),
+            final(self)@ == old(self)@.flush(),
+            final(self).constants() == old(self).constants(),
+            forall |i: int| #![auto] 0 <= i < final(self)@.len() ==> old(self)@[i].len() == final(self)@[i].len()
     {
         self.pm_regions.flush()
     }
@@ -211,9 +211,9 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             forall |s| old(self)@.write(addr as int, bytes@).can_crash_as(s)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self@ == old(self)@.write(addr as int, bytes@),
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self)@ == old(self)@.write(addr as int, bytes@),
     {
         let ghost pmr = self.pm_region;
         self.pm_region.write(addr, bytes);
@@ -231,9 +231,9 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             forall |s| old(self)@.write(addr as int, to_write.spec_to_bytes()).can_crash_as(s)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self)@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
     {
         self.pm_region.serialize_and_write(addr, to_write);
     }
@@ -247,9 +247,9 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         requires
             old(self).inv(),
         ensures
-            self.inv(),
-            self@ == old(self)@.flush(),
-            self.constants() == old(self).constants(),
+            final(self).inv(),
+            final(self)@ == old(self)@.flush(),
+            final(self).constants() == old(self).constants(),
     {
         self.pm_region.flush()
     }

@@ -174,15 +174,15 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            powerpm.inv(),
-            powerpm.constants() == old(powerpm).constants(),
-            powerpm.id() == old(powerpm).id(),
-            powerpm@.len() == old(powerpm)@.len(),
-            powerpm@.valid(),
-            recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
-            apply_journal_entries(powerpm@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
-            seqs_match_in_range(old(powerpm)@.durable_state, powerpm@.durable_state, 0, sm.app_area_start as int),
-            seqs_match_in_range(old(powerpm)@.read_state, powerpm@.read_state, 0, sm.app_area_start as int),
+            final(powerpm).inv(),
+            final(powerpm).constants() == old(powerpm).constants(),
+            final(powerpm).id() == old(powerpm).id(),
+            final(powerpm)@.len() == old(powerpm)@.len(),
+            final(powerpm)@.valid(),
+            recover_journal(final(powerpm)@.durable_state) == recover_journal(old(powerpm)@.durable_state),
+            apply_journal_entries(final(powerpm)@.read_state, entries.skip(num_entries_installed + 1), *sm) == Some(commit_state),
+            seqs_match_in_range(old(powerpm)@.durable_state, final(powerpm)@.durable_state, 0, sm.app_area_start as int),
+            seqs_match_in_range(old(powerpm)@.read_state, final(powerpm)@.read_state, 0, sm.app_area_start as int),
     {
         proof {
             lemma_addresses_in_entry_dont_affect_recovery(powerpm@.durable_state, vm, *sm,
@@ -249,19 +249,19 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            powerpm.inv(),
-            powerpm.constants() == old(powerpm).constants(),
-            powerpm.id() == old(powerpm).id(),
-            powerpm@.len() == old(powerpm)@.len(),
-            powerpm@.flush_predicted(),
-            recover_version_metadata(powerpm@.read_state) == Some(vm),
-            recover_static_metadata(powerpm@.read_state, vm) == Some(*sm),
-            recover_committed_cdb(powerpm@.read_state, *sm) == Some(true),
-            recover_journal_length(powerpm@.read_state, *sm) == Some(entries_bytes.len() as u64),
-            recover_journal_entries_bytes(powerpm@.read_state, *sm, entries_bytes.len() as u64) == Some(entries_bytes@),
-            apply_journal_entries(powerpm@.durable_state, entries, *sm) == Some(powerpm@.read_state),
-            apply_journal_entries(old(powerpm)@.read_state, entries, *sm) == Some(powerpm@.read_state),
-            recover_journal(powerpm@.durable_state) == recover_journal(old(powerpm)@.durable_state),
+            final(powerpm).inv(),
+            final(powerpm).constants() == old(powerpm).constants(),
+            final(powerpm).id() == old(powerpm).id(),
+            final(powerpm)@.len() == old(powerpm)@.len(),
+            final(powerpm)@.flush_predicted(),
+            recover_version_metadata(final(powerpm)@.read_state) == Some(vm),
+            recover_static_metadata(final(powerpm)@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(final(powerpm)@.read_state, *sm) == Some(true),
+            recover_journal_length(final(powerpm)@.read_state, *sm) == Some(entries_bytes.len() as u64),
+            recover_journal_entries_bytes(final(powerpm)@.read_state, *sm, entries_bytes.len() as u64) == Some(entries_bytes@),
+            apply_journal_entries(final(powerpm)@.durable_state, entries, *sm) == Some(final(powerpm)@.read_state),
+            apply_journal_entries(old(powerpm)@.read_state, entries, *sm) == Some(final(powerpm)@.read_state),
+            recover_journal(final(powerpm)@.durable_state) == recover_journal(old(powerpm)@.durable_state),
     {
         let mut start: usize = 0;
         let end: usize = entries_bytes.len();
@@ -386,15 +386,15 @@ where
             forall|s1: Seq<u8>, s2: Seq<u8>| spec_recovery_equivalent_for_app(s1, s2)
                 ==> #[trigger] perm_factory.permits(s1, s2),
         ensures
-            powerpm.inv(),
-            powerpm.constants() == old(powerpm).constants(),
-            powerpm.id() == old(powerpm).id(),
-            powerpm@.len() == old(powerpm)@.len(),
-            powerpm@.flush_predicted(),
-            recover_version_metadata(powerpm@.read_state) == Some(vm),
-            recover_static_metadata(powerpm@.read_state, vm) == Some(*sm),
-            recover_committed_cdb(powerpm@.read_state, *sm) == Some(false),
-            spec_recovery_equivalent_for_app(powerpm@.durable_state, old(powerpm)@.durable_state),
+            final(powerpm).inv(),
+            final(powerpm).constants() == old(powerpm).constants(),
+            final(powerpm).id() == old(powerpm).id(),
+            final(powerpm)@.len() == old(powerpm)@.len(),
+            final(powerpm)@.flush_predicted(),
+            recover_version_metadata(final(powerpm)@.read_state) == Some(vm),
+            recover_static_metadata(final(powerpm)@.read_state, vm) == Some(*sm),
+            recover_committed_cdb(final(powerpm)@.read_state, *sm) == Some(false),
+            spec_recovery_equivalent_for_app(final(powerpm)@.durable_state, old(powerpm)@.durable_state),
     {
         let new_cdb: u64 = CDB_FALSE;
         let ghost new_state = update_bytes(powerpm@.durable_state, sm.committed_cdb_start as int,

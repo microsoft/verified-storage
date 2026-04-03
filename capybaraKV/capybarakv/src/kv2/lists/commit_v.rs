@@ -97,20 +97,20 @@ where
                 (#[trigger] old(self).modifications[which_modification] matches Some(list_addr) ==>
                  old(self).m@.contains_key(list_addr)),
         ensures
-            *self == (Self{ m: self.m, ..*old(self) }),
-            forall|i: int| 0 <= i < self.modifications.len() ==>
+            *final(self) == (Self{ m: final(self).m, ..*old(self) }),
+            forall|i: int| 0 <= i < final(self).modifications.len() ==>
                 (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
-                    &&& self.m@.contains_key(list_addr)
-                    &&& self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
+                    &&& final(self).m@.contains_key(list_addr)
+                    &&& final(self).m@[list_addr]@ == old(self).m@[list_addr]@.commit()
                 }),
-            forall|list_addr: u64| #[trigger] self.m@.contains_key(list_addr) ==> {
+            forall|list_addr: u64| #[trigger] final(self).m@.contains_key(list_addr) ==> {
                 &&& old(self).m@.contains_key(list_addr)
                 &&& {
-                       ||| self.m@[list_addr]@ == old(self).m@[list_addr]@
-                       ||| self.m@[list_addr]@ == old(self).m@[list_addr]@.commit()
+                       ||| final(self).m@[list_addr]@ == old(self).m@[list_addr]@
+                       ||| final(self).m@[list_addr]@ == old(self).m@[list_addr]@.commit()
                    }
             },
-            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> self.m@.contains_key(list_addr),
+            forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> final(self).m@.contains_key(list_addr),
     {
         let num_modifications = self.modifications.len();
         for which_modification in 0..num_modifications
@@ -153,8 +153,8 @@ where
         requires
             old(self).valid(jv),
         ensures
-            *self == (Self{ m: self.m, ..*old(self) }),
-            self.internal_view().m == old(self).internal_view().commit().m,
+            *final(self) == (Self{ m: final(self).m, ..*old(self) }),
+            final(self).internal_view().m == old(self).internal_view().commit().m,
     {
         self.update_m_to_reflect_commit_of_modifications();
         assert(self.internal_view().m =~= old(self).internal_view().commit().m);
@@ -172,12 +172,12 @@ where
             jv_after_commit.valid(),
             jv_after_commit.committed_from(jv_before_commit),
         ensures
-            self.valid(jv_after_commit),
-            self@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), used_slots: self@.used_slots, ..old(self)@ }),
+            final(self).valid(jv_after_commit),
+            final(self)@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), used_slots: final(self)@.used_slots, ..old(self)@ }),
             ({
-                let m = self@.durable.m;
+                let m = final(self)@.durable.m;
                 &&& m.dom().finite()
-                &&& self@.used_slots ==
+                &&& final(self)@.used_slots ==
                        m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
             }),
     {

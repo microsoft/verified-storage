@@ -353,9 +353,9 @@ verus! {
                 old(self).inv(),
                 addr + bytes@.len() <= old(self)@.len(),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@.can_result_from_write(old(self)@, addr as int, bytes@),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@.can_result_from_write(old(self)@, addr as int, bytes@),
         ;
 
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
@@ -365,9 +365,9 @@ verus! {
                 old(self).inv(),
                 addr + S::spec_size_of() <= old(self)@.len(),
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
         ;
 
         fn flush(&mut self)
@@ -375,9 +375,9 @@ verus! {
                 old(self).inv(),
             ensures
                 old(self)@.flush_predicted(), // it must have been prophesized that this flush would happen
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@,
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == old(self)@,
         ;
     }
 

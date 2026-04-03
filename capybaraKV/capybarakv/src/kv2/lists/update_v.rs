@@ -530,28 +530,28 @@ where
             old(self).m@ == prev_self.m@.remove(list_addr),
         ensures
             journal.valid(),
-            *self == (Self{ m: self.m, deletes: self.deletes, deletes_inverse: self.deletes_inverse,
-                            modifications: self.modifications, ..*old(self) }),
+            *final(self) == (Self{ m: final(self).m, deletes: final(self).deletes, deletes_inverse: final(self).deletes_inverse,
+                            modifications: final(self).modifications, ..*old(self) }),
             ({
                 let (success, new_entry) = result;
                 if success {
-                    let next_iv = self.internal_view().add_entry(list_addr, new_entry@);
-                    &&& self@ == old(self)@
-                    &&& !self.m@.contains_key(list_addr)
-                    &&& next_iv.corresponds_to_journal(journal@, self.sm)
+                    let next_iv = final(self).internal_view().add_entry(list_addr, new_entry@);
+                    &&& final(self)@ == old(self)@
+                    &&& !final(self).m@.contains_key(list_addr)
+                    &&& next_iv.corresponds_to_journal(journal@, final(self).sm)
                     &&& match new_entry {
                         ListTableEntry::Modified{ summary, addrs, elements, .. } => {
                             &&& summary.length == addrs.len()
                             &&& addrs.len() == elements.len()
-                            &&& addrs@ == self.tentative_mapping@.list_info[list_addr]
-                            &&& elements@ == self.tentative_mapping@.list_elements[list_addr]
+                            &&& addrs@ == final(self).tentative_mapping@.list_info[list_addr]
+                            &&& elements@ == final(self).tentative_mapping@.list_elements[list_addr]
                         },
                         _ => false,
                     }
                 }
                 else {
                     &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& *self == *old(self)
+                    &&& *final(self) == *old(self)
                     &&& new_entry == entry
                 }
             }),
@@ -689,27 +689,27 @@ where
                 _ => false,
             },
         ensures
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
             ({
                 let old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
-                &&& old_iv.corresponds_to_durable_state(journal@.durable_state, self.sm)
-                &&& old_iv.corresponds_to_durable_state(journal@.read_state, self.sm)
+                &&& old_iv.corresponds_to_durable_state(final(journal)@.durable_state, self.sm)
+                &&& old_iv.corresponds_to_durable_state(final(journal)@.read_state, self.sm)
             }),
             ({
                 let addrs = entry->Modified_addrs@;
                 let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
-                &&& recover_object::<L>(journal@.commit_state, new_row_addr + self.sm.row_element_start,
+                &&& recover_object::<L>(final(journal)@.commit_state, new_row_addr + self.sm.row_element_start,
                                        new_row_addr + self.sm.row_element_crc_start) == Some(new_element)
-                &&& recover_object::<u64>(journal@.commit_state, new_row_addr + self.sm.row_next_start,
+                &&& recover_object::<u64>(final(journal)@.commit_state, new_row_addr + self.sm.row_next_start,
                                          new_row_addr + self.sm.row_next_start + u64::spec_size_of()) == Some(next)
                 &&& forall|other_row_addr: u64| {
                     &&& self.sm.table.validate_row_addr(other_row_addr)
                     &&& other_row_addr != new_row_addr
                 } ==> {
-                    recover_object::<L>(journal@.commit_state, other_row_addr + self.sm.row_element_start,
+                    recover_object::<L>(final(journal)@.commit_state, other_row_addr + self.sm.row_element_start,
                                         other_row_addr + self.sm.row_element_crc_start) ==
                     recover_object::<L>(old(journal)@.commit_state, other_row_addr + self.sm.row_element_start,
                                         other_row_addr + self.sm.row_element_crc_start)
@@ -718,7 +718,7 @@ where
             if idx > 0 {
                 let addrs = entry->Modified_addrs@;
                 let prev_row_addr: u64 = addrs[idx - 1];
-                &&& recover_object::<u64>(journal@.commit_state, prev_row_addr + self.sm.row_next_start,
+                &&& recover_object::<u64>(final(journal)@.commit_state, prev_row_addr + self.sm.row_next_start,
                                         prev_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
                         Some(new_row_addr)
                 &&& forall|other_row_addr: u64| {
@@ -726,12 +726,12 @@ where
                     &&& other_row_addr != new_row_addr
                     &&& other_row_addr != prev_row_addr
                 } ==> {
-                    recover_object::<u64>(journal@.commit_state, other_row_addr + self.sm.row_next_start,
+                    recover_object::<u64>(final(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
                                         other_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
                     recover_object::<u64>(old(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
                                           other_row_addr + self.sm.row_next_start + u64::spec_size_of())
                 }
-                &&& journal@.journaled_addrs ==
+                &&& final(journal)@.journaled_addrs ==
                     old(journal)@.journaled_addrs +
                     Set::<int>::new(|i: int| prev_row_addr + self.sm.row_next_start <= i
                                   < prev_row_addr + self.sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
@@ -740,12 +740,12 @@ where
                     &&& self.sm.table.validate_row_addr(other_row_addr)
                     &&& other_row_addr != new_row_addr
                 } ==> {
-                    recover_object::<u64>(journal@.commit_state, other_row_addr + self.sm.row_next_start,
+                    recover_object::<u64>(final(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
                                           other_row_addr + self.sm.row_next_start + u64::spec_size_of()) ==
                     recover_object::<u64>(old(journal)@.commit_state, other_row_addr + self.sm.row_next_start,
                                           other_row_addr + self.sm.row_next_start + u64::spec_size_of())
                 }
-                &&& journal@.journaled_addrs == old(journal)@.journaled_addrs
+                &&& final(journal)@.journaled_addrs == old(journal)@.journaled_addrs
             },
     {
         let ghost old_iv = self.internal_view().add_entry(list_addr, entry@).push_to_free_list(new_row_addr);
@@ -992,21 +992,21 @@ where
                 _ => false,
             },
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
-            journal@.remaining_capacity >= old(journal)@.remaining_capacity - self.space_needed_to_journal_next,
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
+            final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity - final(self).space_needed_to_journal_next,
             new_list_addr != 0,
             new_list_addr == list_addr || new_list_addr == old(self).free_list@.last(),
-            self@ == (ListTableView {
+            final(self)@ == (ListTableView {
                 tentative: Some(old(self)@.tentative.unwrap().update_element_at_index(list_addr, new_list_addr,
                                                                                   idx, new_element)),
-                used_slots: self@.used_slots,
+                used_slots: final(self)@.used_slots,
                 ..old(self)@
             }),
-            self@.used_slots <= old(self)@.used_slots + 1,
-            self.validate_list_addr(new_list_addr),
+            final(self)@.used_slots <= old(self)@.used_slots + 1,
+            final(self).validate_list_addr(new_list_addr),
             ({
                 let old_list = old(self)@.tentative.unwrap().m[list_addr];
                 &&& idx < old_list.len()
@@ -1095,10 +1095,10 @@ where
             perm_factory.id() == old(journal)@.powerpm_id,
             old(self).perm_factory_permits_states_equivalent_for_me(old(journal)@, *perm_factory),
         ensures
-            self.valid(journal@),
-            journal.valid(),
-            journal@.powerpm_id == old(journal)@.powerpm_id,
-            journal@.matches_except_in_range(old(journal)@, self@.sm.start() as int, self@.sm.end() as int),
+            final(self).valid(final(journal)@),
+            final(journal).valid(),
+            final(journal)@.powerpm_id == old(journal)@.powerpm_id,
+            final(journal)@.matches_except_in_range(old(journal)@, final(self)@.sm.start() as int, final(self)@.sm.end() as int),
             match result {
                 Ok(new_list_addr) => {
                     let old_list = old(self)@.tentative.unwrap().m[list_addr];
@@ -1107,38 +1107,38 @@ where
                     &&& idx < old_list.len()
                     &&& old_list[idx as int].start() == new_element.start()
                     &&& old_list[idx as int].end() == new_element.end()
-                    &&& self@ == (ListTableView {
+                    &&& final(self)@ == (ListTableView {
                         tentative: Some(old(self)@.tentative.unwrap().update_element_at_index(list_addr, new_list_addr,
                                                                                           idx, new_element)),
-                        used_slots: self@.used_slots,
+                        used_slots: final(self)@.used_slots,
                         ..old(self)@
                     })
-                    &&& self@.used_slots <= old(self)@.used_slots + 1
-                    &&& self.validate_list_addr(new_list_addr)
-                    &&& journal@.remaining_capacity >= old(journal)@.remaining_capacity -
+                    &&& final(self)@.used_slots <= old(self)@.used_slots + 1
+                    &&& final(self).validate_list_addr(new_list_addr)
+                    &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity -
                            spec_journal_entry_overhead() -
                            u64::spec_size_of() - u64::spec_size_of()
                 },
                 Err(KvError::IndexOutOfRange{ upper_bound }) => {
                     let old_list = old(self)@.tentative.unwrap().m[list_addr];
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& idx >= old_list.len()
                     &&& upper_bound == old_list.len()
-                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
+                    &&& final(journal)@.remaining_capacity == old(journal)@.remaining_capacity
                 },
                 Err(KvError::LogicalRangeUpdateNotAllowed{ old_start, old_end, new_start, new_end }) => {
                     let old_list = old(self)@.tentative.unwrap().m[list_addr];
-                    &&& self@ == old(self)@
+                    &&& final(self)@ == old(self)@
                     &&& idx < old_list.len()
                     &&& old_start == old_list[idx as int].start()
                     &&& old_end == old_list[idx as int].end()
                     &&& new_start == new_element.start()
                     &&& new_end == new_element.end()
                     &&& old_start != new_start || old_end != new_end
-                    &&& journal@.remaining_capacity == old(journal)@.remaining_capacity
+                    &&& final(journal)@.remaining_capacity == old(journal)@.remaining_capacity
                 }
                 Err(KvError::OutOfSpace) => {
-                    &&& self@ == (ListTableView {
+                    &&& final(self)@ == (ListTableView {
                         tentative: None,
                         ..old(self)@
                     })
@@ -1146,12 +1146,12 @@ where
                            ||| old(journal)@.remaining_capacity <
                                   spec_journal_entry_overhead() +
                                   u64::spec_size_of() + u64::spec_size_of()
-                           ||| self@.used_slots == self@.sm.num_rows()
+                           ||| final(self)@.used_slots == final(self)@.sm.num_rows()
                     }
                 },
                 Err(KvError::CRCMismatch) => {
-                    &&& !journal@.pm_constants.impervious_to_corruption()
-                    &&& self@ == (ListTableView {
+                    &&& !final(journal)@.pm_constants.impervious_to_corruption()
+                    &&& final(self)@ == (ListTableView {
                         tentative: None,
                         ..old(self)@
                     })

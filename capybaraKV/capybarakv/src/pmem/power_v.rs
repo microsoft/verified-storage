@@ -18,8 +18,8 @@ pub trait SimpleCheckPermission<State> : Sized
             self.id() == old(r).id(),
             self.permits(new_state),
         ensures
-            r.id() == old(r).id(),
-            r@ == new_state
+            final(r).id() == old(r).id(),
+            final(r)@ == new_state
         opens_invariants
             any;
 }
@@ -272,10 +272,10 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
                   ==> #[trigger] perm@.permits(old(self)@.durable_state, s),
         ensures
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self.id() == old(self).id(),
-            self@.can_result_from_write(old(self)@, addr as int, bytes@),
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self).id() == old(self).id(),
+            final(self)@.can_result_from_write(old(self)@, addr as int, bytes@),
             perm@.completed(result@),
     {
         self.pm_region.write(addr, bytes, perm)
@@ -299,10 +299,10 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
                   ==> #[trigger] perm@.permits(old(self)@.durable_state, s),
         ensures
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self.id() == old(self).id(),
-            self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self).id() == old(self).id(),
+            final(self)@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
             perm@.completed(result@),
     {
         self.pm_region.serialize_and_write(addr, to_write, perm)
@@ -318,10 +318,10 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
             old(self).inv(),
         ensures
             old(self)@.flush_predicted(), // it must have been prophesized that this flush would happen
-            self.inv(),
-            self.constants() == old(self).constants(),
-            self.id() == old(self).id(),
-            self@ == old(self)@,
+            final(self).inv(),
+            final(self).constants() == old(self).constants(),
+            final(self).id() == old(self).id(),
+            final(self)@ == old(self)@,
     {
         self.pm_region.flush()
     }

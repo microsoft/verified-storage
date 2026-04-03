@@ -40,8 +40,8 @@ trait PoWERApplication<PM> : Sized
         requires
             old(pm).inv(),
         ensures
-            pm.inv(),
-            self.valid(pm@.durable_state);
+            final(pm).inv(),
+            self.valid(final(pm)@.durable_state);
 
     // run() is the executable function that implements the application's
     // logic to recover after a crash, taking a PersistentMemoryRegionAtomic

@@ -19,7 +19,7 @@ default = [ "pmem" ]
 [dependencies]
 crc64fast = "1.0.0"
 rand = "0.8.5"
-vstd = "0.0.0-2026-03-17-2326"
+vstd = "0.0.0-2026-03-29-0113"
 pmsafe = { path = "../pmsafe" }
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", features = ["errhandlingapi", "fileapi", "handleapi", "memoryapi", "winbase", "winerror", "winnt"] }

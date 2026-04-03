@@ -59,7 +59,7 @@ where
         requires
             old(self).write_preconditions(addr, bytes_to_write@, perm),
         ensures
-            self.write_postconditions(*old(self), addr, bytes_to_write@),
+            final(self).write_postconditions(*old(self), addr, bytes_to_write@),
     {
         broadcast use broadcast_seqs_match_in_range_can_narrow_range;
         broadcast use broadcast_update_bytes_effect;
@@ -102,7 +102,7 @@ where
         requires
             old(self).write_preconditions(addr, bytes_to_write@, perm),
         ensures
-            self.write_postconditions(*old(self), addr, bytes_to_write@),
+            final(self).write_postconditions(*old(self), addr, bytes_to_write@),
     {
         self.write_slice::<Perm>(addr, bytes_to_write.as_slice(), Tracked(perm))
     }
@@ -120,7 +120,7 @@ where
         requires
             old(self).write_preconditions(addr, object.spec_to_bytes(), perm),
         ensures
-            self.write_postconditions(*old(self), addr, object.spec_to_bytes()),
+            final(self).write_postconditions(*old(self), addr, object.spec_to_bytes()),
     {
         broadcast use pmcopy_axioms;
         self.write_slice::<Perm>(addr, object.as_byte_slice(), Tracked(perm))
@@ -136,26 +136,26 @@ where
             old(self)@.constants.app_area_start <= addr,
             addr + bytes_to_write.len() <= old(self)@.constants.app_area_end,
         ensures
-            self.valid(),
-            self@.valid(),
-            self.recover_idempotent(),
+            final(self).valid(),
+            final(self)@.valid(),
+            final(self).recover_idempotent(),
             ({
                 let space_needed = spec_journal_entry_overhead() + bytes_to_write@.len();
                 match result {
                     Ok(_) => {
                         &&& space_needed <= old(self)@.remaining_capacity
-                        &&& self@ == (JournalView{
+                        &&& final(self)@ == (JournalView{
                                commit_state: update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
                                journaled_addrs: old(self)@.journaled_addrs +
                                                 Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
                                remaining_capacity: old(self)@.remaining_capacity - space_needed,
                                ..old(self)@
                            })
-                        &&& self@.matches_except_in_range(old(self)@, addr as int, addr + bytes_to_write.len())
+                        &&& final(self)@.matches_except_in_range(old(self)@, addr as int, addr + bytes_to_write.len())
                     },
                     Err(JournalError::NotEnoughSpace) => {
                         &&& space_needed > old(self)@.remaining_capacity
-                        &&& *self == *old(self)
+                        &&& *final(self) == *old(self)
                     },
                     Err(_) => false,
                 }
