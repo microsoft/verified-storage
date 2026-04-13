@@ -145,9 +145,9 @@ verus! {
                 addr + bytes@.len() <= (old(self))@.len(),
                 addr + bytes@.len() <= u64::MAX
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@);
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@);
     }
 
     /// We model the persistent memory as getting flushed in chunks,
@@ -293,9 +293,9 @@ verus! {
                     perm@.check_permission(new_contents)
                 },
             ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@),
+                final(self).inv(),
+                final(self).constants() == old(self).constants(),
+                final(self)@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@),
         {
             self.pm.write(addr, bytes)
         }

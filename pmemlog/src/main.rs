@@ -3,9 +3,17 @@
 use vstd::prelude::*;
 use vstd::slice::*;
 
+pub mod infinitelog_t;
+pub mod logimpl_v;
+pub mod main_t;
+pub mod math_v;
+pub mod pmemmock_t;
+pub mod pmemspec_t;
+pub mod sccf;
+
 use pmemlog::main_t::*;
-use pmemlog::pmemspec_t::*;
 use pmemlog::pmemmock_t::*;
+use pmemlog::pmemspec_t::*;
 
 verus! {
 

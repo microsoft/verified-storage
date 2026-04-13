@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 vstd = "0.0.0-2026-04-20-1748"
-vstd = "0.0.0-2026-03-17-2326"
 crc64fast = "1.0.0"
 
 [lints.rust]

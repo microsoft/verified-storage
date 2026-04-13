@@ -103,12 +103,12 @@ verus! {
                 old(pm).inv(),
                 old(pm)@.len() == device_size
             ensures
-                pm.inv(),
-                pm.constants() == old(pm).constants(),
-                pm@.len() == device_size,
+                final(pm).inv(),
+                final(pm).constants() == old(pm).constants(),
+                final(pm)@.len() == device_size,
                 match result {
                     Ok(log_capacity) =>
-                        recovery_view()(pm@) == Some(AbstractInfiniteLogState::initialize(log_capacity as int)),
+                        recovery_view()(final(pm)@) == Some(AbstractInfiniteLogState::initialize(log_capacity as int)),
                     Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => device_size < required_space,
                     _ => false
                 }
@@ -152,11 +152,11 @@ verus! {
             requires
                 old(self).valid()
             ensures
-                self.valid(),
-                self.constants() == old(self).constants(),
+                final(self).valid(),
+                final(self).constants() == old(self).constants(),
                 match result {
                     Ok(offset) =>
-                        match (old(self)@, self@) {
+                        match (old(self)@, final(self)@) {
                             (Some(old_log), Some(new_log)) => {
                                 &&& offset as nat == old_log.log.len() + old_log.head
                                 &&& new_log == old_log.append(bytes_to_append@)
@@ -164,7 +164,7 @@ verus! {
                             _ => false
                         },
                     Err(InfiniteLogErr::InsufficientSpaceForAppend{ available_space }) => {
-                        &&& self@ == old(self)@
+                        &&& final(self)@ == old(self)@
                         &&& available_space < bytes_to_append.len()
                         &&& {
                                let log = old(self)@.unwrap();
@@ -192,11 +192,11 @@ verus! {
             requires
                 old(self).valid()
             ensures
-                self.valid(),
-                self.constants() == old(self).constants(),
+                final(self).valid(),
+                final(self).constants() == old(self).constants(),
                 match result {
                     Ok(offset) => {
-                        match (old(self)@, self@) {
+                        match (old(self)@, final(self)@) {
                             (Some(old_log), Some(new_log)) => {
                                 &&& old_log.head <= new_head <= old_log.head + old_log.log.len()
                                 &&& new_log == old_log.advance_head(new_head as int)
@@ -205,13 +205,13 @@ verus! {
                         }
                     }
                     Err(InfiniteLogErr::CantAdvanceHeadPositionBeforeHead{ head }) => {
-                        &&& self@ == old(self)@
-                        &&& head == self@.unwrap().head
+                        &&& final(self)@ == old(self)@
+                        &&& head == final(self)@.unwrap().head
                         &&& new_head < head
                     },
                     Err(InfiniteLogErr::CantAdvanceHeadPositionBeyondTail{ tail }) => {
-                        &&& self@ == old(self)@
-                        &&& tail == self@.unwrap().head + self@.unwrap().log.len()
+                        &&& final(self)@ == old(self)@
+                        &&& tail == final(self)@.unwrap().head + final(self)@.unwrap().log.len()
                         &&& new_head > tail
                     },
                     _ => false
