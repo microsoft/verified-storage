@@ -1337,31 +1337,31 @@ verus! {
                     None => false
                 }
             ensures
-                self.inv(wrpm),
-                Self::recover(wrpm@) is Some,
-                wrpm.constants() == old(wrpm).constants(),
-                match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
+                final(self).inv(final(wrpm)),
+                Self::recover(final(wrpm)@) is Some,
+                final(wrpm).constants() == old(wrpm).constants(),
+                match (Self::recover(old(wrpm)@), Self::recover(final(wrpm)@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
                 ({
                     let (old_pm_ib, old_metadata, old_data) = pm_to_views(old(wrpm)@);
-                    let (new_pm_ib, new_metadata, new_data) = pm_to_views(wrpm@);
+                    let (new_pm_ib, new_metadata, new_data) = pm_to_views(final(wrpm)@);
                     let new_header = spec_bytes_to_header(new_header_bytes@);
                     &&& old_pm_ib == new_pm_ib
                     &&& old_pm_ib == cdb0_val ==> {
                         &&& new_metadata.header1 == old_metadata.header1
                         &&& new_metadata.header2 == new_header
-                        &&& wrpm@.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~=
-                                spec_crc_bytes(wrpm@.subrange(header2_pos + header_head_offset, header2_pos + header_size))
-                        &&& wrpm@.subrange(header2_pos as int, header2_pos + header_size) =~= new_header_bytes@
+                        &&& final(wrpm)@.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~=
+                                spec_crc_bytes(final(wrpm)@.subrange(header2_pos + header_head_offset, header2_pos + header_size))
+                        &&& final(wrpm)@.subrange(header2_pos as int, header2_pos + header_size) =~= new_header_bytes@
                     }
                     &&& old_pm_ib == cdb1_val ==> {
                         &&& new_metadata.header1 == new_header
                         &&& new_metadata.header2 == old_metadata.header2
-                        &&& wrpm@.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~=
-                                spec_crc_bytes(wrpm@.subrange(header1_pos + header_head_offset, header1_pos + header_size))
-                        &&& wrpm@.subrange(header1_pos as int, header1_pos + header_size) =~= new_header_bytes@
+                        &&& final(wrpm)@.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~=
+                                spec_crc_bytes(final(wrpm)@.subrange(header1_pos + header_head_offset, header1_pos + header_size))
+                        &&& final(wrpm)@.subrange(header1_pos as int, header1_pos + header_size) =~= new_header_bytes@
                     }
                     &&& old_data =~= new_data
                 }),
@@ -1437,11 +1437,11 @@ verus! {
                 old(pm).inv(),
                 old(pm)@.len() == device_size
             ensures
-                pm.inv(),
-                pm.constants() == old(pm).constants(),
-                pm@.len() == device_size,
+                final(pm).inv(),
+                final(pm).constants() == old(pm).constants(),
+                final(pm)@.len() == device_size,
                 match result {
-                    Ok(capacity) => Self::recover(pm@) ==
+                    Ok(capacity) => Self::recover(final(pm)@) ==
                                 Some(AbstractInfiniteLogState::initialize(capacity as int)),
                     Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => device_size < required_space,
                     _ => false
@@ -1511,11 +1511,11 @@ verus! {
                         Self::recover(old(wrpm)@)
                 }),
             ensures
-                Self::recover(old(wrpm)@) == Self::recover(wrpm@),
-                wrpm.constants() == old(wrpm).constants(),
+                Self::recover(old(wrpm)@) == Self::recover(final(wrpm)@),
+                final(wrpm).constants() == old(wrpm).constants(),
                 match result {
-                    Ok(log_impl) => log_impl.inv(wrpm),
-                    Err(InfiniteLogErr::CRCMismatch) => !wrpm.constants().impervious_to_corruption,
+                    Ok(log_impl) => log_impl.inv(final(wrpm)),
+                    Err(InfiniteLogErr::CRCMismatch) => !final(wrpm).constants().impervious_to_corruption,
                     _ => false
                 }
         {
@@ -1598,11 +1598,11 @@ verus! {
                     }
                 }),
             ensures
-                self.inv(wrpm),
-                wrpm.constants() == old(wrpm).constants(),
+                final(self).inv(final(wrpm)),
+                final(wrpm).constants() == old(wrpm).constants(),
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
-                    let new_log_state = Self::recover(wrpm@);
+                    let new_log_state = Self::recover(final(wrpm)@);
                     match (result, old_log_state, new_log_state) {
                         (Ok(offset), Some(old_log_state), Some(new_log_state)) => {
                             &&& offset as nat == old_log_state.log.len() + old_log_state.head
@@ -1724,16 +1724,16 @@ verus! {
                     &&& physical_tail < physical_head ==> physical_tail <= physical_tail + bytes_to_append@.len() < physical_head
                 })
             ensures
-                self.inv(wrpm),
-                wrpm.constants() == old(wrpm).constants(),
-                Self::recover(wrpm@) is Some,
-                match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
+                final(self).inv(final(wrpm)),
+                final(wrpm).constants() == old(wrpm).constants(),
+                Self::recover(final(wrpm)@) is Some,
+                match (Self::recover(old(wrpm)@), Self::recover(final(wrpm)@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
                 ({
                     let (old_ib, old_headers, old_data) = pm_to_views(old(wrpm)@);
-                    let (new_ib, new_headers, new_data) = pm_to_views(wrpm@);
+                    let (new_ib, new_headers, new_data) = pm_to_views(final(wrpm)@);
                     let physical_tail = spec_addr_logical_to_physical(old_header.tail as int, old_header.log_size as int);
                     &&& old_ib == new_ib
                     &&& old_headers == new_headers
@@ -1778,16 +1778,16 @@ verus! {
                     &&& bytes_to_append@.len() <= old_header.log_size - (old_header.tail - old_header.head)
                 }),
             ensures
-                self.inv(wrpm),
-                Self::recover(wrpm@) is Some,
-                wrpm.constants() == old(wrpm).constants(),
-                match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
+                final(self).inv(final(wrpm)),
+                Self::recover(final(wrpm)@) is Some,
+                final(wrpm).constants() == old(wrpm).constants(),
+                match (Self::recover(old(wrpm)@), Self::recover(final(wrpm)@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
                 ({
                     let (old_ib, old_headers, old_data) = pm_to_views(old(wrpm)@);
-                    let (new_ib, new_headers, new_data) = pm_to_views(wrpm@);
+                    let (new_ib, new_headers, new_data) = pm_to_views(final(wrpm)@);
                     let contents_end = old_header.log_size + contents_offset;
                     let physical_tail = spec_addr_logical_to_physical(old_header.tail as int, old_header.log_size as int);
                     let len1 = (contents_end - physical_tail);
@@ -1844,11 +1844,11 @@ verus! {
                     }
                 })
             ensures
-                self.inv(wrpm),
-                wrpm.constants() == old(wrpm).constants(),
+                final(self).inv(final(wrpm)),
+                final(wrpm).constants() == old(wrpm).constants(),
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
-                    let new_log_state = Self::recover(wrpm@);
+                    let new_log_state = Self::recover(final(wrpm)@);
                     match (result, old_log_state, new_log_state) {
                         (Ok(_), Some(old_log_state), Some(new_log_state)) => {
                             &&& old_log_state.head <= new_head <= old_log_state.head + old_log_state.log.len()
