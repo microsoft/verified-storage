@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.8"
+rand = "0.9"
 vstd = "0.0.0-2026-04-12-0118"
 proptest = "1.4"
