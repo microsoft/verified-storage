@@ -1,6 +1,4 @@
 #![feature(maybe_uninit_as_bytes)]
-#![feature(maybe_uninit_slice)]
-#![feature(maybe_uninit_write_slice)]
 #![allow(unused_imports)]
 #![allow(non_camel_case_types)] // suppress warnings about variable names in PMDK
 
