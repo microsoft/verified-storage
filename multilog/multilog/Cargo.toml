@@ -18,7 +18,8 @@ default = [ "pmem" ]
 
 [dependencies]
 crc64fast = "1.0.0"
-rand = "0.8.5"
+# Avoid default features since @lopopolo reports that rand is unsound with both the log and thread_rng features
+rand = { version = "0.10.1", default-features = false, features = [ "thread_rng" ] }
 vstd = "0.0.0-2026-04-20-1748"
 pmsafe = { path = "../pmsafe" }
 [target.'cfg(target_os = "windows")'.dependencies]
