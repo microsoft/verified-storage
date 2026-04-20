@@ -1,14 +1,14 @@
 #[cfg(test)]
 extern crate proptest;
 use proptest::prelude::*;
-use rand::Rng;
+use rand::RngExt;
 use rand::seq::SliceRandom;
 use crate::metadata_kv::MetadataStore;
 use crate::tiering_engine::{TieringEngine, ExtentMetadataWithTiering};
 use std::collections::HashMap;
 
 fn divide_into_random_segments(vec: &Vec<u8>, num_segments: usize) -> Vec<Vec<u8>> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut segments = Vec::new();
     let mut start = 0;
 
@@ -81,7 +81,7 @@ proptest! {
         tiered_store.insert("extent2".to_string(), vec![]);
 
         let engine = TieringEngine::<ExtentMetadataWithTiering>::new();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Divide data_segments into random segments
         let segments_extent1 = divide_into_random_segments(&data_segments, num_segments);
@@ -90,8 +90,8 @@ proptest! {
         let mut segments_extent2_iter = segments_extent2.into_iter();
 
         let mut ops = Vec::new();
-        for _ in 0..rng.gen_range(1..=num_operations) {
-            match rng.gen_range(0..4) {
+        for _ in 0..rng.random_range(1..=num_operations) {
+            match rng.random_range(0..4) {
                 0 => {
                     if let Some(segment) = segments_extent1_iter.next() {
                         store.append_index("extent1", &segment);
@@ -105,7 +105,7 @@ proptest! {
                     }
                 },
                 2 => {
-                    let extent_key = if rng.gen() { "extent1" } else { "extent2" };
+                    let extent_key = if rng.random() { "extent1" } else { "extent2" };
                     let is_tiering_in_progress = store.read_metadata(extent_key).unwrap().index_inflight_tiering_length > 0;
                     engine.tier_extent_start(&mut store, extent_key);
                     if !is_tiering_in_progress {
@@ -115,9 +115,9 @@ proptest! {
                     }
                 },
                 _ => {
-                    let extent_key = if rng.gen() { "extent1" } else { "extent2" };
+                    let extent_key = if rng.random() { "extent1" } else { "extent2" };
                     engine.tier_extent_end(&mut store, extent_key);
-                    ops.push(format!("[4] tier_extent_end({})", extent_key));
+                    ops.push(format!("[3] tier_extent_end({})", extent_key));
                 }
             }
         }

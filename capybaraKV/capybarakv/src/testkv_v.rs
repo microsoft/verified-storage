@@ -32,7 +32,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
 use pmcopy::PmCopy;
-use rand::Rng;
+use rand::RngExt;
 use std::hash::Hash;
 use std::collections::VecDeque;
 use vstd::pcm::*;
@@ -44,7 +44,7 @@ verus! {
 #[verifier::external_body]
 pub exec fn generate_fresh_id() -> (out: u128)
 {
-    rand::thread_rng().gen::<u128>()
+    rand::rng().random::<u128>()
 }
 
 // These definitions test PmCopy-generated static assertions for various different types

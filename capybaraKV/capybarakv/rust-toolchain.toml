@@ -5,5 +5,5 @@
 # be used with a nightly toolchain.
 
 [toolchain]
-channel = "nightly-2026-01-01"
+channel = "nightly-2026-04-19"
 
