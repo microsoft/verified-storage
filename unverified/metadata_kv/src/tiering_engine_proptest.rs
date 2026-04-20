@@ -117,7 +117,7 @@ proptest! {
                 _ => {
                     let extent_key = if rng.random() { "extent1" } else { "extent2" };
                     engine.tier_extent_end(&mut store, extent_key);
-                    ops.push(format!("[4] tier_extent_end({})", extent_key));
+                    ops.push(format!("[3] tier_extent_end({})", extent_key));
                 }
             }
         }
