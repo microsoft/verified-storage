@@ -1,6 +1,7 @@
-use vstd::prelude::*;
-use crate::pmem::pmemspec_t::*;
 use crate::common::subrange_v::*;
+use crate::pmem::pmemspec_t::*;
+use vstd::prelude::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -42,7 +43,7 @@ pub struct JournalView {
     pub commit_state: Seq<u8>,
     pub remaining_capacity: int,
     pub journaled_addrs: Set<int>,
-    pub powerpm_id: int,
+    pub powerpm_id: Loc,
 }
 
 impl JournalView {

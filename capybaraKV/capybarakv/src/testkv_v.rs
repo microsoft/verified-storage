@@ -8,8 +8,9 @@ use crate::kv2::rwkv_v::*;
 use crate::kv2::shardkv_t;
 use crate::kv2::shardkv_t::*;
 use crate::kv2::shardkv_v::*;
-use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsPolicy, RecoveredKvStore,
-                         SetupParameters};
+use crate::kv2::spec_t::{
+    AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsPolicy, RecoveredKvStore, SetupParameters,
+};
 // use crate::log::logimpl_t::*;
 // use crate::multilog::layout_v::*;
 // use crate::multilog::multilogimpl_t::*;
@@ -19,8 +20,6 @@ use crate::kv2::spec_t::{AtomicKvStore, KvError, LogicalRange, LogicalRangeGapsP
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(all(target_os = "linux", not(feature = "pmem")))]
 use crate::pmem::mmap_pmemfile_t::*;
-#[cfg(target_os = "windows")]
-use crate::pmem::windows_pmemfile_t::*;
 #[cfg(target_os = "macos")]
 use crate::pmem::mmap_pmemfile_t::*;
 #[cfg(target_os = "macos")]
@@ -29,15 +28,19 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::traits_t::*;
 use crate::pmem::power_t::*;
+use crate::pmem::traits_t::*;
+#[cfg(target_os = "windows")]
+use crate::pmem::windows_pmemfile_t::*;
 use pmcopy::PmCopy;
 use rand::RngExt;
-use std::hash::Hash;
 use std::collections::VecDeque;
-use vstd::pcm::*;
+use std::hash::Hash;
 use vstd::pervasive::runtime_assert;
-use vstd::tokens::frac::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::pcm::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -67,7 +70,7 @@ enum TestEnum1 {
 enum TestEnum2 {
     V1,
     V2,
-    V3, 
+    V3,
     V4
 }
 
@@ -500,7 +503,7 @@ pub fn test_durable_on_memory_mapped_file() {
     let mut list_region = create_pm_region(list_file_name, region_size);
 
     let kvstore_id = generate_fresh_log_id();
-    DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, 
+    DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region,
         kvstore_id, num_keys, node_size).unwrap();
 
     let mut log_powerpm = PoWERPersistentMemoryRegion::<TrustedPermission, _>::new(log_region);
@@ -516,7 +519,7 @@ pub fn test_durable_on_memory_mapped_file() {
     let item1 = TestItem { val: 10 };
     let item2 = TestItem { val: 20 };
 
-    // Create a few kv pairs 
+    // Create a few kv pairs
     let (key1_index, list1_index) = kv_store.tentative_create(&key1, &item1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     let (key2_index, list2_index) = kv_store.tentative_create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
 
@@ -574,9 +577,9 @@ pub fn test_durable_on_memory_mapped_file() {
 
     // append a list element
     let list_elem1 = TestListElement { val: 100 };
-    kv_store.tentative_append(key1_index, &list_elem1, 
+    kv_store.tentative_append(key1_index, &list_elem1,
         list1_index, 0, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
-    
+
     // before commit, the list length should be 0
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
     // TODO: read fns will currently read whatever is at the specified location (and most likely return a CRC
@@ -593,19 +596,19 @@ pub fn test_durable_on_memory_mapped_file() {
     kv_store.tentative_alloc_list_node(key1_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
 
-    // we should be able to update an existing list entry 
+    // we should be able to update an existing list entry
     let list_elem2 = TestListElement { val: 15 };
     kv_store.tentative_update_list_entry_at_index(list1_index, 0, list_elem2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     // the new list element should not be visible yet
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
     let read_list_elem1 = kv_store.read_list_entry_at_index(list1_index, 0, kvstore_id).unwrap();
-    assert(read_list_elem1.val == list_elem1.val); 
+    assert(read_list_elem1.val == list_elem1.val);
 
     // after commit, the list length should be the same but the contents of the list changed
     kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
     let read_list_elem2 = kv_store.read_list_entry_at_index(list1_index, 0, kvstore_id).unwrap();
-    assert(read_list_elem2.val == list_elem2.val); 
+    assert(read_list_elem2.val == list_elem2.val);
 
     // trimming the list should succeed
     kv_store.tentative_trim_list(key1_index, list1_index, list1_index, 1, 1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
@@ -703,7 +706,7 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
         Set::empty()
     }
 
-    open spec fn pre(self, id: int, op: ReadItemOp<TestKey>) -> bool
+    open spec fn pre(self, id: Loc, op: ReadItemOp<TestKey>) -> bool
     {
         &&& self.id() == id
     }
@@ -711,7 +714,7 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
     open spec fn post(
         self,
         completion: Self,
-        id: int,
+        id: Loc,
         op: ReadItemOp<TestKey>,
         result: Result<TestItem, KvError>,
     ) -> bool
@@ -740,7 +743,7 @@ where
     ghost op: Op,
     ghost old_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
     ghost new_ckv: Option<ConcurrentKvStoreView<TestKey, TestItem, TestListElement>>,
-    ghost powerpm_id: int,
+    ghost powerpm_id: Loc,
 }
 
 impl<Op> MutatingLinearizer<TestKey, TestItem, TestListElement, Op>
@@ -755,7 +758,7 @@ where
         Set::empty()
     }
 
-    closed spec fn pre(self, id: int, op: Op) -> bool
+    closed spec fn pre(self, id: Loc, op: Op) -> bool
     {
         &&& self.r.id() == id
         &&& self.op == op
@@ -766,7 +769,7 @@ where
     closed spec fn post(
         self,
         complete: Self::Completion,
-        id: int,
+        id: Loc,
         op: Op,
         exec_result: Result<Op::KvResult, KvError>,
     ) -> bool
@@ -852,7 +855,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
         op,
         old_ckv: None,
         new_ckv: None,
-        powerpm_id: 0,
+        powerpm_id: arbitrary(),
     };
 
     let (create_result, Tracked(create_linearizer)) = ckv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem, true>>, true>(
@@ -968,7 +971,7 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
         op,
         old_ckv: None,
         new_ckv: None,
-        powerpm_id: 0,
+        powerpm_id: arbitrary(),
     };
 
     let (create_result, Tracked(create_linearizer)) = skv.create::<TestMutatingLinearizer<CreateOp<TestKey, TestItem, false>>>(

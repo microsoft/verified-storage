@@ -1,15 +1,16 @@
 #![allow(unused_imports)]
 use vstd::prelude::*;
-use vstd::tokens::frac::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
 
-use crate::common::subrange_v::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::power_t::*;
-use std::hash::Hash;
 use super::impl_v::*;
 use super::recover_v::*;
 use super::spec_t::*;
+use crate::common::subrange_v::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::power_t::*;
+use std::hash::Hash;
 
 verus! {
 
@@ -22,12 +23,12 @@ where
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     pub exec fn commit<Perm>(
-        &mut self, 
+        &mut self,
         Tracked(perm): Tracked<Perm>
     ) -> (result: Result<Tracked<Perm::Completion>, KvError>)
         where
             Perm: CheckPermission<Seq<u8>>,
-        requires 
+        requires
             old(self).valid(),
             perm.id() == old(self)@.powerpm_id,
             forall|s1: Seq<u8>, s2: Seq<u8>| ({
@@ -37,7 +38,7 @@ where
                 &&& Self::recover(s1) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
                 &&& Self::recover(s2) == Some(RecoveredKvStore::<K, I, L>{ ps: old(self)@.ps, kv: old(self)@.durable })
             }) ==> #[trigger] perm.permits(s1, s2),
-        ensures 
+        ensures
             final(self).valid(),
             match result {
                 Ok(complete) => {

@@ -1,23 +1,25 @@
 #![allow(unused_imports)]
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 
-use vstd::prelude::*;
-use vstd::tokens::frac::*;
 use vstd::invariant::*;
+use vstd::prelude::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
-use std::sync::Arc;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::pmem::crashinv_t::*;
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::power_t::*;
 
 use super::concurrentspec_t::*;
-use super::spec_t::*;
-use super::rwkv_v::*;
 use super::impl_v::*;
 use super::recover_v::*;
+use super::rwkv_v::*;
+use super::spec_t::*;
 
 verus! {
 
@@ -38,9 +40,9 @@ where
 }
 
 pub struct ConcurrentKvStoreInvPred {
-    pub rwlock_id: int,
-    pub caller_id: int,
-    pub durable_id: int,
+    pub rwlock_id: Loc,
+    pub caller_id: Loc,
+    pub durable_id: Loc,
     pub pm_constants: PersistentMemoryConstants,
     pub ps: SetupParameters,
 }
@@ -80,7 +82,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    spec fn id(self) -> int;
+    spec fn id(self) -> Loc;
     spec fn namespace(self) -> int;
     spec fn spec_space_needed_for_setup(ps: SetupParameters) -> nat;
 
@@ -128,7 +130,7 @@ where
     ) -> (result: (Result<I, KvError>, Tracked<CB::Completion>))
         where
             CB: ReadLinearizer<K, I, L, ReadItemOp<K>>,
-        requires 
+        requires
             cb.pre(self.id(), ReadItemOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
@@ -138,7 +140,7 @@ where
         &self,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<Vec<K>, KvError>, Tracked<CB::Completion>))
-        requires 
+        requires
             cb.pre(self.id(), GetKeysOp{ }),
             !cb.namespaces().contains(self.namespace()),
         ensures
@@ -149,7 +151,7 @@ where
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<(I, Vec<L>), KvError>, Tracked<CB::Completion>))
-        requires 
+        requires
             cb.pre(self.id(), ReadItemAndListOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
@@ -160,7 +162,7 @@ where
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<Vec<L>, KvError>, Tracked<CB::Completion>))
-        requires 
+        requires
             cb.pre(self.id(), ReadListOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
@@ -171,7 +173,7 @@ where
         key: &K,
         Tracked(cb): Tracked<CB>,
     ) -> (result: (Result<usize, KvError>, Tracked<CB::Completion>))
-        requires 
+        requires
             cb.pre(self.id(), GetListLengthOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
         ensures
@@ -188,7 +190,7 @@ where
         requires
             cb.pre(self.id(), CreateOp{ key: *key, item: *item }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), CreateOp{ key: *key, item: *item }, result.0);
 
     exec fn update_item<CB, const STRICT_SPACE: bool>(
@@ -202,7 +204,7 @@ where
         requires
             cb.pre(self.id(), UpdateItemOp{ key: *key, item: *item }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), UpdateItemOp{ key: *key, item: *item }, result.0);
 
     exec fn delete<CB>(
@@ -215,7 +217,7 @@ where
         requires
             cb.pre(self.id(), DeleteOp{ key: *key }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), DeleteOp{ key: *key }, result.0);
 
     exec fn append_to_list<CB, const STRICT_SPACE: bool>(
@@ -229,7 +231,7 @@ where
         requires
             cb.pre(self.id(), AppendToListOp{ key: *key, new_list_element }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), AppendToListOp{ key: *key, new_list_element }, result.0);
 
     exec fn append_to_list_and_update_item<CB, const STRICT_SPACE: bool>(
@@ -244,7 +246,7 @@ where
         requires
             cb.pre(self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), AppendToListAndUpdateItemOp{ key: *key, new_list_element, new_item: *new_item }, result.0);
 
     exec fn update_list_element_at_index<CB, const STRICT_SPACE: bool>(
@@ -259,7 +261,7 @@ where
         requires
             cb.pre(self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), UpdateListElementAtIndexOp{ key: *key, idx, new_list_element }, result.0);
 
     exec fn update_list_element_at_index_and_item<CB, const STRICT_SPACE: bool>(
@@ -275,7 +277,7 @@ where
         requires
             cb.pre(self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), UpdateListElementAtIndexAndItemOp{ key: *key, idx, new_list_element, new_item: *new_item }, result.0);
 
     exec fn trim_list<CB, const STRICT_SPACE: bool>(
@@ -289,7 +291,7 @@ where
         requires
             cb.pre(self.id(), TrimListOp{ key : *key, trim_length }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), TrimListOp{ key: *key, trim_length }, result.0);
 
     exec fn trim_list_and_update_item<CB, const STRICT_SPACE: bool>(
@@ -304,7 +306,7 @@ where
         requires
             cb.pre(self.id(), TrimListAndUpdateItemOp{ key : *key, trim_length, new_item: *new_item }),
             !cb.namespaces().contains(self.namespace()),
-        ensures 
+        ensures
             cb.post(result.1@, self.id(), TrimListAndUpdateItemOp{ key: *key, trim_length, new_item: *new_item }, result.0);
 }
 
@@ -319,13 +321,13 @@ where
 // - The PM region was given to setup(), which returned.
 //
 // - The PM region was given to recover().
-// 
+//
 // The underlying property is that both of the above call hold_until_crash()
 // to ensure that the invariant keeps holding until the system crashes.
 pub exec fn recover<PM, K, I, L>(
     mut pm: PM,
     kvstore_id: u128,
-    Ghost(id): Ghost<int>,
+    Ghost(id): Ghost<Loc>,
     Ghost(namespace): Ghost<int>,
 ) -> (result: Result<ConcurrentKvStore::<PM, K, I, L>, KvError>)
     where

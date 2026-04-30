@@ -2,12 +2,14 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 use vstd::prelude::*;
 
+use super::spec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::traits_t::*;
 use std::hash::Hash;
-use super::spec_t::*;
-use vstd::tokens::frac::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -70,9 +72,9 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 
     spec fn namespaces(self) -> Set<int>;
 
-    spec fn pre(self, id: int, op: Op) -> bool;
+    spec fn pre(self, id: Loc, op: Op) -> bool;
 
-    spec fn post(self, apply: Self::Completion, id: int, op: Op, result: Result<Op::KvResult, KvError>) -> bool;
+    spec fn post(self, apply: Self::Completion, id: Loc, op: Op, result: Result<Op::KvResult, KvError>) -> bool;
 
     proof fn apply(
         tracked self,
@@ -140,9 +142,9 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
 
     spec fn namespaces(self) -> Set<int>;
 
-    spec fn pre(self, id: int, op: Op) -> bool;
+    spec fn pre(self, id: Loc, op: Op) -> bool;
 
-    spec fn post(self, complete: Self::Completion, id: int, op: Op, exec_result: Result<Op::KvResult, KvError>) -> bool;
+    spec fn post(self, complete: Self::Completion, id: Loc, op: Op, exec_result: Result<Op::KvResult, KvError>) -> bool;
 
     proof fn apply(
         tracked self,
@@ -236,7 +238,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
@@ -304,7 +306,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
@@ -370,7 +372,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(e) => {
                 &&& new_ckv == old_ckv
                 &&& old_ckv.kv.delete(self.key) matches Err(e_spec)
@@ -583,7 +585,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> {
@@ -657,7 +659,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> {
@@ -731,7 +733,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> {
@@ -806,7 +808,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> {
@@ -877,7 +879,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys
@@ -946,7 +948,7 @@ where
             Err(KvError::CRCMismatch) => {
                 &&& new_ckv == old_ckv
                 &&& !old_ckv.pm_constants.impervious_to_corruption()
-            }, 
+            },
             Err(KvError::OutOfSpace) => {
                 &&& new_ckv == old_ckv
                 &&& STRICT_SPACE ==> old_ckv.kv.num_keys() >= old_ckv.ps.max_keys

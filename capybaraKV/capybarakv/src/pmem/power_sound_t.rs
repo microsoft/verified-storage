@@ -1,11 +1,13 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
+use super::crashinv_t::*;
 use super::pmemspec_t::*;
 use super::power_t::*;
-use super::crashinv_t::*;
-use vstd::prelude::*;
-use vstd::invariant::*;
-use vstd::tokens::frac::*;
 use std::sync::Arc;
+use vstd::invariant::*;
+use vstd::prelude::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -178,7 +180,7 @@ struct DurablePredicate<PM, A>
         PM: PersistentMemoryRegion,
         A: PoWERApplication<PM>,
 {
-    id: int,
+    id: Loc,
     app: A,
     _pm: core::marker::PhantomData<PM>,
 }
@@ -213,7 +215,7 @@ impl<PM, A> CheckPermission<Seq<u8>> for SoundPermission<PM, A>
         self.inv.constant().app.valid(s2)
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         self.inv.constant().id
     }
 
@@ -240,7 +242,7 @@ impl<PM, A> PermissionFactory<Seq<u8>> for SoundPermission<PM, A>
         CheckPermission::permits(self, s1, s2)
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         CheckPermission::id(self)
     }
 

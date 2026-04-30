@@ -1,11 +1,13 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use vstd::prelude::*;
+use crate::pmem::pmemspec_t::*;
 use vstd::invariant::*;
-use vstd::tokens::frac::*;
+use vstd::prelude::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
-pub use crate::pmem::power_v::{PoWERPersistentMemoryRegion, PermissionFactory};
+pub use crate::pmem::power_v::{PermissionFactory, PoWERPersistentMemoryRegion};
 
 verus! {
 
@@ -14,7 +16,7 @@ pub trait CheckPermission<State> : Sized
     type Completion;
 
     spec fn permits(&self, s1: State, s2: State) -> bool;
-    spec fn id(&self) -> int;
+    spec fn id(&self) -> Loc;
     spec fn completed(&self, c: Self::Completion) -> bool;
 
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State) -> (tracked complete: Self::Completion)
@@ -45,7 +47,7 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         &&& self.res@.id() == self.id()
     }
 
-    pub closed spec fn id(self) -> int {
+    pub closed spec fn id(self) -> Loc {
         self.res@.id()
     }
 

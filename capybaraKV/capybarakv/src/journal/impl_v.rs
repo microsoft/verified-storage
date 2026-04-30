@@ -1,14 +1,15 @@
 #![allow(unused_imports)]
-use vstd::prelude::*;
-use vstd::tokens::frac::*;
-use crate::common::subrange_v::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::power_t::*;
 use super::entry_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
 use super::spec_v::*;
+use crate::common::subrange_v::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::power_t::*;
+use vstd::prelude::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
 
 verus! {
 
@@ -170,4 +171,3 @@ pub open(super) spec fn spec_journal_entry_overhead() -> nat
 }
 
 }
-

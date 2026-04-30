@@ -1,23 +1,25 @@
 #![allow(unused_imports)]
 use vstd::prelude::*;
 
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::power_t::*;
-use std::hash::{Hash, Hasher, DefaultHasher};
 use super::concurrentspec_t::*;
 use super::impl_v::*;
-use super::spec_t::*;
+use super::recover_v::*;
 use super::rwkv_t::*;
 use super::rwkv_v::*;
 use super::shardkv_t::*;
-use vstd::invariant::*;
-use vstd::tokens::frac::*;
-use std::sync::Arc;
-use std::marker::PhantomData;
-use vstd::modes::*;
+use super::spec_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::power_t::*;
 use std::collections::VecDeque;
-use super::recover_v::*;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::marker::PhantomData;
+use std::sync::Arc;
+use vstd::invariant::*;
+use vstd::modes::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -52,7 +54,7 @@ impl<K, I, L> ShardState<K, I, L>
         I: PmCopy + Sized + std::fmt::Debug,
         L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    spec fn valid(self, kv_id: int, shard: int, nshards: int, combined: ConcurrentKvStoreView<K, I, L>) -> bool {
+    spec fn valid(self, kv_id: Loc, shard: int, nshards: int, combined: ConcurrentKvStoreView<K, I, L>) -> bool {
         &&& self.kv_state.id() == kv_id
         &&& keys_match_shard(self.kv_state@.kv, shard, nshards)
         &&& self.kv_state@.ps == combined.ps
@@ -77,8 +79,8 @@ pub struct ShardStates<K, I, L>
 
 pub struct ShardingPredicate
 {
-    pub shard_ids: Seq<int>,
-    pub combined_id: int,
+    pub shard_ids: Seq<Loc>,
+    pub combined_id: Loc,
     pub pm_constants: PersistentMemoryConstants,
 }
 
@@ -232,7 +234,7 @@ where
         set![self.inv@.namespace(), self.shard_namespace@]
     }
 
-    closed spec fn id(self) -> int {
+    closed spec fn id(self) -> Loc {
         self.inv@.constant().combined_id
     }
 
@@ -557,7 +559,7 @@ impl<K, I, L, Op, Lin> ReadLinearizer<K, I, L, Op> for ShardedReadLinearizer<K, 
         self.lin.namespaces().insert(self.inv.namespace())
     }
 
-    closed spec fn pre(self, id: int, op: Op) -> bool {
+    closed spec fn pre(self, id: Loc, op: Op) -> bool {
         &&& 0 <= self.shard < self.inv.constant().nshard()
         &&& id == self.inv.constant().shard_ids[self.shard]
         &&& self.lin.pre(self.inv.constant().combined_id, op)
@@ -565,7 +567,7 @@ impl<K, I, L, Op, Lin> ReadLinearizer<K, I, L, Op> for ShardedReadLinearizer<K, 
         &&& !self.lin.namespaces().contains(self.inv.namespace())
     }
 
-    closed spec fn post(self, complete: Self::Completion, id: int, op: Op, result: Result<Op::KvResult, KvError>) -> bool {
+    closed spec fn post(self, complete: Self::Completion, id: Loc, op: Op, result: Result<Op::KvResult, KvError>) -> bool {
         &&& self.lin.post(complete, self.inv.constant().combined_id, op, result)
     }
 
@@ -618,7 +620,7 @@ impl<K, I, L, Op, Lin> MutatingLinearizer<K, I, L, Op> for ShardedMutatingLinear
         self.lin.namespaces().insert(self.inv.namespace())
     }
 
-    closed spec fn pre(self, id: int, op: Op) -> bool {
+    closed spec fn pre(self, id: Loc, op: Op) -> bool {
         &&& 0 <= self.shard < self.inv.constant().nshard()
         &&& id == self.inv.constant().shard_ids[self.shard]
         &&& self.lin.pre(self.inv.constant().combined_id, op)
@@ -632,7 +634,7 @@ impl<K, I, L, Op, Lin> MutatingLinearizer<K, I, L, Op> for ShardedMutatingLinear
         }
     }
 
-    closed spec fn post(self, complete: Self::Completion, id: int, op: Op, result: Result<Op::KvResult, KvError>) -> bool {
+    closed spec fn post(self, complete: Self::Completion, id: Loc, op: Op, result: Result<Op::KvResult, KvError>) -> bool {
         &&& self.lin.post(complete, self.inv.constant().combined_id, op, result)
     }
 

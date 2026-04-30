@@ -5,6 +5,7 @@
 #![allow(unused_imports)]
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 use vstd::prelude::*;
+use vstd::resource::Loc;
 
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
@@ -452,7 +453,7 @@ pub struct KvStoreView<K, I, L>
     pub pm_constants: PersistentMemoryConstants,
     pub durable: AtomicKvStore<K, I, L>,
     pub tentative: AtomicKvStore<K, I, L>,
-    pub powerpm_id: int,
+    pub powerpm_id: Loc,
 }
 
 impl <K, I, L> KvStoreView<K, I, L>

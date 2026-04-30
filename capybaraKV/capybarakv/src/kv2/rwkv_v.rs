@@ -1,21 +1,25 @@
 #![allow(unused_imports)]
 use vstd::prelude::*;
 
-use crate::pmem::crashinv_t::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::power_t::*;
-use std::hash::Hash;
 use super::concurrentspec_t::*;
 use super::impl_v::*;
-use super::spec_t::*;
 use super::recover_v::*;
 use super::rwkv_t::*;
-use vstd::tokens::frac::*;
-use super::rwlock_t::{RwLockReadGuardWithPredicate, RwLockPredicate, RwLockWithPredicate, RwLockWriter};
+use super::rwlock_t::{
+    RwLockPredicate, RwLockReadGuardWithPredicate, RwLockWithPredicate, RwLockWriter,
+};
+use super::spec_t::*;
+use crate::pmem::crashinv_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::power_t::*;
+use std::hash::Hash;
+use std::sync::Arc;
 use vstd::invariant::*;
 use vstd::modes::*;
-use std::sync::Arc;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -35,8 +39,8 @@ where
 
 pub(super) struct ConcurrentKvStorePredicate
 {
-    id: int,
-    powerpm_id: int,
+    id: Loc,
+    powerpm_id: Loc,
 }
 
 impl<PM, K, I, L> RwLockPredicate<ConcurrentKvStoreInternal<PM, K, I, L>> for ConcurrentKvStorePredicate
@@ -712,7 +716,7 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    closed spec fn id(self) -> int
+    closed spec fn id(self) -> Loc
     {
         self.inv@.constant().caller_id
     }
@@ -1167,7 +1171,7 @@ impl<PM, K, I, L, Op, Lin> CheckPermission<Seq<u8>> for OpPerm<PM, K, I, L, Op, 
         }
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         self.inv.constant().durable_id
     }
 
@@ -1252,7 +1256,7 @@ impl<PM, K, I, L> CheckPermission<Seq<u8>> for NoopPerm<PM, K, I, L>
         recover_journal_then_kv::<PM, K, I, L>(old_state) == recover_journal_then_kv::<PM, K, I, L>(new_state)
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         self.inv.constant().durable_id
     }
 
@@ -1298,7 +1302,7 @@ impl<PM, K, I, L> PermissionFactory<Seq<u8>> for NoopPermFactory<PM, K, I, L>
         }.permits(old_state, new_state)
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         NoopPerm{
             inv: self.inv.clone(),
         }.id()

@@ -1,17 +1,19 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::power_t::*;
-use vstd::prelude::*;
 use vstd::invariant::*;
-use vstd::tokens::frac::*;
+use vstd::prelude::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
 verus! {
 
 pub trait SimpleCheckPermission<State> : Sized
 {
     spec fn permits(&self, s: State) -> bool;
-    spec fn id(&self) -> int;
+    spec fn id(&self) -> Loc;
 
     proof fn apply(tracked self, tracked credit: OpenInvariantCredit, tracked r: &mut GhostVarAuth<State>, new_state: State)
         requires
@@ -58,7 +60,7 @@ impl<State, SimplePerm> CheckPermission<State> for SimplePermissionAdapter<State
         self.perm.permits(s2)
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         self.perm.id()
     }
 
@@ -77,7 +79,7 @@ pub trait PermissionFactory<State>: Sized
     type Perm: CheckPermission<State>;
 
     spec fn permits(&self, s1: State, s2: State) -> bool;
-    spec fn id(&self) -> int;
+    spec fn id(&self) -> Loc;
 
     proof fn grant_permission(tracked &self) -> (tracked perm: Self::Perm)
         ensures
@@ -137,7 +139,7 @@ impl<State, PermA, PermB> CheckPermission<State> for CombinedPermission<State, P
         self.a.permits(s1, s2) || self.b.permits(s1, s2)
     }
 
-    closed spec fn id(&self) -> int {
+    closed spec fn id(&self) -> Loc {
         self.a.id()
     }
 
@@ -183,7 +185,7 @@ impl<PMRegion> PoWERPersistentMemoryRegion<PMRegion>
         self.pm_region.constants()
     }
 
-    pub closed spec fn id(&self) -> int
+    pub closed spec fn id(&self) -> Loc
     {
         self.pm_region.id()
     }

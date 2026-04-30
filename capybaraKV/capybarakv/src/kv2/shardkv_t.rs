@@ -1,26 +1,28 @@
 #![allow(unused_imports)]
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
 
-use vstd::prelude::*;
-use vstd::tokens::frac::*;
 use vstd::invariant::*;
+use vstd::prelude::*;
+use vstd::resource::frac::*;
+use vstd::resource::ghost_var::*;
+use vstd::resource::Loc;
 
-use std::sync::Arc;
-use std::marker::PhantomData;
-use std::hash::{Hash, Hasher, DefaultHasher};
 use std::collections::VecDeque;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::marker::PhantomData;
+use std::sync::Arc;
 
 use crate::pmem::crashinv_t::*;
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::power_t::*;
 
 use super::concurrentspec_t::*;
-use super::spec_t::*;
 use super::rwkv_t;
 use super::rwkv_t::*;
 use super::rwkv_v::*;
 use super::shardkv_v::*;
+use super::spec_t::*;
 
 verus! {
 
@@ -44,7 +46,7 @@ where
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     spec fn namespaces(self) -> Set<int>;
-    spec fn id(self) -> int;
+    spec fn id(self) -> Loc;
 
     exec fn setup(
         nshards: usize,
@@ -376,7 +378,7 @@ pub exec fn recover<PM, K, I, L>(
     pms: VecDeque<PM>,
     kvstore_id: u128,
     Ghost(pm_constants): Ghost<PersistentMemoryConstants>,
-    Ghost(id): Ghost<int>,
+    Ghost(id): Ghost<Loc>,
     Ghost(namespace): Ghost<int>,
     Ghost(shard_namespace): Ghost<int>,
 ) -> (result: Result<ShardedKvStore::<PM, K, I, L>, KvError>)
@@ -437,7 +439,7 @@ pub exec fn recover<PM, K, I, L>(
         let pm = pms_mut.pop_front().unwrap();
 
         // There was some shard ID before crash; it doesn't matter what it was.
-        let ghost shard_id: int = arbitrary();
+        let ghost shard_id: Loc = arbitrary();
 
         match rwkv_t::recover(pm, kvstore_id, Ghost(shard_id), Ghost(shard_namespace)) {
             Err(e) => return Err(e),
