@@ -270,6 +270,13 @@ where
 
         for idx in 0..nshards
             invariant
+                nshards >= 1,
+                forall |shard| 0 <= shard < nshards ==> #[trigger] shard_res_old.contains_key(shard),
+                forall |shard| #[trigger] shard_res_old.contains_key(shard) ==> {
+                    &&& shard_res_old[shard]@.ps == ps
+                    &&& shard_res_old[shard]@.pm_constants == pm_constants
+                    &&& shard_res_old[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
+                },
                 pred.shard_ids.len() == idx,
                 pred.combined_id == shardstates.combined.id(),
                 pred.combined_id == combined_res.id(),

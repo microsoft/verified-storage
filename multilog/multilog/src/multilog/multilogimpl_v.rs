@@ -1121,9 +1121,10 @@ verus! {
             // area, if flushed, would be consistent with `self.infos` and
             // `self.state`.
 
-            for current_log in iter: 0..self.num_logs
+            let num_logs = self.num_logs;
+            for current_log in iter: 0..num_logs
                 invariant
-                    iter.end == self.num_logs, // we need to remember this since `self` is changed in the loop body
+                    iter.snapshot@.end == self.num_logs, // we need to remember this since `self` is changed in the loop body
                     wrpm_regions.inv(),
 
                     memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),

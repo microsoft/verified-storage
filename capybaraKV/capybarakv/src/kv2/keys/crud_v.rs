@@ -17,6 +17,8 @@ use super::super::spec_t::*;
 use vstd::slice::slice_to_vec;
 #[cfg(verus_keep_ghost)]
 use vstd::std_specs::hash::*;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::iter::IteratorSpec;
 
 verus! {
 
@@ -708,21 +710,19 @@ where
     {
         broadcast use vstd::std_specs::hash::group_hash_axioms;
 
-        let keys = self.m.keys();
         let mut result = Vec::<K>::new();
-        assert(result@ =~= keys@.1.take(0));
-
-        for k in iter: keys
+        let ghost keys = self.m.keys();
+        for k in iter: self.m.keys()
             invariant
-                result@ == iter@,
+                result@ == iter.seq().take(iter.index@).unref(),
         {
-            assert(iter.keys.take(iter.pos).push(*k) =~= iter.keys.take(iter.pos + 1));
             result.push(*k);
         }
 
         assert(result@.to_set() =~= self@.tentative.unwrap().key_info.dom()) by {
-            assert(keys@.1.to_set() == self.m@.dom());
-            assert(keys@.1.take(keys@.1.len() as int) =~= keys@.1);
+             assert(keys.remaining().take(keys.remaining().len() as int) == keys.remaining());
+//            assert(keys.remaining().to_set() == self.m@.dom());
+//            assert(keys@.1.take(keys@.1.len() as int) =~= keys@.1);
             assert(self.m@.dom() =~= self@.tentative.unwrap().key_info.dom());
         }
 

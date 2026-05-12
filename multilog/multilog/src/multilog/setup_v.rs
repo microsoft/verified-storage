@@ -77,7 +77,7 @@ verus! {
         let mut result = Vec::<u64>::new();
         for which_region in iter: 0..region_sizes.len()
             invariant
-                iter.end == region_sizes.len(),
+                iter.snapshot@.end == region_sizes.len(),
                 forall |i: int| 0 <= i < region_sizes.len() ==> region_sizes[i] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
                 result.len() == which_region,
                 forall |i: int| 0 <= i < which_region ==>

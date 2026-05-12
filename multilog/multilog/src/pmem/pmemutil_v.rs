@@ -154,9 +154,10 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> result@[i] == #[trigger] pm_regions@[i].len()
     {
         let mut result: Vec<u64> = Vec::<u64>::new();
-        for which_region in iter: 0..pm_regions.get_num_regions()
+        let num_regions = pm_regions.get_num_regions();
+        for which_region in iter: 0..num_regions
             invariant
-                iter.end == pm_regions@.len(),
+                iter.snapshot@.end == num_regions == pm_regions@.len(),
                 pm_regions.inv(),
                 result@.len() == which_region,
                 forall |i: int| 0 <= i < which_region ==> result@[i] == #[trigger] pm_regions@[i].len(),
