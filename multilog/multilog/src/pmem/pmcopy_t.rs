@@ -260,7 +260,7 @@ verus! {
                     &&& self@ == true_bytes
                 }
             ensures 
-                out == true_val
+                *out == true_val
         {
             // SAFETY: The precondition establishes that self@ -- the ghost view of the maybe-corrupted bytes
             // written to self.val -- are equivalent to the serialization of the true value; i.e., we must have 
