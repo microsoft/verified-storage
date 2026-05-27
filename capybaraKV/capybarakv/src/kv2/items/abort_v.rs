@@ -37,12 +37,11 @@ where
         ensures
             final(self).valid(jv_after_abort),
             final(self)@ == (ItemTableView{ tentative: Some(old(self)@.durable), used_slots: final(self)@.used_slots, ..old(self)@ }),
-            final(self)@.durable.m.dom().finite(),
             final(self)@.used_slots == final(self)@.durable.m.dom().len(),
     {
         let ghost new_row_info =
             Map::<u64, ItemRowDisposition<I>>::new(
-                |row_addr: u64| self.row_info@.contains_key(row_addr),
+                self.row_info@.dom(),
                 |row_addr: u64| match self.row_info@[row_addr] {
                     ItemRowDisposition::<I>::InPendingAllocationList{ pos, item } =>
                         ItemRowDisposition::<I>::InFreeList{ pos: self.free_list@.len() + pos },

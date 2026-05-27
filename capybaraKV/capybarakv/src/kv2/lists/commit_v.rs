@@ -22,7 +22,7 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn commit_m(self) -> Map<u64, ListTableEntryView<L>>
     {
         Map::<u64, ListTableEntryView<L>>::new(
-            |list_addr: u64| self.m.contains_key(list_addr),
+            self.m.dom(),
             |list_addr: u64| self.m[list_addr].commit(),
         )
     }
@@ -30,7 +30,7 @@ impl<L> ListTableInternalView<L>
     pub(super) open spec fn commit_row_info(self) -> Map<u64, ListRowDisposition>
     {
         Map::<u64, ListRowDisposition>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr),
+            self.row_info.dom(),
             |row_addr: u64| match self.row_info[row_addr] {
                 ListRowDisposition::InPendingAllocationList{ pos } =>
                     ListRowDisposition::NowhereFree,
@@ -176,8 +176,7 @@ where
             final(self)@ == (ListTableView{ durable: old(self)@.tentative.unwrap(), used_slots: final(self)@.used_slots, ..old(self)@ }),
             ({
                 let m = final(self)@.durable.m;
-                &&& m.dom().finite()
-                &&& final(self)@.used_slots ==
+                final(self)@.used_slots ==
                        m.dom().to_seq().fold_left(0, |total: int, row_addr: u64| total + m[row_addr].len())
             }),
     {

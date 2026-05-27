@@ -79,13 +79,6 @@ where
         }
     }
 
-    pub(super) open spec fn inv_components_finite(self) -> bool
-    {
-        &&& self.keys@.durable.key_info.dom().finite()
-        &&& self.items@.durable.m.dom().finite()
-        &&& self.lists@.durable.m.dom().finite()
-    }
-
     pub(super) open spec fn inv_used_slots_correspond(self) -> bool
     {
         self.status@ is Quiescent ==> {
@@ -110,7 +103,6 @@ where
         &&& self.inv_tentative_components_exist()
         &&& self.inv_components_valid()
         &&& self.inv_components_correspond()
-        &&& self.inv_components_finite()
         &&& self.inv_used_slots_correspond()
         &&& self.inv_perm_factory_allows_recovery_idempotent_changes()
         &&& decode_policies(self.sm@.encoded_policies) == Some(self.lists@.logical_range_gaps_policy)

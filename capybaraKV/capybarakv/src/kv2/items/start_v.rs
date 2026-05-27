@@ -41,7 +41,6 @@ where
                     let recovered_state = Self::recover(journal@.read_state, item_addrs@, *sm).unwrap();
                     &&& items.valid(journal@)
                     &&& items@.sm == *sm
-                    &&& recovered_state.m.dom().finite()
                     &&& items@.used_slots == recovered_state.m.dom().len()
                     &&& items@.durable == recovered_state
                     &&& items@.tentative == Some(recovered_state)

@@ -586,7 +586,7 @@ verus! {
             recover_fn(new_durable_state) == recover_fn(durable_state)
     {
         assert(new_durable_state.len() == durable_state.len());
-        assert forall|i: int| 0 <= i < durable_state.len() && !addrs.contains(i)
+        assert forall|i: int| #![trigger addrs.contains(i)] 0 <= i < durable_state.len() && !addrs.contains(i)
             implies new_durable_state[i] == durable_state[i] by {
             lemma_auto_can_result_from_partial_write_effect();
         }

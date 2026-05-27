@@ -95,6 +95,7 @@ proof fn linearize_nop<PM, K, I, L, Op, CB>(
     let tracked mut completion;
     open_atomic_invariant_in_proof!(credit => &inv => inner => {
         inner.rwlock_auth.agree(ckv_res);
+        assert(cb.namespaces().subset_of(cb.namespaces().insert(inv.namespace())));
         completion = cb.apply(op, ckv_res@, exec_result, &mut inner.caller_auth);
     });
     completion

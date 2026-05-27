@@ -147,7 +147,7 @@ where
                         &&& final(self)@ == (JournalView{
                                commit_state: update_bytes(old(self)@.commit_state, addr as int, bytes_to_write@),
                                journaled_addrs: old(self)@.journaled_addrs +
-                                                Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()),
+                                                Set::<int>::range(addr as int, addr + bytes_to_write.len()),
                                remaining_capacity: old(self)@.remaining_capacity - space_needed,
                                ..old(self)@
                            })
@@ -182,7 +182,7 @@ where
         
         self.journal_length = self.journal_length + overhead + bytes_to_write.len() as u64;
         self.journaled_addrs = Ghost(self.journaled_addrs@ +
-                                     Set::<int>::new(|i: int| addr <= i < addr + bytes_to_write.len()));
+                                     Set::<int>::range(addr as int, addr + bytes_to_write.len()));
         let concrete_entry = ConcreteJournalEntry::new(addr, bytes_to_write);
         self.entries.push(concrete_entry);
 

@@ -59,7 +59,7 @@ pub(super) open spec fn recover_items<I>(
         items_recoverable::<I>(s, addrs, sm),
 {
     Map::<u64, I>::new(
-        |addr: u64| addrs.contains(addr),
+        addrs,
         |addr: u64| recover_item::<I>(s, addr, sm),
     )
 }

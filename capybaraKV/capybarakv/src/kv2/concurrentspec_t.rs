@@ -70,7 +70,7 @@ pub trait ReadLinearizer<K, I, L, Op: ReadOnlyOperation<K, I, L>> : Sized
 {
     type Completion;
 
-    spec fn namespaces(self) -> Set<int>;
+    spec fn namespaces(self) -> ISet<int>;
 
     spec fn pre(self, id: Loc, op: Op) -> bool;
 
@@ -140,7 +140,7 @@ pub trait MutatingLinearizer<K, I, L, Op: MutatingOperation<K, I, L>> : Sized
 {
     type Completion;
 
-    spec fn namespaces(self) -> Set<int>;
+    spec fn namespaces(self) -> ISet<int>;
 
     spec fn pre(self, id: Loc, op: Op) -> bool;
 

@@ -32,7 +32,6 @@ where
         ensures
             final(self).valid(jv_after_commit),
             final(self)@ == (KeyTableView{ durable: old(self)@.tentative.unwrap(), used_slots: final(self)@.used_slots, ..old(self)@ }),
-            final(self)@.durable.key_info.dom().finite(),
             final(self)@.used_slots == final(self)@.durable.key_info.dom().len(),
     {
         // Delete all the undo records, and move everything in the pending deallocations
