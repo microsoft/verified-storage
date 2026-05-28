@@ -231,7 +231,7 @@ where
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
     closed spec fn namespaces(self) -> ISet<int> {
-        set![self.inv@.namespace(), self.shard_namespace@].to_iset()
+        iset![self.inv@.namespace(), self.shard_namespace@]
     }
 
     closed spec fn id(self) -> Loc {

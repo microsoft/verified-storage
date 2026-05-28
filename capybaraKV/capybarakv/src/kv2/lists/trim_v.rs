@@ -31,9 +31,8 @@ impl<L> ListRecoveryMapping<L>
         let new_elements = self.list_elements[list_addr].skip(trim_length);
         let new_row_info = Map::<u64, ListRowRecoveryInfo<L>>::new(
             self.row_info.dom().filter(
-            |row_addr: u64| {
-                &&& self.row_info[row_addr].head == list_addr ==> self.row_info[row_addr].pos >= trim_length
-            }),
+                |row_addr: u64| self.row_info[row_addr].head == list_addr ==> self.row_info[row_addr].pos >= trim_length
+            ),
             |row_addr: u64|
             {
                 let info = self.row_info[row_addr];

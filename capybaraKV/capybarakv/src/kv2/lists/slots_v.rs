@@ -66,7 +66,6 @@ impl<L> ListTableInternalView<L>
             };
 
             assert(tups_cur.len() == m[s[pos - 1]].len()) by {
-//                lemma_int_range(0, m[s[pos - 1]].len() as int);
                 lemma_bijection_makes_sets_have_equal_size(
                     Set::<int>::range(0, m[s[pos - 1]].len() as int),
                     tups_cur,

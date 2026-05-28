@@ -141,13 +141,6 @@ impl<L> ListTableInternalView<L>
 
         let new_row_info = Map::<u64, ListRowRecoveryInfo<L>>::new(
             self.tentative_mapping.row_info.dom().filter(|row_addr: u64| row_addr != old_row_addr).insert(new_row_addr),
-//            |row_addr: u64| {
-//                ||| row_addr == new_row_addr
-//                ||| {
-//                       &&& self.tentative_mapping.row_info.contains_key(row_addr)
-//                       &&& row_addr != old_row_addr
-//                }
-//            },
             |row_addr: u64|
             {
                 if row_addr == new_row_addr {

@@ -25,13 +25,6 @@ impl<L> ListTableInternalView<L>
             self.deletes_inverse.dom().union(
                 self.m.dom().filter(|list_addr: u64| self.m[list_addr] is Durable)
             ),
-//            |list_addr: u64| {
-//                ||| self.deletes_inverse.contains_key(list_addr)
-//                ||| {
-//                       &&& self.m.contains_key(list_addr)
-//                       &&& self.m[list_addr] is Durable
-//                   }
-//            },
             |list_addr: u64| {
                 if self.deletes_inverse.contains_key(list_addr) {
                     ListTableEntryView::Durable{ summary: self.deletes[self.deletes_inverse[list_addr] as int] }

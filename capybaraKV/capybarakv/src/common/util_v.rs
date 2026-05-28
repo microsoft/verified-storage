@@ -161,7 +161,6 @@ pub exec fn extend_vec_u8_from_slice(v: &mut Vec<u8>, s: &[u8])
 // Proves that, given that `s` is finite, it contains `v` if and only if
 // `s.to_seq()` contains `v`.
 pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
-    requires
     ensures
         s.contains(v) <==> s.to_seq().contains(v),
     decreases
@@ -192,7 +191,6 @@ pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
 // Proves that, given that `s` is finite, `s.to_seq()` has the same length as `s`
 // and has no duplicates.
 pub proof fn lemma_set_to_seq_has_same_length_with_no_duplicates<A>(s: Set<A>)
-    requires
     ensures
         s.to_seq().len() == s.len(),
         s.to_seq().no_duplicates(),
