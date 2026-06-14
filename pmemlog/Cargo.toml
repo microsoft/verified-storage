@@ -6,11 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vstd = "0.0.0-2026-05-24-0157"
+vstd = { git = "https://github.com/verus-lang/verus.git" }
 crc64fast = "1.0.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+unused_features = "allow"
 
 [package.metadata.verus]
 verify = true
