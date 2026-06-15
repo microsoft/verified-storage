@@ -140,13 +140,7 @@ impl<L> ListTableInternalView<L>
         let prev_addr = if idx == 0 { 0 } else { old_addrs[idx - 1] };
 
         let new_row_info = Map::<u64, ListRowRecoveryInfo<L>>::new(
-            |row_addr: u64| {
-                ||| row_addr == new_row_addr
-                ||| {
-                       &&& self.tentative_mapping.row_info.contains_key(row_addr)
-                       &&& row_addr != old_row_addr
-                }
-            },
+            self.tentative_mapping.row_info.dom().filter(|row_addr: u64| row_addr != old_row_addr).insert(new_row_addr),
             |row_addr: u64|
             {
                 if row_addr == new_row_addr {
@@ -733,8 +727,8 @@ where
                 }
                 &&& final(journal)@.journaled_addrs ==
                     old(journal)@.journaled_addrs +
-                    Set::<int>::new(|i: int| prev_row_addr + self.sm.row_next_start <= i
-                                  < prev_row_addr + self.sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
+                    Set::<int>::range(prev_row_addr + self.sm.row_next_start,
+                                  prev_row_addr + self.sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
             } else {
                 &&& forall|other_row_addr: u64| {
                     &&& self.sm.table.validate_row_addr(other_row_addr)
@@ -922,8 +916,8 @@ where
                 }
                 &&& new_jv.journaled_addrs ==
                     old_jv.journaled_addrs +
-                    Set::<int>::new(|i: int| prev_row_addr + sm.row_next_start <= i
-                                  < prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
+                    Set::<int>::range(prev_row_addr + sm.row_next_start,
+                                  prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
             } else {
                 &&& forall|other_row_addr: u64| {
                     &&& sm.table.validate_row_addr(other_row_addr)

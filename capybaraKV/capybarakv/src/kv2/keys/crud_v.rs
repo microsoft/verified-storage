@@ -160,8 +160,8 @@ where
                     &&& seqs_match_except_in_range(old(journal)@.commit_state, final(journal)@.commit_state,
                                                  row_addr as int, row_addr + final(self).sm.table.row_size)
                     &&& final(journal)@.journaled_addrs == old(journal)@.journaled_addrs +
-                        Set::<int>::new(|i: int| row_addr + final(self).sm.row_cdb_start <= i
-                                      < row_addr + final(self).sm.row_cdb_start + u64::spec_size_of())
+                        Set::<int>::range(row_addr + final(self).sm.row_cdb_start,
+                                      row_addr + final(self).sm.row_cdb_start + u64::spec_size_of())
                     &&& final(journal)@.remaining_capacity >= old(journal)@.remaining_capacity -
                            spec_journal_entry_overhead() - u64::spec_size_of()
                 },

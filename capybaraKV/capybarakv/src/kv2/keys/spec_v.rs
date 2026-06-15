@@ -139,7 +139,6 @@ impl<K> KeyTableSnapshot<K>
     pub proof fn lemma_valid_implies_num_keys_equals_num_items(self)
         requires
             self.valid(),
-            self.key_info.dom().finite(),
         ensures
             self.item_info.dom().len() == self.key_info.dom().len(),
     {

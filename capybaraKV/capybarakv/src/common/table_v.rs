@@ -163,14 +163,13 @@ impl TableMetadata
             self.valid(),
         ensures
             ({
-                let valid_row_addrs = Set::<u64>::new(|row_addr: u64| self.validate_row_addr(row_addr));
-                &&& valid_row_addrs.len() == self.num_rows
-                &&& valid_row_addrs.finite()
+                let valid_row_addrs = Set::<u64>::from_finite_type(|row_addr: u64| self.validate_row_addr(row_addr));
+                valid_row_addrs.len() == self.num_rows
             }),
     {
         // The proof is in three parts.
 
-        let valid_row_addrs = Set::<u64>::new(|row_addr: u64| self.validate_row_addr(row_addr));
+        let valid_row_addrs = Set::<u64>::from_finite_type(|row_addr: u64| self.validate_row_addr(row_addr));
         let rows: Seq<u64> = Seq::new(self.num_rows as nat, |row_index: int| self.spec_row_index_to_addr(row_index));
 
         // First, we prove that the sequence containing all row addresses in order has no duplicates.

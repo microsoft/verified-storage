@@ -21,7 +21,6 @@ where
 {
     pub(super) proof fn lemma_filtering_keys_doesnt_affect_fold(self, pos: int)
         requires
-            self@.durable.m.dom().finite(),
             0 <= pos <= self@.durable.m.dom().to_seq().len(),
         ensures
             ({
@@ -73,7 +72,6 @@ where
 
     pub(super) proof fn lemma_used_list_slots_correspond(self)
         requires
-            self.inv_components_finite(),
             self.inv_components_correspond(),
             self.keys@.durable.valid(),
         ensures
@@ -186,7 +184,6 @@ where
 
     pub(super) proof fn lemma_used_slots_correspond(self)
         requires
-            self.inv_components_finite(),
             self.inv_components_correspond(),
             self.inv_components_valid(),
         ensures

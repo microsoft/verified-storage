@@ -105,7 +105,6 @@ where
         ensures
             final(self).valid(jv_after_abort),
             final(self)@ == (KeyTableView{ tentative: Some(old(self)@.durable), used_slots: final(self)@.used_slots, ..old(self)@ }),
-            final(self)@.durable.key_info.dom().finite(),
             final(self)@.used_slots == final(self)@.durable.key_info.dom().len(),
     {
         self.status = Ghost(KeyTableStatus::Inconsistent);

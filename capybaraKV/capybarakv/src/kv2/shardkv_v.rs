@@ -230,8 +230,8 @@ where
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    closed spec fn namespaces(self) -> Set<int> {
-        set![self.inv@.namespace(), self.shard_namespace@]
+    closed spec fn namespaces(self) -> ISet<int> {
+        iset![self.inv@.namespace(), self.shard_namespace@]
     }
 
     closed spec fn id(self) -> Loc {
@@ -562,7 +562,7 @@ impl<K, I, L, Op, Lin> ReadLinearizer<K, I, L, Op> for ShardedReadLinearizer<K, 
 {
     type Completion = Lin::Completion;
 
-    closed spec fn namespaces(self) -> Set<int> {
+    closed spec fn namespaces(self) -> ISet<int> {
         self.lin.namespaces().insert(self.inv.namespace())
     }
 
@@ -623,7 +623,7 @@ impl<K, I, L, Op, Lin> MutatingLinearizer<K, I, L, Op> for ShardedMutatingLinear
 {
     type Completion = Lin::Completion;
 
-    closed spec fn namespaces(self) -> Set<int> {
+    closed spec fn namespaces(self) -> ISet<int> {
         self.lin.namespaces().insert(self.inv.namespace())
     }
 

@@ -26,7 +26,7 @@ impl JournalEntry
 
     pub(super) open spec fn addrs(self) -> Set<int>
     {
-        Set::<int>::new(|i| self.start <= i < self.end())
+        Set::<int>::range(self.start, self.end())
     }
 
     pub(super) open spec fn fits(self, sm: JournalStaticMetadata) -> bool

@@ -51,7 +51,6 @@ where
                     &&& keys@.sm == *sm
                     &&& keys@.durable == recovered_state
                     &&& keys@.tentative == Some(recovered_state)
-                    &&& recovered_state.key_info.dom().finite()
                     &&& keys@.used_slots == recovered_state.key_info.dom().len()
                     &&& item_addrs@ == recovered_state.item_addrs()
                     &&& list_addrs@.to_set() == recovered_state.list_addrs()

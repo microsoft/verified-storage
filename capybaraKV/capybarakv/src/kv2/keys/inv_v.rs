@@ -200,22 +200,22 @@ impl<K> KeyMemoryMapping<K>
     {
         KeyRecoveryMapping::<K>{
             row_info: Map::<u64, Option<(K, KeyTableRowMetadata)>>::new(
-                |row_addr: u64| self.row_info.contains_key(row_addr),
+                self.row_info.dom(),
                 |row_addr: u64| match self.row_info[row_addr] {
                     KeyRowDisposition::InHashTable{ k, rm } => Some((k, rm)),
                     _ => None,
                 },
             ),
             key_info: Map::<K, u64>::new(
-                |k: K| self.key_info.contains_key(k),
+                self.key_info.dom(),
                 |k: K| self.key_info[k] as u64,
             ),
             item_info: Map::<u64, u64>::new(
-                |item_addr: u64| self.item_info.contains_key(item_addr),
+                self.item_info.dom(),
                 |item_addr: u64| self.item_info[item_addr] as u64,
             ),
             list_info: Map::<u64, u64>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr),
+                self.list_info.dom(),
                 |list_addr: u64| self.list_info[list_addr] as u64,
             ),
         }
@@ -225,15 +225,15 @@ impl<K> KeyMemoryMapping<K>
     {
         KeyTableSnapshot::<K>{
             key_info: Map::<K, KeyTableRowMetadata>::new(
-                |k: K| self.key_info.contains_key(k),
+                self.key_info.dom(),
                 |k: K| self.row_info[self.key_info[k]]->rm,
             ),
             item_info: Map::<u64, K>::new(
-                |item_addr: u64| self.item_info.contains_key(item_addr),
+                self.item_info.dom(),
                 |item_addr: u64| self.row_info[self.item_info[item_addr]]->k
             ),
             list_info: Map::<u64, K>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr),
+                self.list_info.dom(),
                 |list_addr: u64| self.row_info[self.list_info[list_addr]]->k
             ),
         }
@@ -453,7 +453,6 @@ impl<K> KeyMemoryMapping<K>
             self.consistent_with_free_list_and_pending_deallocations(free_list, Seq::<u64>::empty()),
         ensures
             self.as_recovery_mapping().key_info.dom() == self.key_info.dom(),
-            self.key_info.dom().finite(), 
             self.key_info.dom().len() == sm.table.num_rows - free_list.len(),
     {
         assert forall|pos: int| 0 <= pos < free_list.len() implies self.row_info.contains_key(#[trigger] free_list[pos]) by {
@@ -461,24 +460,20 @@ impl<K> KeyMemoryMapping<K>
             assert(self.row_info.contains_key(free_list[pos]));
         }
 
-        let free_row_addrs = Set::<u64>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr] is InFreeList
-        );
-        let key_row_addrs = Set::<u64>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr] is InHashTable
-        );
-        let valid_row_addrs = Set::<u64>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr)
-        );
+        let free_row_addrs =
+            self.row_info.dom().filter(|row_addr: u64| self.row_info[row_addr] is InFreeList);
+        let key_row_addrs =
+            self.row_info.dom().filter(|row_addr: u64| self.row_info[row_addr] is InHashTable);
+        let valid_row_addrs = self.row_info.dom();
 
-        assert(valid_row_addrs.finite() && valid_row_addrs.len() == sm.table.num_rows) by {
-            assert(valid_row_addrs =~= Set::<u64>::new(|row_addr: u64| sm.table.validate_row_addr(row_addr)));
+        assert(valid_row_addrs.len() == sm.table.num_rows) by {
+            assert(valid_row_addrs =~= Set::<u64>::from_finite_type(|row_addr: u64| sm.table.validate_row_addr(row_addr)));
             sm.table.lemma_valid_row_set_len();
         }
-        assert(free_row_addrs.finite()) by {
+        assert(free_row_addrs.len() <= valid_row_addrs.len()) by {
             vstd::set_lib::lemma_len_subset(free_row_addrs, valid_row_addrs);
         }
-        assert(key_row_addrs.finite()) by {
+        assert(key_row_addrs.len() <= valid_row_addrs.len()) by {
             vstd::set_lib::lemma_len_subset(key_row_addrs, valid_row_addrs);
         }
 
@@ -493,7 +488,7 @@ impl<K> KeyMemoryMapping<K>
             free_list.unique_seq_to_set();
         }
 
-        assert(self.key_info.dom().finite() && self.key_info.dom().len() == key_row_addrs.len()) by {
+        assert(self.key_info.dom().len() == key_row_addrs.len()) by {
             lemma_bijection_makes_sets_have_equal_size::<u64, K>(
                 key_row_addrs, self.key_info.dom(),
                 |row_addr: u64| self.row_info[row_addr]->InHashTable_k,

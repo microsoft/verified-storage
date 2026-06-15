@@ -42,7 +42,7 @@ impl<K> KeyRecoveryMapping<K>
     pub(super) open spec fn new_empty(tm: TableMetadata) -> Self
     {
         let row_info = Map::<u64, Option<(K, KeyTableRowMetadata)>>::new(
-            |addr: u64| tm.validate_row_addr(addr),
+            Set::<u64>::from_finite_type(|addr: u64| tm.validate_row_addr(addr)),
             |addr: u64| None,
         );
         Self{
@@ -126,15 +126,15 @@ impl<K> KeyRecoveryMapping<K>
     {
         KeyTableSnapshot::<K>{
             key_info: Map::<K, KeyTableRowMetadata>::new(
-                |k: K| self.key_info.contains_key(k),
+                self.key_info.dom(),
                 |k: K| self.row_info[self.key_info[k]].unwrap().1,
             ),
             item_info: Map::<u64, K>::new(
-                |item_addr: u64| self.item_info.contains_key(item_addr),
+                self.item_info.dom(),
                 |item_addr: u64| self.row_info[self.item_info[item_addr]].unwrap().0,
             ),
             list_info: Map::<u64, K>::new(
-                |list_addr: u64| self.list_info.contains_key(list_addr),
+                self.list_info.dom(),
                 |list_addr: u64| self.row_info[self.list_info[list_addr]].unwrap().0,
             ),
         }

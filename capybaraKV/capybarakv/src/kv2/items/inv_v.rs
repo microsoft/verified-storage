@@ -160,11 +160,11 @@ impl<I> ItemTableInternalView<I>
     {
         ItemTableSnapshot::<I>{
             m: Map::<u64, I>::new(
+                self.row_info.dom().filter(
                 |row_addr: u64| {
-                    &&& self.row_info.contains_key(row_addr)
                     &&& self.row_info[row_addr] is NowhereFree ||
                        self.row_info[row_addr] is InPendingDeallocationList
-                },
+                }),
                 |row_addr: u64| match self.row_info[row_addr] {
                     ItemRowDisposition::NowhereFree{ item } => item,
                     ItemRowDisposition::InPendingDeallocationList{ pos, item } => item,
@@ -178,11 +178,11 @@ impl<I> ItemTableInternalView<I>
     {
         ItemTableSnapshot::<I>{
             m: Map::<u64, I>::new(
+                self.row_info.dom().filter(
                 |row_addr: u64| {
-                    &&& self.row_info.contains_key(row_addr)
                     &&& self.row_info[row_addr] is NowhereFree ||
                        self.row_info[row_addr] is InPendingAllocationList
-                },
+                }),
                 |row_addr: u64| match self.row_info[row_addr] {
                     ItemRowDisposition::NowhereFree{ item } => item,
                     ItemRowDisposition::InPendingAllocationList{ pos, item } => item,
@@ -199,7 +199,6 @@ impl<I> ItemTableInternalView<I>
             self.pending_allocations == Seq::<u64>::empty(),
             self.pending_deallocations == Seq::<u64>::empty(),
         ensures
-            self.as_durable_snapshot().m.dom().finite(),
             self.as_durable_snapshot().m.dom().len() == sm.table.num_rows - self.free_list.len(),
     {
         assert forall|pos: int| 0 <= pos < self.free_list.len() implies
@@ -208,24 +207,20 @@ impl<I> ItemTableInternalView<I>
             assert(self.row_info.contains_key(self.free_list[pos]));
         }
 
-        let free_row_addrs = Set::<u64>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr] is InFreeList
-        );
-        let item_row_addrs = Set::<u64>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr) && self.row_info[row_addr] is NowhereFree
-        );
-        let valid_row_addrs = Set::<u64>::new(
-            |row_addr: u64| self.row_info.contains_key(row_addr)
-        );
+        let free_row_addrs =
+            self.row_info.dom().filter(|row_addr: u64| self.row_info[row_addr] is InFreeList);
+        let item_row_addrs =
+            self.row_info.dom().filter(|row_addr: u64| self.row_info[row_addr] is NowhereFree);
+        let valid_row_addrs = self.row_info.dom();
 
-        assert(valid_row_addrs.finite() && valid_row_addrs.len() == sm.table.num_rows) by {
-            assert(valid_row_addrs =~= Set::<u64>::new(|row_addr: u64| sm.table.validate_row_addr(row_addr)));
+        assert(valid_row_addrs.len() == sm.table.num_rows) by {
+            assert(valid_row_addrs =~= Set::<u64>::from_finite_type(|row_addr: u64| sm.table.validate_row_addr(row_addr)));
             sm.table.lemma_valid_row_set_len();
         }
-        assert(free_row_addrs.finite()) by {
+        assert(free_row_addrs.len() <= valid_row_addrs.len()) by {
             vstd::set_lib::lemma_len_subset(free_row_addrs, valid_row_addrs);
         }
-        assert(item_row_addrs.finite()) by {
+        assert(item_row_addrs.len() <= valid_row_addrs.len()) by {
             vstd::set_lib::lemma_len_subset(item_row_addrs, valid_row_addrs);
         }
 

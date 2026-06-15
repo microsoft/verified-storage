@@ -83,12 +83,12 @@ pub proof fn lemma_injective_map_inverse<K, V>(map: Map<K, V>)
     ensures 
         forall |k: K| map.contains_key(k) ==> {
             let v = map[k];
-            map.invert()[v] == k
+            map.invert().contains_pair(v, k)
         }
 {
     assert forall |k: K| map.contains_key(k) implies {
         let v = map[k];
-        map.invert()[v] == k
+        map.invert().contains_pair(v, k)
     } by {
         let v = map[k];
         if map.invert()[v] != k {
@@ -119,10 +119,9 @@ pub proof fn lemma_seq_len_when_no_dup_and_all_values_in_range(s: Seq<int>, min:
     s.unique_seq_to_set();
     // because s_set only has values between min and max, it's a subset 
     // of the set containing all values between min and max
-    assert(s_set.subset_of(set_int_range(min, max)));
-    lemma_int_range(min, max);
-    lemma_len_subset(s_set, set_int_range(min, max));
-    assert(s.len() <= set_int_range(min, max).len());
+    assert(s_set.subset_of(Set::<int>::range(min, max)));
+    lemma_len_subset(s_set, Set::<int>::range(min, max));
+    assert(s.len() <= Set::<int>::range(min, max).len());
 }
 
 // This executable function clones a vector of objects of type `T`
@@ -162,8 +161,6 @@ pub exec fn extend_vec_u8_from_slice(v: &mut Vec<u8>, s: &[u8])
 // Proves that, given that `s` is finite, it contains `v` if and only if
 // `s.to_seq()` contains `v`.
 pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
-    requires
-        s.finite(),
     ensures
         s.contains(v) <==> s.to_seq().contains(v),
     decreases
@@ -194,8 +191,6 @@ pub proof fn lemma_set_to_seq_contains_iff_set_contains<A>(s: Set<A>, v: A)
 // Proves that, given that `s` is finite, `s.to_seq()` has the same length as `s`
 // and has no duplicates.
 pub proof fn lemma_set_to_seq_has_same_length_with_no_duplicates<A>(s: Set<A>)
-    requires
-        s.finite(),
     ensures
         s.to_seq().len() == s.len(),
         s.to_seq().no_duplicates(),
@@ -225,11 +220,9 @@ pub proof fn lemma_bijection_makes_sets_have_equal_size<A, B>(
     g: spec_fn(B) -> A,
 )
     requires
-        s1.finite(),
         forall|x: A| #[trigger] s1.contains(x) ==> s2.contains(f(x)) && x == g(f(x)),
         forall|y: B| #[trigger] s2.contains(y) ==> s1.contains(g(y)) && y == f(g(y)),
     ensures
-        s2.finite(),
         s2.len() == s1.len(),
 {
     // Convert set `s1` to a sequence and prove key properties of the
