@@ -277,6 +277,34 @@ impl<L> ListTableInternalView<L>
         assert(self.trim(list_addr, trim_length).tentative_mapping.as_snapshot() =~=
                self.tentative_mapping.as_snapshot().trim(list_addr, new_head, trim_length));
 
+        // Discharge valid() in a separate lemma to keep proof times manageable
+        self.lemma_trim_preserves_valid(list_addr, trim_length, sm);
+    }
+
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(100)]
+    pub(super) proof fn lemma_trim_preserves_valid(
+        self,
+        list_addr: u64,
+        trim_length: int,
+        sm: ListTableStaticMetadata
+    )
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            self.durable_mapping.internally_consistent(sm),
+            self.tentative_mapping.internally_consistent(sm),
+            self.m.contains_key(list_addr),
+            0 < trim_length < self.m[list_addr].length(),
+        ensures
+            self.trim(list_addr, trim_length).valid(sm),
+    {
+        let new_head = self.tentative_mapping.list_info[list_addr][trim_length];
+        let new_self = self.trim(list_addr, trim_length);
+        assert(new_head > 0) by {
+            broadcast use group_validate_row_addr;
+        }
         if let ListTableEntryView::Modified{ durable_head, summary, addrs, elements, .. } = new_self.m[new_head] {
             let tentative_addrs = new_self.tentative_mapping.list_info[new_head];
             let tentative_elements = new_self.tentative_mapping.list_elements[new_head];

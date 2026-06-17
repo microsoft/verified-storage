@@ -838,6 +838,7 @@ where
         }
     }
 
+    #[verifier::rlimit(50)]
     proof fn lemma_update_normal_case(
         old_iv: ListTableInternalView<L>,
         new_iv: ListTableInternalView<L>,

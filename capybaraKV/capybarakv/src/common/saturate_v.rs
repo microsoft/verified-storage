@@ -195,6 +195,16 @@ impl SaturatingU64 {
         }
         let i: Ghost<int> = Ghost(self@ * v2);
         if v2 == 0 || self.v == 0 {
+            proof {
+                // self@ == self.i and (in the non-saturated case) self.i == self.v, so when either
+                // v2 or self.v is 0 the product self@ * v2 is 0 and the type invariant (v == i) holds.
+                if v2 == 0 {
+                    vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(self@);
+                } else {
+                    assert(self@ == 0);
+                    vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(v2 as int);
+                }
+            }
             Self{ i, v: 0 }
         }
         else if self.v > u64::MAX / v2 {
