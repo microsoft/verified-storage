@@ -629,6 +629,7 @@ verus! {
         }
     }
 
+    #[verifier::rlimit(20)]
     pub proof fn lemma_append_ib_update_effect_on_committed<Perm: CheckPermission<Seq<u8>>>(
         pm: Seq<u8>,
         new_ib: u64,
