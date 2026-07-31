@@ -50,6 +50,16 @@ impl<L> ListRecoveryMapping<L>
             list_elements: self.list_elements.remove(list_addr).insert(new_head, new_elements),
         }
     }
+
+    proof fn lemma_list_info_has_elements(self, head: u64, sm: ListTableStaticMetadata)
+        requires
+            self.internally_consistent(sm),
+            self.list_info.contains_key(head),
+        ensures
+            self.list_elements.contains_key(head),
+    {
+    }
+
 }
 
 impl<L> ListTableEntryView<L>
@@ -281,6 +291,37 @@ impl<L> ListTableInternalView<L>
         self.lemma_trim_preserves_valid(list_addr, trim_length, sm);
     }
 
+    proof fn lemma_trim_preserves_internal_consistency(
+        self,
+        list_addr: u64,
+        trim_length: int,
+        sm: ListTableStaticMetadata,
+    )
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            self.m.contains_key(list_addr),
+            0 < trim_length < self.m[list_addr].length(),
+        ensures
+            self.trim(list_addr, trim_length).tentative_mapping.internally_consistent(sm),
+            self.trim(list_addr, trim_length).row_info_consistent(sm),
+            self.trim(list_addr, trim_length).pending_deallocations_consistent(sm),
+            self.tentative_mapping.list_info[list_addr][trim_length] != list_addr,
+            !self.tentative_mapping.list_info.contains_key(
+                self.tentative_mapping.list_info[list_addr][trim_length]
+            ),
+            !self.m.contains_key(self.tentative_mapping.list_info[list_addr][trim_length]),
+    {
+        let new_head = self.tentative_mapping.list_info[list_addr][trim_length];
+        assert(new_head > 0) by {
+            broadcast use group_validate_row_addr;
+        }
+        assert(new_head != list_addr);
+        assert(!self.tentative_mapping.list_info.contains_key(new_head));
+        assert(!self.m.contains_key(new_head));
+    }
+
     #[verifier::spinoff_prover]
     #[verifier::rlimit(100)]
     pub(super) proof fn lemma_trim_preserves_valid(
@@ -300,11 +341,13 @@ impl<L> ListTableInternalView<L>
         ensures
             self.trim(list_addr, trim_length).valid(sm),
     {
+        hide(ListRecoveryMapping::internally_consistent);
         let new_head = self.tentative_mapping.list_info[list_addr][trim_length];
         let new_self = self.trim(list_addr, trim_length);
-        assert(new_head > 0) by {
-            broadcast use group_validate_row_addr;
-        }
+        self.lemma_trim_preserves_internal_consistency(list_addr, trim_length, sm);
+        assert(new_self.m.contains_key(new_head));
+        assert(new_self.tentative_mapping.list_info.contains_key(new_head));
+        assert(new_self.tentative_mapping.list_elements.contains_key(new_head));
         if let ListTableEntryView::Modified{ durable_head, summary, addrs, elements, .. } = new_self.m[new_head] {
             let tentative_addrs = new_self.tentative_mapping.list_info[new_head];
             let tentative_elements = new_self.tentative_mapping.list_elements[new_head];
@@ -313,9 +356,10 @@ impl<L> ListTableInternalView<L>
                 assert(tentative_elements =~= elements);
             }
             else {
+                assert(new_self.durable_mapping.list_info.contains_key(durable_head));
+                new_self.durable_mapping.lemma_list_info_has_elements(durable_head, sm);
                 let durable_addrs = new_self.durable_mapping.list_info[durable_head];
                 let durable_elements = new_self.durable_mapping.list_elements[durable_head];
-                assert(new_self.durable_mapping.list_info.contains_key(durable_head));
                 assert(tentative_addrs =~=
                        durable_addrs.skip(durable_addrs.len() - (summary.length - addrs.len())) + addrs);
                 assert(tentative_elements =~=
@@ -323,6 +367,9 @@ impl<L> ListTableInternalView<L>
                        elements);
             }
         }
+
+        assert(new_self.m_consistent_with_recovery_mappings());
+        assert(new_self.per_row_info_consistent(sm));
     }
 }
 

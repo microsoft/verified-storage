@@ -629,7 +629,6 @@ verus! {
         }
     }
 
-    #[verifier::rlimit(20)]
     pub proof fn lemma_append_ib_update_effect_on_committed<Perm: CheckPermission<Seq<u8>>>(
         pm: Seq<u8>,
         new_ib: u64,
@@ -749,30 +748,25 @@ verus! {
                 let old_physical_tail = spec_addr_logical_to_physical(old_header.metadata.tail as int, old_header.metadata.log_size as int);
                 assert(old_physical_tail == physical_tail);
 
-                let (_, _, old_data) = pm_to_views(pm);
-                let (_, _, new_data) = pm_to_views(pm);
+                let (_, _, data) = pm_to_views(pm);
 
                 if physical_head <= old_physical_tail {
                     if old_physical_tail + append_size >= contents_end {
-                        assert(new_log_state.log =~= new_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) +
-                                                    new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
-                                                    new_data.subrange(0, new_physical_tail - contents_offset));
-                        assert(new_log_state.log =~= old_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) +
-                                                    new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
-                                                    new_data.subrange(0, new_physical_tail - contents_offset));
+                        assert(new_log_state.log =~= data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) +
+                                                    data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
+                                                    data.subrange(0, new_physical_tail - contents_offset)) by {};
                         let len1 = (contents_end - old_physical_tail);
                         let len2 = bytes_to_append.len() - len1;
-                        assert(bytes_to_append =~= new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
-                                                    new_data.subrange(0, new_physical_tail - contents_offset));
-                        assert(new_log_state.log =~= old_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) + bytes_to_append);
+                        assert(bytes_to_append =~= data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
+                                                    data.subrange(0, new_physical_tail - contents_offset)) by {};
+                        assert(new_log_state.log =~= data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) + bytes_to_append) by {};
                     } else {
-                        assert(old_data.subrange(0, old_physical_tail - contents_offset) =~= new_data.subrange(0, old_physical_tail - contents_offset));
-                        assert(new_data.subrange(old_physical_tail - contents_offset, old_physical_tail - contents_offset + append_size) =~= bytes_to_append);
+                        assert(data.subrange(old_physical_tail - contents_offset, old_physical_tail - contents_offset + append_size) =~= bytes_to_append) by {};
                     }
                 } else { // physical_tail < physical_head
                     assert(old_physical_tail + append_size < physical_head);
                 }
-                assert(new_log_state =~= old_log_state.append(bytes_to_append));
+                assert(new_log_state =~= old_log_state.append(bytes_to_append)) by {};
                 assert(perm.check_permission(new_pm));
             }
             _ => assert(false),
@@ -1120,7 +1114,7 @@ verus! {
                 match pm_state {
                     Some(pm_state) => {
                         &&& header.metadata.head == pm_state.head
-                        &&& pm_state.log.len() == header.metadata.tail - header.metadata.head
+                        &&& header.metadata.tail == pm_state.head + pm_state.log.len()
                     }
                     None => false
                 }
@@ -1147,6 +1141,7 @@ verus! {
                     // size is 0
                     lemma_mod_equal(head, tail, log_size);
                 }
+                assert(header.metadata.tail == pm_state.head + pm_state.log.len());
             }
             None => assert(false),
         }
@@ -1269,6 +1264,34 @@ verus! {
                    Some(inf_log) => tail == head + inf_log.log.len(),
                    None => false,
                }
+        }
+
+        pub proof fn lemma_complete_inv_pm_contents(&self, contents: Seq<u8>)
+            requires
+                Self::recover(contents) is Some,
+                ({
+                    let (ib, _, _) = pm_to_views(contents);
+                    let header_pos = if ib == cdb0_val { header1_pos } else { header2_pos };
+                    let header = spec_get_live_header(contents);
+                    let head = header.metadata.head;
+                    let tail = header.metadata.tail;
+                    let log_size = header.metadata.log_size;
+                    &&& ib == cdb0_val || ib == cdb1_val
+                    &&& spec_crc_bytes(contents.subrange(header_pos + header_head_offset, header_pos + header_size)) ==
+                          contents.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8)
+                    &&& log_size + contents_offset <= u64::MAX
+                    &&& tail - head < log_size
+                    &&& log_size + contents_offset == contents.len()
+                    &&& self.header_crc == header.crc
+                    &&& self.head == head
+                    &&& self.tail == tail
+                    &&& self.log_size == log_size
+                    &&& self.incorruptible_bool == ib
+                }),
+            ensures
+                self.inv_pm_contents(contents),
+        {
+            lemma_pm_state_header(contents);
         }
 
         // This is the invariant that the untrusted log implementation
@@ -1691,6 +1714,8 @@ verus! {
                 self.incorruptible_bool = new_ib;
                 self.tail = new_tail;
                 self.header_crc = new_crc_val;
+
+                proof { self.lemma_complete_inv_pm_contents(wrpm@); }
 
                 Ok(old_logical_tail)
             }
