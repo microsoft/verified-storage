@@ -38,7 +38,7 @@ where
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
 {
-    pub exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: CheckedU64)
+    exec fn space_needed_for_journal_capacity(ps: &SetupParameters) -> (result: CheckedU64)
         ensures
             result@ == ps.max_operations_per_transaction * spec_space_needed_for_transaction_operation(),
     {

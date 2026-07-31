@@ -81,12 +81,12 @@ verus! {
         }
     }
 
-    pub open spec fn permissions_depend_only_on_recovery_view<Perm: CheckPermission<Seq<u8>>>(perm: &Perm) -> bool
+    spec fn permissions_depend_only_on_recovery_view<Perm: CheckPermission<Seq<u8>>>(perm: &Perm) -> bool
     {
         forall |s1, s2| recovery_view()(s1) == recovery_view()(s2) ==> perm.check_permission(s1) == perm.check_permission(s2)
     }
 
-    pub proof fn lemma_same_permissions<Perm: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &Perm)
+    proof fn lemma_same_permissions<Perm: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &Perm)
         requires
             recovery_view()(pm1) =~= recovery_view()(pm2),
             perm.check_permission(pm1),
@@ -98,7 +98,7 @@ verus! {
     /// Proves that a PM region has the given header at the given position. Useful for
     /// associating a region with a header structure when the struct will be used later
     /// in a proof.
-    pub proof fn lemma_header_match(pm: Seq<u8>, header_pos: int, header: PersistentHeader)
+    proof fn lemma_header_match(pm: Seq<u8>, header_pos: int, header: PersistentHeader)
         requires
             pm.len() > contents_offset,
             header_pos == header1_pos || header_pos == header2_pos,
@@ -125,7 +125,7 @@ verus! {
 
     /// Proves that a given header structure consists of a CRC given in bytes as `crc_bytes` and a metadata structure
     /// given in bytes as `metadata_bytes`.
-    pub proof fn lemma_bytes_combine_into_header(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header: PersistentHeader)
+    proof fn lemma_bytes_combine_into_header(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header: PersistentHeader)
         requires
             crc_bytes.len() == 8,
             metadata_bytes.len() == header_size - 8,
@@ -148,7 +148,7 @@ verus! {
 
     /// Converse of lemma_bytes_combine_into_header; proves that the byte representation of a header consists of
     /// the byte representations of its CRC and metadata
-    pub proof fn lemma_header_split_into_bytes(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header_bytes: Seq<u8>)
+    proof fn lemma_header_split_into_bytes(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header_bytes: Seq<u8>)
         requires
             crc_bytes.len() == 8,
             metadata_bytes.len() == header_size - 8,
@@ -173,7 +173,7 @@ verus! {
 
     }
 
-    pub proof fn lemma_seq_addition(bytes1: Seq<u8>, bytes2: Seq<u8>)
+    proof fn lemma_seq_addition(bytes1: Seq<u8>, bytes2: Seq<u8>)
         ensures
             ({
                 let i = bytes1.len() as int;
@@ -330,7 +330,7 @@ verus! {
 
     /// Proves that two sequences of bytes (assumed to be the subrange of a persistent memory device containing
     /// the PersistentHeaderMetadata) are equivalent if their PersistentHeaderMetadata representations are equivalent
-    pub proof fn lemma_metadata_bytes_eq(bytes1: Seq<u8>, bytes2: Seq<u8>, metadata: PersistentHeaderMetadata)
+    proof fn lemma_metadata_bytes_eq(bytes1: Seq<u8>, bytes2: Seq<u8>, metadata: PersistentHeaderMetadata)
         requires
             bytes1.len() == header_size - 8,
             bytes2.len() == header_size - 8,
@@ -364,7 +364,7 @@ verus! {
                             bytes1.subrange(header_log_size_offset - 8, header_log_size_offset - 8 + 8));
     }
 
-    pub open spec(checked) fn spec_bytes_to_header(header_seq: Seq<u8>) -> PersistentHeader
+    spec(checked) fn spec_bytes_to_header(header_seq: Seq<u8>) -> PersistentHeader
         recommends
             header_seq.len() == header_size
     {
@@ -377,7 +377,7 @@ verus! {
     }
 
     /// Proves that a write to data that does not touch any metadata is crash safe.
-    pub proof fn lemma_data_write_is_safe<Perm>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &Perm)
+    proof fn lemma_data_write_is_safe<Perm>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &Perm)
         where
             Perm: CheckPermission<Seq<u8>>,
         requires
@@ -430,7 +430,7 @@ verus! {
         }
     }
 
-    pub open spec fn update_data_view_postcond(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int) -> bool
+    spec fn update_data_view_postcond(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int) -> bool
     {
         let new_pm = update_contents_to_reflect_write(pm, write_addr, new_bytes);
         let (old_ib, old_headers, old_data) = pm_to_views(pm);
@@ -456,7 +456,7 @@ verus! {
     }
 
     /// Proves that a non-crashing data write updates data bytes but no log metadata.
-    pub proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int)
+    proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int)
         requires
             UntrustedLogImpl::recover(pm) is Some,
             pm.len() > contents_offset,
@@ -496,7 +496,7 @@ verus! {
     }
 
     /// Proves that a crashing data write updates data bytes but no log metadata.
-    pub proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>)
+    proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>)
         requires
             UntrustedLogImpl::recover(pm) is Some,
             pm.len() > contents_offset,
@@ -535,7 +535,7 @@ verus! {
     }
 
     /// Proves that a non-crashing update to the inactive header does not change any visible PM state.
-    pub proof fn lemma_inactive_header_update_view(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int)
+    proof fn lemma_inactive_header_update_view(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int)
         requires
             UntrustedLogImpl::recover(pm) is Some,
             header_pos == header1_pos || header_pos == header2_pos,
@@ -582,7 +582,7 @@ verus! {
     }
 
     /// Proves that a crashing update to the inactive header does not change any visible PM state.
-    pub proof fn lemma_inactive_header_update_view_crash(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int, chunks_flushed: Set<int>)
+    proof fn lemma_inactive_header_update_view_crash(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int, chunks_flushed: Set<int>)
         requires
             UntrustedLogImpl::recover(pm) is Some,
             header_pos == header1_pos || header_pos == header2_pos,
@@ -853,7 +853,7 @@ verus! {
     /// Proves that an update to the incorruptible boolean is crash-safe and switches the log's
     /// active header. This lemma does most of the work to prove that untrusted_append is
     /// implemented correctly.
-    pub proof fn lemma_append_ib_update<Perm: CheckPermission<Seq<u8>>>(
+    proof fn lemma_append_ib_update<Perm: CheckPermission<Seq<u8>>>(
         pm: Seq<u8>,
         new_ib: u64,
         bytes_to_append: Seq<u8>,
@@ -940,7 +940,7 @@ verus! {
         lemma_single_write_crash(pm, incorruptible_bool_pos as int, ib_bytes);
     }
 
-    pub open spec fn live_data_view_eq(old_pm: Seq<u8>, new_pm: Seq<u8>) -> bool
+    spec fn live_data_view_eq(old_pm: Seq<u8>, new_pm: Seq<u8>) -> bool
     {
         let (old_ib, old_headers, old_data) = pm_to_views(old_pm);
         let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
@@ -963,7 +963,7 @@ verus! {
                 physical_data_head == physical_data_tail
     }
 
-    pub proof fn lemma_same_log_state(old_pm: Seq<u8>, new_pm: Seq<u8>)
+    proof fn lemma_same_log_state(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires
             UntrustedLogImpl::recover(old_pm) is Some,
             UntrustedLogImpl::recover(new_pm) is Some,
@@ -1024,7 +1024,7 @@ verus! {
         }
     }
 
-    pub proof fn lemma_subrange_equality_implies_index_equality<T>(s1: Seq<T>, s2: Seq<T>, i: int, j: int)
+    proof fn lemma_subrange_equality_implies_index_equality<T>(s1: Seq<T>, s2: Seq<T>, i: int, j: int)
         requires
             0 <= i <= j <= s1.len(),
             j <= s2.len(),
@@ -1039,7 +1039,7 @@ verus! {
         }
     }
 
-    pub proof fn lemma_subrange_equality_implies_subsubrange_equality<T>(s1: Seq<T>, s2: Seq<T>, i: int, j: int)
+    proof fn lemma_subrange_equality_implies_subsubrange_equality<T>(s1: Seq<T>, s2: Seq<T>, i: int, j: int)
         requires
             0 <= i <= j <= s1.len(),
             j <= s2.len(),
@@ -1053,7 +1053,7 @@ verus! {
         }
     }
 
-    pub proof fn lemma_subrange_equality_implies_subsubrange_equality_forall<T>()
+    proof fn lemma_subrange_equality_implies_subsubrange_equality_forall<T>()
         ensures
             forall |s1: Seq<T>, s2: Seq<T>, i: int, j: int, k: int, m: int|
                 {
@@ -1076,7 +1076,7 @@ verus! {
         }
     }
 
-    pub proof fn lemma_headers_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
+    proof fn lemma_headers_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires
             old_pm.len() == new_pm.len(),
             old_pm.len() >= contents_offset,
@@ -1092,7 +1092,7 @@ verus! {
         lemma_subrange_equality_implies_subsubrange_equality_forall::<u8>();
     }
 
-    pub proof fn lemma_incorruptible_bool_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
+    proof fn lemma_incorruptible_bool_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires
             old_pm.len() == new_pm.len(),
             old_pm.len() >= contents_offset,
@@ -1105,7 +1105,7 @@ verus! {
             })
     {}
 
-    pub proof fn lemma_header_crc_correct(header_bytes: Seq<u8>, crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>)
+    proof fn lemma_header_crc_correct(header_bytes: Seq<u8>, crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>)
         requires
             header_bytes.len() == header_size,
             crc_bytes.len() == 8,
@@ -1122,7 +1122,7 @@ verus! {
         assert(header_bytes.subrange(header_head_offset as int, header_size as int) =~= metadata_bytes);
     }
 
-    pub proof fn lemma_header_correct(pm: Seq<u8>, header_bytes: Seq<u8>, header_pos: int)
+    proof fn lemma_header_correct(pm: Seq<u8>, header_bytes: Seq<u8>, header_pos: int)
         requires
             pm.len() > contents_offset,
             header_bytes.len() == header_size,
@@ -1144,14 +1144,14 @@ verus! {
             header_bytes.subrange(header_head_offset as int, header_size as int));
     }
 
-    pub proof fn lemma_u64_bytes_eq(val1: u64, val2: u64)
+    proof fn lemma_u64_bytes_eq(val1: u64, val2: u64)
         requires
             val1 == val2
         ensures
             spec_u64_to_le_bytes(val1) =~= spec_u64_to_le_bytes(val2)
     {}
 
-    pub proof fn lemma_subrange_eq<T>(bytes1: Seq<T>, bytes2: Seq<T>)
+    proof fn lemma_subrange_eq<T>(bytes1: Seq<T>, bytes2: Seq<T>)
         requires
             bytes1 =~= bytes2
         ensures
@@ -1160,7 +1160,7 @@ verus! {
 
     /// If our write is persistence_chunk_size-sized and -aligned, then there are only 2 possible
     /// resulting crash states, one with the write and one without.
-    pub proof fn lemma_single_write_crash(pm: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>)
+    proof fn lemma_single_write_crash(pm: Seq<u8>, write_addr: int, bytes_to_write: Seq<u8>)
         requires
             bytes_to_write.len() == persistence_chunk_size,
             write_addr % persistence_chunk_size == 0, // currently seems to succeed without nonlinear arith
@@ -1177,7 +1177,7 @@ verus! {
             })
     {}
 
-    pub proof fn lemma_pm_state_header(pm: Seq<u8>)
+    proof fn lemma_pm_state_header(pm: Seq<u8>)
         requires
             UntrustedLogImpl::recover(pm) is Some,
             ({
@@ -1243,7 +1243,7 @@ verus! {
 
     impl UntrustedLogImpl {
 
-        pub exec fn addr_logical_to_physical(addr: u64, log_size: u64) -> (out: u64)
+        exec fn addr_logical_to_physical(addr: u64, log_size: u64) -> (out: u64)
             requires
                 addr <= u64::MAX,
                 log_size > 0,
@@ -1343,7 +1343,7 @@ verus! {
                }
         }
 
-        pub proof fn lemma_complete_inv_pm_contents(&self, contents: Seq<u8>)
+        proof fn lemma_complete_inv_pm_contents(&self, contents: Seq<u8>)
             requires
                 Self::recover(contents) is Some,
                 ({
@@ -1383,7 +1383,7 @@ verus! {
             &&& self.inv_pm_contents(wrpm@)
         }
 
-        pub exec fn read_incorruptible_boolean<PM: PersistentMemory>(pm: &PM) -> (result: Result<u64, InfiniteLogErr>)
+        exec fn read_incorruptible_boolean<PM: PersistentMemory>(pm: &PM) -> (result: Result<u64, InfiniteLogErr>)
             requires
                 Self::recover(pm@) is Some,
                 pm.inv(),
@@ -1887,7 +1887,7 @@ verus! {
             }
         }
 
-        pub exec fn append_wrap<Perm, PM>(
+        exec fn append_wrap<Perm, PM>(
             &mut self,
             wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
             bytes_to_append: &Vec<u8>,
