@@ -711,8 +711,8 @@ where
         broadcast use vstd::std_specs::hash::group_hash_axioms;
 
         let mut result = Vec::<K>::new();
-        let ghost keys = self.m.keys();
-        for k in iter: self.m.keys()
+        let keys = self.m.keys();
+        for k in iter: keys
             invariant
                 result@ == iter.seq().take(iter.index@).unref(),
         {
@@ -720,7 +720,7 @@ where
         }
 
         assert(result@.to_set() =~= self@.tentative.unwrap().key_info.dom()) by {
-             assert(keys.remaining().take(keys.remaining().len() as int) == keys.remaining());
+            assert(keys.remaining().take(keys.remaining().len() as int) == keys.remaining());
 //            assert(keys.remaining().to_set() == self.m@.dom());
 //            assert(keys@.1.take(keys@.1.len() as int) =~= keys@.1);
             assert(self.m@.dom() =~= self@.tentative.unwrap().key_info.dom());

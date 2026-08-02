@@ -6,10 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vstd = { path = "../../verus/source/vstd/" }
-verus_builtin = { path = "../../verus/source/builtin/" }
-verus_builtin_macros = { path = "../../verus/source/builtin_macros/" }
-#vstd = { version = "=0.0.0-2026-07-27-0206" }
+vstd = { version = "=0.0.0-2026-08-02-0125" }
 crc64fast = "1.0.0"
 
 [lints.rust]

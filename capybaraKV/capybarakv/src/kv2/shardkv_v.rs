@@ -223,6 +223,140 @@ where
     }
 }
 
+spec fn setup_loop_invariant<K, I, L>(
+    idx: usize,
+    nshards: usize,
+    ps: SetupParameters,
+    pm_constants: PersistentMemoryConstants,
+    shard_res_old: Map<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>,
+    shard_res: Map<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>,
+    pred: ShardingPredicate,
+    shardstates: ShardStates::<K, I, L>,
+    combined_res: GhostVar<ConcurrentKvStoreView<K, I, L>>,
+) -> bool
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+{
+    &&& nshards >= 1
+    &&& forall |shard| 0 <= shard < nshards ==> #[trigger] shard_res_old.contains_key(shard)
+    &&& forall |shard| #[trigger] shard_res_old.contains_key(shard) ==> {
+        &&& shard_res_old[shard]@.ps == ps
+        &&& shard_res_old[shard]@.pm_constants == pm_constants
+        &&& shard_res_old[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
+    }
+    &&& pred.shard_ids.len() == idx
+    &&& pred.combined_id == shardstates.combined.id()
+    &&& pred.combined_id == combined_res.id()
+    &&& pred.pm_constants == shardstates.combined@.pm_constants
+    &&& forall |shard| 0 <= shard < idx ==>
+        #[trigger] pred.shard_ids[shard] == shard_res_old[shard].id()
+    &&& shardstates.combined@ == (ConcurrentKvStoreView::<K, I, L>{
+        ps: ps,
+        pm_constants: pm_constants,
+        kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
+    })
+    &&& forall |shard| idx <= shard < nshards ==> #[trigger] shard_res.contains_key(shard)
+    &&& forall |shard| #[trigger] shard_res.contains_key(shard) ==> {
+        &&& shard_res_old.contains_key(shard)
+        &&& shard_res[shard] == shard_res_old[shard]
+        &&& shard_res[shard]@.ps == ps
+        &&& shard_res[shard]@.pm_constants == pm_constants
+        &&& shard_res[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
+    }
+    &&& forall |shard| 0 <= shard < idx ==> #[trigger] shardstates.shards.contains_key(shard)
+    &&& forall |shard| #[trigger] shardstates.shards.contains_key(shard) ==> {
+        &&& 0 <= shard < idx
+        &&& shardstates.shards[shard].kv_state.id() == pred.shard_ids[shard]
+        &&& shardstates.shards[shard].kv_state@ == ConcurrentKvStoreView::<K, I, L>{
+            ps: ps,
+            pm_constants: pm_constants,
+            kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
+        }
+    }
+}
+
+proof fn lemma_setup_loop_preserves_invariant<K, I, L>(
+    prev_idx: usize,
+    idx: usize,
+    nshards: usize,
+    ps: SetupParameters,
+    pm_constants: PersistentMemoryConstants,
+    shard_res_old: Map<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>,
+    combined_res: GhostVar<ConcurrentKvStoreView<K, I, L>>,
+    prev_shard_res: Map<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>,
+    prev_pred: ShardingPredicate,
+    prev_shardstates: ShardStates<K, I, L>,
+    shardstate: ShardState<K, I, L>,
+    shard_res: Map<int, GhostVar<ConcurrentKvStoreView::<K, I, L>>>,
+    pred: ShardingPredicate,
+    shardstates: ShardStates<K, I, L>,
+)
+where
+    K: Hash + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + LogicalRange + std::fmt::Debug + Copy,
+    requires
+        prev_idx < nshards,
+        idx == prev_idx + 1,
+        setup_loop_invariant(prev_idx, nshards, ps, pm_constants, shard_res_old,
+                             prev_shard_res, prev_pred, prev_shardstates, combined_res),
+        prev_shard_res.contains_key(prev_idx as int),
+        shardstate == (ShardState::<K, I, L>{ kv_state: prev_shard_res[prev_idx as int] }),
+        shard_res == prev_shard_res.remove(prev_idx as int),
+        pred == (ShardingPredicate{
+            shard_ids: prev_pred.shard_ids.push(shardstate.kv_state.id()),
+            ..prev_pred
+        }),
+        shardstates == (ShardStates::<K, I, L>{
+            shards: prev_shardstates.shards.insert(prev_idx as int, shardstate),
+            ..prev_shardstates
+        }),
+    ensures
+        setup_loop_invariant(idx, nshards, ps, pm_constants, shard_res_old,
+                             shard_res, pred, shardstates, combined_res),
+{
+    assert(pred.shard_ids.len() == idx);
+    assert(pred.combined_id == shardstates.combined.id());
+    assert(pred.combined_id == combined_res.id());
+    assert(pred.pm_constants == shardstates.combined@.pm_constants);
+
+    assert forall |shard| 0 <= shard < idx implies
+        #[trigger] pred.shard_ids[shard] == shard_res_old[shard].id() by {
+        if shard < prev_pred.shard_ids.len() {
+            assert(pred.shard_ids[shard] == prev_pred.shard_ids[shard]);
+        } else {
+            assert(shard == prev_idx);
+            assert(pred.shard_ids[shard] == shardstate.kv_state.id());
+        }
+    }
+
+    assert(shardstates.combined@ == (ConcurrentKvStoreView::<K, I, L>{
+        ps: ps,
+        pm_constants: pm_constants,
+        kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
+    }));
+    assert(forall |shard| idx <= shard < nshards ==> #[trigger] shard_res.contains_key(shard));
+    assert(forall |shard| #[trigger] shard_res.contains_key(shard) ==> {
+        &&& shard_res_old.contains_key(shard)
+        &&& shard_res[shard] == shard_res_old[shard]
+        &&& shard_res[shard]@.ps == ps
+        &&& shard_res[shard]@.pm_constants == pm_constants
+        &&& shard_res[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
+    });
+    assert(forall |shard| 0 <= shard < idx ==> #[trigger] shardstates.shards.contains_key(shard));
+    assert(forall |shard| #[trigger] shardstates.shards.contains_key(shard) ==> {
+        &&& 0 <= shard < idx
+        &&& shardstates.shards[shard].kv_state.id() == pred.shard_ids[shard]
+        &&& shardstates.shards[shard].kv_state@ == ConcurrentKvStoreView::<K, I, L>{
+            ps: ps,
+            pm_constants: pm_constants,
+            kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
+        }
+    });
+}
+
 impl<PM, K, I, L> ShardedKvStoreTrait<PM, K, I, L> for ShardedKvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
@@ -270,48 +404,22 @@ where
 
         for idx in 0..nshards
             invariant
-                nshards >= 1,
-                forall |shard| 0 <= shard < nshards ==> #[trigger] shard_res_old.contains_key(shard),
-                forall |shard| #[trigger] shard_res_old.contains_key(shard) ==> {
-                    &&& shard_res_old[shard]@.ps == ps
-                    &&& shard_res_old[shard]@.pm_constants == pm_constants
-                    &&& shard_res_old[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
-                },
-                pred.shard_ids.len() == idx,
-                pred.combined_id == shardstates.combined.id(),
-                pred.combined_id == combined_res.id(),
-                pred.pm_constants == shardstates.combined@.pm_constants,
-                forall |shard| 0 <= shard < idx ==>
-                    #[trigger] pred.shard_ids[shard] == shard_res_old[shard].id(),
-                shardstates.combined@ == (ConcurrentKvStoreView::<K, I, L>{
-                    ps: ps,
-                    pm_constants: pm_constants,
-                    kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
-                }),
-                forall |shard| idx <= shard < nshards ==> #[trigger] shard_res.contains_key(shard),
-                forall |shard| #[trigger] shard_res.contains_key(shard) ==> {
-                    &&& shard_res[shard] == shard_res_old[shard]
-                    &&& shard_res[shard]@.ps == ps
-                    &&& shard_res[shard]@.pm_constants == pm_constants
-                    &&& shard_res[shard]@.kv == RecoveredKvStore::<K, I, L>::init(ps).kv
-                },
-                forall |shard| 0 <= shard < idx ==> #[trigger] shardstates.shards.contains_key(shard),
-                forall |shard| #[trigger] shardstates.shards.contains_key(shard) ==> {
-                    &&& 0 <= shard < idx
-                    &&& shardstates.shards[shard].kv_state.id() == pred.shard_ids[shard]
-                    &&& shardstates.shards[shard].kv_state@ == ConcurrentKvStoreView::<K, I, L>{
-                        ps: ps,
-                        pm_constants: pm_constants,
-                        kv: RecoveredKvStore::<K, I, L>::init(ps).kv,
-                    }
-                },
+                setup_loop_invariant::<K, I, L>(idx, nshards, ps, pm_constants, shard_res_old,
+                                                shard_res, pred, shardstates, combined_res),
         {
             proof {
+                let ghost prev_shard_res = shard_res;
+                let ghost prev_pred = pred;
+                let ghost prev_shardstates = shardstates;
                 let tracked shardstate = ShardState::<K, I, L>{
                     kv_state: shard_res.tracked_remove(idx as int),
                 };
                 pred.shard_ids = pred.shard_ids.push(shardstate.kv_state.id());
                 shardstates.shards.tracked_insert(idx as int, shardstate);
+                lemma_setup_loop_preserves_invariant(idx, (idx + 1) as usize, nshards,
+                                                     ps, pm_constants, shard_res_old, combined_res,
+                                                     prev_shard_res, prev_pred, prev_shardstates,
+                                                     shardstate, shard_res, pred, shardstates);
             }
         }
 

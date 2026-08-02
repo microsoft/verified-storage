@@ -20,10 +20,7 @@ default = [ "pmem" ]
 crc64fast = "1.0.0"
 # Avoid default features since @lopopolo reports that rand is unsound with both the log and thread_rng features
 rand = { version = "0.10.1", default-features = false, features = [ "thread_rng" ] }
-vstd = { path = "../../../verus/source/vstd/" }
-verus_builtin = { path = "../../../verus/source/builtin/" }
-verus_builtin_macros = { path = "../../../verus/source/builtin_macros/" }
-#vstd = { version = "=0.0.0-2026-07-27-0206" }
+vstd = { version = "=0.0.0-2026-08-02-0125" }
 pmsafe = { path = "../pmsafe" }
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", features = ["errhandlingapi", "fileapi", "handleapi", "memoryapi", "winbase", "winerror", "winnt"] }
