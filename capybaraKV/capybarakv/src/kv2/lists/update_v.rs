@@ -265,6 +265,269 @@ impl<L> ListTableInternalView<L>
             _ => { assert(false); },
         }
     }
+
+    proof fn lemma_update_mapping_internally_consistent(
+        self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        sm: ListTableStaticMetadata,
+    )
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            0 < sm.start(),
+            0 < self.free_list.len(),
+            self.m.contains_key(list_addr),
+            match self.m[list_addr] {
+                ListTableEntryView::Modified{ summary, addrs, elements, .. } => {
+                    &&& summary.length == addrs.len()
+                    &&& addrs.len() == elements.len()
+                    &&& idx < addrs.len()
+                    &&& elements[idx as int].start() == new_element.start()
+                    &&& elements[idx as int].end() == new_element.end()
+                },
+                _ => false,
+            },
+        ensures
+            self.update(list_addr, idx, new_element).tentative_mapping.internally_consistent(sm),
+    {
+        self.lemma_update_works(list_addr, idx, new_element, sm);
+    }
+
+    proof fn lemma_tentative_rows_are_valid(self, sm: ListTableStaticMetadata)
+        requires
+            self.tentative_mapping.internally_consistent(sm),
+        ensures
+            forall|row_addr: u64| #[trigger] self.tentative_mapping.row_info.contains_key(row_addr) ==>
+                sm.table.validate_row_addr(row_addr),
+    {
+    }
+
+    proof fn lemma_update_preserves_tentative_state(
+        self,
+        new_self: Self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        old_state: Seq<u8>,
+        new_state: Seq<u8>,
+        sm: ListTableStaticMetadata,
+        new_row_addr: u64,
+    )
+        requires
+            sm.valid::<L>(),
+            self.tentative_mapping.row_info_corresponds(old_state, sm),
+            new_self.tentative_mapping.internally_consistent(sm),
+            self.tentative_mapping.list_info.contains_key(list_addr),
+            idx < self.tentative_mapping.list_info[list_addr].len(),
+            new_self == self.update(list_addr, idx, new_element),
+            0 < self.free_list.len(),
+            new_row_addr == self.free_list.last(),
+            ({
+                let addrs = self.tentative_mapping.list_info[list_addr];
+                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+                &&& recover_object::<L>(new_state, new_row_addr + sm.row_element_start,
+                                        new_row_addr + sm.row_element_crc_start) == Some(new_element)
+                &&& recover_object::<u64>(new_state, new_row_addr + sm.row_next_start,
+                                          new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(next)
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<L>(new_state, other_row_addr + sm.row_element_start,
+                                        other_row_addr + sm.row_element_crc_start) ==
+                    recover_object::<L>(old_state, other_row_addr + sm.row_element_start,
+                                        other_row_addr + sm.row_element_crc_start)
+                }
+            }),
+            if idx > 0 {
+                let addrs = self.tentative_mapping.list_info[list_addr];
+                let prev_row_addr: u64 = addrs[idx - 1];
+                &&& recover_object::<u64>(new_state, prev_row_addr + sm.row_next_start,
+                                          prev_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                        Some(new_row_addr)
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                    &&& other_row_addr != prev_row_addr
+                } ==> {
+                    recover_object::<u64>(new_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of())
+                }
+            } else {
+                forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<u64>(new_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of())
+                }
+            },
+        ensures
+            new_self.corresponds_to_tentative_state(new_state, sm),
+    {
+        hide(ListRecoveryMapping::internally_consistent);
+        hide(ListRecoveryMapping::row_info_corresponds);
+        new_self.lemma_tentative_rows_are_valid(sm);
+        self.lemma_update_preserves_row_info_correspondence(
+            new_self, list_addr, idx, new_element, old_state, new_state, sm, new_row_addr,
+        );
+        assert(new_self.corresponds_to_tentative_state(new_state, sm));
+    }
+
+    proof fn lemma_update_preserves_row_info_correspondence(
+        self,
+        new_self: Self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        old_state: Seq<u8>,
+        new_state: Seq<u8>,
+        sm: ListTableStaticMetadata,
+        new_row_addr: u64,
+    )
+        requires
+            sm.valid::<L>(),
+            self.tentative_mapping.list_info.contains_key(list_addr),
+            idx < self.tentative_mapping.list_info[list_addr].len(),
+            new_self == self.update(list_addr, idx, new_element),
+            0 < self.free_list.len(),
+            new_row_addr == self.free_list.last(),
+            self.tentative_mapping.row_info_corresponds(old_state, sm),
+            forall|row_addr: u64| #[trigger] new_self.tentative_mapping.row_info.contains_key(row_addr) ==>
+                sm.table.validate_row_addr(row_addr),
+            ({
+                let addrs = self.tentative_mapping.list_info[list_addr];
+                let next: u64 = if idx == addrs.len() - 1 { 0 } else { addrs[idx + 1] };
+                &&& recover_object::<L>(new_state, new_row_addr + sm.row_element_start,
+                                        new_row_addr + sm.row_element_crc_start) == Some(new_element)
+                &&& recover_object::<u64>(new_state, new_row_addr + sm.row_next_start,
+                                          new_row_addr + sm.row_next_start + u64::spec_size_of()) == Some(next)
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<L>(new_state, other_row_addr + sm.row_element_start,
+                                        other_row_addr + sm.row_element_crc_start) ==
+                    recover_object::<L>(old_state, other_row_addr + sm.row_element_start,
+                                        other_row_addr + sm.row_element_crc_start)
+                }
+            }),
+            if idx > 0 {
+                let addrs = self.tentative_mapping.list_info[list_addr];
+                let prev_row_addr: u64 = addrs[idx - 1];
+                &&& recover_object::<u64>(new_state, prev_row_addr + sm.row_next_start,
+                                          prev_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                        Some(new_row_addr)
+                &&& forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                    &&& other_row_addr != prev_row_addr
+                } ==> {
+                    recover_object::<u64>(new_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of())
+                }
+            } else {
+                forall|other_row_addr: u64| {
+                    &&& sm.table.validate_row_addr(other_row_addr)
+                    &&& other_row_addr != new_row_addr
+                } ==> {
+                    recover_object::<u64>(new_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of()) ==
+                    recover_object::<u64>(old_state, other_row_addr + sm.row_next_start,
+                                          other_row_addr + sm.row_next_start + u64::spec_size_of())
+                }
+            },
+        ensures
+            new_self.tentative_mapping.row_info_corresponds(new_state, sm),
+    {
+        broadcast use group_validate_row_addr;
+        broadcast use broadcast_update_bytes_effect;
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+        broadcast use pmcopy_axioms;
+    }
+
+    proof fn lemma_update_preserves_journaled_addrs(
+        self,
+        new_self: Self,
+        list_addr: u64,
+        idx: usize,
+        new_element: L,
+        old_journaled_addrs: Set<int>,
+        new_journaled_addrs: Set<int>,
+        sm: ListTableStaticMetadata,
+    )
+        requires
+            sm.valid::<L>(),
+            self.valid(sm),
+            self.consistent_with_journaled_addrs(old_journaled_addrs, sm),
+            self.tentative_mapping.list_info.contains_key(list_addr),
+            idx < self.tentative_mapping.list_info[list_addr].len(),
+            0 < self.free_list.len(),
+            new_self == self.update(list_addr, idx, new_element),
+            if idx > 0 {
+                let addrs = self.tentative_mapping.list_info[list_addr];
+                let prev_row_addr = addrs[idx - 1];
+                new_journaled_addrs ==
+                    old_journaled_addrs +
+                    Set::<int>::range(prev_row_addr + sm.row_next_start,
+                                      prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of())
+            } else {
+                new_journaled_addrs == old_journaled_addrs
+            },
+        ensures
+            new_self.consistent_with_journaled_addrs(new_journaled_addrs, sm),
+    {
+        broadcast use group_validate_row_addr;
+
+        assert(new_self.free_list == self.free_list.drop_last());
+        assert(self.tentative_mapping.internally_consistent(sm));
+        assert(self.free_list_consistent(sm));
+        assert(self.row_info_consistent(sm));
+
+        assert forall|i: int, addr: int| #![trigger new_self.free_list[i], new_journaled_addrs.contains(addr)] {
+            let row_addr = new_self.free_list[i];
+            &&& 0 <= i < new_self.free_list.len()
+            &&& row_addr <= addr < row_addr + sm.table.row_size
+        } implies !new_journaled_addrs.contains(addr) by {
+            let row_addr = new_self.free_list[i];
+            assert(0 <= i < new_self.free_list.len());
+            assert(new_self.free_list.len() == self.free_list.len() - 1);
+            assert(0 <= i < self.free_list.len());
+            assert(new_self.free_list[i] == self.free_list.drop_last()[i]);
+            assert(self.free_list.drop_last()[i] == self.free_list[i]);
+            assert(row_addr == self.free_list[i]);
+            assert(row_addr <= addr < row_addr + sm.table.row_size);
+            assert(!old_journaled_addrs.contains(addr));
+
+            if idx > 0 {
+                let addrs = self.tentative_mapping.list_info[list_addr];
+                let prev_row_addr = addrs[idx - 1];
+
+                assert(self.tentative_mapping.row_info.contains_key(prev_row_addr));
+                assert(self.row_info.contains_key(row_addr));
+                assert(self.row_info[row_addr] is InFreeList);
+                assert(!self.tentative_mapping.row_info.contains_key(row_addr));
+                assert(prev_row_addr != row_addr);
+                assert(sm.table.validate_row_addr(prev_row_addr));
+                assert(sm.table.validate_row_addr(row_addr));
+                assert(prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of()
+                       <= prev_row_addr + sm.table.row_size);
+                assert(!Set::<int>::range(
+                    prev_row_addr + sm.row_next_start,
+                    prev_row_addr + sm.row_next_start + u64::spec_size_of() + u64::spec_size_of(),
+                ).contains(addr));
+            }
+        }
+    }
+
 }
 
 impl<PM, L> ListTable<PM, L>
@@ -944,11 +1207,27 @@ where
                 &&& old_list[idx as int].end() == new_element.end()
             }),
     {
-        broadcast use group_validate_row_addr;
-        broadcast use broadcast_update_bytes_effect;
-        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
-        broadcast use pmcopy_axioms;
-        
+        old_iv.lemma_update_mapping_internally_consistent(list_addr, idx, new_element, sm);
+        old_iv.lemma_update_preserves_tentative_state(
+            new_iv,
+            list_addr,
+            idx,
+            new_element,
+            old_jv.commit_state,
+            new_jv.commit_state,
+            sm,
+            new_row_addr,
+        );
+        old_iv.lemma_update_preserves_journaled_addrs(
+            new_iv,
+            list_addr,
+            idx,
+            new_element,
+            old_jv.journaled_addrs,
+            new_jv.journaled_addrs,
+            sm,
+        );
+
         old_iv.lemma_update_works(list_addr, idx, new_element, sm);
     }
 

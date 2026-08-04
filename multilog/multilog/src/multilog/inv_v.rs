@@ -436,7 +436,7 @@ verus! {
             } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb)
     {} 
 
-    pub proof fn lemma_metadata_set_after_crash_in_region(
+    proof fn lemma_metadata_set_after_crash_in_region(
         pm_region_view: PersistentMemoryRegionView,
         cdb: bool 
     )
@@ -456,7 +456,7 @@ verus! {
         }
     }
 
-    pub proof fn lemma_metadata_set_after_crash_in_first_region(
+    proof fn lemma_metadata_set_after_crash_in_first_region(
         pm_regions_view: PersistentMemoryRegionsView,
         cdb: bool 
     )
