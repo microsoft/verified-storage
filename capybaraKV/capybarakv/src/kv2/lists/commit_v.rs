@@ -6,6 +6,7 @@ use crate::journal::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
+use std::collections::hash_map::Entry;
 use super::impl_v::*;
 use super::inv_v::*;
 use super::spec_v::*;
@@ -74,14 +75,17 @@ impl<L> ListTableEntry<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    pub(super) exec fn commit(self) -> (result: Self)
+    pub(super) exec fn commit(&mut self)
         ensures
-            result@ == self@.commit(),
-            result@ == result@.commit(),
+            final(self)@ == old(self)@.commit(),
+            final(self)@ == final(self)@.commit(),
     {
         match self {
-            ListTableEntry::Durable{ summary } => ListTableEntry::Durable{ summary },
-            ListTableEntry::Modified{ summary, .. } => ListTableEntry::Durable{ summary },
+            ListTableEntry::Durable{ .. } => {},
+            ListTableEntry::Modified{ summary, .. } => {
+                let summary = *summary;
+                *self = ListTableEntry::Durable{ summary };
+            },
         }
     }
 }
@@ -140,10 +144,10 @@ where
             match self.modifications[which_modification] {
                 None => {},
                 Some(list_addr) => {
-                    let old_entry = self.m.remove(&list_addr);
-                    assert(old_entry is Some);
-                    let new_entry = old_entry.unwrap().commit();
-                    self.m.insert(list_addr, new_entry);
+                    match self.m.entry(list_addr) {
+                        Entry::Vacant(_) => assert(false),
+                        Entry::Occupied(mut map_entry) => map_entry.get_mut().commit(),
+                    }
                 },
             };
         }
