@@ -10,6 +10,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::power_t::*;
 use crate::pmem::pmemutil_v::*;
+use std::collections::hash_map::Entry;
 use super::impl_v::*;
 use super::inv_v::*;
 use super::recover_v::*;
@@ -78,27 +79,24 @@ impl<L> ListTableEntry<L>
     where
         L: PmCopy + LogicalRange + Sized + std::fmt::Debug,
 {
-    // TODO: Once Verus supports complex `&mut` scenarios, take `&mut self` parameter instead of `self`.
-    pub(super) exec fn append(self, new_row_addr: u64, new_element: L) -> (result: Self)
+    pub(super) exec fn append(&mut self, new_row_addr: u64, new_element: L)
         requires
-            match self {
+            match *old(self) {
                 ListTableEntry::Modified{ summary, .. } => summary.length < usize::MAX,
                 _ => false,
             },
         ensures
-            result@ == self@.append(new_row_addr, new_element),
+            final(self)@ == old(self)@.append(new_row_addr, new_element),
     {
         match self {
-            ListTableEntry::Modified{ which_modification, durable_head, mut summary, mut addrs, mut elements } =>
-            {
+            ListTableEntry::Modified{ summary, addrs, elements, .. } => {
                 summary.tail = new_row_addr;
                 summary.length = summary.length + 1;
                 summary.end_of_logical_range = new_element.end();
                 addrs.push(new_row_addr);
                 elements.push(new_element);
-                ListTableEntry::Modified{ which_modification, durable_head, summary, addrs, elements }
             },
-            _ => self,
+            _ => assert(false),
         }
     }
 
@@ -418,7 +416,7 @@ where
         new_element: L,
         journal: &mut Journal<PM>,
         new_row_addr: u64,
-        entry: ListTableEntry<L>,
+        old_summary: ListSummary,
         Ghost(prev_self): Ghost<Self>,
         Ghost(prev_jv): Ghost<JournalView>,
     ) -> (result: Result<u64, KvError>)
@@ -430,7 +428,7 @@ where
             }),
             prev_self.free_list@.len() > 0,
             old(self).free_list@ == prev_self.free_list@.drop_last(),
-            old(self).m@ == prev_self.m@.remove(list_addr),
+            old(self).m@ == prev_self.m@,
             new_row_addr == prev_self.free_list@.last(),
             prev_self.valid(prev_jv),
             old(journal).valid(),
@@ -465,13 +463,13 @@ where
             recover_object::<L>(old(journal)@.commit_state, new_row_addr + old(self).sm.row_element_start,
                                 new_row_addr + old(self).sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
-            entry == prev_self.m[list_addr],
-            match entry@ {
+            match prev_self.m@[list_addr]@ {
                 ListTableEntryView::Durable{ summary } => {
-                    &&& summary.length < usize::MAX
-                    &&& new_element.start() >= summary.end_of_logical_range
+                    &&& old_summary == summary
+                    &&& old_summary.length < usize::MAX
+                    &&& new_element.start() >= old_summary.end_of_logical_range
                     &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
-                           new_element.start() == summary.end_of_logical_range
+                           new_element.start() == old_summary.end_of_logical_range
                 },
                 _ => false,
             },
@@ -516,10 +514,7 @@ where
             broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
-        let tail_row_addr = match &entry {
-            ListTableEntry::<L>::Durable{ summary } => summary.tail,
-            _ => { assert(false); 0u64 },
-        };
+        let tail_row_addr = old_summary.tail;
         assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
         assert(self.sm.table.validate_row_addr(tail_row_addr));
 
@@ -530,9 +525,14 @@ where
         let ghost disposition =
             ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
         self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
-        let new_entry = entry.update_by_appending(which_modification, new_row_addr, new_element);
-        let new_delete = entry.unwrap_durable();
-        self.m.insert(list_addr, new_entry);
+        let new_delete = old_summary;
+        match self.m.entry(list_addr) {
+            Entry::Vacant(_) => assert(false),
+            Entry::Occupied(mut map_entry) => {
+                let new_entry = map_entry.get().update_by_appending(which_modification, new_row_addr, new_element);
+                *map_entry.get_mut() = new_entry;
+            },
+        }
         self.deletes_inverse = Ghost(self.deletes_inverse@.insert(list_addr, which_delete));
         self.deletes.push(new_delete);
         self.modifications.push(Some(list_addr));
@@ -575,7 +575,7 @@ where
         new_element: L,
         journal: &mut Journal<PM>,
         new_row_addr: u64,
-        entry: ListTableEntry<L>,
+        old_summary: ListSummary,
         Ghost(prev_self): Ghost<Self>,
         Ghost(prev_jv): Ghost<JournalView>,
     ) -> (result: Result<u64, KvError>)
@@ -587,7 +587,7 @@ where
             }),
             prev_self.free_list@.len() > 0,
             old(self).free_list@ == prev_self.free_list@.drop_last(),
-            old(self).m@ == prev_self.m@.remove(list_addr),
+            old(self).m@ == prev_self.m@,
             new_row_addr == prev_self.free_list@.last(),
             prev_self.valid(prev_jv),
             old(journal).valid(),
@@ -622,13 +622,13 @@ where
             recover_object::<L>(old(journal)@.commit_state, new_row_addr + old(self).sm.row_element_start,
                                 new_row_addr + old(self).sm.row_element_crc_start) == Some(new_element),
             prev_self.m@.contains_key(list_addr),
-            entry == prev_self.m[list_addr],
-            match entry@ {
+            match prev_self.m@[list_addr]@ {
                 ListTableEntryView::Modified{ summary, .. } => {
-                    &&& summary.length < usize::MAX
-                    &&& new_element.start() >= summary.end_of_logical_range
+                    &&& old_summary == summary
+                    &&& old_summary.length < usize::MAX
+                    &&& new_element.start() >= old_summary.end_of_logical_range
                     &&& old(self).logical_range_gaps_policy is LogicalRangeGapsForbidden ==>
-                           new_element.start() == summary.end_of_logical_range
+                           new_element.start() == old_summary.end_of_logical_range
                 },
                 _ => false,
             },
@@ -674,10 +674,7 @@ where
             broadcast use broadcast_journal_view_matches_in_range_transitive;
         }
 
-        let tail_row_addr = match &entry {
-            ListTableEntry::<L>::Modified{ summary, .. } => summary.tail,
-            _ => { assert(false); 0u64 },
-        };
+        let tail_row_addr = old_summary.tail;
         assert(tail_row_addr == self.tentative_mapping@.list_info[list_addr].last());
         assert(self.sm.table.validate_row_addr(tail_row_addr));
 
@@ -685,8 +682,10 @@ where
         let ghost disposition =
             ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
         self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
-        let new_entry = entry.append(new_row_addr, new_element);
-        self.m.insert(list_addr, new_entry);
+        match self.m.entry(list_addr) {
+            Entry::Vacant(_) => assert(false),
+            Entry::Occupied(mut map_entry) => map_entry.get_mut().append(new_row_addr, new_element),
+        }
         self.pending_allocations.push(new_row_addr);
 
         assert(self.internal_view() =~= prev_self.internal_view().append_case_modified(list_addr, new_element));
@@ -928,38 +927,31 @@ where
             return Err(KvError::OutOfSpace);
         }
 
-        let entry = match self.m.remove(&list_addr) {
+        let (is_durable, old_summary) = match self.m.get(&list_addr) {
             None => { assert(false); return Err(KvError::InternalError) },
-            Some(e) => e,
+            Some(ListTableEntry::<L>::Modified{ summary, .. }) =>
+                (false, *summary),
+            Some(ListTableEntry::<L>::Durable{ summary }) =>
+                (true, *summary),
         };
 
-        let (length, end_of_valid_range) = match &entry {
-            ListTableEntry::<L>::Modified{ ref summary, .. } =>
-                (summary.length, summary.end_of_logical_range),
-            ListTableEntry::<L>::Durable{ ref summary } =>
-                (summary.length, summary.end_of_logical_range),
-        };
+        let length = old_summary.length;
+        let end_of_valid_range = old_summary.end_of_logical_range;
 
         assert(length == self.tentative_mapping@.list_elements[list_addr].len());
         assert(end_of_valid_range == end_of_range(self.tentative_mapping@.list_elements[list_addr]));
 
         if length >= usize::MAX {
-            self.m.insert(list_addr, entry);
-            assert(self.internal_view() =~= old(self).internal_view());
             return Err(KvError::ListLengthWouldExceedUsizeMax);
         }
 
         if new_element.start() < end_of_valid_range {
-            self.m.insert(list_addr, entry);
-            assert(self.internal_view() =~= old(self).internal_view());
             return Err(KvError::PageOutOfLogicalRangeOrder{ end_of_valid_range});
         }
 
         match self.logical_range_gaps_policy {
             LogicalRangeGapsPolicy::LogicalRangeGapsForbidden =>
                 if new_element.start() > end_of_valid_range {
-                    self.m.insert(list_addr, entry);
-                    assert(self.internal_view() =~= old(self).internal_view());
                     return Err(KvError::PageLeavesLogicalRangeGap{ end_of_valid_range });
                 },
             _ => {},
@@ -974,13 +966,13 @@ where
 
         self.write_tail_to_free_slot::<PermFactory>(new_element, row_addr, journal, Tracked(perm_factory), Ghost(*old(self)));
 
-        match entry {
-            ListTableEntry::<L>::Durable{ .. } =>
-                self.append_case_durable(list_addr, new_element, journal, row_addr, entry,
-                                         Ghost(*old(self)), Ghost(old(journal)@)),
-            ListTableEntry::<L>::Modified{ .. } =>
-                self.append_case_modified(list_addr, new_element, journal, row_addr, entry,
-                                          Ghost(*old(self)), Ghost(old(journal)@)),
+        if is_durable {
+            self.append_case_durable(list_addr, new_element, journal, row_addr, old_summary,
+                                     Ghost(*old(self)), Ghost(old(journal)@))
+        }
+        else {
+            self.append_case_modified(list_addr, new_element, journal, row_addr, old_summary,
+                                      Ghost(*old(self)), Ghost(old(journal)@))
         }
     }
 
