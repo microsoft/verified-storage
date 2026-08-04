@@ -145,8 +145,8 @@ where
                 None => {},
                 Some(list_addr) => {
                     match self.m.entry(list_addr) {
-                        Entry::Vacant(_) => assert(false),
                         Entry::Occupied(mut map_entry) => map_entry.get_mut().commit(),
+                        Entry::Vacant(_) => assert(false),
                     }
                 },
             };

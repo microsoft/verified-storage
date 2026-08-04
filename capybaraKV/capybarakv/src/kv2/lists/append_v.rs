@@ -527,11 +527,11 @@ where
         self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
         let new_delete = old_summary;
         match self.m.entry(list_addr) {
-            Entry::Vacant(_) => assert(false),
             Entry::Occupied(mut map_entry) => {
                 let new_entry = map_entry.get().update_by_appending(which_modification, new_row_addr, new_element);
                 *map_entry.get_mut() = new_entry;
             },
+            Entry::Vacant(_) => assert(false),
         }
         self.deletes_inverse = Ghost(self.deletes_inverse@.insert(list_addr, which_delete));
         self.deletes.push(new_delete);
@@ -683,8 +683,8 @@ where
             ListRowDisposition::InPendingAllocationList{ pos: self.pending_allocations@.len() as nat };
         self.row_info = Ghost(self.row_info@.insert(new_row_addr, disposition));
         match self.m.entry(list_addr) {
-            Entry::Vacant(_) => assert(false),
             Entry::Occupied(mut map_entry) => map_entry.get_mut().append(new_row_addr, new_element),
+            Entry::Vacant(_) => assert(false),
         }
         self.pending_allocations.push(new_row_addr);
 
@@ -928,11 +928,11 @@ where
         }
 
         let (is_durable, old_summary) = match self.m.get(&list_addr) {
-            None => { assert(false); return Err(KvError::InternalError) },
             Some(ListTableEntry::<L>::Modified{ summary, .. }) =>
                 (false, *summary),
             Some(ListTableEntry::<L>::Durable{ summary }) =>
                 (true, *summary),
+            None => { assert(false); return Err(KvError::InternalError) },
         };
 
         let length = old_summary.length;
