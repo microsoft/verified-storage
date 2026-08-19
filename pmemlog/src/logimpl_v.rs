@@ -854,6 +854,7 @@ verus! {
     /// active header. This lemma does most of the work to prove that untrusted_append is
     /// implemented correctly.
     proof fn lemma_append_ib_update<Perm: CheckPermission<Seq<u8>>>(
+        pm_after_data_write: Seq<u8>,
         pm: Seq<u8>,
         new_ib: u64,
         bytes_to_append: Seq<u8>,
@@ -888,18 +889,31 @@ verus! {
                 let append_size = bytes_to_append.len();
                 let len1 = (contents_end - physical_tail);
                 let len2 = bytes_to_append.len() - len1;
+                let (_, _, data_after_write) = pm_to_views(pm_after_data_write);
+                let (_, _, data_after_header) = pm_to_views(pm);
 
+                &&& data_after_write == data_after_header
                 &&& physical_tail + append_size >= contents_end ==> {
-                    &&& pm.subrange(physical_tail, contents_end) =~= bytes_to_append.subrange(0, len1)
-                    &&& pm.subrange(contents_offset as int, contents_offset + len2) =~= bytes_to_append.subrange(len1 as int, append_size as int)
-                    &&& bytes_to_append =~= pm.subrange(physical_tail, contents_end) + pm.subrange(contents_offset as int, contents_offset + len2)
+                    &&& data_after_write.subrange(physical_tail - contents_offset, contents_end - contents_offset) ==
+                            bytes_to_append.subrange(0, len1)
+                    &&& data_after_write.subrange(0, len2) ==
+                            bytes_to_append.subrange(len1 as int, append_size as int)
+                    &&& bytes_to_append ==
+                            data_after_write.subrange(physical_tail - contents_offset, contents_end - contents_offset) +
+                            data_after_write.subrange(0, len2)
                 }
                 &&& physical_head <= physical_tail && physical_tail + append_size < contents_end ==> {
-                    pm.subrange(physical_tail, physical_tail + append_size) =~= bytes_to_append
+                    data_after_write.subrange(
+                        physical_tail - contents_offset,
+                        physical_tail - contents_offset + append_size,
+                    ) == bytes_to_append
                 }
                 &&& physical_tail < physical_head ==> {
                     &&& physical_tail + append_size < physical_head
-                    &&& pm.subrange(physical_tail, physical_tail + append_size) =~= bytes_to_append
+                    &&& data_after_write.subrange(
+                        physical_tail - contents_offset,
+                        physical_tail - contents_offset + append_size,
+                    ) == bytes_to_append
                 }
             }),
             ({
@@ -933,6 +947,42 @@ verus! {
                 &&& perm.check_permission(new_pm)
             },
     {
+        let live_header = spec_get_live_header(pm);
+        let physical_head = spec_addr_logical_to_physical(live_header.metadata.head as int, live_header.metadata.log_size as int);
+        let physical_tail = spec_addr_logical_to_physical(live_header.metadata.tail as int, live_header.metadata.log_size as int);
+        let contents_end = (live_header.metadata.log_size + contents_offset) as int;
+        let append_size = bytes_to_append.len();
+        let len1 = contents_end - physical_tail;
+        let len2 = append_size - len1;
+        let (_, _, data_after_write) = pm_to_views(pm_after_data_write);
+        let (_, _, data_after_header) = pm_to_views(pm);
+
+        if physical_head <= physical_tail {
+            if physical_tail + append_size >= contents_end {
+                lemma_subrange_eq(
+                    data_after_write,
+                    data_after_header,
+                    physical_tail - contents_offset,
+                    contents_end - contents_offset,
+                );
+                lemma_subrange_eq(data_after_write, data_after_header, 0, len2);
+            } else {
+                lemma_subrange_eq(
+                    data_after_write,
+                    data_after_header,
+                    physical_tail - contents_offset,
+                    physical_tail - contents_offset + append_size,
+                );
+            }
+        } else {
+            lemma_subrange_eq(
+                data_after_write,
+                data_after_header,
+                physical_tail - contents_offset,
+                physical_tail - contents_offset + append_size,
+            );
+        }
+
         lemma_append_ib_update_effect_on_committed::<Perm>(pm, new_ib, bytes_to_append, new_header_bytes, perm);
 
         let ib_bytes = spec_u64_to_le_bytes(new_ib);
@@ -1151,11 +1201,12 @@ verus! {
             spec_u64_to_le_bytes(val1) =~= spec_u64_to_le_bytes(val2)
     {}
 
-    proof fn lemma_subrange_eq<T>(bytes1: Seq<T>, bytes2: Seq<T>)
+    proof fn lemma_subrange_eq<T>(bytes1: Seq<T>, bytes2: Seq<T>, i: int, j: int)
         requires
-            bytes1 =~= bytes2
+            bytes1 == bytes2,
+            0 <= i <= j <= bytes1.len(),
         ensures
-            forall |i: int, j: int| 0 <= i < j < bytes1.len() ==> bytes1.subrange(i, j) =~= bytes2.subrange(i, j)
+            bytes1.subrange(i, j) == bytes2.subrange(i, j)
     {}
 
     /// If our write is persistence_chunk_size-sized and -aligned, then there are only 2 possible
@@ -1805,6 +1856,7 @@ verus! {
 
             proof { lemma_header_crc_correct(new_header_bytes@, new_crc_bytes@, old_metadata_bytes); }
 
+            let ghost pm_after_data_write = wrpm@;
             self.update_header(wrpm, Tracked(perm), &new_header_bytes);
 
             let old_ib = self.incorruptible_bool;
@@ -1817,7 +1869,7 @@ verus! {
             let new_ib_bytes = u64_to_le_bytes(new_ib);
 
             proof {
-                lemma_append_ib_update(wrpm@, new_ib, bytes_to_append@, new_header_bytes@, perm);
+                lemma_append_ib_update(pm_after_data_write, wrpm@, new_ib, bytes_to_append@, new_header_bytes@, perm);
             }
 
             wrpm.write(incorruptible_bool_pos, new_ib_bytes.as_slice(), Tracked(perm));
