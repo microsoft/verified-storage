@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vstd = { version = "=0.0.0-2026-08-02-0125" }
+vstd = { version = "=0.0.0-2026-08-23-0033" }
 crc64fast = "1.0.0"
 
 [lints.rust]

@@ -20,7 +20,7 @@ default = [ "pmem" ]
 crc64fast = "1.0.0"
 # Avoid default features since @lopopolo reports that rand is unsound with both the log and thread_rng features
 rand = { version = "0.10.1", default-features = false, features = [ "thread_rng" ] }
-vstd = { version = "=0.0.0-2026-08-02-0125" }
+vstd = { version = "=0.0.0-2026-08-23-0033" }
 pmcopy = { path = "../pmcopy" }
 
 [target.'cfg(target_family = "unix")'.dependencies]
