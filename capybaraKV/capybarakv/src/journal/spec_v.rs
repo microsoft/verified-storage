@@ -82,6 +82,25 @@ impl JournalView {
         &&& self.matches_in_range(other, end, self.constants.app_area_end as int)
     }
 
+    pub proof fn lemma_matches_except_in_range_can_widen(
+        self,
+        other: JournalView,
+        inner_start: int,
+        inner_end: int,
+        outer_start: int,
+        outer_end: int,
+    )
+        requires
+            self.matches_except_in_range(other, inner_start, inner_end),
+            self.constants.app_area_start <= outer_start <= inner_start,
+            inner_start <= inner_end,
+            inner_end <= outer_end <= self.constants.app_area_end,
+        ensures
+            self.matches_except_in_range(other, outer_start, outer_end),
+    {
+        broadcast use broadcast_seqs_match_in_range_can_narrow_range;
+    }
+
     pub open spec fn abort(self) -> Self
     {
         JournalView{

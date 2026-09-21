@@ -357,11 +357,6 @@ where
                 _ => false,
             },
     {
-        proof {
-            journal.lemma_valid_implications();
-            self.lemma_valid_implications(journal@);
-        }
-
         let row_addr = match self.create_step1(k, item_addr, journal) {
             Ok(r) => r,
             Err(e) => { return Err(e); },
@@ -388,12 +383,11 @@ where
 
         self.status = Ghost(KeyTableStatus::Quiescent);
 
-        proof {
+        assert(self.valid(journal@)) by {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
         }
 
-        assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().create(*k, item_addr)));
         Ok(())
     }
@@ -685,14 +679,26 @@ where
             assert(self.undo_records@.last() =~= undo_record);
         }
 
-        proof {
+        self.status = Ghost(KeyTableStatus::Quiescent);
+
+        assert(journal@.matches_except_in_range(old(journal)@,
+                                                self@.sm.start() as int,
+                                                self@.sm.end() as int)) by {
+            broadcast use group_validate_row_addr;
+            journal@.lemma_matches_except_in_range_can_widen(
+                old(journal)@,
+                row_addr + self.sm.row_metadata_start,
+                row_addr + self.sm.row_metadata_crc_start + u64::spec_size_of(),
+                self@.sm.start() as int,
+                self@.sm.end() as int,
+            );
+        }
+
+        assert(self.valid(journal@)) by {
             broadcast use broadcast_seqs_match_in_range_can_narrow_range;
             broadcast use group_validate_row_addr;
         }
 
-        self.status = Ghost(KeyTableStatus::Quiescent);
-
-        assert(self.valid(journal@));
         assert(self@.tentative =~= Some(old(self)@.tentative.unwrap().update(*k, new_rm, former_rm)));
         Ok(())
     }
