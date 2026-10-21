@@ -23,7 +23,7 @@ verus! {
         unimplemented!()
     }
 
-    pub struct InvariantRecoverer<Pred, State>
+    pub tracked struct InvariantRecoverer<Pred, State>
         where
             Pred: InvariantPredicate<Pred, State>
     {

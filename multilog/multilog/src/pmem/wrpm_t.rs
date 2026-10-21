@@ -22,7 +22,7 @@ pub struct WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
         PMRegions: PersistentMemoryRegions
 {
     pm_regions: PMRegions,
-    ghost perm: Option<Perm>, // Needed to work around Rust limitation that Perm must be referenced
+    perm: Ghost<Option<Perm>>, // Needed to work around Rust limitation that Perm must be referenced
 }
 
 impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
@@ -55,7 +55,7 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
     {
         Self {
             pm_regions: pm_regions,
-            perm: None
+            perm: Ghost(None)
         }
     }
 
@@ -143,7 +143,7 @@ pub struct WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         PMRegion: PersistentMemoryRegion
 {
     pm_region: PMRegion,
-    ghost perm: Option<Perm>, // Needed to work around Rust limitation that Perm must be referenced
+    perm: Ghost<Option<Perm>>, // Needed to work around Rust limitation that Perm must be referenced
 }
 
 impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
@@ -176,7 +176,7 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     {
         Self {
             pm_region: pm_region,
-            perm: None
+            perm: Ghost(None)
         }
     }
 
