@@ -1095,7 +1095,7 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct OpPerm<PM, K, I, L, Op, Lin>
+tracked struct OpPerm<PM, K, I, L, Op, Lin>
     where
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,
