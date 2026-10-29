@@ -264,6 +264,8 @@ impl<L> ListTableInternalView<L>
             },
             _ => { assert(false); },
         }
+
+        assert(new_self.tentative_mapping.internally_consistent(sm));
     }
 
     proof fn lemma_update_mapping_internally_consistent(
