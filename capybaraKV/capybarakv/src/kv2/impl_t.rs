@@ -276,6 +276,7 @@ where
             pm.inv(),
             Self::recover(pm@.read_state) is Some,
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
         ensures
         ({
             let state = Self::recover(pm@.read_state).unwrap();

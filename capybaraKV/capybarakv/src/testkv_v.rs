@@ -651,6 +651,7 @@ pub fn test_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    assume(vstd::laws_eq::obeys_concrete_eq::<TestKey>());
     match KvStore::<FileBackedPersistentMemoryRegion, TestKey, TestItem, TestListElement>::setup(&mut pm, &ps) {
         Ok(()) => {},
         Err(e) => { print_message("Failed to set up KV store"); return Err(()); },
@@ -830,6 +831,7 @@ pub fn test_concurrent_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    assume(vstd::laws_eq::obeys_concrete_eq::<TestKey>());
     let ghost pm_constants = pm.constants();
     let mut ckv;
     let tracked mut gvar;
@@ -936,6 +938,7 @@ pub fn test_sharded_kv_on_memory_mapped_file() -> Result<(), ()>
     };
 
     assume(vstd::std_specs::hash::obeys_key_model::<TestKey>());
+    assume(vstd::laws_eq::obeys_concrete_eq::<TestKey>());
     assume(pm0.constants() == pm1.constants());
     let ghost pm_constants = pm0.constants();
     let ghost shard_namespace = 5;

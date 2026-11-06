@@ -43,6 +43,7 @@ where
             sm.valid::<K>(),
             sm.end() <= journal@.durable_state.len(),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
         ensures
             match result {
                 Ok((keys, item_addrs, list_addrs)) => {
@@ -91,6 +92,8 @@ where
                 sm.valid::<K>(),
                 sm.end() <= journal@.durable_state.len(),
                 vstd::std_specs::hash::obeys_key_model::<K>(),
+                vstd::laws_eq::obeys_concrete_eq::<K>(),
+                vstd::std_specs::hash::hash_map_inv(&m),
                 KeyRecoveryMapping::<K>::new(journal@.read_state, *sm) == Some(recovery_mapping),
                 pm.inv(),
                 pm.constants() == journal@.pm_constants,
