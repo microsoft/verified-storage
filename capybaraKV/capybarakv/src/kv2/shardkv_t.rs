@@ -89,6 +89,7 @@ where
                 &&& shard_kvs@[shard].id() == inv.constant().shard_ids[shard]
             },
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
             shard_namespace != inv.namespace(),
         ensures
             result.id() == inv.constant().combined_id,
@@ -299,6 +300,7 @@ pub exec fn setup<PM, K, I, L>(
         },
         namespace != shard_namespace,
         vstd::std_specs::hash::obeys_key_model::<K>(),
+        vstd::laws_eq::obeys_concrete_eq::<K>(),
     ensures
         match result {
             Ok((kv, res)) => {
@@ -345,6 +347,7 @@ pub exec fn setup<PM, K, I, L>(
                 &&& shard_kvs@[shard].id() == shard_res[shard].id()
             },
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
     {
         // Force trigger.
         assert(pms@[idx as int].inv());
@@ -394,6 +397,7 @@ pub exec fn recover<PM, K, I, L>(
             &&& pms@[i].constants() == pm_constants
         },
         vstd::std_specs::hash::obeys_key_model::<K>(),
+        vstd::laws_eq::obeys_concrete_eq::<K>(),
         namespace != shard_namespace,
     ensures
         match result {
@@ -432,6 +436,7 @@ pub exec fn recover<PM, K, I, L>(
                 &&& shard_kvs@[shard].id() == shard_ids[shard]
             },
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
             namespace != shard_namespace,
     {
         // Force trigger.

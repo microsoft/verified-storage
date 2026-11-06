@@ -142,6 +142,7 @@ where
         &&& forall |shard| 0 <= shard < self.kv.len() ==>
                 #[trigger] self.kv[shard].namespace() == self.shard_namespace@
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
+        &&& vstd::laws_eq::obeys_concrete_eq::<K>()
         &&& self.shard_namespace@ != self.inv@.namespace()
     }
 

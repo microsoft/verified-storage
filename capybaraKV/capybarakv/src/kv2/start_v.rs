@@ -36,6 +36,7 @@ where
             powerpm.inv(),
             Self::recover(powerpm@.durable_state) == Some(state),
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
             perm_factory.id() == powerpm.id(),
             forall|s1: Seq<u8>, s2: Seq<u8>| Self::recover(s1) == Self::recover(s2) ==>
                 #[trigger] perm_factory.permits(s1, s2),

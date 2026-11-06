@@ -107,6 +107,7 @@ where
             atomicpm.constants() == inv.constant().pm_constants,
             rwlock_res.id() == inv.constant().rwlock_id,
             vstd::std_specs::hash::obeys_key_model::<K>(),
+            vstd::laws_eq::obeys_concrete_eq::<K>(),
         ensures
             match result {
                 Ok(kv) => {
@@ -338,6 +339,7 @@ pub exec fn recover<PM, K, I, L>(
     requires
         pm.inv(),
         vstd::std_specs::hash::obeys_key_model::<K>(),
+        vstd::laws_eq::obeys_concrete_eq::<K>(),
     ensures
         match result {
             Ok(kv) => {
@@ -379,6 +381,7 @@ exec fn start_with_inv<PM, K, I, L>(
         atomicpm.id() == inv.constant().durable_id,
         atomicpm.constants() == inv.constant().pm_constants,
         vstd::std_specs::hash::obeys_key_model::<K>(),
+        vstd::laws_eq::obeys_concrete_eq::<K>(),
     ensures
         match result {
             Ok(kv) => {
@@ -437,6 +440,7 @@ pub exec fn setup<PM, K, I, L>(
     requires
         pm.inv(),
         vstd::std_specs::hash::obeys_key_model::<K>(),
+        vstd::laws_eq::obeys_concrete_eq::<K>(),
     ensures
         match result {
             Ok((kv, res)) => {
