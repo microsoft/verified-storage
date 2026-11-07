@@ -60,6 +60,9 @@ where
                 Err(_) => false,
             }
     {
+        proof {
+            K::lemma_obeys_concrete_eq();
+        }
         let ghost recovery_mapping = KeyRecoveryMapping::<K>::new(journal@.read_state, *sm).unwrap();
         assert(recovery_mapping.corresponds(journal@.read_state, *sm));
 
@@ -91,7 +94,9 @@ where
                 sm.valid::<K>(),
                 sm.end() <= journal@.durable_state.len(),
                 vstd::std_specs::hash::obeys_key_model::<K>(),
+                vstd::laws_eq::obeys_concrete_eq::<K>(),
                 KeyRecoveryMapping::<K>::new(journal@.read_state, *sm) == Some(recovery_mapping),
+                hash_map_inv(&m),
                 pm.inv(),
                 pm.constants() == journal@.pm_constants,
                 pm@.valid(),
