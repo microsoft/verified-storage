@@ -102,7 +102,7 @@ verus! {
     // So untrusted code in other files can't create one, and we can
     // rely on it to restrict access to persistent memory.
     #[allow(dead_code)]
-    pub struct TrustedMultiLogPermission {
+    pub tracked struct TrustedMultiLogPermission {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool
     }
 

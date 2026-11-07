@@ -233,7 +233,7 @@ verus! {
             PM: PersistentMemory
     {
         pm: PM,
-        ghost perm: Option<Perm> // unused, but Rust demands some reference to Perm
+        perm: Ghost<Option<Perm>> // unused, but Rust demands some reference to Perm
     }
 
     impl <Perm, PM> WriteRestrictedPersistentMemory<Perm, PM>
@@ -261,7 +261,7 @@ verus! {
                 wrpm.inv(),
                 wrpm.constants() == pm.constants()
         {
-            Self { pm: pm, perm: None }
+            Self { pm: pm, perm: Ghost(None) }
         }
 
         pub exec fn get_pm_ref(&self) -> (pm: &PM)

@@ -735,7 +735,7 @@ impl ReadLinearizer<TestKey, TestItem, TestListElement, ReadItemOp<TestKey>>
     }
 }
 
-struct TestMutatingLinearizer<Op>
+tracked struct TestMutatingLinearizer<Op>
 where
     Op: MutatingOperation<TestKey, TestItem, TestListElement>
 {
