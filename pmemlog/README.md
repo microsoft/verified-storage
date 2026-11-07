@@ -9,12 +9,10 @@ log
 
 ### Setup instructions
 
-Install Verus from `https://github.com/verus-lang/verus`.
+Clone Verus, from `https://github.com/verus-lang/verus`, as a sibling `verus` of this `verified-storage` repo. Build it.
 
 ### Verification
 
-To verify the log, `cd` to the `pmemlog/` directory and run the following.
-```
-cd src
-cargo verus verify
-```
+To verify the log:
+1. Make sure Verus (usually in `~/.cargo/bin/`) is in your `PATH`.
+2. From the top-level directory of this repository, `cd` to `pmemlog` and run `cargo verus verify`.
