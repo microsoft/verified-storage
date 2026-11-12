@@ -16,14 +16,19 @@ repo in the `osdi25-artifact` branch.
 
 ### Setup instructions
 
-1. Install Verus from `https://github.com/verus-lang/verus`.
-2. If you want to do line counting, run `cargo install tokei` and `pip install prettytable`.
-3. **Optional**: If you are on Linux (or WSL2) and would like to run CapybaraKV on (real or emulated) PM via Linux's DAX feature, run the following to install PMDK to access PM and LLVM/Clang to generate Rust bindings to PMDK: `sudo apt install libpmem1 libpmemlog1 libpmem-dev libpmemlog-dev llvm-dev clang libclang-dev`
+1. Clone Verus, from `https://github.com/verus-lang/verus`, as a sibling
+   `verus` of this `verified-storage` repo.
+2. If you want to use the exact Verus repo commit that we last verified this
+   project with, run `git checkout 9ab45f5745cea3f82b89bb53ff6fd91c14ae6eda`
+   from the `verus` directory.
+3. Build Verus.
+4. If you want to do line counting, run `cargo install tokei` and `pip install prettytable`.
+5. **Optional**: If you are on Linux (or WSL2) and would like to run CapybaraKV on (real or emulated) PM via Linux's DAX feature, run the following to install PMDK to access PM and LLVM/Clang to generate Rust bindings to PMDK: `sudo apt install libpmem1 libpmemlog1 libpmem-dev libpmemlog-dev llvm-dev clang libclang-dev`
 
 ### Verification
 
 To verify CapybaraKV:
-1. Make sure Verus (usually at `verus/source/target-verus/release`) is in your `PATH`.
+1. Make sure Verus (usually in `~/.cargo/bin/`) is in your `PATH`.
 2. From the top-level directory of this repository, `cd` to `capybaraKV/capybarakv`.
 3. Run one of the following commands depending on your setup:
     1. If you are using MacOS, Windows, or Linux/WSL with the dependencies from Setup Step 3 installed, run `cargo verus verify`.
