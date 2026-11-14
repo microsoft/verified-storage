@@ -1105,6 +1105,17 @@ fn generate_eq_and_clone_specs(name: &syn::Ident) -> proc_macro2::TokenStream {
         impl Eq for #name {}
 
         verus!{
+            #[cfg(verus_keep_ghost)]
+            impl ::vstd::std_specs::cmp::PartialEqSpecImpl for #name {
+                open spec fn obeys_eq_spec() -> bool {
+                    true
+                }
+
+                open spec fn eq_spec(&self, other: &Self) -> bool {
+                    self == other
+                }
+            }
+
             #[verifier::external_fn_specification]
             pub fn #clone_spec_name(b: &#name) -> (res: #name)
                 ensures
@@ -1133,6 +1144,13 @@ fn generate_eq_and_clone_specs(name: &syn::Ident) -> proc_macro2::TokenStream {
 
             impl EqProof for #name 
             {
+                proof fn lemma_obeys_concrete_eq()
+                    ensures
+                        ::vstd::laws_eq::obeys_concrete_eq::<Self>()
+                {
+                    reveal(::vstd::laws_eq::obeys_concrete_eq);
+                }
+
                 fn eq_provable(&self, other: &Self) -> (b: bool) 
                     ensures 
                         b == (self == other)
@@ -1239,6 +1257,13 @@ pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
 
             impl EqProof for #ty 
             {
+                proof fn lemma_obeys_concrete_eq()
+                    ensures
+                        ::vstd::laws_eq::obeys_concrete_eq::<Self>()
+                {
+                    reveal(::vstd::laws_eq::obeys_concrete_eq);
+                }
+
                 fn eq_provable(&self, other: &Self) -> (b: bool) 
                     ensures 
                         b == (self == other)

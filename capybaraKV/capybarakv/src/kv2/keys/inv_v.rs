@@ -713,6 +713,8 @@ where
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
+        &&& vstd::laws_eq::obeys_concrete_eq::<K>()
+        &&& vstd::std_specs::hash::hash_map_inv(&self.m)
         &&& self.sm.valid::<K>()
         &&& jv.constants.app_area_start <= self.sm.start()
         &&& self.sm.end() <= jv.constants.app_area_end

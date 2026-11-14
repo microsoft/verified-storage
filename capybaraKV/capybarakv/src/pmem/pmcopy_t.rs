@@ -496,6 +496,11 @@ verus! {
     }
 
     pub trait EqProof : Sized + Eq + PartialEq {
+        proof fn lemma_obeys_concrete_eq()
+            ensures
+                vstd::laws_eq::obeys_concrete_eq::<Self>()
+        ;
+
         exec fn eq_provable(&self, other: &Self) -> (b: bool)
             ensures 
                 b == (self == other)
