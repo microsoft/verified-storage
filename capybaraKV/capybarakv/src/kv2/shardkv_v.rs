@@ -644,7 +644,7 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ShardedReadLinearizer<K, I, L, Op, Lin>
+tracked struct ShardedReadLinearizer<K, I, L, Op, Lin>
     where
         K: Hash + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,
@@ -705,7 +705,7 @@ impl<K, I, L, Op, Lin> ReadLinearizer<K, I, L, Op> for ShardedReadLinearizer<K, 
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ShardedMutatingLinearizer<K, I, L, Op, Lin>
+tracked struct ShardedMutatingLinearizer<K, I, L, Op, Lin>
     where
         K: Hash + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,

@@ -37,7 +37,7 @@ verus! {
     /// being created outside this file, its fields aren't public, and
     /// the constructor `TrustedPermission::new` isn't public.
 
-    struct TrustedPermission {
+    tracked struct TrustedPermission {
         ghost is_state_allowable: spec_fn(Seq<u8>) -> bool
     }
 
