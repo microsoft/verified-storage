@@ -421,6 +421,7 @@ where
 {
     pub(super) open spec fn inv(self, jv: JournalView) -> bool
     {
+        &&& vstd::std_specs::hash::hash_map_inv(&self.m)
         &&& self.sm.valid::<L>()
         &&& 0 < self.sm.start()
         &&& self.sm.corresponds_to_journal(jv)

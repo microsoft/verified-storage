@@ -86,12 +86,14 @@ where
 {
     exec fn update_m_to_reflect_abort_of_modifications(&mut self)
         requires
+            hash_map_inv(&old(self).m),
             forall|i: int| 0 <= i < old(self).modifications.len() ==>
                 (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
                     &&& old(self).m@.contains_key(list_addr)
                     &&& !(old(self).m@[list_addr] is Durable)
                 }),
         ensures
+            hash_map_inv(&final(self).m),
             *final(self) == (Self{ m: final(self).m, ..*old(self) }),
             final(self).internal_view() == (ListTableInternalView{ m: final(self).internal_view().m, ..old(self).internal_view() }),
             forall|i: int| 0 <= i < final(self).modifications.len() ==>
@@ -109,6 +111,7 @@ where
 
         for which_modification in 0..num_modifications
             invariant
+                hash_map_inv(&self.m),
                 *self == (Self{ m: self.m, ..*old(self) }),
                 num_modifications == self.modifications.len(),
                 forall|i: int| 0 <= i < old(self).modifications.len() ==>
@@ -137,6 +140,7 @@ where
 
     exec fn update_m_to_reflect_abort_of_deletes(&mut self)
         requires
+            hash_map_inv(&old(self).m),
             forall|list_addr: u64| #[trigger] old(self).deletes_inverse@.contains_key(list_addr) ==> {
                 let which_delete = old(self).deletes_inverse@[list_addr];
                 &&& 0 <= which_delete < old(self).deletes@.len()
@@ -150,6 +154,7 @@ where
                 },
             forall|list_addr: u64| #[trigger] old(self).m@.contains_key(list_addr) ==> old(self).m@[list_addr] is Durable,
         ensures
+            hash_map_inv(&final(self).m),
             *final(self) == (Self{ m: final(self).m, ..*old(self) }),
             forall|i: int| #![trigger final(self).deletes[i]] 0 <= i < final(self).deletes.len() ==> {
                 let summary = final(self).deletes[i];
@@ -184,6 +189,7 @@ where
 
         for which_delete in 0..num_deletes
             invariant
+                hash_map_inv(&self.m),
                 *self == (Self{ m: self.m, ..*old(self) }),
                 num_deletes == self.deletes.len(),
                 forall|list_addr: u64| #[trigger] self.deletes_inverse@.contains_key(list_addr) ==> {
@@ -240,6 +246,7 @@ where
         requires
             old(self).valid(jv),
         ensures
+            hash_map_inv(&final(self).m),
             *final(self) == (Self{ m: final(self).m, ..*old(self) }),
             final(self).internal_view().m == old(self).internal_view().abort().m,
     {

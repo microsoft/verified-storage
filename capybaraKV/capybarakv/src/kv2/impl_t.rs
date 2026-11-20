@@ -81,7 +81,7 @@ verus! {
 // `u8`) to another. Its fields aren't `pub`, so no code outside this
 // trusted file can create such a permission.
 
-pub struct TrustedKvPermission
+pub tracked struct TrustedKvPermission
 {
     ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool,
     ghost powerpm_id: Loc,
@@ -128,7 +128,7 @@ impl CheckPermission<Seq<u8>> for TrustedKvPermission
 // untrusted code blanket permission to perform any storage
 // transitions that are functionally idempotent.
 
-pub struct TrustedKvPermissionFactory
+pub tracked struct TrustedKvPermissionFactory
 {
     ghost is_transition_allowable: spec_fn(Seq<u8>, Seq<u8>) -> bool,
     ghost powerpm_id: Loc
