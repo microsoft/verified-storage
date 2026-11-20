@@ -31,6 +31,7 @@ where
         list_addr: u64,
     ) -> (result: Result<ListSummary, KvError>)
         requires
+            hash_set_wf(old(row_addrs_used)),
             journal.valid(),
             journal@.constants.app_area_start <= sm.start(),
             sm.end() <= journal@.constants.app_area_end,
@@ -40,6 +41,7 @@ where
             mapping.list_info.contains_key(list_addr),
             list_addr != 0,
         ensures
+            hash_set_wf(final(row_addrs_used)),
             match result {
                 Ok(summary) => {
                     let row_addrs = mapping.list_info[list_addr];
@@ -75,6 +77,7 @@ where
         
         loop
             invariant
+                hash_set_wf(row_addrs_used),
                 sm.valid::<L>(),
                 sm.table.end <= pm@.len(),
                 sm.table.end <= journal@.constants.app_area_end, // and thus all our addresses fit in a `u64`
@@ -151,6 +154,8 @@ where
         ensures
             match result {
                 Ok((row_addrs_used, m)) => {
+                    &&& hash_set_wf(&row_addrs_used)
+                    &&& hash_map_inv(&m)
                     &&& forall|row_addr: u64| mapping.row_info.contains_key(row_addr)
                             <==> #[trigger] row_addrs_used@.contains(row_addr)
                     &&& forall|list_addr: u64| #[trigger] m@.contains_key(list_addr) ==>
@@ -177,6 +182,8 @@ where
         let num_lists = list_addrs.len();
         for which_list in 0..num_lists
             invariant
+                hash_set_wf(&row_addrs_used),
+                hash_map_inv(&m),
                 journal.valid(),
                 journal@.constants.app_area_start <= sm.start(),
                 sm.end() <= journal@.constants.app_area_end,
@@ -229,6 +236,7 @@ where
         sm: &ListTableStaticMetadata
     ) -> (result: (Vec<u64>, Ghost<Map<u64, ListRowDisposition>>))
         requires
+            hash_set_wf(row_addrs_used),
             sm.valid::<L>(),
         ensures
         ({
@@ -263,6 +271,7 @@ where
 
         for row_index in 0..sm.table.num_rows
             invariant
+                hash_set_wf(row_addrs_used),
                 sm.valid::<L>(),
                 sm.table.row_addr_to_index(row_addr) == row_index as int,
                 sm.table.start <= row_addr <= sm.table.end,

@@ -47,6 +47,7 @@ where
             match result {
                 Ok((keys, item_addrs, list_addrs)) => {
                     let recovered_state = Self::recover(journal@.read_state, *sm).unwrap();
+                    &&& hash_set_wf(&item_addrs)
                     &&& keys.valid(journal@)
                     &&& keys@.sm == *sm
                     &&& keys@.durable == recovered_state
@@ -97,6 +98,7 @@ where
                 vstd::laws_eq::obeys_concrete_eq::<K>(),
                 KeyRecoveryMapping::<K>::new(journal@.read_state, *sm) == Some(recovery_mapping),
                 hash_map_inv(&m),
+                hash_set_wf(&item_addrs),
                 pm.inv(),
                 pm.constants() == journal@.pm_constants,
                 pm@.valid(),

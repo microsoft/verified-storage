@@ -107,10 +107,10 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
             perm.completed(result@),
     {
         self.pm.write(addr, bytes);
-        let credit = create_open_invariant_credit();
+        let tracked credit = create_open_invariant_credit();
         let tracked mut complete;
         proof {
-            complete = perm.apply(credit.get(), self.res.borrow_mut(), self.pm@.durable_state);
+            complete = perm.apply(credit, self.res.borrow_mut(), self.pm@.durable_state);
         }
         Tracked(complete)
     }
@@ -135,10 +135,10 @@ impl<PM: PersistentMemoryRegion> PersistentMemoryRegionAtomic<PM> {
         broadcast use pmcopy_axioms;
 
         self.pm.serialize_and_write(addr, to_write);
-        let credit = create_open_invariant_credit();
+        let tracked credit = create_open_invariant_credit();
         let tracked mut complete;
         proof {
-            complete = perm.apply(credit.get(), self.res.borrow_mut(), self.pm@.durable_state);
+            complete = perm.apply(credit, self.res.borrow_mut(), self.pm@.durable_state);
         }
         Tracked(complete)
     }

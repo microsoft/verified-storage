@@ -176,7 +176,7 @@ where
                 ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
         proof { use_type_invariant(self); }
-        let Tracked(credit) = create_open_invariant_credit();
+        let tracked credit = create_open_invariant_credit();
         let tracked shardcb = ShardedReadLinearizer::<K, I, L, Op, CB>{
             inv: self.inv.borrow().clone(),
             lin: cb,
@@ -211,7 +211,7 @@ where
                 ==> cb.post(complete, self.inv@.constant().combined_id, op, result),
     {
         proof { use_type_invariant(self); }
-        let Tracked(credit) = create_open_invariant_credit();
+        let tracked credit = create_open_invariant_credit();
         let tracked shardcb = ShardedMutatingLinearizer::<K, I, L, Op, CB>{
             inv: self.inv.borrow().clone(),
             lin: cb,
@@ -644,7 +644,7 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ShardedReadLinearizer<K, I, L, Op, Lin>
+tracked struct ShardedReadLinearizer<K, I, L, Op, Lin>
     where
         K: Hash + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,
@@ -705,7 +705,7 @@ impl<K, I, L, Op, Lin> ReadLinearizer<K, I, L, Op> for ShardedReadLinearizer<K, 
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct ShardedMutatingLinearizer<K, I, L, Op, Lin>
+tracked struct ShardedMutatingLinearizer<K, I, L, Op, Lin>
     where
         K: Hash + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,
