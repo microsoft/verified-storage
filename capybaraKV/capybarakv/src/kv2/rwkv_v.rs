@@ -157,9 +157,9 @@ exec fn maybe_commit<PM, K, I, L, Op, CB>(
 {
     match tentative_result {
         Err(e) => {
-            let credit = create_open_invariant_credit();
+            let tracked credit = create_open_invariant_credit();
             let completion = Tracked(linearize_nop::<PM, K, I, L, Op, CB>(
-                credit.get(), inv.borrow().clone(), kv_internal.invariant_resource.borrow(), op, Err(e), cb)
+                credit, inv.borrow().clone(), kv_internal.invariant_resource.borrow(), op, Err(e), cb)
             );
             (Err(e), completion)
         },
@@ -1095,7 +1095,7 @@ where
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(I)]
 #[verifier::reject_recursive_types(L)]
-struct OpPerm<PM, K, I, L, Op, Lin>
+tracked struct OpPerm<PM, K, I, L, Op, Lin>
     where
         PM: PersistentMemoryRegion,
         K: Hash + PmCopy + Sized + std::fmt::Debug,

@@ -789,7 +789,7 @@ where
             old(self).m@ == prev_self.m@.remove(list_addr),
         ensures
             journal.valid(),
-            *final(self) == (Self{ m: final(self).m, deletes: final(self).deletes, deletes_inverse: final(self).deletes_inverse,
+            *final(self) == (Self{ deletes: final(self).deletes, deletes_inverse: final(self).deletes_inverse,
                             modifications: final(self).modifications, ..*old(self) }),
             ({
                 let (success, new_entry) = result;

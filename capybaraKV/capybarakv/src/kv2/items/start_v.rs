@@ -25,6 +25,7 @@ where
         sm: &ItemTableStaticMetadata,
     ) -> (result: Result<Self, KvError>)
         requires
+            vstd::std_specs::hash::hash_set_wf(item_addrs),
             journal.valid(),
             journal.recover_idempotent(),
             journal@.valid(),
@@ -65,6 +66,7 @@ where
 
         while row_index < sm.table.num_rows
             invariant
+                vstd::std_specs::hash::hash_set_wf(item_addrs),
                 Self::recover(journal@.read_state, item_addrs@, *sm) is Some,
                 sm.valid::<I>(),
                 0 <= row_index <= sm.table.num_rows,

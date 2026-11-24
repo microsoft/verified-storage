@@ -97,10 +97,12 @@ where
 {
     exec fn update_m_to_reflect_commit_of_modifications(&mut self)
         requires
+            hash_map_inv(&old(self).m),
             forall|which_modification: int| 0 <= which_modification < old(self).modifications.len() ==>
                 (#[trigger] old(self).modifications[which_modification] matches Some(list_addr) ==>
                  old(self).m@.contains_key(list_addr)),
         ensures
+            hash_map_inv(&final(self).m),
             *final(self) == (Self{ m: final(self).m, ..*old(self) }),
             forall|i: int| 0 <= i < final(self).modifications.len() ==>
                 (#[trigger] old(self).modifications[i] matches Some(list_addr) ==> {
@@ -119,6 +121,7 @@ where
         let num_modifications = self.modifications.len();
         for which_modification in 0..num_modifications
             invariant
+                hash_map_inv(&self.m),
                 *self == (Self{ m: self.m, ..*old(self) }),
                 num_modifications == self.modifications.len(),
                 forall|i: int| 0 <= i < old(self).modifications.len() ==>
@@ -157,6 +160,7 @@ where
         requires
             old(self).valid(jv),
         ensures
+            hash_map_inv(&final(self).m),
             *final(self) == (Self{ m: final(self).m, ..*old(self) }),
             final(self).internal_view().m == old(self).internal_view().commit().m,
     {
